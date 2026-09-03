@@ -1,0 +1,1575 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MySQL 知识体系笔记</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2028; --panel2:#222b36; --text:#d7dde5; --muted:#8b97a6;
+    --accent:#4aa8ff; --accent2:#38c172; --warn:#ffb454; --danger:#ff6b6b; --purple:#c792ea;
+    --border:#2c3742; --code-bg:#11161c;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;}
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+
+  /* layout */
+  .wrap{display:flex;max-width:1400px;margin:0 auto;}
+  nav{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;width:270px;
+    padding:24px 16px;border-right:1px solid var(--border);background:var(--bg);font-size:13.5px;flex-shrink:0;}
+  nav h2{font-size:14px;color:var(--accent);margin:18px 0 8px;letter-spacing:.5px;}
+  nav a{display:block;color:var(--muted);padding:3px 8px;border-radius:6px;margin:1px 0;}
+  nav a:hover{background:var(--panel);color:var(--text);text-decoration:none;}
+  nav .sub{padding-left:18px;font-size:12.5px;}
+  main{flex:1;min-width:0;padding:36px 44px 120px;}
+
+  h1{font-size:30px;margin:0 0 6px;background:linear-gradient(90deg,#4aa8ff,#c792ea);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
+  .lead{color:var(--muted);margin:0 0 28px;font-size:15px;}
+  section{margin-bottom:52px;scroll-margin-top:20px;}
+  h2.sec{font-size:24px;border-left:5px solid var(--accent);padding-left:14px;margin:44px 0 20px;}
+  h3{font-size:19px;color:#eaf0f6;margin:32px 0 12px;border-bottom:1px solid var(--border);padding-bottom:6px;}
+  h4{font-size:16px;color:var(--accent);margin:22px 0 8px;}
+  p{margin:10px 0;}
+  ul,ol{padding-left:24px;}
+  li{margin:5px 0;}
+  code{background:var(--code-bg);padding:2px 6px;border-radius:4px;font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:13px;color:var(--purple);}
+  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;line-height:1.6;color:#c8d3de;}
+  pre code{background:none;padding:0;color:inherit;}
+
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13.5px;}
+  th,td{border:1px solid var(--border);padding:9px 12px;text-align:left;vertical-align:top;}
+  th{background:var(--panel2);color:#eaf0f6;font-weight:600;}
+  tr:nth-child(even) td{background:rgba(255,255,255,.015);}
+
+  .box{border-radius:10px;padding:14px 18px;margin:16px 0;border-left:4px solid;}
+  .warn{background:rgba(255,180,84,.08);border-color:var(--warn);}
+  .warn b{color:var(--warn);}
+  .danger{background:rgba(255,107,107,.08);border-color:var(--danger);}
+  .danger b{color:var(--danger);}
+  .tip{background:rgba(56,193,114,.08);border-color:var(--accent2);}
+  .tip b{color:var(--accent2);}
+  .info{background:rgba(74,168,255,.08);border-color:var(--accent);}
+  .info b{color:var(--accent);}
+
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:20px;margin-left:6px;vertical-align:middle;
+    background:var(--panel2);color:var(--muted);border:1px solid var(--border);}
+  .tag.server{color:#4aa8ff;border-color:#2b4a6b;}
+  .tag.innodb{color:#38c172;border-color:#255c3e;}
+
+  .diagram{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:18px;margin:16px 0;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;white-space:pre;overflow-x:auto;color:#a9c7e8;}
+
+  /* 并排布局：讲解 + 结构图 */
+  .split{display:flex;gap:20px;align-items:flex-start;margin:16px 0;flex-wrap:wrap;}
+  .split > .col{flex:1;min-width:320px;}
+  .bptree{background:var(--code-bg);border:1px solid var(--border);border-radius:12px;padding:16px 14px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre;overflow-x:auto;}
+  .bptree .cap{font-family:inherit;color:var(--accent);font-weight:600;margin-bottom:8px;font-size:13px;
+    font-family:-apple-system,"PingFang SC",sans-serif;}
+  .bptree .root{color:#ffb454;}    /* 非叶子/根 */
+  .bptree .leaf{color:#38c172;}     /* 叶子 */
+  /* 时序图通用高亮（不限作用域） */
+  .hold{color:#2dd4bf;font-weight:600;}  /* 成功拿到锁 - 青 */
+  .wait{color:#ff6b6b;font-weight:600;}  /* 等待/阻塞 - 红 */
+  .lk{color:#ffb454;font-weight:600;}     /* 锁对象名 - 橙 */
+  .ok{color:#38c172;}                     /* 成功提示 - 绿 */
+  .bptree .link{color:#c792ea;}     /* 链表箭头 */
+  .bptree .note{color:#8b97a6;}     /* 注释 */
+  .bptree .line{color:#5a6b7b;}     /* 连接线 */
+
+  /* 行格式图（用 HTML 保证对齐） */
+  .rowfmt{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0;align-items:flex-start;}
+  .rowfmt .grp{display:flex;flex-direction:column;}
+  .rowfmt .grp-label{font-size:12.5px;color:var(--muted);text-align:center;margin-bottom:6px;
+    border-bottom:1px dashed var(--border);padding-bottom:4px;}
+  .rowfmt .grp-label b{color:var(--accent);}
+  .rowfmt .cells{display:flex;}
+  .rowfmt .cell{display:flex;flex-direction:column;align-items:center;border:1px solid var(--border);
+    border-right:none;padding:0;min-width:80px;}
+  .rowfmt .cell:last-child{border-right:1px solid var(--border);}
+  .rowfmt .cell .fn{padding:9px 12px;font-size:13px;font-family:"SF Mono",Menlo,Consolas,monospace;
+    border-bottom:1px solid var(--border);width:100%;text-align:center;white-space:nowrap;}
+  .rowfmt .cell .fnote{padding:6px 10px;font-size:11.5px;color:var(--muted);text-align:center;line-height:1.4;}
+  .rowfmt .cell.extra .fn{background:rgba(74,168,255,.08);color:#cfe3fb;}
+  .rowfmt .cell.hid .fn{background:rgba(255,180,84,.1);color:#ffcf8f;}
+  .rowfmt .cell.data .fn{background:rgba(56,193,114,.08);color:#bdeccf;}
+
+  /* HTML 结构化流程图（替代对不齐的 ASCII 框图） */
+  .hd{margin:16px 0;background:var(--code-bg);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+  .hd .lane{display:flex;gap:16px;flex-wrap:wrap;align-items:center;}
+  .hd .grp2{flex:1;min-width:240px;border:1px solid rgba(74,168,255,.28);border-radius:10px;padding:12px 14px;
+    background:rgba(74,168,255,.06);}
+  .hd .grp2.g-green{border-color:rgba(56,193,114,.3);background:rgba(56,193,114,.07);}
+  .hd .grp2.g-blue{border-color:rgba(74,168,255,.3);background:rgba(74,168,255,.08);}
+  .hd .grp2 > .cap{font-weight:600;color:var(--accent);font-size:13px;margin-bottom:8px;text-align:center;
+    padding-bottom:6px;border-bottom:1px dashed var(--border);}
+  .hd .grp2.g-green > .cap{color:#38c172;}
+  .hd .node{border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin:7px 0;background:var(--panel2);
+    font-size:13px;line-height:1.5;}
+  .hd .node .em{color:#eaf0f6;font-weight:600;}
+  .hd .node .sub{color:var(--muted);font-size:12px;}
+  .hd .node.cli{text-align:center;max-width:160px;margin:0 auto;background:var(--panel2);}
+  .hd .node.accent{border-color:var(--accent);}
+  .hd .node.hold{border-color:#2dd4bf;color:#2dd4bf;font-weight:600;text-align:center;}
+  /* 树形结构图（org-chart 风格，带分叉连线） */
+  .orgchart, .orgchart ul{list-style:none;padding:0;margin:0;text-align:center;}
+  .orgchart ul{padding-top:18px;position:relative;display:flex;justify-content:center;}
+  .orgchart li{position:relative;padding:18px 5px 0;display:flex;flex-direction:column;align-items:center;}
+  .orgchart li::before, .orgchart li::after{content:'';position:absolute;top:0;right:50%;width:50%;height:18px;
+    border-top:1px solid #46586a;}
+  .orgchart li::after{right:auto;left:50%;border-left:1px solid #46586a;}
+  .orgchart li:only-child::before, .orgchart li:only-child::after{display:none;}
+  .orgchart li:first-child::before, .orgchart li:last-child::after{border:0;}
+  .orgchart li:last-child::before{border-right:1px solid #46586a;border-radius:0 6px 0 0;}
+  .orgchart li:first-child::after{border-radius:6px 0 0 0;}
+  .orgchart ul::before{content:'';position:absolute;top:0;left:50%;height:18px;border-left:1px solid #46586a;}
+  .orgchart > li{padding-top:0;}
+  .orgchart > li::before, .orgchart > li::after{display:none;}
+  .orgchart .tn{display:inline-block;border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-size:11.5px;
+    background:var(--panel2);white-space:nowrap;line-height:1.35;}
+  .orgchart .tn small{color:var(--muted);font-size:10.5px;}
+  .orgchart .tn.root, .orgchart .tn.idx{border-color:#ffb454;color:#ffcf8f;}
+  .orgchart .tn.leaf{border-color:#38c172;color:#bdeccf;}
+  .orgchart .tn.dots{border-style:dashed;color:var(--muted);}
+  /* Buffer Pool 图：页帧 + 链表 */
+  .bframes{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;}
+  .bframe{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:7px;overflow:hidden;
+    min-width:78px;font-size:11px;text-align:center;}
+  .bframe .ctl{background:var(--panel2);padding:3px 4px;color:var(--muted);font-size:10px;border-bottom:1px dashed var(--border);}
+  .bframe .pg{padding:10px 6px;font-weight:600;}
+  .bframe.free .pg{background:rgba(139,151,166,.14);color:#8b97a6;}
+  .bframe.clean .pg{background:rgba(74,168,255,.14);color:#cfe3fb;}
+  .bframe.dirty .pg{background:rgba(255,180,84,.16);color:#ffcf8f;}
+  .blist{display:flex;align-items:center;gap:6px;margin:6px 0;font-size:12px;flex-wrap:wrap;}
+  .blist .lbl{min-width:118px;font-weight:600;}
+  .blist .arr{color:var(--purple);font-weight:700;}
+  .bchip{border:1px solid var(--border);border-radius:5px;padding:2px 9px;font-size:11px;background:var(--panel2);}
+  .bchip.free{border-color:rgba(139,151,166,.5);color:#8b97a6;}
+  .bchip.clean{border-color:rgba(74,168,255,.5);color:#cfe3fb;}
+  .bchip.dirty{border-color:rgba(255,180,84,.5);color:#ffcf8f;}
+  .bpgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0;}
+  .bpcard{border:1px solid var(--border);border-radius:8px;padding:9px 11px;background:var(--panel2);}
+  .bpcard b{display:block;font-size:13px;margin-bottom:2px;}
+  .bpcard span{font-size:11px;color:var(--muted);line-height:1.4;}
+  .bpcard.blue{border-color:rgba(74,168,255,.4);}.bpcard.blue b{color:#cfe3fb;}
+  .bpcard.teal{border-color:rgba(45,212,191,.4);}.bpcard.teal b{color:#2dd4bf;}
+  @media(max-width:560px){.bpgrid{grid-template-columns:repeat(2,1fr);}}
+  .hd .arrow-d{text-align:center;color:var(--muted);font-size:13px;line-height:1.2;margin:3px 0;}
+  .hd .arrow-r{color:var(--purple);font-weight:700;white-space:nowrap;font-size:12.5px;text-align:center;padding:0 2px;}
+  .hd .note{color:var(--muted);font-size:12px;text-align:center;margin-top:6px;}
+
+  /* 看例子按钮 + 弹窗 */
+  .ex-btn{display:inline-flex;align-items:center;gap:5px;cursor:pointer;background:var(--panel2);
+    border:1px solid var(--accent);color:var(--accent);border-radius:20px;padding:3px 14px;font-size:12.5px;
+    margin:8px 0;user-select:none;transition:background .15s;}
+  .ex-btn:hover{background:rgba(74,168,255,.15);}
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;
+    align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto;}
+  .modal-overlay.open{display:flex;}
+  .modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;max-width:840px;width:100%;
+    padding:26px 30px 30px;position:relative;box-shadow:0 24px 70px rgba(0,0,0,.55);}
+  .modal .close{position:absolute;top:12px;right:16px;cursor:pointer;color:var(--muted);font-size:24px;line-height:1;
+    width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;}
+  .modal .close:hover{color:var(--danger);background:var(--panel2);}
+  .modal .modal-title{margin:0 0 14px;font-size:18px;color:var(--accent);padding-right:30px;}
+
+  .q{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px 18px;margin:14px 0;}
+  .q summary{cursor:pointer;font-weight:600;color:var(--warn);padding:8px 0;list-style:none;}
+  .q summary::before{content:"❓ ";}
+  .q[open] summary{color:var(--accent);}
+  .q .a{padding:4px 0 12px;border-top:1px dashed var(--border);margin-top:4px;}
+
+  .pill-row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;}
+  .pill{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:13px;}
+
+  .toc-top{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 24px;margin-bottom:32px;}
+  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
+  .kbd{font-size:12px;color:var(--muted);}
+  footer{color:var(--muted);font-size:13px;border-top:1px solid var(--border);padding-top:20px;margin-top:60px;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#2c3742;border-radius:6px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h2>总览</h2>
+  <a href="#arch">0 · 整体架构（一条SQL的旅程）</a>
+  <h2>一、Server 层</h2>
+  <a href="#server" class="sub">连接器 / 分析器 / 优化器 / 执行器</a>
+  <h2>二、InnoDB 引擎层</h2>
+  <a href="#storage">1 · 存储结构（B+树 · 页）</a>
+  <a href="#buffer" class="sub">Buffer Pool · Change Buffer</a>
+  <a href="#row">2 · 行格式</a>
+  <a href="#index">3 · 索引</a>
+  <a href="#index-fail" class="sub">索引失效</a>
+  <a href="#index-opt" class="sub">explain 与优化</a>
+  <a href="#trx">4 · 事务</a>
+  <a href="#mvcc" class="sub">MVCC</a>
+  <a href="#lock">5 · 锁</a>
+  <a href="#log">6 · 日志</a>
+  <a href="#2pc" class="sub">两阶段提交 / 崩溃恢复</a>
+  <h2>附</h2>
+  <a href="#replication">主从复制 & 主从延迟</a>
+  <a href="#engines">MyISAM vs InnoDB</a>
+  <a href="#count">count(*) 的坑</a>
+  <a href="#join">join 算法 & filesort</a>
+  <a href="#lifecycle">一条 SQL 完整链路（总结）</a>
+  <a href="#sql">SQL 关键字整理</a>
+  <a href="#cheat">高频面试速记</a>
+</nav>
+
+<main>
+<h1>MySQL 知识体系笔记</h1>
+<p class="lead">系统学习版 · 按「Server 层 → InnoDB 引擎层」主线组织。<span class="tag server">Server层</span> 与 <span class="tag innodb">InnoDB层</span> 标签用于随时定位知识点归属。</p>
+
+<div class="toc-top">
+  <b>阅读主线：</b>先看 <a href="#arch">整体架构</a> 建立全局图 → 顺着「<b>存储结构 → 行格式 → 索引 → 事务 → 锁 → 日志</b>」一条链读下来，每一环都会引申出下一环。带 ❓ 的折叠块是高频面试问答，可展开自测。
+</div>
+
+<!-- ============ 0 架构 ============ -->
+<section id="arch">
+<h2 class="sec">0 · 整体架构：一条 SQL 的旅程</h2>
+<p>MySQL 的精髓是 <b>Server 层与存储引擎层分离</b>的插件式架构。Server 层负责 SQL 的解析、优化、执行等所有引擎无关的工作；存储引擎层负责数据的真正存取，可插拔（InnoDB、MyISAM、Memory…），我们只讲主流的 <b>InnoDB</b>。</p>
+
+<div class="hd">
+  <div class="note" style="margin-bottom:8px">一条 SELECT 的执行</div>
+  <div class="node cli">客户端</div>
+  <div class="arrow-d">▼</div>
+  <div class="grp2 g-blue">
+    <div class="cap">Server 层</div>
+    <div class="node"><span class="em">① 连接器</span>　验证账号密码、权限，维持连接（长/短连接）</div>
+    <div class="node"><span class="em">② 查询缓存</span>　MySQL 8.0 已彻底删除（命中率低、维护成本高）</div>
+    <div class="node"><span class="em">③ 分析器</span>　词法 + 语法分析 → 语法树，检查表/列是否存在</div>
+    <div class="node"><span class="em">④ 优化器</span>　选索引、定连接顺序、决定执行计划（explain 看这里）</div>
+    <div class="node"><span class="em">⑤ 执行器</span>　再次校验权限，逐行调用引擎接口取数据</div>
+  </div>
+  <div class="arrow-d">▼　存储引擎 API</div>
+  <div class="grp2 g-green">
+    <div class="cap">InnoDB 引擎层</div>
+    <div class="node">Buffer Pool（内存）　｜　B+ 树索引　｜　redo / undo log　｜　数据文件 (.ibd)</div>
+  </div>
+</div>
+
+<div class="box info">
+<b>日志的分层归属。</b> <b>binlog 属于 Server 层</b>（所有引擎共用的归档/复制日志），而 <b>redo log、undo log 属于 InnoDB 引擎层</b>。这是面试高频陷阱，后面日志章节会详述。
+</div>
+</section>
+
+<!-- ============ 一 Server ============ -->
+<section id="server">
+<h2 class="sec">一、Server 层 <span class="tag server">Server层</span></h2>
+<p>Server 层的知识点相对少，重点是理解每个模块「负责什么」，以及 8.0 的两个变化。</p>
+
+<table>
+<tr><th>模块</th><th>职责</th><th>关键点 / 面试点</th></tr>
+<tr><td><b>连接器</b></td><td>TCP 握手、身份认证、权限读取</td><td>长连接省握手但占内存（大对象堆积）；<code>wait_timeout</code> 空闲断开；权限在连接时读取，改权限对已有连接不生效</td></tr>
+<tr><td><b>查询缓存</b></td><td>把 SQL→结果 缓存起来</td><td><b>8.0 移除</b>。只要表有任何更新，该表所有缓存全失效，命中率极低</td></tr>
+<tr><td><b>分析器</b></td><td>词法/语法分析，生成语法树</td><td>报 "You have an error in your SQL syntax" 就是这里</td></tr>
+<tr><td><b>优化器</b></td><td>生成执行计划</td><td>选择索引、决定多表 join 顺序、是否用覆盖索引；可能"选错索引"（可用 <code>FORCE INDEX</code>）</td></tr>
+<tr><td><b>执行器</b></td><td>驱动引擎逐行执行</td><td>开始执行前再做一次权限校验；<code>rows_examined</code> 反映扫描行数</td></tr>
+</table>
+
+<div class="info box">
+<b>为什么删查询缓存？</b> 缓存以 SQL 文本为 key，稍有不同（大小写、空格）就不命中；且任意写操作让整表缓存失效，在写多读多的表上频繁失效反而拖慢。8.0 直接删掉。
+</div>
+</section>
+
+<!-- ============ 存储结构 ============ -->
+<section id="storage">
+<h2 class="sec">二 · 1 存储结构：B+ 树与页 <span class="tag innodb">InnoDB层</span></h2>
+
+<h3>为什么是 B+ 树？</h3>
+<p>数据结构用 <b>B+ 树</b>，以 <b>页(Page)</b> 为单位存储。先看"为什么是 B+ 树"，这几乎必问：</p>
+
+<div class="split">
+  <div class="col">
+    <table style="margin-top:0">
+    <tr><th>候选结构</th><th>为什么不用</th></tr>
+    <tr><td>哈希表</td><td>O(1) 等值查询很快，但<b>不支持范围查询、排序</b>，MySQL 范围查询极多</td></tr>
+    <tr><td>二叉搜索树 / 红黑树</td><td>树太高（logₖ 中 k=2），每层一次磁盘 I/O，几百万数据要几十层 → 磁盘 I/O 爆炸</td></tr>
+    <tr><td>B 树</td><td>非叶子节点也存数据 → 单页能放的 key 变少 → 树变高；且范围查询要中序回溯</td></tr>
+    <tr><td><b>B+ 树 ✓</b></td><td>① 非叶子只存索引 key，一页能放上千个 → <b>树矮胖，通常 3~4 层就能存千万行</b>；② 数据全在叶子且<b>叶子间双向链表相连</b> → 范围查询顺序扫描极快</td></tr>
+    </table>
+  </div>
+  <div class="col">
+    <div class="hd" style="margin-top:0;overflow-x:auto">
+      <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:4px">B+ 树长这样（以主键索引为例）</div>
+      <ul class="orgchart">
+        <li>
+          <span class="tn idx">10 | 35<br><small>非叶子·只存 key</small></span>
+          <ul>
+            <li>
+              <span class="tn idx">5 | 8</span>
+              <ul>
+                <li><span class="tn leaf">1,2<br><small>+整行</small></span></li>
+                <li><span class="tn leaf">8,9<br><small>+整行</small></span></li>
+              </ul>
+            </li>
+            <li><span class="tn dots">…</span></li>
+            <li>
+              <span class="tn idx">20 | 28</span>
+              <ul>
+                <li><span class="tn leaf">20,25<br><small>+整行</small></span></li>
+                <li><span class="tn leaf">28,30<br><small>+整行</small></span></li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+      </ul>
+      <div class="note" style="margin-top:6px">🟠 非叶子只存 key 导航　🟢 叶子存 key+整行，叶子间 <b>双向链表(⇄)</b> 相连 → 范围查询顺序扫</div>
+      <div class="note" style="margin-top:4px">查 id=8：根(10) → 走左 → 中间(5|8) → 叶子，<b>3 次 I/O</b>；查 id≥8：定位到 8 后沿叶子链表往右扫</div>
+    </div>
+  </div>
+</div>
+<div class="tip box"><b>记忆点：</b>3 层 B+ 树 ≈ 存 2000 万行左右。查任意一行最多 3 次磁盘 I/O（且根节点常驻内存，实际更少）。<b>非叶子只存 key 做导航，数据全在叶子，叶子间双向链表相连</b> —— 这三点是 B+ 树的全部精髓。</div>
+
+<h4>"2000 万" 是怎么算出来的？—— 索引页 vs 数据页</h4>
+<p>关键在于<b>非叶子节点（索引页）和叶子节点（数据页）存的内容不同</b>，所以一页能容纳的条目数天差地别。注意：<b>一页 16KB 并非全部可用</b>，文件头(38B)+页头(56B)+Infimum/Supremum(26B)+页目录+文件尾(8B) 合计约 <b>128B 固定开销</b>（页目录随记录增长），可用空间约 <b>16256B ≈ 15.9KB</b>。这份开销<b>索引页、数据页都有</b>：</p>
+<table>
+<tr><th>页类型</th><th>存什么</th><th>单条大小</th><th>可用≈16256B 能放</th></tr>
+<tr><td><b>索引页</b>(非叶子)</td><td>key + 子页指针</td><td>主键 bigint 8B + 指针 6B ≈ <b>14B</b></td><td>16256 / 14 ≈ <b>1160 条</b>（约定俗成取 <b>1170</b>）</td></tr>
+<tr><td><b>数据页</b>(叶子)</td><td>key + <b>整行数据</b>(含记录头等)</td><td>假设一行 ≈ <b>1KB</b></td><td>16256 / 1024 ≈ <b>15~16 行</b></td></tr>
+</table>
+<p class="kbd">扣掉页头页尾后，索引页从 1170 降到约 1160、数据页从 16 降到约 15 —— 开销仅占 0.8%，<b>不影响数量级</b>，所以传统上仍用 1170 和 16 这两个整数估算。</p>
+
+<div class="split">
+  <div class="col">
+    <p>因为索引页一条只占 14 字节，一页就能装下 <b>1170 个指针</b>，扇出(fan-out)极大；而数据页要存整行，一页只放得下 16 行。于是逐层相乘：</p>
+    <ul>
+      <li><b>1 层</b>(只有根)：1 页 → 16 行</li>
+      <li><b>2 层</b>：根 1170 个指针 → 1170 个数据页 → 1170 × 16 ≈ <b>1.87 万行</b></li>
+      <li><b>3 层</b>：1170 × 1170 个数据页 → 1170 × 1170 × 16 ≈ <b>2190 万行</b> ✓</li>
+    </ul>
+    <p class="kbd">注：行越大(如 2KB)，叶子每页放的行越少，总容量按比例下降；主键越小(如 int 4B)，索引页扇出越大，容量上升。所以"2000 万"是个数量级估算，不是精确值。</p>
+  </div>
+  <div class="col">
+    <div class="hd" style="margin-top:0;overflow-x:auto">
+      <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:4px">B+ 树扇出（每层 ×1170）</div>
+      <ul class="orgchart">
+        <li>
+          <span class="tn root">根索引页<br><small>1 页 · 1170 指针</small></span>
+          <ul>
+            <li>
+              <span class="tn idx">索引页</span>
+              <ul>
+                <li><span class="tn leaf">数据页</span></li>
+                <li><span class="tn dots">…</span></li>
+              </ul>
+            </li>
+            <li><span class="tn dots">…</span></li>
+            <li>
+              <span class="tn idx">索引页</span>
+              <ul>
+                <li><span class="tn leaf">数据页</span></li>
+                <li><span class="tn dots">…</span></li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+      </ul>
+      <div class="note" style="margin-top:6px">索引层 1170 页（每页 1170 指针）· 数据层 1170×1170 页（每页 16 行）</div>
+      <div class="note" style="margin-top:4px;color:#eaf0f6">= 1170 × 1170 × 16 ≈ <b>2190 万行</b></div>
+    </div>
+  </div>
+</div>
+<div class="info box"><b>由此引申：</b>正因为"索引页存 key、数据页存整行"，才要搞清楚<b>一个页内部到底怎么组织这些数据</b>（记录放哪、怎么快速定位、怎么校验完整）—— 见下面的页结构。</div>
+
+<h3>页(Page) —— 磁盘 I/O 的最小单位</h3>
+<p>默认 <b>16KB</b>。InnoDB 读数据不是按行读，而是<b>按页读</b>：哪怕只要一行，也把整页 16KB 加载进内存。页之间通过 File Header 里的指针组成<b>双向链表</b>；页内记录组成<b>单向链表</b>。</p>
+
+<h4>页的内部结构（7 个部分）</h4>
+<div class="hd">
+  <div class="node"><span class="em">File Header</span>　38B　页号、上一页/下一页指针、校验和、类型　<span class="sub">← 组成页间双向链表</span></div>
+  <div class="node"><span class="em">Page Header</span>　56B　本页记录数、槽数量、方向、堆顶位置等</div>
+  <div class="node"><span class="em">Infimum + Supremum</span>　两条虚拟记录：最小 & 最大边界</div>
+  <div class="node accent"><span class="em">User Records</span>　真实数据行（按主键顺序的单向链表）　<span class="sub">← 数据主体</span></div>
+  <div class="node"><span class="em">Free Space</span>　剩余空闲空间</div>
+  <div class="node"><span class="em">Page Directory</span>　页目录 / 槽(Slot)　<span class="sub">← 页内二分查找靠它</span></div>
+  <div class="node"><span class="em">File Trailer</span>　8B　校验和 + LSN，校验刷盘是否完整　<span class="sub">← 防"刷一半崩了"</span></div>
+</div>
+<ul>
+<li><b>Page Directory（页目录）：</b>页内记录是单向链表，若逐条遍历是 O(n)。页目录把记录分成若干组，每组末条记录的位置存进"槽(slot)"，查找时<b>先在槽上二分</b>定位到组，再在组内遍历，把页内查找变成近似 O(log n)。</li>
+<li><b>File Trailer：</b>和 File Header 里的校验和呼应。刷盘可能刷到一半宕机（页损坏），靠头尾校验和是否一致来检测。（真正防止部分写的是后面讲的 <b>double write</b>。）</li>
+</ul>
+
+<div class="info box">
+<b>索引页也是这套结构。</b> InnoDB 里<b>所有页共用上面这同一个 7 部分模板</b>（都 16KB，都有文件头/页头/文件尾）——这正是前面算容量时"索引页也要扣 128B 开销"的原因。索引页与数据页的唯一区别在 <b>User Records</b> 区里放的记录类型不同：
+<table style="margin:10px 0 0">
+<tr><th>页类型</th><th>User Records 里放什么</th><th>record_type</th></tr>
+<tr><td><b>数据页</b>(叶子)</td><td>完整的行：key + 所有列 + 隐藏列</td><td>0 普通记录</td></tr>
+<tr><td><b>索引页</b>(非叶子)</td><td><b>目录项记录</b>：只有 key + 子页页号</td><td>1 目录项记录</td></tr>
+</table>
+<p style="margin:10px 0 0">页头里的 <code>FIL_PAGE_TYPE</code>（页类型）和 <code>PAGE_LEVEL</code>（层高，0=叶子）标识身份。索引页里的目录项记录同样组成单向链表、同样有 Infimum/Supremum 和页目录做二分 —— 查找逻辑与数据页完全一致，只是"记录"瘦身成了 <code>key+页号</code>。</p>
+</div>
+
+<h4>页之上：区 / 段 / 表空间</h4>
+<div class="pill-row">
+<span class="pill">行 Row</span><span class="pill">→ 页 Page 16KB</span><span class="pill">→ 区 Extent 64页=1MB</span><span class="pill">→ 段 Segment</span><span class="pill">→ 表空间 Tablespace .ibd</span>
+</div>
+<p>引入"区"是为了<b>让 B+ 树叶子节点在物理上连续</b>：如果一页一页随机分配，叶子链表在磁盘上东一块西一块，范围查询就退化成随机 I/O。按区（连续 64 页）分配就能顺序 I/O。段则区分"叶子段/非叶子段"等。</p>
+</section>
+
+<!-- ============ Buffer Pool ============ -->
+<section id="buffer">
+<h3>Buffer Pool 与 Change Buffer（内存管理）<span class="tag innodb">InnoDB层</span></h3>
+
+<h4>为什么需要 Buffer Pool？</h4>
+<p>根本矛盾：<b>数据在磁盘上，但磁盘太慢</b>。内存随机访问是纳秒级，磁盘（尤其机械盘）随机 I/O 是毫秒级，差了几个数量级。如果每次读写都直接落盘，数据库根本跑不动。</p>
+<p>所以 InnoDB 在内存里开辟一块缓存 —— <b>Buffer Pool（默认 128MB，生产常设为物理内存 60~80%）</b>，把用到的<b>页</b>缓存进来：</p>
+<ul>
+<li><b>读：</b>先看页在不在 Buffer Pool。命中 → 直接从内存返回（快）；未命中 → 从磁盘读整页进 Buffer Pool，再返回。基于<b>局部性原理</b>，热点页会一直待在内存，命中率通常很高。</li>
+<li><b>写：</b>不直接改磁盘，而是<b>改内存里的页</b>（该页变成<b>脏页</b>，即内存与磁盘不一致），配合 redo log 保证不丢，再由后台线程择机批量刷盘。把大量<b>随机写</b>攒成少量<b>顺序刷</b> —— 这就是 <b>WAL（Write-Ahead Logging）</b>的基础。</li>
+</ul>
+
+<h4>Buffer Pool 里到底放了啥？</h4>
+<p>它以 <b>16KB 的页</b>为单位管理，缓存的<b>不只是数据页</b>：</p>
+<div class="hd">
+  <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">Buffer Pool（默认 128MB · 以 16KB 页为单位）</div>
+  <div class="bpgrid">
+    <div class="bpcard blue"><b>数据页</b><span>聚簇索引叶子，存整行数据</span></div>
+    <div class="bpcard blue"><b>索引页</b><span>非叶子节点，存目录项 key+页号</span></div>
+    <div class="bpcard blue"><b>undo 页</b><span>回滚 + MVCC 历史版本</span></div>
+    <div class="bpcard teal"><b>Change Buffer</b><span>缓存非唯一二级索引的写，延后 merge</span></div>
+    <div class="bpcard teal"><b>自适应哈希 AHI</b><span>对热点页建 hash，等值查询直达</span></div>
+    <div class="bpcard teal"><b>锁信息 / 数据字典</b><span>行锁等运行时信息</span></div>
+  </div>
+  <div class="note" style="margin-top:8px">🔵 三种「页」都以 16KB 为单位缓存　🟢 三类辅助结构也住在 Buffer Pool 里</div>
+</div>
+<p>另外，每个缓存页还配一个<b>控制块（描述信息）</b>，记录该页属于哪个表空间、页号、在 LRU/free 链上的位置、是否是脏页等。控制块和缓存页一一对应，也占 Buffer Pool 空间。</p>
+
+<h4>靠三条链表管理这些页</h4>
+<p>Buffer Pool 被切成一个个<b>页帧</b>（每个 = 控制块 + 16KB 缓存页），怎么知道哪些空、哪些脏、哪些该淘汰？靠三条<b>双向链表</b>把不同状态的页各串一串（同一个页可同时在多条链上）：</p>
+
+<div class="hd">
+  <div class="note" style="text-align:left;margin-bottom:4px">① Buffer Pool 以「页帧」为单位（控制块记录该页元信息，指向 16KB 缓存页）</div>
+  <div class="bframes">
+    <div class="bframe clean"><div class="ctl">控制块</div><div class="pg">数据页<br><small style="font-weight:400;color:#8b97a6">干净</small></div></div>
+    <div class="bframe dirty"><div class="ctl">控制块</div><div class="pg">索引页<br><small style="font-weight:400;color:#8b97a6">脏</small></div></div>
+    <div class="bframe dirty"><div class="ctl">控制块</div><div class="pg">数据页<br><small style="font-weight:400;color:#8b97a6">脏</small></div></div>
+    <div class="bframe clean"><div class="ctl">控制块</div><div class="pg">undo页<br><small style="font-weight:400;color:#8b97a6">干净</small></div></div>
+    <div class="bframe free"><div class="ctl">控制块</div><div class="pg">空闲<br><small style="font-weight:400;color:#8b97a6">未用</small></div></div>
+    <div class="bframe free"><div class="ctl">控制块</div><div class="pg">空闲<br><small style="font-weight:400;color:#8b97a6">未用</small></div></div>
+  </div>
+  <div class="note" style="text-align:left;margin:8px 0 4px">② 三条链表各串一类页（脏的「索引页、数据页」既在 LRU 又在 Flush 上）</div>
+  <div class="blist"><span class="lbl" style="color:#8b97a6">Free List 空闲链</span><span class="arr">──▶</span><span class="bchip free">空闲1</span><span class="arr">──▶</span><span class="bchip free">空闲2</span><span class="note" style="margin:0 0 0 6px">要缓存新页就从这取空帧</span></div>
+  <div class="blist"><span class="lbl" style="color:#cfe3fb">LRU List 使用链</span><span class="arr">──▶</span><span class="bchip clean">数据页</span><span class="arr">──▶</span><span class="bchip dirty">索引页</span><span class="arr">──▶</span><span class="bchip dirty">数据页</span><span class="arr">──▶</span><span class="bchip clean">undo页</span><span class="note" style="margin:0 0 0 6px">按冷热排，尾部淘汰</span></div>
+  <div class="blist"><span class="lbl" style="color:#ffcf8f">Flush List 脏页链</span><span class="arr">──▶</span><span class="bchip dirty">索引页</span><span class="arr">──▶</span><span class="bchip dirty">数据页</span><span class="note" style="margin:0 0 0 6px">后台顺着它刷盘</span></div>
+</div>
+
+<table>
+<tr><th>链表</th><th>串起哪些页</th><th>作用</th></tr>
+<tr><td><b>Free List</b><br>(空闲链)</td><td>所有<b>还没被使用</b>的空闲页帧</td><td>要缓存新页时，从 free 链取一个空帧用。free 链空了，说明 Buffer Pool 满了，就得靠 LRU 淘汰页腾位置</td></tr>
+<tr><td><b>LRU List</b><br>(使用链)</td><td>所有<b>已缓存数据</b>的页</td><td>按冷热排序，内存不够时从尾部淘汰最久没用的页</td></tr>
+<tr><td><b>Flush List</b><br>(脏页链)</td><td>所有<b>被修改过的脏页</b></td><td>后台线程顺着它把脏页刷回磁盘。脏页同时也在 LRU 链上</td></tr>
+</table>
+<div class="diagram">
+ 新页进来：Free List 取空帧 ──▶ 挂到 LRU List
+ 页被改写：同时登记到 Flush List（成为脏页）
+ 内存不够：LRU 尾部淘汰 ──▶ 若是脏页先刷盘 ──▶ 页帧还给 Free List
+</div>
+
+<h4>为什么要 LRU？为什么是"改良版"LRU？</h4>
+<p><b>为什么要 LRU：</b>内存有限，Buffer Pool 装不下全部数据。当 free 链没有空闲页、又要读新页进来时，<b>必须淘汰一个旧页</b>。淘汰谁？根据局部性原理，<b>最近最少使用（LRU）</b>的页最可能不再用到，淘汰它命中率损失最小。</p>
+<p><b>为什么普通 LRU 不行：</b>朴素 LRU 是"页一被访问就挪到链表头"。但有两个场景会<b>污染</b>它：</p>
+<ul>
+<li><b>全表扫描：</b>一条 <code>select *</code> 不带索引，会把一张大表的所有页一次性读进来，瞬间把真正的热点页全挤到尾部淘汰掉 —— 而这些扫描页可能只用一次。</li>
+<li><b>预读(read-ahead)：</b>InnoDB 预测你可能要用相邻页，提前读进来，但这些页<b>未必真会被用到</b>，一样占着链表头。</li>
+</ul>
+<p><b>改良版 LRU：冷热分区。</b> InnoDB 把 LRU 链按比例分成两段（<code>innodb_old_blocks_pct</code> 默认 37%）：</p>
+<div class="hd">
+  <div class="note" style="margin-bottom:6px;text-align:left">LRU 链表（冷热分区）</div>
+  <div class="lane" style="gap:0;align-items:stretch">
+    <div class="grp2" style="flex:5;border-radius:8px 0 0 8px;background:rgba(56,193,114,.1);border-color:rgba(56,193,114,.35)">
+      <div class="cap" style="color:#38c172;border:none;margin:0">young 区（热 · 5/8）</div>
+      <div class="note">真正的热点页常驻</div>
+    </div>
+    <div class="grp2" style="flex:3;border-radius:0 8px 8px 0;border-left:none;background:rgba(255,180,84,.1);border-color:rgba(255,180,84,.35)">
+      <div class="cap" style="color:#ffb454;border:none;margin:0">old 区（冷 · 3/8）</div>
+      <div class="note">新读入的页先进这里（old 区头部）</div>
+    </div>
+  </div>
+  <div class="note" style="text-align:right;margin-top:6px">◀── 淘汰从整条链尾部（old 区尾）进行</div>
+</div>
+<ul>
+<li><b>新读入的页先放 old 区头部</b>，而不是整个链表的头部。全表扫描/预读的页只会在 old 区打转，用完很快从尾部淘汰，<b>碰不到 young 区的热点页</b>。</li>
+<li><b>怎么升到 young 区？</b>不是"再被访问一次就升"，而是要满足<b>时间窗口</b>：页在 old 区停留超过 <code>innodb_old_blocks_time</code>(默认 1000ms) 后再次被访问，才升到 young 区头部。这样"一次全表扫描里同一页被连续访问多次"也不会误升 —— 因为发生在极短时间内。</li>
+<li>为减少频繁挪动，young 区里的页只有在<b>后 1/4 之后</b>被访问才移到头部。</li>
+</ul>
+
+<h4>Change Buffer（写缓冲）</h4>
+<p>对<b>非唯一二级索引</b>的写，如果目标页不在 Buffer Pool，不必为了这次写立刻从磁盘读页进来，而是把改动先记在 Change Buffer 里，等该页因别的查询被读入时再<b>合并(merge)</b>。写多读少场景能显著减少随机 I/O。</p>
+<p class="kbd">为什么只对"非唯一二级索引"？唯一索引写入前必须判重，<b>判重就得把页读进来</b>，读都读了自然直接改，用不上缓冲；聚簇索引改动往往连带整行也没法缓冲。</p>
+
+<div class="info box"><b>脏页刷盘时机：</b>① redo log 快写满（推进 checkpoint）；② Buffer Pool 空闲页不足，淘汰的正好是脏页；③ 系统空闲时后台慢慢刷；④ 正常关闭时全部刷完。刷太频繁影响性能，太少则宕机时要靠 redo 恢复的量大、恢复慢。</div>
+</section>
+
+<!-- ============ 行格式 ============ -->
+<section id="row">
+<h2 class="sec">二 · 2 行格式：一行到底存了什么 <span class="tag innodb">InnoDB层</span></h2>
+<p>行格式有 4 种：<code>Redundant</code>(古老)、<code>Compact</code>、<code>Dynamic</code>(<b>5.7+ 默认</b>)、<code>Compressed</code>。以 Compact 为例，一行的物理结构：</p>
+
+<div class="rowfmt">
+  <div class="grp">
+    <div class="grp-label">记录的<b>额外信息</b></div>
+    <div class="cells">
+      <div class="cell extra"><span class="fn">变长字段长度列表</span><span class="fnote">逆序存放</span></div>
+      <div class="cell extra"><span class="fn">NULL 值列表</span><span class="fnote">位图 bitmap</span></div>
+      <div class="cell extra"><span class="fn">记录头信息</span><span class="fnote">5 字节</span></div>
+    </div>
+  </div>
+  <div class="grp">
+    <div class="grp-label">记录的<b>真实数据</b></div>
+    <div class="cells">
+      <div class="cell hid"><span class="fn">DB_ROW_ID</span><span class="fnote">隐藏列·6B</span></div>
+      <div class="cell hid"><span class="fn">DB_TRX_ID</span><span class="fnote">隐藏列·6B</span></div>
+      <div class="cell hid"><span class="fn">DB_ROLL_PTR</span><span class="fnote">隐藏列·7B</span></div>
+      <div class="cell data"><span class="fn">col1</span><span class="fnote">真实列</span></div>
+      <div class="cell data"><span class="fn">col2</span><span class="fnote">真实列</span></div>
+      <div class="cell data"><span class="fn">…</span><span class="fnote">&nbsp;</span></div>
+    </div>
+  </div>
+</div>
+
+<h4>额外信息三件套</h4>
+<ul>
+<li><b>变长字段长度列表：</b>记录 varchar/text 等变长列的实际字节长度，<b>逆序</b>存放。
+  <div class="info box" style="margin:8px 0">
+  <b>为什么需要它？</b> 定长列（<code>char(10)</code>、<code>int</code>）光看表定义就知道占几字节，读取时按固定宽度切即可。但<b>变长列</b>能存 0 ~ 最大值之间任意长度，而 InnoDB 的行是<b>紧凑存储、列与列之间没有分隔符也不补空</b> —— 读的时候根本不知道一个 varchar 从哪结束、下一列从哪开始。<b>所以必须把每个变长列这一行的实际长度记下来，才能正确切分数据区。</b>这就是这个列表存在的意义。
+  </div>
+  <div class="info box" style="margin:8px 0">
+  <b>为什么逆序？</b> 关键在记录头里的 <code>next_record</code> 指针：它<b>不指向记录开头，而是指向"额外信息"与"真实数据"的<u>分界点</u></b>（即第一个真实列的位置）。从这个点出发：<b>向右</b>读是真实数据（col1、col2…），<b>向左</b>读是额外信息。<br>
+  于是把长度列表逆序放，就让 <b>col1 的长度紧贴在分界点左边、col2 的长度再往左…</b> —— 想解析 col1 时，它的长度信息离指针最近，往左顺着读即可，<b>前面的列（更常用）总在离指针最近的位置</b>，CPU 缓存局部性更好、访问更高效。NULL 值列表同理也逆序。
+  </div>
+  <p style="margin:10px 0 4px"><b>长度用 1 字节还是 2 字节？</b> 令 <code>W</code>=字符集单字符最大字节数（ascii=1 / utf8=3 / utf8mb4=4），<code>M</code>=varchar 最大字符数，<code>L</code>=实际字节数。判定：<b>W×M ≤ 255 恒用 1 字节</b>；<b>W×M &gt; 255</b> 时 L≤127 用 1 字节、L&gt;127 用 2 字节（首字节最高位置 1 作标志）。
+  <span class="ex-btn" onclick="openModal('ex-varlen')">📖 看例子（一条 SQL 走一遍）</span></p>
+
+  <div class="modal-overlay" id="ex-varlen">
+    <div class="modal">
+      <span class="close" onclick="closeModal('ex-varlen')">&times;</span>
+      <h3 class="modal-title">变长字段长度列表 · 编码实例</h3>
+
+      <pre style="margin:8px 0"><code>CREATE TABLE t (
+  a VARCHAR(10)  CHARACTER SET ascii,   -- W×M = 1×10  = 10   ≤255
+  b VARCHAR(300) CHARACTER SET ascii,   -- W×M = 1×300 = 300  &gt;255
+  c CHAR(10)     CHARACTER SET ascii,   -- 定长列
+  d VARCHAR(10)  CHARACTER SET ascii
+);
+INSERT INTO t VALUES ('hello', REPEAT('x',200), 'fixed', NULL);
+--                     a=5字节   b=200字节        c=定长   d=NULL</code></pre>
+
+      <p style="margin:12px 0 4px">① 逐列判断哪些进列表、各占几字节：</p>
+      <table style="margin:6px 0">
+      <tr><th>列</th><th>值</th><th>实际字节 L</th><th>进长度列表？</th><th>长度怎么编码</th></tr>
+      <tr><td><code>a</code> VARCHAR(10)</td><td>'hello'</td><td>5</td><td>✅ 变长</td><td>W×M=10≤255 → <b>1 字节</b> <code>0x05</code></td></tr>
+      <tr><td><code>b</code> VARCHAR(300)</td><td>200 个 x</td><td>200</td><td>✅ 变长</td><td>W×M=300&gt;255 且 L=200&gt;127 → <b>2 字节</b> <code>0x80 0xC8</code></td></tr>
+      <tr><td><code>c</code> CHAR(10)</td><td>'fixed'</td><td>—</td><td>❌ 定长列不进</td><td>—</td></tr>
+      <tr><td><code>d</code> VARCHAR(10)</td><td>NULL</td><td>—</td><td>❌ NULL 不进</td><td>—（只在 NULL 列表标记）</td></tr>
+      </table>
+
+      <p style="margin:12px 0 4px">② 只有 a、b 进列表，且<b>逆序</b>存放（后定义的列放前面，第一列贴着数据分界点）：</p>
+      <div class="rowfmt" style="margin:6px 0">
+        <div class="grp">
+          <div class="grp-label">变长字段长度列表（存储顺序 →）</div>
+          <div class="cells">
+            <div class="cell extra"><span class="fn">0x80 0xC8</span><span class="fnote">b 的长度=200<br>(2字节)</span></div>
+            <div class="cell extra"><span class="fn">0x05</span><span class="fnote">a 的长度=5<br>(1字节)</span></div>
+          </div>
+        </div>
+        <div class="grp">
+          <div class="grp-label">→ 真实数据（分界点在此）</div>
+          <div class="cells">
+            <div class="cell data"><span class="fn">a='hello'</span><span class="fnote">5 字节</span></div>
+            <div class="cell data"><span class="fn">b=xxx…(200)</span><span class="fnote">200 字节</span></div>
+            <div class="cell data"><span class="fn">c='fixed…'</span><span class="fnote">定长10字节</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="kbd" style="margin:8px 0 0">读取时：从分界点往左第一个字节 <code>0x05</code> → 知道 a 占 5 字节，往右读 5 字节得 'hello'；继续往左读 b 的长度（发现首字节最高位=1，说明是 2 字节 <code>0x80 0xC8</code>=200）→ 往右再读 200 字节得 b。定长列 c 无需长度、NULL 列 d 不占数据区。</p>
+    </div>
+  </div>
+</li>
+<li><b>NULL 值列表：</b>用位图(bitmap)标记哪些列是 NULL。
+  <div class="info box" style="margin:8px 0">
+  <b>为什么需要它？</b> 如果把 NULL 直接存进真实数据区，既<b>浪费空间</b>（NULL 本没有值，却要占一个坑），又<b>难以区分</b>"空字符串"和"NULL"。InnoDB 的做法是：<b>每个允许 NULL 的列分配 1 个二进制位</b>，1=该列为 NULL、0=非 NULL。这样标记为 NULL 的列在真实数据区<b>一个字节都不占</b> —— 用 1 个 bit 换掉可能几十字节的存储。所以常说"NULL 也占空间"，占的其实是这个<b>位图里的 1 个 bit</b>（不足整字节高位补 0），而非数据区。
+  </div>
+  <p style="margin:8px 0 4px">位图规则：只统计<b>允许 NULL 的列</b>（<code>NOT NULL</code>/主键不参与）；每列 1 位、按列顺序<b>逆序</b>排；凑不满整字节则高位补 0。
+  <span class="ex-btn" onclick="openModal('ex-null')">📖 看例子（一条 SQL 走一遍）</span></p>
+
+  <div class="modal-overlay" id="ex-null">
+    <div class="modal">
+      <span class="close" onclick="closeModal('ex-null')">&times;</span>
+      <h3 class="modal-title">NULL 值列表 · 位图实例</h3>
+
+      <pre style="margin:8px 0"><code>CREATE TABLE t (
+  id INT         NOT NULL,   -- 不允许 NULL → 不参与位图
+  a  VARCHAR(10),            -- 允许 NULL → 分配 1 位
+  b  VARCHAR(10),            -- 允许 NULL → 分配 1 位
+  c  VARCHAR(10),            -- 允许 NULL → 分配 1 位
+  PRIMARY KEY(id)
+);
+INSERT INTO t VALUES (1, 'xy', NULL, 'z');
+--                    id   a     b=NULL  c</code></pre>
+
+      <p style="margin:12px 0 4px">① 给"允许 NULL 的列"逆序分配 bit（a 最低位，往高位排）：</p>
+      <table style="margin:6px 0">
+      <tr><th>允许 NULL 的列</th><th>分配到的 bit</th><th>本行的值</th><th>bit 值(1=NULL)</th></tr>
+      <tr><td><code>a</code></td><td>bit0（最低）</td><td>'xy'</td><td>0</td></tr>
+      <tr><td><code>b</code></td><td>bit1</td><td><b>NULL</b></td><td><b>1</b></td></tr>
+      <tr><td><code>c</code></td><td>bit2</td><td>'z'</td><td>0</td></tr>
+      </table>
+      <p class="kbd" style="margin:2px 0 10px">注意 <code>id</code> 是 <code>NOT NULL</code>，根本不占位图。</p>
+
+      <p style="margin:8px 0 4px">② 3 个 bit 凑成 1 字节，高 5 位补 0：</p>
+      <div class="rowfmt" style="margin:6px 0">
+        <div class="grp">
+          <div class="grp-label">NULL 值列表（1 字节 = 0x02）</div>
+          <div class="cells">
+            <div class="cell extra"><span class="fn">0</span><span class="fnote">bit7 补</span></div>
+            <div class="cell extra"><span class="fn">0</span><span class="fnote">bit6 补</span></div>
+            <div class="cell extra"><span class="fn">0</span><span class="fnote">bit5 补</span></div>
+            <div class="cell extra"><span class="fn">0</span><span class="fnote">bit4 补</span></div>
+            <div class="cell extra"><span class="fn">0</span><span class="fnote">bit3 补</span></div>
+            <div class="cell hid"><span class="fn">0</span><span class="fnote">bit2 = c</span></div>
+            <div class="cell hid"><span class="fn">1</span><span class="fnote">bit1 = b<br>(NULL)</span></div>
+            <div class="cell hid"><span class="fn">0</span><span class="fnote">bit0 = a</span></div>
+          </div>
+        </div>
+      </div>
+      <p style="margin:10px 0 4px">③ 因为 b=NULL，真实数据区<b>只存 id、a、c，b 一个字节都不占</b>：</p>
+      <div class="rowfmt" style="margin:6px 0">
+        <div class="grp">
+          <div class="grp-label">真实数据区</div>
+          <div class="cells">
+            <div class="cell data"><span class="fn">id=1</span><span class="fnote">主键</span></div>
+            <div class="cell data"><span class="fn">a='xy'</span><span class="fnote">2 字节</span></div>
+            <div class="cell data"><span class="fn">c='z'</span><span class="fnote">1 字节</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="kbd" style="margin:8px 0 0">读取时先看 NULL 列表 <code>0x02</code>=<code>00000010</code>：bit1=1 → 知道 b 是 NULL（数据区里跳过它，不去解析），a、c 正常读。省下了 b 的存储空间。</p>
+    </div>
+  </div>
+</li>
+<li><b>记录头信息(5字节)：</b>含 <code>deleted_flag</code>(删除标记，删除不立即抹除)、<code>next_record</code>(指向下条记录，即页内单向链表指针)、<code>record_type</code>(0普通/1目录项/2最小/3最大)等。</li>
+</ul>
+
+<h4>隐藏列 —— 串起 MVCC 的关键 <span class="tag">重点</span></h4>
+<table>
+<tr><th>隐藏列</th><th>大小</th><th>作用</th></tr>
+<tr><td><code>DB_ROW_ID</code></td><td>6B</td><td>行 ID。<b>没有主键也没有唯一索引时</b>才自动生成，作为聚簇索引的 key</td></tr>
+<tr><td><code>DB_TRX_ID</code></td><td>6B</td><td><b>事务 ID</b>：最后一次修改这行的事务。MVCC 判断可见性靠它</td></tr>
+<tr><td><code>DB_ROLL_PTR</code></td><td>7B</td><td><b>回滚指针</b>：指向 undo log 里的上一个版本，多个版本串成<b>版本链</b></td></tr>
+</table>
+<div class="tip box"><b>承上启下：</b><code>DB_TRX_ID</code> + <code>DB_ROLL_PTR</code> + undo 版本链，正是 <a href="#mvcc">MVCC</a> 的物理基础。记住这两个隐藏列，事务那一章就通了。</div>
+
+<h4>行溢出</h4>
+<p>一页才 16KB，若一个 varchar/text/blob 特别大放不下，Compact 会在本行存一部分 + 20 字节指针指向<b>溢出页</b>；Dynamic 格式更彻底：大字段几乎<b>全部存到溢出页</b>，行内只留 20 字节指针，让数据页能放更多行 → B+ 树更矮。这也是 Dynamic 成为默认的原因之一。</p>
+</section>
+
+<!-- ============ 索引 ============ -->
+<section id="index">
+<h2 class="sec">二 · 3 索引 <span class="tag innodb">InnoDB层</span></h2>
+<p>由 B+ 树自然引申到索引。先把分类讲清楚，再讲失效和优化。</p>
+
+<h3>索引分类（四个维度）</h3>
+<table>
+<tr><th>维度</th><th>类型</th><th>说明</th></tr>
+<tr><td rowspan="3"><b>物理存储</b><br>(最重要)</td><td><b>聚簇索引</b><br>(主键索引)</td><td>叶子节点<b>直接存整行数据</b>。一张表只有一个。InnoDB 表就是按主键组织的 B+ 树（索引即数据）。没主键则用唯一索引，再没有就用隐藏的 DB_ROW_ID</td></tr>
+<tr><td><b>二级索引</b><br>(辅助/非聚簇)</td><td>叶子节点存<b>索引列 + 主键值</b>，不存整行</td></tr>
+<tr><td>→ <b>回表</b></td><td>用二级索引查到主键后，再拿主键去聚簇索引查整行，这个"二次查找"就叫回表</td></tr>
+<tr><td rowspan="2"><b>字段个数</b></td><td>单列索引</td><td>一个列</td></tr>
+<tr><td><b>联合(复合)索引</b></td><td>多列，遵循<b>最左前缀原则</b></td></tr>
+<tr><td rowspan="3"><b>字段特性</b></td><td>主键索引</td><td>非空且唯一</td></tr>
+<tr><td>唯一索引</td><td>值唯一，可 NULL</td></tr>
+<tr><td>普通 / 前缀索引</td><td>前缀索引：只索引长字符串前 N 个字符省空间</td></tr>
+<tr><td><b>数据结构</b></td><td>B+树 / Hash / 全文(FULLTEXT)</td><td>InnoDB 只显式支持 B+ 树；Hash 是自适应哈希(AHI)由引擎自动建</td></tr>
+</table>
+
+<div class="hd">
+  <div class="note" style="margin-bottom:8px">聚簇索引 vs 二级索引（查 name='Bob' 需要回表）</div>
+  <div class="lane">
+    <div class="grp2">
+      <div class="cap">二级索引 (name)</div>
+      <div class="node">Bob → id=7</div>
+      <div class="node">Tom → id=3</div>
+      <div class="note">叶子存「索引列 + 主键值」</div>
+    </div>
+    <div class="arrow-r">── 回表 ──▶</div>
+    <div class="grp2 g-green">
+      <div class="cap">聚簇索引 (主键 id)</div>
+      <div class="node">id=7 → 整行数据</div>
+      <div class="node">id=3 → 整行数据</div>
+      <div class="note">叶子存「整行」</div>
+    </div>
+  </div>
+</div>
+
+<h4>覆盖索引 · 索引下推 · 最左前缀</h4>
+<ul>
+<li><b>覆盖索引：</b>要查的列<b>全部</b>都在某个二级索引里，直接从索引就能返回，<b>不用回表</b>。<code>explain</code> 的 Extra 出现 <code>Using index</code> 就是它。是最重要的优化手段之一。</li>
+<li><b>最左前缀原则：</b>联合索引 <code>(a,b,c)</code> 相当于建了 <code>(a)</code>、<code>(a,b)</code>、<code>(a,b,c)</code> 三个索引。查询必须从最左列开始且不跳列，才能用上。
+  <div class="info box" style="margin:8px 0">
+  <b>为什么会这样？</b> 联合索引 <code>(a,b,c)</code> 这棵 B+ 树是<b>先按 a 排、a 相同再按 b 排、b 也相同再按 c 排</b>。关键点：<b>b 只在"a 相同"的范围内才有序，c 只在"a、b 都相同"的范围内才有序</b>。所以：
+  <ul style="margin:6px 0">
+    <li>不给定 a，b 在整棵树里是<b>全局无序</b>的 → <code>where b=2</code> 没法二分定位，用不上索引。</li>
+    <li>给了 a 但跳过 b 直接给 c（<code>where a=1 and c=3</code>）→ 能用 a 定位，但在同一个 a 里 c 是散乱的（因为 c 只在 b 也固定时才有序）→ <b>c 用不上，只能用到 a</b>。</li>
+    <li><b>范围查询会中断后续列：</b><code>where a=1 and b>2 and c=3</code> → a、b 能用（b 走范围），但 b 一旦是范围，其后的 c 就<b>失序</b>了 → c 不能再用于定位（只能靠 ICP 在索引上过滤）。</li>
+  </ul>
+  <b>顺序无关：</b>WHERE 里 <code>AND</code> 条件的<b>书写顺序不影响</b>，<code>where b=2 and a=1</code> 一样能用 (a,b) —— 优化器会自动按索引列顺序重排。"最左"指的是<b>索引定义的列顺序</b>，不是 SQL 里写的顺序。<span class="ex-btn" style="margin:6px 0 0" onclick="openModal('ex-leftmost')">📖 看例子（排序 + 各查询能用几列）</span>
+  </div>
+
+  <div class="modal-overlay" id="ex-leftmost">
+    <div class="modal">
+      <span class="close" onclick="closeModal('ex-leftmost')">&times;</span>
+      <h3 class="modal-title">最左前缀 · 联合索引 (a, b, c)</h3>
+      <p>索引 <code>idx(a,b,c)</code> 里数据的<b>物理排序</b>（先 a、再 b、再 c）：</p>
+      <div class="diagram">
+ (a, b, c)         a 全局有序 ↓        b 只在同一个 a 内有序 →   c 只在同一个 (a,b) 内有序
+ ─────────
+ (1, 1, 1)   ┐
+ (1, 1, 2)   │ a=1 段：b 有序(1,1,2,2)，每个 b 内 c 有序
+ (1, 2, 1)   │
+ (1, 2, 3)   ┘
+ (2, 1, 5)   ┐
+ (2, 3, 1)   │ a=2 段：b 又从头有序(1,3)
+ (2, 3, 4)   ┘
+      </div>
+      <p class="kbd">看第 2 列(b)：整体是 1,1,2,2,1,3 —— <b>跨 a 看根本不递增</b>，所以脱离 a 无法对 b 二分。这就是"必须带最左列"的根源。</p>
+
+      <p style="margin:14px 0 4px">各类查询能用到索引的哪几列：</p>
+      <table>
+      <tr><th>查询条件</th><th>用到的列</th><th>说明</th></tr>
+      <tr><td><code>a=1</code></td><td>✅ a</td><td>最左列，可定位</td></tr>
+      <tr><td><code>a=1 AND b=2</code></td><td>✅ a, b</td><td>连续从左用</td></tr>
+      <tr><td><code>a=1 AND b=2 AND c=3</code></td><td>✅ a, b, c</td><td>全用上</td></tr>
+      <tr><td><code>b=2</code> / <code>c=3</code></td><td>❌ 无</td><td>没带最左列 a，b/c 全局无序</td></tr>
+      <tr><td><code>a=1 AND c=3</code></td><td>⚠️ 只 a</td><td>跳过了 b，c 在 a 段内散乱用不上（c 可由 ICP 过滤但非索引定位）</td></tr>
+      <tr><td><code>a=1 AND b&gt;2 AND c=3</code></td><td>⚠️ a, b</td><td>b 用范围后 c 失序，c 不能定位</td></tr>
+      <tr><td><code>b=2 AND a=1</code></td><td>✅ a, b</td><td>书写顺序无关，优化器重排为 (a,b)</td></tr>
+      <tr><td><code>a=1 ORDER BY b</code></td><td>✅ a, b</td><td>排序也遵循最左前缀，b 在 a=1 内本就有序，免 filesort</td></tr>
+      </table>
+      <div class="tip box" style="margin-top:12px"><b>两条铁律：</b>① 从最左列开始、中间不能跳列；② 遇到<b>范围查询</b>(<code>&gt; &lt; between like前缀</code>)，该列还能用，但它<b>后面的列全部失效</b>。据此建索引时应把<b>等值列放前、范围列放后</b>。</div>
+    </div>
+  </div>
+</li>
+<li><b>索引下推 ICP (Index Condition Pushdown，5.6+)：</b>联合索引中，把本该回表后在 Server 层做的过滤，<b>下推到引擎层在索引上先过滤</b>，减少回表次数。Extra 显示 <code>Using index condition</code>。</li>
+</ul>
+<div class="info box"><b>ICP 例子：</b>索引 <code>(name,age)</code>，查 <code>where name like '张%' and age=10</code>。没有 ICP：用 name 前缀找到一堆记录，逐条回表再判 age。有 ICP：在索引上就顺便把 <code>age=10</code> 判掉，只对满足的才回表。</div>
+</section>
+
+<section id="index-fail">
+<h3>索引失效场景 <span class="tag">高频</span></h3>
+<table>
+<tr><th>场景</th><th>例子</th><th>原因</th></tr>
+<tr><td>对索引列<b>做运算/函数</b></td><td><code>where id+1=5</code> / <code>where date(t)='...'</code></td><td>B+ 树按列原值排序，套函数后树的有序性用不上 <span class="ex-btn" style="margin:0 0 0 6px;padding:1px 10px" onclick="openModal('ex-func')">深入一层</span></td></tr>
+<tr><td><b>隐式类型转换</b></td><td>varchar 列 <code>where phone=138...</code>（传数字）</td><td>字符串转数字相当于对列做函数</td></tr>
+<tr><td><b>左模糊 / 全模糊</b></td><td><code>like '%abc'</code> / <code>like '%abc%'</code></td><td>无法用前缀定位；<code>'abc%'</code>可以</td></tr>
+<tr><td><b>最左前缀断裂</b></td><td>联合索引 (a,b) 只查 b</td><td>见最左前缀原则</td></tr>
+<tr><td><code>OR</code> 连接非索引列</td><td><code>where a=1 or x=2</code>(x无索引)</td><td>有一个没索引就整体全表扫</td></tr>
+<tr><td><b>不等 / NOT / NULL</b></td><td><code>!=</code>、<code>not in</code>、<code>is not null</code></td><td>不一定失效，取决于优化器估算的扫描比例（选择性差就全表扫）</td></tr>
+</table>
+<div class="warn box"><b>本质：</b>索引失效大多不是"规则"，而是<b>优化器基于成本估算</b>觉得走全表更划算，或列的原值被破坏无法在树上定位。别死背，理解 B+ 树"按原值有序"这一点即可推导。</div>
+
+<div class="modal-overlay" id="ex-func">
+  <div class="modal">
+    <span class="close" onclick="closeModal('ex-func')">&times;</span>
+    <h3 class="modal-title">"对列做运算/函数就失效"—— 到底为什么？</h3>
+    <p>有人会说："不就是加个 1、取个 date 吗，MySQL 帮我算一下不就行了？"这个直觉只对了一半。真正的原因分两层：</p>
+
+    <h4 style="margin-top:16px">① 根本原因：B+ 树按<u>原值</u>排序，套了函数就用不上这个顺序</h4>
+    <p>索引 <code>idx(c)</code> 是一棵按 <code>c</code> 的<b>原值有序</b>的 B+ 树。查 <code>WHERE c = 5</code> 能二分定位，因为树就是按 <code>c</code> 排的。但查 <code>WHERE c+1 = 5</code>，你要找的是"<code>c+1</code>"这个值，而树<b>不是按 <code>c+1</code> 排序的</b> —— 有序性对 <code>c+1</code> 不成立，没法二分，只能把每一行的 <code>c</code> 取出来算一遍 <code>c+1</code> 再比较，这就是全表扫描。</p>
+    <div class="diagram">
+ 索引树按 c 排： 1  2  3  4  5  6 ...   ← 查 c=5，二分直接跳过去 ✅
+ 但按 c+1 呢？   树没有这个顺序，要逐行算 c+1 才知道 ❌
+    </div>
+
+    <h4 style="margin-top:16px">② 你的观点：情况太多，MySQL 干脆不做自动改写（补充原因）</h4>
+    <p>有人会追问："<code>c+1=5</code> 不就等价于 <code>c=4</code> 吗？MySQL 改写一下不就能用索引了？"—— 理论上对于<b>单调函数</b>确实可以反解。但 MySQL 基本<b>不做</b>这种自动改写，原因正是你说的：</p>
+    <ul>
+      <li>要对<b>任意函数</b>判断是否单调、能否反解、构造逆变换 —— 函数无穷多，情况爆炸；</li>
+      <li><code>date()</code>、<code>substr()</code>、隐式字符集/类型转换等很多函数<b>根本不可逆或非单调</b>，反解无从谈起；</li>
+      <li>为少数可优化的特例写一堆兼容逻辑，收益低、还容易出错。</li>
+    </ul>
+    <p>所以优化器取<b>保守策略</b>：只要列被表达式包住，就不信任索引顺序，直接全表扫。<b>你的"兼容太复杂"说的就是这一层。</b></p>
+
+    <h4 style="margin-top:16px">③ 佐证 & 正确写法</h4>
+    <ul>
+      <li><b>把运算移到常量侧：</b><code>where c+1=5</code> → 手动改成 <code>where c=4</code>，索引恢复。（这活儿得你自己干，MySQL 不替你干，正好印证 ②）</li>
+      <li><b>函数索引 (MySQL 8.0)：</b>确实要按 <code>date(t)</code> 查，就 <code>CREATE INDEX idx ON t((date(t)))</code> 显式建一棵按 <code>date(t)</code> 排序的树，之后 <code>where date(t)='...'</code> 就能走索引 —— 这说明 MySQL 需要你<b>显式</b>为表达式建序，而不会自动处理 <code>f(c)</code>。</li>
+    </ul>
+    <div class="tip box" style="margin-top:14px"><b>一句话总结：</b>主因是<b>有序性被破坏</b>（树按原值排，函数值无序）；你说的<b>"情况太多难兼容"</b>是优化器不愿自动改写的现实原因。两者叠加，才有"对列做运算就失效"。</div>
+  </div>
+</div>
+</section>
+
+<section id="index-opt">
+<h3>explain 与索引优化 <span class="tag">面试</span></h3>
+<p>在 SQL 前加 <code>EXPLAIN</code> 就能看优化器打算怎么执行。重点看这几列：</p>
+<table>
+<tr><th>列</th><th>看什么</th></tr>
+<tr><td><b>type</b></td><td>访问类型，性能从好到差：<code>system > const > eq_ref > ref > range > index > ALL</code>。出现 <b>ALL(全表扫)</b> 要警惕。const=主键/唯一等值；ref=普通索引等值；range=范围；index=扫整棵索引树</td></tr>
+<tr><td><b>possible_keys / key</b></td><td>可能用的索引 / <b>实际</b>用的索引。key=NULL 说明没走索引</td></tr>
+<tr><td><b>key_len</b></td><td>用了索引的几个字节 → 反推联合索引用到<b>几列</b>（int=4，可空+1，varchar(n) utf8mb4=4n+2）</td></tr>
+<tr><td><b>ref</b></td><td>索引列跟谁比较：<code>const</code>=和常量、<code>库.表.列</code>=和另一张表的列（join）</td></tr>
+<tr><td><b>rows</b></td><td>预估扫描行数，越小越好</td></tr>
+<tr><td><b>Extra</b></td><td><code>Using index</code>=覆盖索引✓；<code>Using index condition</code>=索引下推✓；<code>Using where</code>=Server 层还要过滤；<code>Using filesort</code>=额外排序⚠；<code>Using temporary</code>=用临时表⚠</td></tr>
+</table>
+<span class="ex-btn" onclick="openModal('ex-explain')">📖 看例子（一张表跑 4 条 SQL 看 EXPLAIN 输出）</span>
+
+<div class="modal-overlay" id="ex-explain">
+  <div class="modal">
+    <span class="close" onclick="closeModal('ex-explain')">&times;</span>
+    <h3 class="modal-title">EXPLAIN 实战 · 同一张表的 4 种典型结果</h3>
+    <pre style="margin:8px 0"><code>CREATE TABLE emp (
+  id      INT PRIMARY KEY AUTO_INCREMENT,
+  name    VARCHAR(50),
+  age     INT,
+  dept_id INT,
+  INDEX idx_dept_age (dept_id, age),   -- 联合索引
+  INDEX idx_name (name)
+);
+-- 假设表里有 100 万行</code></pre>
+
+    <h4 style="margin-top:16px">① 主键等值 → 最快的 <code>const</code></h4>
+    <pre style="margin:6px 0"><code>EXPLAIN SELECT * FROM emp WHERE id = 100;</code></pre>
+    <table style="margin:6px 0">
+    <tr><th>type</th><th>key</th><th>key_len</th><th>ref</th><th>rows</th><th>Extra</th></tr>
+    <tr><td><b>const</b></td><td>PRIMARY</td><td>4</td><td>const</td><td>1</td><td>NULL</td></tr>
+    </table>
+    <p class="kbd">主键唯一，最多命中 1 行，优化器直接当常量 → <code>const</code>，rows=1，最理想。</p>
+
+    <h4 style="margin-top:16px">② 联合索引等值 → <code>ref</code></h4>
+    <pre style="margin:6px 0"><code>EXPLAIN SELECT * FROM emp WHERE dept_id = 3 AND age = 25;</code></pre>
+    <table style="margin:6px 0">
+    <tr><th>type</th><th>key</th><th>key_len</th><th>ref</th><th>rows</th><th>Extra</th></tr>
+    <tr><td><b>ref</b></td><td>idx_dept_age</td><td>10</td><td>const,const</td><td>~50</td><td>NULL</td></tr>
+    </table>
+    <p class="kbd"><code>key_len=10</code>：dept_id(int 4+可空1=5) + age(5) = 10 → 说明<b>两列都用上了</b>。ref=const,const 表示两列都和常量比。<code>select *</code> 需回表取其它列。</p>
+
+    <h4 style="margin-top:16px">③ 范围 + 只查索引列 → <code>range</code> + 覆盖索引</h4>
+    <pre style="margin:6px 0"><code>EXPLAIN SELECT dept_id, age FROM emp WHERE dept_id = 3 AND age &gt; 25;</code></pre>
+    <table style="margin:6px 0">
+    <tr><th>type</th><th>key</th><th>key_len</th><th>ref</th><th>rows</th><th>Extra</th></tr>
+    <tr><td><b>range</b></td><td>idx_dept_age</td><td>10</td><td>NULL</td><td>~100</td><td><b>Using index</b></td></tr>
+    </table>
+    <p class="kbd">age 是范围 → type=range，ref 变 NULL（范围不是等值比较）。要查的 dept_id、age 都在索引里 → <b>Extra=Using index=覆盖索引，不回表</b>。</p>
+
+    <h4 style="margin-top:16px">④ 违反最左前缀 → 退化成全表扫 <code>ALL</code></h4>
+    <pre style="margin:6px 0"><code>EXPLAIN SELECT * FROM emp WHERE age = 25;   -- 跳过了最左列 dept_id</code></pre>
+    <table style="margin:6px 0">
+    <tr><th>type</th><th>key</th><th>key_len</th><th>ref</th><th>rows</th><th>Extra</th></tr>
+    <tr><td style="color:var(--danger)"><b>ALL</b></td><td>NULL</td><td>NULL</td><td>NULL</td><td>~1000000</td><td>Using where</td></tr>
+    </table>
+    <p class="kbd">age 不是 idx_dept_age 的最左列 → 用不上索引，<b>key=NULL、type=ALL、rows≈全表</b>。这就是要抓的性能杀手。<code>name LIKE '%x%'</code> 左模糊也是同样结果。</p>
+
+    <div class="tip box" style="margin-top:14px"><b>一眼判断口诀：</b>先看 <b>type</b> 是不是 ALL（是就危险）→ 看 <b>key</b> 有没有走对索引 → 看 <b>key_len</b> 联合索引用了几列 → 看 <b>rows</b> 扫多少 → 看 <b>Extra</b> 有没有 Using filesort/temporary 这些要优化的信号。</div>
+  </div>
+</div>
+<h4>优化经验</h4>
+<ul>
+<li>建联合索引时把<b>区分度高</b>、<b>常用</b>、<b>范围查询</b>的列合理排序（等值列在前，范围列在后，否则范围之后的列用不上）。</li>
+<li>尽量用<b>覆盖索引</b>避免回表；<code>select *</code> 是回表 + 无法覆盖的元凶。</li>
+<li>长字符串用<b>前缀索引</b>；但前缀索引无法用于覆盖索引和排序。</li>
+<li>主键尽量<b>自增</b>：随机主键(如 UUID)会导致 B+ 树<b>页分裂</b>和碎片。</li>
+</ul>
+</section>
+
+<!-- ============ 事务 ============ -->
+<section id="trx">
+<h2 class="sec">二 · 4 事务 <span class="tag innodb">InnoDB层</span></h2>
+
+<h3>怎么开启 / 结束事务？要显式自己加吗？</h3>
+<p>关键在一个参数：<code>autocommit</code>（自动提交），MySQL <b>默认开启（=1）</b>。它决定了你要不要显式开事务。</p>
+
+<h4>① 默认（autocommit=1）：不用显式开，每条语句自成一个事务</h4>
+<p>自动提交开启时，你执行的<b>每一条单独 SQL 都被自动包成一个事务，执行完立刻提交</b>。所以平时随手写的 <code>UPDATE</code> 其实也在事务里，只是"开启→执行→提交"一气呵成，你没感觉到。</p>
+<pre style="margin:8px 0"><code>UPDATE t SET v=1 WHERE id=1;   -- 等价于：BEGIN; UPDATE...; COMMIT; 自动完成
+UPDATE t SET v=2 WHERE id=2;   -- 又是独立的一个事务</code></pre>
+<p>如果你想把<b>多条语句绑成一个事务</b>（要么全成功要么全回滚），就必须<b>显式开启</b>：</p>
+
+<h4>② 显式事务：手动 BEGIN … COMMIT / ROLLBACK</h4>
+<pre style="margin:8px 0"><code>BEGIN;                          -- 或 START TRANSACTION，开启事务（此刻起暂停自动提交）
+UPDATE acct SET bal=bal-100 WHERE id=1;
+UPDATE acct SET bal=bal+100 WHERE id=2;
+COMMIT;                         -- 一起提交；中途出错则 ROLLBACK 全部撤销</code></pre>
+<p>一旦 <code>BEGIN</code>，autocommit 对这个事务<b>临时失效</b>，直到你 <code>COMMIT</code>/<code>ROLLBACK</code> 才结束、恢复自动提交。转账这种<b>多步必须原子</b>的场景，就得显式开。</p>
+
+<h4>③ 另一种方式：把 autocommit 关掉（=0）</h4>
+<pre style="margin:8px 0"><code>SET autocommit = 0;             -- 关闭后：任何一条 DML 都会隐式开启事务
+UPDATE ...;                     -- 事务已开启，但不会自动提交
+COMMIT;                         -- 必须手动提交，否则一直占着锁</code></pre>
+<div class="warn box"><b>坑：</b>把 autocommit 设 0 后，<b>连 SELECT/UPDATE 都会开启事务且不自动提交</b>，如果忘了 commit，事务会一直挂着 → <b>长事务</b>：长期持有行锁、MDL 锁、撑大 undo（purge 无法回收），是线上事故常见原因。生产一般保持 autocommit=1，需要事务时显式 BEGIN。</div>
+
+<table>
+<tr><th>关键字</th><th>作用</th></tr>
+<tr><td><code>BEGIN</code> / <code>START TRANSACTION</code></td><td>显式开启事务</td></tr>
+<tr><td><code>START TRANSACTION WITH CONSISTENT SNAPSHOT</code></td><td>开启事务并<b>立即生成 ReadView</b>（RR 下常用于确保从这一刻起的一致性快照）</td></tr>
+<tr><td><code>COMMIT</code></td><td>提交：持久化改动、释放行锁、结束事务</td></tr>
+<tr><td><code>ROLLBACK</code></td><td>回滚：靠 undo 撤销所有改动</td></tr>
+<tr><td><code>SAVEPOINT s</code> / <code>ROLLBACK TO s</code></td><td>保存点 / 回滚到保存点（部分回滚，不结束整个事务）</td></tr>
+</table>
+<div class="info box"><b>会"隐式提交"的语句：</b><code>DDL</code>（<code>CREATE/ALTER/DROP/TRUNCATE</code>）、<code>GRANT</code>、再次 <code>BEGIN</code> 等会<b>自动先提交当前事务</b>。所以在事务中间执行一条 <code>ALTER TABLE</code>，前面的改动会被"偷偷"提交掉，无法再回滚 —— 要留意。</div>
+
+<h3>ACID 与 InnoDB 如何实现</h3>
+<table>
+<tr><th>特性</th><th>含义</th><th>InnoDB 靠什么实现</th></tr>
+<tr><td><b>A</b> 原子性</td><td>要么全成功要么全回滚</td><td><b>undo log</b>（回滚）</td></tr>
+<tr><td><b>C</b> 一致性</td><td>数据符合业务约束（守恒）</td><td>是<b>目的</b>，由 A/I/D + 应用逻辑共同保证</td></tr>
+<tr><td><b>I</b> 隔离性</td><td>并发事务互不干扰</td><td><b>MVCC + 锁</b></td></tr>
+<tr><td><b>D</b> 持久性</td><td>提交后不丢</td><td><b>redo log</b>（崩溃恢复）</td></tr>
+</table>
+
+<h3>并发引发的三个问题</h3>
+<table>
+<tr><th>问题</th><th>描述</th></tr>
+<tr><td><b>脏读</b></td><td>读到别的事务<b>还没提交</b>的修改（对方可能回滚）</td></tr>
+<tr><td><b>不可重复读</b></td><td>同一事务内两次读<b>同一行</b>结果不同（别人 update 并提交了）—— 针对<b>更新</b></td></tr>
+<tr><td><b>幻读</b></td><td>同一事务内两次<b>范围查询</b>，第二次多出/少了行（别人 insert/delete 提交了）—— 针对<b>行数</b></td></tr>
+</table>
+
+<h3>四种隔离级别</h3>
+<table>
+<tr><th>隔离级别</th><th>脏读</th><th>不可重复读</th><th>幻读</th><th>实现</th></tr>
+<tr><td>读未提交 RU</td><td>❌有</td><td>❌有</td><td>❌有</td><td>直接读最新</td></tr>
+<tr><td>读已提交 RC</td><td>✅无</td><td>❌有</td><td>❌有</td><td>MVCC，<b>每次读</b>建 ReadView</td></tr>
+<tr><td><b>可重复读 RR</b>(默认)</td><td>✅无</td><td>✅无</td><td>⚠基本无</td><td>MVCC，<b>首次读</b>建一次 ReadView + Next-Key Lock</td></tr>
+<tr><td>串行化</td><td>✅无</td><td>✅无</td><td>✅无</td><td>读写全加锁，串行执行</td></tr>
+</table>
+<div class="info box">
+<b>RR 与幻读。</b> InnoDB 在 RR 级别下：<b>快照读</b>（普通 SELECT）用 MVCC 避免幻读；<b>当前读</b>（<code>select...for update</code>、update/delete）用 <b>Next-Key Lock</b> 避免幻读。所以 InnoDB 的 RR <b>在大多数场景下已经解决了幻读</b>，这是它区别于标准 SQL 定义的地方。但极端交错场景（先快照读、再当前读同一范围）仍可能出现，不能说 100% 消除。
+</div>
+</section>
+
+<!-- ============ MVCC ============ -->
+<section id="mvcc">
+<h3>MVCC（多版本并发控制）<span class="tag">重点</span></h3>
+<p>MVCC 让<b>读不加锁、读写不冲突</b>，靠三样东西：<b>行里的隐藏列</b>(<code>DB_TRX_ID</code>/<code>DB_ROLL_PTR</code>) + <b>undo 版本链</b> + <b>ReadView</b>。</p>
+
+<h4>① 版本链</h4>
+<p>每次修改一行，旧值写入 undo log，新行的 <code>DB_ROLL_PTR</code> 指向旧版本，形成一条从新到旧的链。</p>
+<div class="diagram">
+  最新行 ──roll_ptr──▶ undo:版本2 ──roll_ptr──▶ undo:版本1
+  trx_id=50            trx_id=30              trx_id=10
+</div>
+
+<h4>② ReadView（读视图）</h4>
+<p>快照读的瞬间生成，核心 4 个字段：</p>
+<ul>
+<li><code>m_ids</code>：生成 ReadView 时<b>还活跃(未提交)</b>的事务 ID 集合</li>
+<li><code>min_trx_id</code>：m_ids 里最小的</li>
+<li><code>max_trx_id</code>：下一个将分配的事务 ID（当前最大+1）</li>
+<li><code>creator_trx_id</code>：创建该 ReadView 的事务自己的 ID</li>
+</ul>
+
+<h4>③ 可见性判断规则</h4>
+<p>拿版本链上某行的 <code>DB_TRX_ID</code>（记作 trx）逐版本比对：</p>
+<ol>
+<li>trx == creator_trx_id → <b>可见</b>（自己改的）</li>
+<li>trx &lt; min_trx_id → <b>可见</b>（生成视图前就已提交）</li>
+<li>trx ≥ max_trx_id → <b>不可见</b>（视图生成后才开启的事务）</li>
+<li>min_trx_id ≤ trx &lt; max_trx_id：若 trx 在 m_ids 里 → <b>不可见</b>（当时还没提交）；不在 → <b>可见</b>（当时已提交）</li>
+</ol>
+<p>不可见就顺 <code>DB_ROLL_PTR</code> 找更老的版本，直到找到可见的。</p>
+
+<div class="tip box">
+<b>RC 与 RR 的本质区别就一句话：</b>建 ReadView 的<b>时机</b>不同。<br>
+· RC：<b>每次 SELECT 都重新建</b> ReadView → 每次都能看到别人最新提交 → 会不可重复读。<br>
+· RR：<b>事务内第一次 SELECT 建一次，之后复用</b> → 整个事务看到同一快照 → 可重复读。
+</div>
+<div class="info box"><b>快照读 vs 当前读：</b>普通 <code>SELECT</code> 是<b>快照读</b>(走 MVCC，读历史版本、<b>不加锁</b>)；<code>SELECT...FOR UPDATE/LOCK IN SHARE MODE</code>、<code>UPDATE</code>、<code>DELETE</code>、<code>INSERT</code> 是<b>当前读</b>(读<b>最新</b>版本并<b>加锁</b>)。</div>
+<div class="tip box"><b>承上启下 → 锁：</b>"当前读<b>并加锁</b>"里的"加锁"，展开就是<a href="#lock">下一章的锁</a>。隔离性其实是<b>两条线</b>合力实现的：快照读靠 <b>MVCC</b>（本章）、当前读靠 <b>锁</b>（下章）。RR 防幻读也是如此 —— 快照读靠 MVCC，当前读靠 <b>Next-Key Lock</b>。所以事务讲到当前读，正好引出锁。</div>
+</section>
+
+<!-- ============ 锁 ============ -->
+<section id="lock">
+<h2 class="sec">二 · 5 锁 <span class="tag innodb">InnoDB层</span></h2>
+<p>接上章：<b>当前读</b>（<code>for update</code> / <code>update</code> / <code>delete</code>）读最新版本时要<b>加锁</b>，加的就是本章要讲的锁。按<b>粒度</b>分三层：</p>
+
+<h3>锁的分类</h3>
+<div class="diagram">
+ 全局锁 ── FTWRL (flush tables with read lock)，全库只读，用于全库逻辑备份
+   │
+ 表级锁 ── 表锁 (lock tables)
+   │      ── MDL 元数据锁：读写表时自动加，防止 DDL 与 DML 冲突（改表结构会阻塞）
+   │      ── 意向锁 IS/IX：表级"想在行上加锁"的标记，让表锁快速判断冲突，不必扫全表
+   │      ── AUTO-INC 锁：自增主键
+   │
+ 行级锁 ── Record Lock  记录锁：锁住某条索引记录
+          ── Gap Lock   间隙锁：锁住记录之间的"间隙"，防止插入 → 解决幻读
+          ── Next-Key Lock  = Record + Gap，左开右闭区间 (前记录, 本记录]
+</div>
+
+<table>
+<tr><th>锁</th><th>作用 / 说明</th></tr>
+<tr><td><b>共享锁 S</b></td><td>读锁，<code>lock in share mode</code>。多个事务可同时持有 S</td></tr>
+<tr><td><b>排他锁 X</b></td><td>写锁，<code>for update</code> 及所有 update/delete。与任何锁互斥</td></tr>
+<tr><td><b>意向锁 IS/IX</b></td><td><b>表级</b>锁，表示"我要在表里某些行加 S/X 锁"。彼此兼容，只与表锁冲突。避免加表锁时逐行检查</td></tr>
+<tr><td><b>记录锁 Record</b></td><td>锁定单条索引记录本身</td></tr>
+<tr><td><b>间隙锁 Gap</b></td><td>锁定记录间的开区间，<b>只防插入、彼此不互斥</b>。仅 RR 及以上存在</td></tr>
+<tr><td><b>临键锁 Next-Key</b></td><td>记录锁+间隙锁，InnoDB <b>行锁默认形态</b>，RR 下靠它防幻读。区间 <code>(前记录, 本记录]</code> <span class="ex-btn" style="margin:0 0 0 6px;padding:1px 10px" onclick="openModal('ex-nextkey')">前记录/本记录是啥？</span></td></tr>
+<tr><td><b>自增锁 AUTO-INC</b></td><td><b>表级</b>特殊锁。往带 <code>AUTO_INCREMENT</code> 列的表插入时申请，拿到才能取下一个自增值，语句结束（<b>不是事务结束</b>）就释放，保证自增值连续分配。<span class="ex-btn" style="margin:0 0 0 6px;padding:1px 10px" onclick="openModal('ex-autoinc')">为什么需要 / 三种模式</span></td></tr>
+</table>
+
+<div class="modal-overlay" id="ex-autoinc">
+  <div class="modal">
+    <span class="close" onclick="closeModal('ex-autoinc')">&times;</span>
+    <h3 class="modal-title">自增锁 AUTO-INC</h3>
+
+    <h4 style="margin-top:8px">为什么需要它？</h4>
+    <p>自增列要保证每次插入拿到的值<b>唯一且递增</b>。多个事务同时插入时，若不加保护，可能两个事务读到同一个"当前最大值"，生成重复自增 id。所以 InnoDB 用一把<b>表级</b>的 AUTO-INC 锁，谁插入谁先拿锁、取到下一个值、再放锁 —— 让自增值的分配串行化。</p>
+    <div class="info box"><b>关键特点：</b>它是<b>语句级</b>的，<b>语句一执行完就释放</b>，不像行锁那样等到事务提交（commit）才放。所以持有时间通常很短。</div>
+
+    <h4 style="margin-top:16px">三种模式 <code>innodb_autoinc_lock_mode</code></h4>
+    <table>
+    <tr><th>值</th><th>模式</th><th>行为</th><th>代价</th></tr>
+    <tr><td><b>0</b></td><td>traditional 传统</td><td>整条 INSERT 语句期间一直持锁，语句结束才放</td><td>并发最差，但自增值绝对连续</td></tr>
+    <tr><td><b>1</b></td><td>consecutive 连续<br>(8.0 之前默认)</td><td>能<b>提前确定行数</b>的普通 INSERT，取完值立刻放锁（不等语句结束）；<code>INSERT...SELECT</code> 这种行数未知的仍用表锁</td><td>折中：单行/批量插并发好，同一语句内的自增值连续</td></tr>
+    <tr><td><b>2</b></td><td>interleaved 交错<br>(<b>8.0 默认</b>)</td><td>不用表锁，改用轻量 mutex，多个事务的自增值<b>可交错分配</b></td><td>并发最好，但一条语句拿到的自增值<b>可能不连续</b></td></tr>
+    </table>
+
+    <h4 style="margin-top:16px">为什么 8.0 默认改成 2？—— 和 binlog 有关</h4>
+    <p>模式 2 会让批量插入的自增值不连续，在早期 <b>statement 格式 binlog</b> 下会导致主从自增值对不上（从库重放语句时分配的值和主库不同）。MySQL <b>8.0 默认 binlog 用 row 格式</b>（记录每行的实际值而非语句），主从直接按行同步，不再依赖自增分配顺序 —— 所以可以放心用并发更高的模式 2。</p>
+    <p class="kbd">面试串联点：这里正好把<b>自增锁 → binlog 格式(statement/row) → 主从复制</b>串起来，能体现你理解锁和日志的关联。</p>
+
+    <h4 style="margin-top:18px">延伸：自增主键一定连续吗？—— <span style="color:var(--danger)">不一定</span></h4>
+    <p>自增主键只保证<b>单调递增、不重复</b>，<b>不保证连续</b>，常见的"留空洞"原因：</p>
+    <table>
+    <tr><th>原因</th><th>说明</th></tr>
+    <tr><td><b>自增值不回滚</b></td><td>事务申请了自增值后<b>回滚</b>，值不还回去，计数器照样前进。插 1、2，第三条拿了 3 却回滚 → 下一条是 4，3 成空洞。（回退计数器要加锁判断，影响并发，InnoDB 干脆不退）</td></tr>
+    <tr><td><b>唯一键冲突</b></td><td>INSERT 因唯一约束失败，自增值已被消耗 → 空洞</td></tr>
+    <tr><td><b>批量预分配</b></td><td>模式 1 批量插入按 2 的幂<b>预分配</b>，多分的没用完就留空；模式 2 并发交错，单语句内也可能不连续</td></tr>
+    <tr><td><b>手动指定 / 重置</b></td><td>手动插入较大值后自增从它往后跳；或 <code>ALTER TABLE ... AUTO_INCREMENT=N</code></td></tr>
+    </table>
+    <div class="info box"><b>补充（重启相关）：</b>8.0 <b>之前</b>自增计数器<b>只存内存</b>，重启后按 <code>max(id)+1</code> 重算 —— 若删掉最大的几行再重启，计数器会"倒退"复用旧值。<b>8.0 把计数器持久化到 redo log</b>，修复了这个问题。</div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ex-nextkey">
+  <div class="modal">
+    <span class="close" onclick="closeModal('ex-nextkey')">&times;</span>
+    <h3 class="modal-title">Next-Key Lock 的 (前记录, 本记录] 到底指什么</h3>
+    <p>"本记录 / 前记录"指的是<b>索引上按顺序排列的、相邻的两条已存在记录</b>。假设某索引列上现有三条记录 <b>10、20、30</b>，InnoDB 会用它们把整条数轴切成若干 Next-Key 区间，每段都是"<b>(前一条记录, 这一条记录]</b>"：</p>
+    <div class="diagram">
+ (-∞, 10]   ← 本记录=10，  前记录=-∞（无穷小伪记录 infimum）
+ (10, 20]   ← 本记录=20，  前记录=10
+ (20, 30]   ← 本记录=30，  前记录=20
+ (30, +∞)   ← 本记录=supremum（正无穷伪记录），前记录=30
+    </div>
+    <p style="margin:12px 0 4px">以区间 <code>(10, 20]</code> 为例拆开看：</p>
+    <table style="margin:6px 0">
+    <tr><th>部分</th><th>是谁</th><th>锁什么</th><th>作用</th></tr>
+    <tr><td><b>本记录</b> = 20</td><td>你命中/锁定的那条记录本身</td><td><b>Record Lock</b> 锁住"20 这一行"</td><td>不让 20 被改、被删</td></tr>
+    <tr><td><b>前记录</b> = 10</td><td>索引顺序里它<b>前面一条已存在的记录</b></td><td><b>Gap Lock</b> 锁住 <code>(10,20)</code> 这段空隙</td><td>不让别人插入 11~19</td></tr>
+    <tr><td colspan="2"><b>合起来 = (10, 20]</b></td><td colspan="2">Record + Gap = Next-Key Lock（左开不含 10、右闭含 20）</td></tr>
+    </table>
+    <div class="info box" style="margin-top:10px"><b>为什么左开右闭？</b> 既要锁住命中的记录 20（<b>右闭</b>，防它被改删），又要锁住它前面的间隙（<b>左开的那段 gap</b>，防插入新值造成幻读）；而 10 不重复锁，因为 10 归它自己的区间 <code>(-∞,10]</code> 管。这样一个个 <code>(前,本]</code> 区间<b>首尾相接、不重不漏</b>地铺满整条索引。</div>
+    <p class="kbd" style="margin-top:8px">例：RR 下 <code>SELECT * FROM t WHERE id &gt; 15 FOR UPDATE</code>，会锁住 <code>(10,20]</code>、<code>(20,30]</code>、<code>(30,+∞)</code> —— 从 15 落入的那段开始，一直锁到正无穷，别人无法在这些范围里插入或修改，从而防住幻读。</p>
+  </div>
+</div>
+
+<h3>InnoDB 加锁逻辑（面试常问） <span class="tag">重点</span></h3>
+<ul>
+<li><b>行锁加在索引上</b>，不是加在行上。所以<b>走不到索引的查询会退化成锁全表所有行</b>（每行的 Next-Key Lock）—— 这也是"更新语句不带索引会锁表"的真相。</li>
+<li><b>RR 下的加锁规律：</b>
+  <ul>
+    <li>唯一索引<b>等值查询、命中</b>：Next-Key 退化成 <b>Record Lock</b>（无需防间隙插入）。</li>
+    <li>唯一索引<b>等值查询、未命中</b>：退化成 <b>Gap Lock</b>（锁住可能插入的间隙）。</li>
+    <li><b>范围查询</b>：用 Next-Key Lock，锁住整个扫描范围的间隙。</li>
+    <li>非唯一索引等值查询：命中记录的 Next-Key + 右侧间隙的 Gap。</li>
+  </ul>
+</li>
+<li><b>RC 下没有间隙锁</b>（只有记录锁），所以 RC 并发更高但有幻读。</li>
+</ul>
+<span class="ex-btn" onclick="openModal('ex-locking')">📖 看例子（同一张表 5 种查询各加什么锁）</span>
+
+<div class="modal-overlay" id="ex-locking">
+  <div class="modal">
+    <span class="close" onclick="closeModal('ex-locking')">&times;</span>
+    <h3 class="modal-title">加锁逻辑实战 · RR 下 5 种查询各加什么锁</h3>
+    <p>表 <code>t(id INT PRIMARY KEY, k INT, KEY idx_k(k))</code>，现有数据：</p>
+    <div class="diagram">
+ id :  5    10    15    20      (id 主键=唯一索引)
+ k  :  5     8    15    20      (idx_k 普通=非唯一索引)
+
+ 主键 id 的 Next-Key 区间： (-∞,5] (5,10] (10,15] (15,20] (20,+∞)
+    </div>
+    <p class="kbd">下面全部是 RR 隔离级别、当前读（<code>for update</code> 或 <code>update</code>）。锁都加在<b>索引</b>上。</p>
+
+    <h4 style="margin-top:16px">① 唯一索引等值 · <span class="ok">命中</span> → 退化 Record Lock</h4>
+    <pre style="margin:6px 0"><code>SELECT * FROM t WHERE id = 10 FOR UPDATE;</code></pre>
+    <p>只锁 <span class="lk">id=10 这一行（Record Lock）</span>。因为主键唯一，命中一行就够了，不怕别人在旁边插入相同 id（插不进），所以<b>不需要间隙锁</b>。别人还能插入 id=11、更新 id=15。</p>
+
+    <h4 style="margin-top:16px">② 唯一索引等值 · <span class="wait">未命中</span> → 退化 Gap Lock</h4>
+    <pre style="margin:6px 0"><code>SELECT * FROM t WHERE id = 12 FOR UPDATE;   -- 12 不存在</code></pre>
+    <p>12 落在区间 (10,15) 里，加 <span class="lk">Gap Lock (10,15)</span>。锁住这段间隙，防止别人插入 11~14 让你"再查一次就出现了"（防幻读）。<b>没有 Record Lock</b>（本来就没记录可锁）。</p>
+
+    <h4 style="margin-top:16px">③ 唯一索引范围 → Next-Key（含右边界）</h4>
+    <pre style="margin:6px 0"><code>SELECT * FROM t WHERE id &gt;= 10 AND id &lt; 15 FOR UPDATE;</code></pre>
+    <p>锁 <span class="lk">id=10 的 Record</span> + <span class="lk">(10,15) 的 Gap</span>，即 Next-Key <span class="lk">(5,15)</span> 一带。要防止 10~14 之间被插入或修改。注意 id=15 这行：因为条件是 <code>&lt;15</code> 且 15 是唯一索引确定的上界，通常不会锁到 15 本身（不同版本略有差异）。</p>
+
+    <h4 style="margin-top:16px">④ 非唯一索引等值 → Next-Key + 右侧 Gap</h4>
+    <pre style="margin:6px 0"><code>SELECT * FROM t WHERE k = 8 FOR UPDATE;   -- idx_k 是普通索引</code></pre>
+    <p>非唯一索引可能有多个 k=8，所以要防"再插一个 k=8"。加锁：<span class="lk">k=8 的 Next-Key (5,8]</span> + <span class="lk">向右到下一个值的 Gap (8,15)</span>。同时因为要回表，<b>命中行的主键 id 上也加 Record Lock</b>。别人插 k=8 或 k=10 都被挡（8 到 15 之间的间隙被锁）。</p>
+
+    <h4 style="margin-top:16px">⑤ <span class="wait">不走索引</span> → 锁全表每一行</h4>
+    <pre style="margin:6px 0"><code>SELECT * FROM t WHERE k+0 = 8 FOR UPDATE;  -- 对列运算，索引失效</code></pre>
+    <p>用不上索引 → 全表扫描 → 扫到的<b>每一行都加 Next-Key Lock</b>，等于<b>锁住整张表</b>（所有记录 + 所有间隙）。这就是"更新不带索引会锁表"的真相。务必让 where 走索引。</p>
+
+    <div class="tip box" style="margin-top:14px"><b>规律总结：</b>① 主键/唯一索引命中 → 只 Record；② 未命中 → 只 Gap；③ 非唯一索引/范围 → Next-Key(记录+间隙)，还要防右侧插入所以多锁一段右 Gap；④ 不走索引 → 锁全表。<b>RC 隔离级别下把上面所有 Gap/Next-Key 都去掉，只留 Record Lock。</b></div>
+  </div>
+</div>
+
+<h3>锁什么时候释放？—— 两阶段锁协议(2PL)</h3>
+<p>核心结论：InnoDB 的<b>行锁遵循两阶段锁协议</b> —— 锁在事务执行中<b>按需逐步加上</b>，但<b>不是用完就放，而是一直持有到事务 <code>COMMIT</code> 或 <code>ROLLBACK</code> 时才统一释放</b>。</p>
+<div class="diagram">
+ 两阶段锁 (2PL)：
+   加锁阶段 ─────────────▶  一路对访问到的行加锁，只加不放
+   ─────────────────────
+   事务执行中... update A（锁A）... update B（锁B）...
+   ─────────────────────
+   COMMIT / ROLLBACK  ──▶  ★ 到这一刻，A、B 的锁一次性全部释放
+</div>
+<table>
+<tr><th>锁类型</th><th>释放时机</th></tr>
+<tr><td><b>行锁</b>（Record/Gap/Next-Key）</td><td>事务 <b>commit / rollback</b> 时统一释放（不是语句结束）</td></tr>
+<tr><td><b>意向锁 IS/IX</b></td><td>事务结束</td></tr>
+<tr><td><b>MDL 元数据锁</b></td><td>事务结束 —— <b>长事务会一直占着，导致 DDL(改表结构)被长时间阻塞</b></td></tr>
+<tr><td><b>AUTO-INC 锁</b></td><td><b>语句</b>结束就释放（前面讲过，不等事务）</td></tr>
+<tr><td><b>表锁</b> lock tables</td><td><code>unlock tables</code> 或事务结束</td></tr>
+<tr><td><b>全局锁</b> FTWRL</td><td><code>unlock tables</code> 或客户端断开连接</td></tr>
+</table>
+<div class="tip box"><b>2PL 的实践意义 —— 热点行的更新放到事务最后。</b> 既然行锁要持有到事务结束，那么<b>越早加的锁、被持有的时间越长</b>，越容易阻塞别人。所以事务里应把<b>并发冲突最激烈的那条更新语句放在最后</b>，缩短它占锁的时间。<br>例：下单要「① 查商品信息 ② 插一条订单 ③ 扣热点商品库存」，应把③（大家抢的热点行）放最后执行，让它的行锁只在 commit 前极短时间内持有，提升并发。</div>
+<div class="info box"><b>一个例外（RC 下的提前释放）：</b>RC 隔离级别下，<code>UPDATE</code>/<code>DELETE</code> 扫描时对<b>不满足 where 条件</b>的行，加的锁会在判断后<b>立即释放</b>，不用等事务结束；RR 下则倾向保留。所以 RC 加锁范围更小、并发更好（代价是有幻读）。</div>
+
+<h3>死锁</h3>
+<p>两个事务互相持有对方要的锁并等待，谁也不放手。InnoDB 有<b>死锁检测</b>(<code>innodb_deadlock_detect</code>)，检测到会<b>回滚代价小的那个</b>事务(报 <code>Deadlock found</code>)；也可靠 <code>innodb_lock_wait_timeout</code> 超时被动解开。预防：按固定顺序访问、缩小事务、降低隔离级别、加合适索引避免锁范围过大。
+<span class="ex-btn" onclick="openModal('ex-deadlock')">📖 看两个具体例子（记录锁 / 间隙锁）</span></p>
+
+<div class="modal-overlay" id="ex-deadlock">
+  <div class="modal">
+    <span class="close" onclick="closeModal('ex-deadlock')">&times;</span>
+    <h3 class="modal-title">死锁实例 · 用上记录锁 / 间隙锁</h3>
+    <p>表 <code>t(id INT PRIMARY KEY, v INT)</code>，已有记录 <code>id = 10、20</code>，隔离级别 <b>RR</b>。</p>
+
+    <h4 style="margin-top:16px">例1：交叉加<b>记录锁</b>（最经典）</h4>
+    <p>两个事务以<b>相反顺序</b>更新同两行，各自锁住一行后又去要对方的行：</p>
+    <div class="diagram">
+ 时刻  事务 T1                        事务 T2
+ ───────────────────────────────────────────────────────
+  t1   UPDATE t SET v=1 WHERE id=10;
+        └ <span class="hold">拿到 id=10 的 Record Lock(X)</span>
+  t2                                 UPDATE t SET v=1 WHERE id=20;
+                                      └ <span class="hold">拿到 id=20 的 Record Lock(X)</span>
+  t3   UPDATE t SET v=2 WHERE id=20;
+        └ 要 id=20，被 T2 占着 → <span class="wait">等待</span>
+  t4                                 UPDATE t SET v=2 WHERE id=10;
+                                      └ 要 id=10，被 T1 占着 → <span class="wait">等待</span>
+        ✗ T1 等 T2、T2 等 T1 → 死锁！InnoDB 回滚其一
+    </div>
+    <p class="kbd">根因：加锁<b>顺序相反</b>（T1 是 10→20，T2 是 20→10）。只要统一成"永远先小 id 后大 id"，就不会环等。</p>
+
+    <h4 style="margin-top:20px">例2：<b>间隙锁 + 插入意向锁</b>（RR 下最隐蔽的死锁）</h4>
+    <p>两个事务先查一个<b>不存在</b>的 id（拿到间隙锁），再各自插入。关键前提：<b>间隙锁之间互相兼容</b>（都只是"不许在这段插"，可共存），但 INSERT 需要的<b>插入意向锁</b>会被别人的间隙锁挡住：</p>
+    <div class="diagram">
+ 时刻  事务 T1                              事务 T2
+ ──────────────────────────────────────────────────────────────
+  t1   SELECT * FROM t WHERE id=15 FOR UPDATE;
+        └ <span class="hold">未命中，拿到 Gap Lock (10,20)</span>
+  t2                                       SELECT * FROM t WHERE id=15 FOR UPDATE;
+                                            └ <span class="hold">未命中，也拿到 Gap Lock (10,20)</span>
+                                            <span class="ok">✔ 间隙锁互相兼容，两人都拿到了</span>
+  t3   INSERT INTO t VALUES(15,0);
+        └ 需插入意向锁，被 T2 的 gap 挡 → <span class="wait">等待</span>
+  t4                                       INSERT INTO t VALUES(15,0);
+                                            └ 需插入意向锁，被 T1 的 gap 挡 → <span class="wait">等待</span>
+        ✗ 互相等对方释放间隙锁 → 死锁！
+    </div>
+    <div class="info box" style="margin-top:8px"><b>插入意向锁(Insert Intention Lock)：</b>是一种特殊的 Gap Lock，INSERT 前要先申请。它与<b>普通间隙锁冲突</b>（别人锁了这个 gap，我就插不进去要等），但插入意向锁彼此之间不冲突。所以两个事务能同时持有同一个 gap 的间隙锁，却都无法完成插入 —— 这是 RR 下 <code>SELECT...FOR UPDATE</code> 判空再插入这种"先查后插"逻辑高发死锁的原因。</div>
+    <p class="kbd">避坑：这类"不存在就插入"的逻辑，改用 <code>INSERT ... ON DUPLICATE KEY UPDATE</code> 或把隔离级别降到 RC（无间隙锁），能避开。</p>
+
+    <div class="tip box" style="margin-top:14px"><b>两例对照：</b>例1 是<b>记录锁</b>环等（顺序问题）；例2 是<b>间隙锁</b>共存却互挡插入（RR 特有）。面试问"举个死锁例子"，能说出例2 会很加分，因为它直接用到了间隙锁的兼容性这个细节。</div>
+  </div>
+</div>
+</section>
+
+<!-- ============ 日志 ============ -->
+<section id="log">
+<h2 class="sec">二 · 6 日志：为什么有、存什么、怎么落盘</h2>
+<p>按「为什么有 / 存什么 / 怎么落盘」三个维度拉一张总表，再逐个展开。</p>
+<table>
+<tr><th>日志</th><th>层</th><th>为什么有</th><th>存什么</th><th>怎么落盘</th></tr>
+<tr><td><b>redo log</b></td><td><span class="tag innodb">InnoDB</span></td><td>持久性 + 崩溃恢复；避免每次提交都随机刷数据页</td><td><b>物理</b>日志：某表空间某页某偏移做了什么改动</td><td><b>循环写</b>固定文件，WAL 先写日志后刷页；<code>innodb_flush_log_at_trx_commit</code></td></tr>
+<tr><td><b>undo log</b></td><td><span class="tag innodb">InnoDB</span></td><td>原子性(回滚) + MVCC 多版本</td><td><b>逻辑</b>日志：反向操作(insert↔delete，update存旧值)</td><td>存于回滚段，本身也受 redo 保护</td></tr>
+<tr><td><b>binlog</b></td><td><span class="tag server">Server</span></td><td>主从复制 + 数据归档/恢复</td><td><b>逻辑</b>日志：statement / row / mixed 三种格式</td><td><b>追加写</b>不覆盖；<code>sync_binlog</code></td></tr>
+</table>
+
+<h3>redo log（重做日志）—— WAL 的核心</h3>
+<p>如果每次事务提交都把随机分布的脏页刷到磁盘，就是大量<b>随机 I/O</b>，极慢。redo log 的思路是 <b>WAL(Write-Ahead Logging)：先顺序写 redo，再择机批量刷脏页</b>。宕机后用 redo 把已提交但没刷盘的页"重做"回来。</p>
+<ul>
+<li><b>物理日志</b>、<b>循环写</b>：一组固定大小文件，写满回到开头覆盖。用 <code>write pos</code>(写位置) 和 <code>checkpoint</code>(已刷盘位置) 两个指针，两者之间是"可覆盖"，追上了就必须先刷脏页(<b>此时会阻塞</b>)。</li>
+<li><b>刷盘策略 <code>innodb_flush_log_at_trx_commit</code>：</b>
+  <table>
+  <tr><th>值</th><th>行为</th><th>安全性</th></tr>
+  <tr><td><b>1</b>(默认)</td><td>每次提交都刷到磁盘</td><td>最安全，不丢；最慢</td></tr>
+  <tr><td>0</td><td>只写 redo buffer，靠后台每秒刷</td><td>宕机丢最近 1 秒</td></tr>
+  <tr><td>2</td><td>提交时写到 OS page cache，不强制刷盘</td><td>MySQL 崩溃不丢，OS/机器崩溃丢 1 秒</td></tr>
+  </table>
+</li>
+</ul>
+
+<h3>undo log（回滚日志）</h3>
+<ul>
+<li>事务里每做一次修改，先把<b>反向操作</b>记进 undo：insert 记 delete、delete 记 insert、update 记旧值。回滚时反向执行。</li>
+<li>同时是 <b>MVCC 版本链</b>的存储：旧版本就在 undo 里，靠 <code>DB_ROLL_PTR</code> 串联。</li>
+<li>undo 不能立刻删，要等<b>没有任何 ReadView 会用到它</b>时，由 <b>purge 线程</b>清理。长事务会让 undo 无法回收而膨胀 —— 这是"长事务危害"的一大原因。</li>
+</ul>
+
+<h3>binlog（归档日志）<span class="tag server">Server层</span></h3>
+<ul>
+<li><b>Server 层</b>产生，所有引擎通用。用途：<b>主从复制</b>(从库拉 binlog 重放) 和 <b>基于时间点的恢复</b>。</li>
+<li>三种格式：<b>statement</b>(记原始 SQL，紧凑但 <code>now()</code>/<code>uuid()</code> 等主从不一致)、<b>row</b>(记每行改成什么样，安全但大)、<b>mixed</b>(自动选)。生产多用 row。</li>
+<li>刷盘 <code>sync_binlog</code>：0=靠 OS，1=每次提交都刷(最安全)，N=每 N 个事务刷一次。</li>
+</ul>
+<div class="warn box"><b>redo vs binlog 三大区别（必背）：</b>① <b>层</b>：redo 属 InnoDB，binlog 属 Server；② <b>内容</b>：redo 物理("页怎么改")，binlog 逻辑("做了什么操作")；③ <b>写法</b>：redo 循环写会覆盖(只做崩溃恢复)，binlog 追加写永久保留(可复制/归档)。</div>
+</section>
+
+<!-- ============ 2PC ============ -->
+<section id="2pc">
+<h3>两阶段提交(2PC)与崩溃恢复 <span class="tag">高频</span></h3>
+<p>为什么需要 2PC？因为一条 update 要同时写 <b>redo(InnoDB)</b> 和 <b>binlog(Server)</b> 两份日志，两者必须<b>一致</b>：不能出现"redo 恢复了数据、binlog 却没记录"（主从不一致），反之亦然。InnoDB 用两阶段提交把它们绑定：</p>
+<div class="hd">
+  <div class="node"><span class="em">① 写 redo log，标记为 prepare 状态</span>　<span class="sub">← InnoDB</span></div>
+  <div class="arrow-d">▼</div>
+  <div class="node"><span class="em">② 写 binlog</span>　<span class="sub">← Server</span></div>
+  <div class="arrow-d">▼</div>
+  <div class="node"><span class="em">③ 写 redo log，标记为 commit 状态</span>　<span class="sub">← InnoDB</span></div>
+</div>
+<h4>崩溃恢复时怎么判断？</h4>
+<ol>
+<li>redo 是 <b>commit</b> 状态 → 直接提交，正常。</li>
+<li>redo 是 <b>prepare</b> 状态 → 去看 binlog：
+  <ul>
+    <li>binlog <b>完整</b> → <b>提交</b>该事务（说明②已完成，只是没来得及写 commit）。</li>
+    <li>binlog <b>不完整/没有</b> → <b>回滚</b>该事务（②之前就崩了）。</li>
+  </ul>
+</li>
+</ol>
+<p>这样保证 redo 与 binlog 要么都生效要么都不生效，主从数据一致。</p>
+
+<h4>double write（两次写）— 补充</h4>
+<p>redo 是"逻辑上的物理日志"，它记录的是"对页的修改"，前提是<b>页本身是完整的</b>。但如果刷盘时发生<b>部分写(partial write)</b>——16KB 页只写了一半就宕机，页已损坏，redo 也无从修复。InnoDB 用 <b>double write buffer</b>：刷脏页时先把页<b>顺序写</b>到一块共享的 double write 区域，再写到真正位置。宕机后若发现页损坏，用 double write 里的完整副本还原。这才是页级"防刷一半"的最终保障（呼应前面 File Trailer 校验和）。</p>
+</section>
+
+<!-- ============ 主从复制 ============ -->
+<section id="replication">
+<h2 class="sec">附 · 主从复制与主从延迟</h2>
+<p>接 <a href="#log">binlog</a>：binlog 最大的用途就是主从复制。搞主从是为了<b>读写分离</b>（主写从读，分摊压力）、<b>高可用</b>（主挂了从顶上）和<b>备份</b>。</p>
+
+<h3>复制原理：一主一从三个线程</h3>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-blue" style="flex:0 0 200px">
+      <div class="cap">主库 Master</div>
+      <div class="node">写 binlog</div>
+      <div class="node hold">binlog</div>
+    </div>
+    <div class="arrow-r">① log dump 线程<br>───────▶</div>
+    <div class="grp2 g-green">
+      <div class="cap">从库 Slave</div>
+      <div class="node"><span class="em">② I/O 线程</span>　接收 binlog，写入 <span style="color:#2dd4bf">relay log</span>(中继日志)</div>
+      <div class="arrow-d">▼</div>
+      <div class="node"><span class="em">③ SQL 线程</span>　读 relay log <span style="color:#2dd4bf">重放</span>，把数据同步过来</div>
+    </div>
+  </div>
+</div>
+<ol>
+<li>主库把改动写入 <b>binlog</b>；<b>log dump 线程</b>把 binlog 推送给从库。</li>
+<li>从库 <b>I/O 线程</b>接收 binlog，写入本地 <b>relay log（中继日志）</b>。</li>
+<li>从库 <b>SQL 线程</b>读 relay log 并<b>重放</b>，数据就同步过来了。（5.7+ 支持多线程重放 MTS）</li>
+</ol>
+
+<h3>三种复制模式</h3>
+<table>
+<tr><th>模式</th><th>主库何时算提交成功</th><th>特点</th></tr>
+<tr><td><b>异步复制</b>(默认)</td><td>写完自己的 binlog 就返回，<b>不等从库</b></td><td>性能最好，但主库宕机可能丢已提交但没传到从库的数据</td></tr>
+<tr><td><b>半同步复制</b></td><td>至少<b>一个从库</b>确认收到 binlog(写入 relay log)才返回</td><td>更安全，牺牲一点延迟</td></tr>
+<tr><td><b>组复制 MGR</b></td><td>基于 Paxos 多数派确认</td><td>强一致、支持多主，架构较复杂</td></tr>
+</table>
+<p class="kbd">binlog 格式影响复制正确性：<b>statement</b> 可能因 <code>now()</code>/<code>uuid()</code> 等主从不一致；<b>row</b> 记录每行实际值，安全，8.0 默认。（呼应前面<a href="#lock">自增锁</a>为何 8.0 默认改 interleaved。）</p>
+
+<h3>主从延迟：原因与解决</h3>
+<p>主从延迟 = 从库数据比主库慢一拍。核心原因是<b>主库并发写，从库重放跟不上</b>：</p>
+<table>
+<tr><th>原因</th><th>解决</th></tr>
+<tr><td>从库 SQL 线程<b>单线程</b>重放（老版本）</td><td>开启<b>并行复制</b>（MTS，按库/按组提交并行重放）</td></tr>
+<tr><td><b>大事务</b>：一个事务改百万行，从库要完整重放一遍</td><td>拆小事务、避免大批量更新</td></tr>
+<tr><td>从库承担大量读、配置比主库差</td><td>提升从库配置、加从库分摊</td></tr>
+<tr><td>大表 DDL、从库锁等待</td><td>低峰做 DDL、用在线 DDL 工具</td></tr>
+</table>
+<div class="info box"><b>读写分离下如何读到最新数据？</b>（延迟导致刚写完从库读不到）几种手段：① 关键读<b>强制走主库</b>；② 用<b>半同步</b>保证从库已收到；③ 判断从库延迟(<code>Seconds_Behind_Master</code>)在阈值内才读从库；④ 从库读不到时<b>降级读主库</b>。</div>
+</section>
+
+<!-- ============ 引擎对比 ============ -->
+<section id="engines">
+<h2 class="sec">附 · MyISAM vs InnoDB</h2>
+<p>最经典的引擎对比题。MySQL <b>5.5 起默认引擎是 InnoDB</b>，MyISAM 基本退役，但对比常被问，因为它能考察你对事务、锁、索引组织的理解。</p>
+<table>
+<tr><th>维度</th><th>InnoDB</th><th>MyISAM</th></tr>
+<tr><td><b>事务</b></td><td>✅ 支持（ACID）</td><td>❌ 不支持</td></tr>
+<tr><td><b>锁粒度</b></td><td>行锁 + 表锁，并发好</td><td>只有<b>表锁</b>，写并发差</td></tr>
+<tr><td><b>外键</b></td><td>✅ 支持</td><td>❌ 不支持</td></tr>
+<tr><td><b>索引结构</b></td><td><b>聚簇索引</b>：叶子存整行，索引即数据</td><td><b>非聚簇</b>：索引和数据分开存，叶子存数据的<b>地址</b></td></tr>
+<tr><td><b>崩溃恢复</b></td><td>✅ 有 redo log，能恢复</td><td>❌ 无，崩溃要 repair，可能丢数据</td></tr>
+<tr><td><b>count(*)</b></td><td>要实时统计（扫描）</td><td>存了行数，无 where 时 <b>O(1)</b></td></tr>
+<tr><td><b>MVCC</b></td><td>✅ 支持（读写不冲突）</td><td>❌ 不支持</td></tr>
+<tr><td><b>适用</b></td><td>读写混合、要事务/高并发 → <b>绝大多数场景</b></td><td>读多写极少、不要事务（现基本不用）</td></tr>
+</table>
+<div class="tip box"><b>一句话记忆：</b>InnoDB = <b>事务 + 行锁 + 聚簇索引 + 崩溃恢复 + MVCC</b>，MyISAM 这五样全没有，只换来无事务开销下 count 快、结构简单。现代项目<b>无脑选 InnoDB</b>。</div>
+</section>
+
+<!-- ============ count ============ -->
+<section id="count">
+<h2 class="sec">附 · count(*) 的坑</h2>
+<h3>count(*) / count(1) / count(字段) 有什么区别？</h3>
+<table>
+<tr><th>写法</th><th>统计什么</th><th>性能</th></tr>
+<tr><td><b>count(*)</b></td><td>所有行（<b>含各列为 NULL 的行</b>）。MySQL 专门优化，不取具体值</td><td><b>最快，推荐</b></td></tr>
+<tr><td><b>count(1)</b></td><td>所有行，每行填个常量 1 再计数</td><td>和 count(*) 几乎一样快</td></tr>
+<tr><td><b>count(主键 id)</b></td><td>所有行（主键非空）</td><td>要取主键值，略慢于 count(*)</td></tr>
+<tr><td><b>count(普通字段)</b></td><td><b>只统计该字段非 NULL 的行</b>（语义就不同！）</td><td>最慢：要读字段值判 NULL</td></tr>
+</table>
+<div class="warn box"><b>关键：</b><code>count(字段)</code> 会<b>漏掉该字段为 NULL 的行</b>，和 <code>count(*)</code> 语义不同，不只是性能问题。统计总行数一律用 <b>count(*)</b>。</div>
+
+<h3>为什么 InnoDB 的 count(*) 比 MyISAM 慢？</h3>
+<p>MyISAM 把表的<b>总行数直接存在磁盘上</b>，`count(*)` 无 where 时直接返回，O(1)。InnoDB 却不行——因为 <b>MVCC</b>：并发事务各有自己的 ReadView，<b>同一时刻不同事务能看到的行数可能不一样</b>，没法存一个统一的数，只能<b>实时一行行数</b>（优化器会挑一棵最小的二级索引来扫，比扫聚簇索引快）。</p>
+<div class="info box"><b>大表 count 优化：</b>① 能接受近似值就用 <code>EXPLAIN</code> 的 rows 估算；② 用一张<b>计数表</b>随增删维护总数（放事务里保证一致）；③ 用 Redis 等外部计数器（注意一致性）。</div>
+</section>
+
+<!-- ============ join & filesort ============ -->
+<section id="join">
+<h2 class="sec">附 · join 算法 & filesort 原理</h2>
+<p>这节补全前面 <a href="#index-opt">explain</a> 里 <code>Using join buffer</code>、<code>Using filesort</code>、<code>Using temporary</code> 那几个信号背后的"为什么"。</p>
+
+<h3>join 算法</h3>
+<table>
+<tr><th>算法</th><th>怎么工作</th><th>触发条件</th></tr>
+<tr><td><b>Index Nested-Loop (NLJ)</b></td><td>驱动表每行，拿关联值去<b>被驱动表走索引</b>查</td><td>被驱动表关联列<b>有索引</b>（最理想）</td></tr>
+<tr><td><b>Block Nested-Loop (BNL)</b></td><td>把驱动表数据放进 <b>join buffer</b>，批量和被驱动表比，减少被驱动表的重复全表扫</td><td>被驱动表关联列<b>无索引</b>。Extra=<code>Using join buffer</code></td></tr>
+<tr><td><b>Hash Join</b> (8.0.18+)</td><td>对驱动表建<b>哈希表</b>，被驱动表来探测</td><td>无索引的<b>等值</b> join，比 BNL 快很多，8.0 已替代 BNL</td></tr>
+</table>
+<div class="tip box"><b>join 优化两原则：</b>① <b>小表驱动大表</b>（驱动表越小，外层循环越少）；② 给<b>被驱动表的关联字段加索引</b>，把 BNL 变成 NLJ。<code>STRAIGHT_JOIN</code> 可强制驱动顺序。</div>
+
+<h3>filesort：order by 用不上索引时的排序</h3>
+<p><code>ORDER BY</code> 若能利用索引的有序性，直接顺序读即可；<b>用不上索引</b>就得在内存/磁盘里排序 → Extra 出现 <code>Using filesort</code>。排序在 <code>sort_buffer</code> 里做，数据小全内存、大则借助磁盘临时文件做归并。它有两种方式：</p>
+<table>
+<tr><th>方式</th><th>怎么排</th><th>权衡</th></tr>
+<tr><td><b>单路排序</b><br>(全字段排序)</td><td>把查询要的<b>所有字段</b>一次性取进 sort_buffer 一起排</td><td>只回表一次、快；但占 buffer 大，buffer 装不下就多次磁盘归并</td></tr>
+<tr><td><b>双路排序</b><br>(rowid 排序)</td><td>只取<b>排序字段 + 主键</b>排，排完再<b>回表</b>取其它字段</td><td>省 buffer；但要回表两次、多一轮随机 I/O</td></tr>
+</table>
+<p class="kbd">由 <code>max_length_for_sort_data</code> 决定：单行要取的字段总长小于它用单路，否则用双路。优化方向：<b>让 order by 走索引避免 filesort</b>（最有效）、适当调大 <code>sort_buffer_size</code>、只 select 需要的列。</p>
+<div class="info box"><b>Using temporary：</b><code>GROUP BY</code>、<code>DISTINCT</code>、<code>UNION</code> 去重时可能用<b>临时表</b>，也是要优化的信号——让 group by 的列走索引（本就有序）就能免临时表。</div>
+</section>
+
+<!-- ============ 完整链路 ============ -->
+<section id="lifecycle">
+<h2 class="sec">附 · 一条 SQL 的完整执行链路（总结）</h2>
+<p>把前面所有章节串成一条线。分两种：<b>查询</b>相对简单，<b>更新</b>最能考察全局。面试答这题，能把这两条链路讲清就基本通关。</p>
+
+<h3>一、查询语句 SELECT</h3>
+<p>以 <code>SELECT * FROM t WHERE id = 10</code> 为例。请求先到 <b>Server 层</b>：<b>连接器</b>建立连接、完成鉴权并读取权限；MySQL 8.0 已删除查询缓存（8.0 之前若命中会直接返回）；接着<b>分析器</b>做词法、语法分析，生成语法树并检查表和列是否存在；<b>优化器</b>据此选择索引、确定执行计划（这里走 id 主键索引）；最后<b>执行器</b>校验权限、调用存储引擎接口取数据。</p>
+<p>请求转入 <b>InnoDB 引擎层</b>：先去 <b>Buffer Pool</b> 找目标页，命中就直接用、未命中则从磁盘把整页读进 Buffer Pool；然后沿 <b>B+ 树索引</b>定位到 id=10 的记录；由于普通 SELECT 是<b>快照读</b>，还要走 <b>MVCC</b>——用 ReadView 配合 undo 版本链判断出对当前事务可见的那个版本。最终执行器把结果集返回客户端。</p>
+<p class="kbd">补充：若走二级索引还多一步<b>回表</b>；若要查的列都在索引里则<b>覆盖索引</b>免回表。普通 SELECT 全程<b>不加锁</b>。</p>
+<span class="ex-btn" onclick="openModal('ex-lc-select')">📖 看示意图</span>
+
+<h3>二、更新语句 UPDATE（重点）</h3>
+<p>以 <code>UPDATE t SET v = 2 WHERE id = 10</code>（autocommit=1）为例。前半程——连接器、分析器、优化器、执行器——和查询<b>完全一样</b>，差别在执行器驱动 InnoDB 真正改数据、并写日志、走两阶段提交。</p>
+<p>执行器让 InnoDB 更新 id=10 这一行：先在 <b>Buffer Pool</b> 找到（或从磁盘读入）目标页；因为是<b>当前读</b>，给这一行加<b>排他行锁(X)</b>；改之前先写 <b>undo log</b> 记下旧值 v=1（既用于回滚，也作为 MVCC 的历史版本，undo 本身也受 redo 保护）；然后修改 Buffer Pool 里的数据页把 v 改成 2，该页变成<b>脏页</b>；同时写 <b>redo log</b> 记录"这个页怎么改了"，并置为 <b>prepare</b> 状态。</p>
+<p>进入<b>提交阶段的两阶段提交(2PC)</b>：先把 redo log 刷盘（prepare，受 <code>innodb_flush_log_at_trx_commit</code> 控制）；再写 <b>binlog</b> 并刷盘（Server 层，受 <code>sync_binlog</code> 控制）；最后把 redo log 置为 <b>commit</b>。事务至此提交完成，<b>释放行锁</b>（遵循 2PL，到这一刻才放）。而那个脏页并不马上落盘，由后台线程按 <b>WAL</b> 思想择机刷回磁盘——先写日志、数据页慢慢刷，把随机写攒成顺序写。</p>
+
+<div class="info box"><b>为什么写三种日志？各司其职：</b>
+<ul style="margin:6px 0">
+<li><b>undo</b>：存旧值 → 支持<b>回滚</b>和 <b>MVCC</b> 多版本。</li>
+<li><b>redo</b>：记页改动 → <b>崩溃恢复</b>，实现 WAL。</li>
+<li><b>binlog</b>：记逻辑操作 → <b>主从复制</b>和归档。</li>
+</ul>
+其中 redo 的 prepare/commit 加上中间的 binlog，构成<b>两阶段提交</b>，保证两份日志一致：崩溃恢复时 redo 是 commit 就提交，是 prepare 就看 binlog 完不完整——完整则提交、不完整则回滚，避免主从不一致。详见 <a href="#2pc">两阶段提交</a>。</div>
+
+<p class="kbd">一句话口诀（更新）：<b>“一锁、二改、三日志、两阶段、后刷盘”</b> —— 加锁 → 改数据页 → undo/redo/binlog → 2PC 提交 → 后台刷脏页。</p>
+<span class="ex-btn" onclick="openModal('ex-lc-update')">📖 看示意图</span>
+
+<!-- SELECT 示意图弹窗 -->
+<div class="modal-overlay" id="ex-lc-select">
+  <div class="modal">
+    <span class="close" onclick="closeModal('ex-lc-select')">&times;</span>
+    <h3 class="modal-title">SELECT 执行链路示意图</h3>
+    <pre style="margin:8px 0"><code>SELECT * FROM t WHERE id = 10;</code></pre>
+    <div class="diagram">
+ 客户端
+   │
+   ▼  ── Server 层 ──
+ ① <span class="lk">连接器</span>     建立连接、鉴权、读权限
+ ② <span class="lk">查询缓存</span>   8.0 已删除（8.0 前命中则直接返回）
+ ③ <span class="lk">分析器</span>     词法/语法分析 → 语法树，检查表列是否存在
+ ④ <span class="lk">优化器</span>     选索引、定执行计划（走 id 主键索引）
+ ⑤ <span class="lk">执行器</span>     校验权限，调用 InnoDB 接口取数据
+   │
+   ▼  ── InnoDB 引擎层 ──
+ ⑥ 先在 <span class="hold">Buffer Pool</span> 找目标页
+      命中 → 直接用；未命中 → 从磁盘读整页进 Buffer Pool
+ ⑦ 沿 <span class="hold">B+ 树索引</span> 定位到 id=10 的记录
+ ⑧ 快照读走 <span class="hold">MVCC</span>：ReadView + undo 版本链判断可见版本
+   │
+   ▼
+ ⑨ 执行器把结果集返回客户端
+    </div>
+  </div>
+</div>
+
+<!-- UPDATE 示意图弹窗 -->
+<div class="modal-overlay" id="ex-lc-update">
+  <div class="modal">
+    <span class="close" onclick="closeModal('ex-lc-update')">&times;</span>
+    <h3 class="modal-title">UPDATE 执行链路示意图</h3>
+    <pre style="margin:8px 0"><code>UPDATE t SET v = 2 WHERE id = 10;   -- autocommit=1</code></pre>
+    <div class="diagram">
+ 前置：① 连接器 → ③ 分析器 → ④ 优化器 → ⑤ 执行器（同查询）
+   │
+   ▼  ── 执行器调 InnoDB 更新 id=10 这一行 ──
+ ⑥ Buffer Pool 找/读目标页（不在则从磁盘读入）
+ ⑦ 当前读，给 id=10 加 <span class="lk">行锁(X)</span>
+ ⑧ 写 <span class="hold">undo log</span>（记旧值 v=1，供回滚 + MVCC）
+ ⑨ 修改数据页：v=1 → v=2，该页变<span class="wait">脏页</span>
+ ⑩ 写 <span class="hold">redo log</span>（记"页怎么改"），置 <b>prepare</b>
+   │
+   ▼  ── 提交阶段：两阶段提交(2PC) ──
+ ⑪ <span class="hold">redo log</span> 刷盘（prepare）   ← innodb_flush_log_at_trx_commit
+ ⑫ 写 <span class="hold">binlog</span> 并刷盘             ← sync_binlog（Server 层）
+ ⑬ <span class="hold">redo log</span> 置 <b>commit</b>
+   │
+   ▼
+ ⑭ 事务提交完成，<span class="wait">释放行锁</span>（2PL：到这一刻才放）
+ ⑮ 后台线程择机把脏页刷回磁盘（WAL：先写日志，数据页慢慢刷）
+    </div>
+    <div class="tip box" style="margin-top:12px">口诀：<b>一锁、二改、三日志、两阶段、后刷盘</b></div>
+  </div>
+</div>
+</section>
+
+<!-- ============ SQL 关键字 ============ -->
+<section id="sql">
+<h2 class="sec">附 · SQL 关键字整理</h2>
+<p>前面讲的是引擎内部，这里回到 SQL 语言本身，把关键字按四个维度归类。</p>
+
+<h3>1 · 关键字分类（按功能）</h3>
+<table>
+<tr><th>类别</th><th>全称</th><th>常见关键字</th><th>能否回滚</th></tr>
+<tr><td><b>DDL</b></td><td>数据定义语言</td><td><code>CREATE</code> / <code>ALTER</code> / <code>DROP</code> / <code>TRUNCATE</code> / <code>RENAME</code></td><td>❌ 不能（<b>隐式提交</b>，执行前后自动 commit）</td></tr>
+<tr><td><b>DML</b></td><td>数据操作语言</td><td><code>INSERT</code> / <code>UPDATE</code> / <code>DELETE</code></td><td>✅ 能（在事务里可 rollback）</td></tr>
+<tr><td><b>DQL</b></td><td>数据查询语言</td><td><code>SELECT</code></td><td>—（只读）</td></tr>
+<tr><td><b>DCL</b></td><td>数据控制语言</td><td><code>GRANT</code> / <code>REVOKE</code></td><td>❌ 权限类，隐式提交</td></tr>
+<tr><td><b>TCL</b></td><td>事务控制语言</td><td><code>BEGIN</code> / <code>COMMIT</code> / <code>ROLLBACK</code> / <code>SAVEPOINT</code></td><td>本身就是控制事务的</td></tr>
+</table>
+<div class="warn box"><b>易错点：</b><code>DELETE</code> 是 DML 可回滚、逐行删除还写 undo/binlog；<code>TRUNCATE</code> 是 DDL <b>不可回滚</b>、直接drop重建表、更快但危险。<code>DROP</code> 连表结构一起删。三者别混。</div>
+
+<h3>2 · 关键字执行顺序（逻辑执行顺序）<span class="tag">高频</span></h3>
+<p>你写 SQL 的顺序 ≠ MySQL 执行的顺序。理解执行顺序能解释很多现象（如为什么 <code>WHERE</code> 里不能用 <code>SELECT</code> 的别名、为什么 <code>HAVING</code> 能用聚合函数而 <code>WHERE</code> 不能）。</p>
+<div class="diagram">
+ 书写顺序：SELECT ... FROM ... WHERE ... GROUP BY ... HAVING ... ORDER BY ... LIMIT
+
+ 执行顺序（编号=先后）：
+   ① FROM / JOIN     取数据源、做连接，生成中间表
+   ② ON              连接条件
+   ③ WHERE           行过滤（此时还没有分组、没有别名）
+   ④ GROUP BY        分组
+   ⑤ HAVING          对分组后的结果过滤（可用聚合函数）
+   ⑥ SELECT          选列、算表达式、定义别名
+   ⑦ DISTINCT        去重
+   ⑧ ORDER BY        排序（可用 SELECT 里的别名）
+   ⑨ LIMIT           取前 N 行
+</div>
+<div class="info box"><b>由执行顺序推出的结论：</b>
+<ul style="margin:6px 0">
+<li><code>WHERE</code>(③) 在 <code>SELECT</code>(⑥) 之前 → <b>WHERE 里用不了 SELECT 定义的别名</b>。</li>
+<li><code>WHERE</code> 在 <code>GROUP BY</code> 之前 → WHERE 里<b>不能用聚合函数</b>（还没分组）；要对聚合结果过滤得用 <code>HAVING</code>(⑤)。</li>
+<li><code>ORDER BY</code>(⑧) 在 <code>SELECT</code>(⑥) 之后 → <b>ORDER BY 可以用别名</b>。</li>
+<li><code>LIMIT</code> 最后执行 → 深分页 <code>LIMIT 100000,10</code> 仍要先扫前 10 万行再丢弃，所以慢。</li>
+</ul></div>
+
+<h3>3 · 锁相关 / 事务控制关键字</h3>
+<table>
+<tr><th>关键字</th><th>作用</th></tr>
+<tr><td><code>BEGIN</code> / <code>START TRANSACTION</code></td><td>开启事务</td></tr>
+<tr><td><code>COMMIT</code></td><td>提交，持久化，释放行锁</td></tr>
+<tr><td><code>ROLLBACK</code></td><td>回滚（靠 undo log）</td></tr>
+<tr><td><code>SAVEPOINT</code> / <code>ROLLBACK TO</code></td><td>设置保存点 / 回滚到保存点（部分回滚）</td></tr>
+<tr><td><code>SELECT ... FOR UPDATE</code></td><td><b>当前读 + 排他锁(X)</b>，别人不能读锁/改。用于"查了要改"</td></tr>
+<tr><td><code>SELECT ... LOCK IN SHARE MODE</code><br>(8.0: <code>FOR SHARE</code>)</td><td><b>当前读 + 共享锁(S)</b>，别人能读不能改。用于"查了要保证它不变"</td></tr>
+<tr><td><code>SET TRANSACTION ISOLATION LEVEL ...</code></td><td>设置隔离级别（RU/RC/RR/串行化）</td></tr>
+</table>
+<p class="kbd">复习：<code>FOR UPDATE</code>/<code>LOCK IN SHARE MODE</code> 就是前面「<a href="#mvcc">当前读</a>」的入口，会触发「<a href="#lock">加锁逻辑</a>」里那些 Record/Gap/Next-Key 锁。</p>
+
+<h3>4 · 常用查询 / 连接 / 优化关键字</h3>
+<h4>JOIN 连接</h4>
+<table>
+<tr><th>关键字</th><th>含义</th></tr>
+<tr><td><code>INNER JOIN</code></td><td>内连接，只保留两表都匹配的行</td></tr>
+<tr><td><code>LEFT JOIN</code></td><td>左连接，保留左表全部，右表无匹配补 NULL</td></tr>
+<tr><td><code>RIGHT JOIN</code></td><td>右连接，保留右表全部</td></tr>
+<tr><td colspan="2">MySQL <b>不支持 FULL OUTER JOIN</b>，需用 <code>LEFT JOIN UNION RIGHT JOIN</code> 模拟</td></tr>
+</table>
+<h4>集合 / 去重 / 分页</h4>
+<table>
+<tr><th>关键字</th><th>含义 / 注意</th></tr>
+<tr><td><code>UNION</code> / <code>UNION ALL</code></td><td>纵向合并结果集。<code>UNION</code> 去重+排序（有开销）；<code>UNION ALL</code> 不去重、更快，能用就用它</td></tr>
+<tr><td><code>IN</code> / <code>EXISTS</code></td><td>子查询。经验：<b>外表大用 IN、外表小用 EXISTS</b>（EXISTS 以外表驱动）；现代优化器差异已减小</td></tr>
+<tr><td><code>DISTINCT</code></td><td>去重，可能触发排序/临时表</td></tr>
+<tr><td><code>LIMIT n</code> / <code>LIMIT m,n</code></td><td>取行 / 分页。深分页优化：<code>WHERE id&gt;上次最大id LIMIT n</code> 代替大 offset</td></tr>
+<tr><td><code>GROUP BY</code> / <code>HAVING</code></td><td>分组 / 组后过滤</td></tr>
+<tr><td><code>ORDER BY</code></td><td>排序，用不上索引顺序时 Extra 出现 <code>Using filesort</code></td></tr>
+</table>
+</section>
+
+<!-- ============ 速记 ============ -->
+<section id="cheat">
+<h2 class="sec">附 · 高频面试速记</h2>
+<details class="q"><summary>为什么用 B+ 树而不是 B 树/Hash？</summary><div class="a">B+ 非叶子只存 key 更矮胖(3~4层存千万行)、叶子双向链表利于范围查询和排序；Hash 不支持范围和排序。</div></details>
+<details class="q"><summary>聚簇索引和二级索引区别？什么是回表？</summary><div class="a">聚簇索引叶子存整行(按主键组织，一张表一个)；二级索引叶子存"索引列+主键值"。用二级索引查到主键后再去聚簇索引取整行=回表。要查的列全在索引里则"覆盖索引"免回表。</div></details>
+<details class="q"><summary>RC 和 RR 隔离级别的本质区别？</summary><div class="a">MVCC 建 ReadView 时机：RC 每次快照读都新建(看到别人最新提交→不可重复读)；RR 事务首次读建一次并复用(整事务同一快照→可重复读)。</div></details>
+<details class="q"><summary>InnoDB 的 RR 解决幻读了吗？</summary><div class="a">基本解决。快照读靠 MVCC，当前读靠 Next-Key Lock(记录锁+间隙锁)。但先快照读再当前读同一范围的交错场景仍可能出现，非 100%。</div></details>
+<details class="q"><summary>MVCC 的可见性怎么判断？</summary><div class="a">拿版本的 trx_id 比 ReadView：<min_trx 可见；≥max_trx 不可见；区间内看是否在 m_ids 活跃集合(在=不可见)。不可见就顺 roll_ptr 找旧版本。</div></details>
+<details class="q"><summary>redo log 和 binlog 的区别？为什么要两阶段提交？</summary><div class="a">redo 属 InnoDB/物理/循环写/崩溃恢复；binlog 属 Server/逻辑/追加写/复制归档。两份日志要一致，用 2PC(redo prepare → binlog → redo commit)，崩溃恢复时以 binlog 是否完整决定提交或回滚。</div></details>
+<details class="q"><summary>undo log 的两个作用？</summary><div class="a">① 事务回滚(存反向操作，实现原子性)；② MVCC 版本链的存储载体。由 purge 线程在无 ReadView 引用时清理，长事务会拖住它。</div></details>
+<details class="q"><summary>一条 update 的完整流程？</summary><div class="a">连接→(分析优化)→执行器调 InnoDB→Buffer Pool 找页(无则读盘)→写 undo→改内存页(脏页)→写 redo(prepare)→写 binlog→写 redo(commit)→后台择机刷脏页。</div></details>
+<details class="q"><summary>行锁加在哪？为什么不带索引的 update 会锁很多行？</summary><div class="a">行锁加在<b>索引</b>上。走不到索引时全表扫描，对扫描到的每一行都加 Next-Key Lock，等于锁全表。</div></details>
+<details class="q"><summary>什么是索引下推(ICP)？</summary><div class="a">联合索引中把可在索引上判断的 where 条件下推到引擎层先过滤，减少回表次数。Extra 显示 Using index condition。</div></details>
+</section>
+
+<footer>
+MySQL 知识体系笔记 · 系统学习版 · 基于 InnoDB / MySQL 8.0。<br>
+主线：架构 → 存储结构 → 行格式 → 索引 → 事务 → MVCC → 锁 → 日志 → 2PC。若某节想再深挖(如具体加锁 case、源码级流程)，可继续扩展。
+</footer>
+</main>
+</div>
+<script>
+  function openModal(id){document.getElementById(id).classList.add('open');document.body.style.overflow='hidden';}
+  function closeModal(id){document.getElementById(id).classList.remove('open');document.body.style.overflow='';}
+  // 点击遮罩空白处关闭
+  document.addEventListener('click',function(e){
+    if(e.target.classList.contains('modal-overlay')){e.target.classList.remove('open');document.body.style.overflow='';}
+  });
+  // ESC 关闭
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){document.querySelectorAll('.modal-overlay.open').forEach(function(m){m.classList.remove('open');});document.body.style.overflow='';}
+  });
+</script>
+</body>
+</html>
