@@ -9,7 +9,7 @@
 | 专题 | 状态 | 内容概览 |
 |---|---|---|
 | [🐬 MySQL](mysql/index.html) | ✅ 已完成 | 架构 · 存储结构(B+树/页/行格式) · 索引 · 事务 · MVCC · 锁 · 日志 · 主从复制 · 完整执行链路 |
-| 🧱 Redis | 🚧 建设中 | 数据结构 · 持久化 · 过期淘汰 · 主从/哨兵/集群 · 缓存三大问题 |
+| [🧱 Redis](redis/index.html) | ✅ 已完成 | 为什么快/单线程 · 数据结构(编码/阈值) · 缓存三大问题 · 持久化(RDB/AOF) · 过期淘汰 · 主从/哨兵/集群 · 分布式锁 |
 | 🌐 浏览器 | 🚧 建设中 | 渲染流程 · 事件循环 · 跨域 · 缓存 · 性能优化 |
 
 ## 🖥️ 在线阅读
@@ -27,7 +27,7 @@
 note-garden/
 ├── index.html        # 首页导航（专题卡片）
 ├── mysql/index.html  # MySQL 笔记
-├── redis/index.html  # Redis（占位）
+├── redis/index.html  # Redis（已完成）
 ├── browser/index.html# 浏览器（占位）
 └── assets/           # 预留：以后抽公共 CSS
 ```
