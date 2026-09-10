@@ -3,20 +3,1463 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Redis · note-garden（建设中）</title>
+<title>Redis 知识体系笔记</title>
 <style>
-  body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    background:#0f1419;color:#d7dde5;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;text-align:center;padding:20px;}
-  .ico{font-size:64px;}
-  h1{font-size:32px;margin:12px 0 6px;color:#ff6b6b;}
-  p{color:#8b97a6;}
-  a{color:#4aa8ff;text-decoration:none;margin-top:20px;display:inline-block;}
+  :root{
+    --bg:#0f1419; --panel:#1a2028; --panel2:#222b36; --text:#d7dde5; --muted:#8b97a6;
+    --accent:#4aa8ff; --accent2:#38c172; --warn:#ffb454; --danger:#ff6b6b; --purple:#c792ea;
+    --border:#2c3742; --code-bg:#11161c;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;}
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+
+  /* layout */
+  .wrap{display:flex;max-width:1400px;margin:0 auto;}
+  nav{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;width:270px;
+    padding:24px 16px;border-right:1px solid var(--border);background:var(--bg);font-size:13.5px;flex-shrink:0;}
+  nav h2{font-size:14px;color:var(--accent);margin:18px 0 8px;letter-spacing:.5px;}
+  nav a{display:block;color:var(--muted);padding:3px 8px;border-radius:6px;margin:1px 0;}
+  nav a:hover{background:var(--panel);color:var(--text);text-decoration:none;}
+  nav .sub{padding-left:18px;font-size:12.5px;}
+  main{flex:1;min-width:0;padding:36px 44px 120px;}
+
+  h1{font-size:30px;margin:0 0 6px;background:linear-gradient(90deg,#ff6b6b,#ffb454);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
+  .lead{color:var(--muted);margin:0 0 28px;font-size:15px;}
+  section{margin-bottom:52px;scroll-margin-top:20px;}
+  h2.sec{font-size:24px;border-left:5px solid var(--accent);padding-left:14px;margin:44px 0 20px;}
+  h3{font-size:19px;color:#eaf0f6;margin:32px 0 12px;border-bottom:1px solid var(--border);padding-bottom:6px;}
+  h4{font-size:16px;color:var(--accent);margin:22px 0 8px;}
+  p{margin:10px 0;}
+  ul,ol{padding-left:24px;}
+  li{margin:5px 0;}
+  code{background:var(--code-bg);padding:2px 6px;border-radius:4px;font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:13px;color:var(--purple);}
+  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;line-height:1.6;color:#c8d3de;}
+  pre code{background:none;padding:0;color:inherit;}
+
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13.5px;}
+  th,td{border:1px solid var(--border);padding:9px 12px;text-align:left;vertical-align:top;}
+  th{background:var(--panel2);color:#eaf0f6;font-weight:600;}
+  tr:nth-child(even) td{background:rgba(255,255,255,.015);}
+  /* 行首标签型表格：第一列 th 不换行 */
+  table.rowh th{white-space:nowrap;width:1%;}
+
+  .box{border-radius:10px;padding:14px 18px;margin:16px 0;border-left:4px solid;}
+  .warn{background:rgba(255,180,84,.08);border-color:var(--warn);}
+  .warn b{color:var(--warn);}
+  .danger{background:rgba(255,107,107,.08);border-color:var(--danger);}
+  .danger b{color:var(--danger);}
+  .tip{background:rgba(56,193,114,.08);border-color:var(--accent2);}
+  .tip b{color:var(--accent2);}
+  .info{background:rgba(74,168,255,.08);border-color:var(--accent);}
+  .info b{color:var(--accent);}
+  /* 🚧 待填充占位标记 */
+  .todo{background:rgba(255,180,84,.06);border:1px dashed var(--warn);border-radius:10px;padding:12px 16px;
+    margin:14px 0;color:var(--muted);font-size:13.5px;}
+  .todo b{color:var(--warn);}
+  .todo::before{content:"🚧 待填充　";color:var(--warn);font-weight:600;}
+
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:20px;margin-left:6px;vertical-align:middle;
+    background:var(--panel2);color:var(--muted);border:1px solid var(--border);}
+  .tag.ds{color:#38c172;border-color:#255c3e;}
+  .tag.hi{color:#ff6b6b;border-color:#6b2b2b;}
+
+  .diagram{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:18px;margin:16px 0;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;white-space:pre;overflow-x:auto;color:#a9c7e8;}
+
+  /* 结构体盒图（HTML 版，CSS 边框保证对齐，不受字体/全角字符影响） */
+  .sd{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin:16px 0;overflow-x:auto;}
+  .sd .cap{color:var(--accent);font-weight:600;font-size:13px;margin-bottom:10px;}
+  .sd .cells{display:flex;width:max-content;font-family:"SF Mono",Menlo,Consolas,monospace;}
+  .sd .cell{border:1px solid var(--border);border-right:none;}
+  .sd .cell:last-child{border-right:1px solid var(--border);}
+  .sd .cell .k{background:var(--panel2);color:var(--muted);font-size:11px;padding:4px 12px;text-align:center;
+    border-bottom:1px solid var(--border);white-space:nowrap;}
+  .sd .cell .v{padding:8px 12px;text-align:center;white-space:nowrap;color:#c8d3de;font-size:13px;}
+  .sd .bytes{display:flex;}
+  .sd .bytes span{min-width:26px;padding:8px 4px;text-align:center;border-left:1px dashed var(--border);color:#c8d3de;font-size:13px;}
+  .sd .bytes span:first-child{border-left:none;}
+  .sd .bytes span.pad{color:#5a6b7b;}
+  .sd .note{color:var(--muted);font-size:12px;margin-top:10px;line-height:1.75;}
+  .sd .note b{color:#cfe3fb;font-weight:600;}
+
+  /* 弹窗里的结构图元件（flex + CSS 边框，天然对齐） */
+  .fig{margin:6px 0 2px;}
+  .fig .cap{color:var(--accent);font-weight:600;font-size:13px;margin:14px 0 8px;}
+  .fig .row{display:flex;align-items:center;gap:6px;margin:8px 0;flex-wrap:wrap;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;}
+  .fig .idx{min-width:30px;text-align:center;padding:6px 8px;border:1px solid var(--border);border-radius:6px;
+    background:var(--panel2);color:var(--muted);}
+  .fig .arw{color:var(--purple);font-weight:700;}
+  .fig .kv{border:1px solid var(--border);border-radius:6px;background:var(--panel2);padding:6px 11px;color:#c8d3de;}
+  .fig .kv b{color:#cfe3fb;}
+  .fig .nil{color:#5a6b7b;}
+  .fig .cellrow{display:flex;flex-wrap:wrap;}
+  .fig .entry{display:flex;margin:0 10px 8px 0;border:1px solid var(--border);border-radius:6px;overflow:hidden;}
+  .fig .entry span{padding:6px 10px;border-left:1px solid var(--border);color:#c8d3de;}
+  .fig .entry span:first-child{border-left:none;}
+  .fig .entry span.hl{background:rgba(255,180,84,.14);color:#ffcf8f;}
+  .fig .entry span.k{background:var(--panel2);color:var(--muted);font-size:11px;}
+  .fig .qnode{display:inline-flex;flex-direction:column;border:1px solid var(--border);border-radius:8px;
+    background:var(--panel2);overflow:hidden;text-align:center;}
+  .fig .qnode .t{font-size:11px;color:var(--muted);padding:4px 8px;border-bottom:1px dashed var(--border);}
+  .fig .qnode .bs{display:flex;}
+  .fig .qnode .bs span{padding:6px 8px;border-left:1px solid var(--border);color:#c8d3de;font-size:12px;}
+  .fig .qnode .bs span:first-child{border-left:none;}
+  .fig .val{font-size:13px;font-weight:600;color:#bdeccf;}
+  /* skiplist 网格 */
+  table.skl{border-collapse:collapse;margin:8px 0;font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:12px;width:auto;}
+  table.skl td,table.skl th{border:1px solid var(--border);padding:5px 0;text-align:center;min-width:34px;}
+  table.skl th{background:var(--panel2);color:var(--muted);font-weight:600;}
+  table.skl td.lv{background:var(--panel2);color:var(--warn);font-weight:600;min-width:30px;}
+  table.skl td.on{background:rgba(74,168,255,.16);color:#cfe3fb;font-weight:600;}
+  table.skl td.on.hit{background:rgba(56,193,114,.22);color:#bdeccf;}
+  table.skl td.off{color:#39424c;}
+  /* 布隆过滤器位数组 */
+  .bloom{display:flex;flex-wrap:wrap;font-family:"SF Mono",Menlo,Consolas,monospace;margin:6px 0;}
+  .bloom .b{display:flex;flex-direction:column;align-items:center;border:1px solid var(--border);border-right:none;min-width:28px;}
+  .bloom .b:last-child{border-right:1px solid var(--border);}
+  .bloom .b .i{font-size:10px;color:var(--muted);padding:2px 0;width:100%;text-align:center;border-bottom:1px dashed var(--border);}
+  .bloom .b .v{padding:6px 0;font-size:13px;color:#5a6b7b;}
+  .bloom .b.on .v{background:rgba(74,168,255,.2);color:#cfe3fb;font-weight:700;}
+  .bloom .b.zero .v{background:rgba(255,107,107,.16);color:#ff9d9d;font-weight:700;}
+
+  /* 并排布局：讲解 + 结构图 */
+  .split{display:flex;gap:20px;align-items:flex-start;margin:16px 0;flex-wrap:wrap;}
+  .split > .col{flex:1;min-width:320px;}
+
+  /* HTML 结构化流程图 */
+  .hd{margin:16px 0;background:var(--code-bg);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+  .hd .lane{display:flex;gap:16px;flex-wrap:wrap;align-items:center;}
+  .hd .grp2{flex:1;min-width:240px;border:1px solid rgba(74,168,255,.28);border-radius:10px;padding:12px 14px;
+    background:rgba(74,168,255,.06);}
+  .hd .grp2.g-green{border-color:rgba(56,193,114,.3);background:rgba(56,193,114,.07);}
+  .hd .grp2.g-blue{border-color:rgba(74,168,255,.3);background:rgba(74,168,255,.08);}
+  .hd .grp2 > .cap{font-weight:600;color:var(--accent);font-size:13px;margin-bottom:8px;text-align:center;
+    padding-bottom:6px;border-bottom:1px dashed var(--border);}
+  .hd .grp2.g-green > .cap{color:#38c172;}
+  .hd .node{border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin:7px 0;background:var(--panel2);
+    font-size:13px;line-height:1.5;}
+  .hd .node .em{color:#eaf0f6;font-weight:600;}
+  .hd .node .sub{color:var(--muted);font-size:12px;}
+  .hd .node.cli{text-align:center;max-width:160px;margin:0 auto;background:var(--panel2);}
+  .hd .node.hold{border-color:#2dd4bf;color:#2dd4bf;font-weight:600;text-align:center;}
+  .hd .node.accent{border-color:var(--accent);}
+  .hd .arrow-d{text-align:center;color:var(--muted);font-size:13px;line-height:1.2;margin:3px 0;}
+  .hd .arrow-r{color:var(--purple);font-weight:700;white-space:nowrap;font-size:12.5px;text-align:center;padding:0 2px;}
+  .hd .note{color:var(--muted);font-size:12px;text-align:center;margin-top:6px;}
+
+  /* 看例子按钮 + 弹窗 */
+  .ex-btn{display:inline-flex;align-items:center;gap:5px;cursor:pointer;background:var(--panel2);
+    border:1px solid var(--accent);color:var(--accent);border-radius:20px;padding:3px 14px;font-size:12.5px;
+    margin:8px 0;user-select:none;transition:background .15s;white-space:nowrap;}
+  .ex-btn:hover{background:rgba(74,168,255,.15);}
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;
+    align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto;}
+  .modal-overlay.open{display:flex;}
+  .modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;max-width:840px;width:100%;
+    padding:26px 30px 30px;position:relative;box-shadow:0 24px 70px rgba(0,0,0,.55);}
+  .modal .close{position:absolute;top:12px;right:16px;cursor:pointer;color:var(--muted);font-size:24px;line-height:1;
+    width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;}
+  .modal .close:hover{color:var(--danger);background:var(--panel2);}
+  .modal .modal-title{margin:0 0 14px;font-size:18px;color:var(--accent);padding-right:30px;}
+
+  .q{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px 18px;margin:14px 0;}
+  .q summary{cursor:pointer;font-weight:600;color:var(--warn);padding:8px 0;list-style:none;}
+  .q summary::before{content:"❓ ";}
+  .q[open] summary{color:var(--accent);}
+  .q .a{padding:4px 0 12px;border-top:1px dashed var(--border);margin-top:4px;}
+
+  .pill-row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;}
+  .pill{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:13px;}
+
+  .toc-top{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 24px;margin-bottom:32px;}
+  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
+  .kbd{font-size:12px;color:var(--muted);}
+  footer{color:var(--muted);font-size:13px;border-top:1px solid var(--border);padding-top:20px;margin-top:60px;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#2c3742;border-radius:6px;}
+  ::-webkit-scrollbar-track{background:transparent;}
 </style>
 </head>
 <body>
-  <div class="ico">🧱</div>
-  <h1>Redis</h1>
-  <p>🚧 这颗还在发芽，敬请期待…</p>
-  <a href="../index.html">← 回到 note-garden</a>
+<div class="wrap">
+<nav>
+  <h2>一、性能与线程模型</h2>
+  <a href="#fast">0 · Redis 为什么快</a>
+  <a href="#single-thread" class="sub">单线程模型 / IO 多路复用</a>
+  <a href="#multi-thread" class="sub">线程模型的发展（4.0/6.0）</a>
+  <h2>二、数据类型与底层</h2>
+  <a href="#datatype">1 · 数据类型（5+5）</a>
+  <a href="#encoding" class="sub">底层数据结构 / 编码</a>
+  <a href="#rehash" class="sub">渐进式 rehash</a>
+  <a href="#history" class="sub">数据结构发展史</a>
+  <h2>三、做缓存会遇到的坑</h2>
+  <a href="#cache-problem">2 · 缓存三大问题</a>
+  <a href="#consistency" class="sub">缓存与 DB 一致性</a>
+  <a href="#bigkey" class="sub">大 key / 热 key</a>
+  <h2>四、数据怎么存、怎么清</h2>
+  <a href="#persistence">3 · 持久化 RDB / AOF</a>
+  <a href="#expire">4 · 过期 key 删除</a>
+  <a href="#evict">5 · 内存淘汰策略</a>
+  <h2>五、高可用演进</h2>
+  <a href="#replication">6 · 主从复制</a>
+  <a href="#sentinel">7 · 哨兵 Sentinel</a>
+  <a href="#cluster">8 · 集群 Cluster</a>
+  <h2>六、拿它做别的</h2>
+  <a href="#lock">9 · 分布式锁</a>
+  <a href="#mq">10 · 消息队列 / 其他</a>
+  <h2>附</h2>
+  <a href="#misc">事务 / Lua / Pipeline</a>
+  <a href="#cheat">高频面试速记</a>
+</nav>
+
+<main>
+<h1>Redis 知识体系笔记</h1>
+<p class="lead">系统学习版 · 按「单机原理 → 数据结构 → 做缓存的坑 → 存储与淘汰 → 高可用 → 应用」主线组织。<span class="tag ds">数据结构</span> 与 <span class="tag hi">高可用</span> 标签用于定位知识点归属。</p>
+
+<div class="toc-top">
+  <b>阅读主线（问题驱动，每一步都在解决上一步冒出的新问题）：</b>
+  <ol style="margin:10px 0 2px">
+    <li><b>它凭什么快？</b> 内存 + 单线程 + IO 多路复用 + 高效数据结构 —— 先建立底层认知。<span class="kbd">（<a href="#fast">§0 为什么快</a> · <a href="#datatype">§1 数据结构</a>）</span></li>
+    <li><b>拿它做缓存，会踩什么坑？</b> 穿透/击穿/雪崩，以及和 DB 的一致性。<span class="kbd">（<a href="#cache-problem">§2 缓存三大问题</a>）</span></li>
+    <li><b>数据会丢、会满，怎么办？</b> 落盘靠持久化，过期 key 要删，内存满了要淘汰。<span class="kbd">（<a href="#persistence">§3 持久化</a> · <a href="#expire">§4 过期</a> · <a href="#evict">§5 淘汰</a>）</span></li>
+    <li><b>单点会挂，怎么办？</b> 主从做冗余 → 哨兵做自动切换 → 集群做分片扩容，层层递进。<span class="kbd">（<a href="#replication">§6 主从</a> · <a href="#sentinel">§7 哨兵</a> · <a href="#cluster">§8 集群</a>）</span></li>
+    <li><b>除了缓存，还能干嘛？</b> 分布式锁、消息队列等。<span class="kbd">（<a href="#lock">§9 分布式锁</a> · <a href="#mq">§10 消息队列</a>）</span></li>
+  </ol>
+  <span class="kbd">💡 带 ❓ 的折叠块是高频面试问答，可展开自测；标<span style="color:var(--danger)"> 红框 </span>的是易错/高频陷阱。</span></div>
+
+<!-- ============ 0 为什么快 ============ -->
+<section id="fast">
+<h2 class="sec">0 · Redis 为什么这么快</h2>
+<p>几乎是开场必问。把原因串成一条链：<b>纯内存操作</b> + <b>单线程避免上下文切换与锁竞争</b> + <b>IO 多路复用（epoll）的 Reactor 网络模型</b> + <b>针对场景高度优化的数据结构</b>。这条链正好引出后面两节（单线程模型、数据结构）。</p>
+
+<div class="hd">
+  <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">Redis 为什么快 —— 四条腿</div>
+  <div class="lane">
+    <div class="grp2 g-green"><div class="cap">① 纯内存</div><div class="note">数据全在内存，读写是<br>纳秒级；磁盘随机 IO 毫秒级，差 10 万倍</div></div>
+    <div class="grp2 g-blue"><div class="cap">② 单线程</div><div class="note">命令串行执行，<br>没有线程切换、没有锁竞争</div></div>
+    <div class="grp2 g-blue"><div class="cap">③ IO 多路复用</div><div class="note">一个线程用 epoll<br>扛住数万并发连接</div></div>
+    <div class="grp2 g-green"><div class="cap">④ 高效数据结构</div><div class="note">SDS / 跳表 / listpack…<br>每种操作都贴着最优复杂度</div></div>
+  </div>
+  <div class="note" style="margin-top:8px">根本前提：Redis 的瓶颈在<b>内存和网络 IO</b>，<b>不在 CPU</b> —— 所以单核跑满就够，多线程反而引入锁开销</div>
+</div>
+
+<table>
+<tr><th>原因</th><th>展开</th></tr>
+<tr><td><b>① 纯内存操作</b></td><td>所有数据驻留内存，一次读写就是一次内存寻址（~100ns）。对比磁盘随机 IO（机械盘 ~10ms），天然快几个数量级。这是"快"的根本。</td></tr>
+<tr><td><b>② 单线程模型</b></td><td>命令一个接一个串行执行：<b>不需要为共享数据加锁</b>、<b>没有多线程上下文切换开销</b>、也没有死锁/竞态等并发 bug。实现还简单。</td></tr>
+<tr><td><b>③ IO 多路复用</b></td><td>单线程却能同时服务海量连接，靠的是 <code>epoll</code>：把成千上万个 socket 注册给内核，内核一有就绪事件就通知，线程只处理"真正有数据"的连接，不为空闲连接空转。</td></tr>
+<tr><td><b>④ 高效数据结构</b></td><td>同一种对外类型，底层按数据规模选最省/最快的实现（String 的 int/embstr/raw、ZSet 的 listpack/skiplist…），让每个命令都贴着理论最优复杂度。见下一章。</td></tr>
+</table>
+<div class="tip box"><b>一句话答：</b>Redis 快是因为<b>数据在内存</b>（根本）、<b>单线程免锁免切换</b>、<b>IO 多路复用扛高并发</b>、<b>数据结构高度优化</b>。关键认知是——它的瓶颈从来不是 CPU，而是内存和网络，所以"单线程"不但不拖后腿，反而省掉了多线程的一切麻烦。</div>
+
+<h3 id="single-thread">单线程模型 &amp; IO 多路复用</h3>
+<p>这里要讲清一个高频误区：<b>Redis 的"单线程"指的是命令处理（网络 IO + 执行命令）在一个主线程里串行完成</b>，并不是整个进程只有一个线程 —— 持久化、异步删除等脏活早就交给了其它线程/子进程。</p>
+
+<h4>为什么敢用单线程？</h4>
+<ul>
+<li><b>瓶颈不在 CPU：</b>Redis 操作都是内存级的，单核每秒就能处理十万级命令，CPU 远没跑满，多开线程提升不了多少吞吐。</li>
+<li><b>免锁免切换：</b>多线程要对共享数据加锁，锁竞争和上下文切换本身就是开销，还容易出并发 bug。单线程把这些全省了。</li>
+<li><b>实现简单：</b>没有并发控制，代码清晰、可维护性高。</li>
+</ul>
+
+<h4>IO 多路复用 + Reactor（文件事件处理器）</h4>
+<p>单线程要同时服务大量客户端，靠的是 <b>IO 多路复用</b>：把所有 socket 交给内核的 <code>epoll</code>（Linux）统一监听，哪个 socket 有数据可读/可写，内核就把它放进就绪队列，线程只处理就绪的事件，绝不为空闲连接阻塞或轮询。Redis 在其上封装了自己的 <b>文件事件处理器（Reactor 模型）</b>：</p>
+<div class="hd">
+  <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">文件事件处理器（单线程 Reactor）</div>
+  <div class="lane">
+    <div class="grp2 g-blue">
+      <div class="cap">多个 socket</div>
+      <div class="node cli">client A</div>
+      <div class="node cli">client B</div>
+      <div class="node cli">client …</div>
+    </div>
+    <div class="arrow-r">──▶</div>
+    <div class="grp2">
+      <div class="cap">IO 多路复用程序</div>
+      <div class="node accent"><span class="em">epoll</span><span class="sub"> 监听所有 socket 的可读/可写事件，就绪的才往下送</span></div>
+    </div>
+    <div class="arrow-r">──▶</div>
+    <div class="grp2 g-green">
+      <div class="cap">文件事件分派器</div>
+      <div class="node"><span class="em">连接应答处理器</span><span class="sub">（accept 新连接）</span></div>
+      <div class="node"><span class="em">命令请求处理器</span><span class="sub">（读请求 + 执行命令）</span></div>
+      <div class="node"><span class="em">命令回复处理器</span><span class="sub">（写回结果）</span></div>
+    </div>
+  </div>
+  <div class="note" style="margin-top:8px">单线程把"多路复用 → 分派 → 处理"串起来跑；因为 epoll 只交付就绪事件，空闲连接再多也不占 CPU</div>
+</div>
+<div class="info box"><b>epoll 相比 select/poll 好在哪？</b> select/poll 每次都要把全部 fd 拷到内核并<b>线性扫描</b>一遍（O(n)），且有 fd 数量上限；epoll 用<b>红黑树</b>管理 fd、用<b>就绪链表</b>回调，只返回真正就绪的 fd（O(1) 拿结果），连接数再多也不随之变慢。</div>
+
+<h3 id="multi-thread">线程模型的发展：从单线程到多线程 IO</h3>
+<p>Redis 并非一直纯单线程，但要分清"<b>多线程化的到底是哪部分</b>"。结论先行：<b>从头到尾，命令的执行始终是单线程串行的</b>，多线程化的只是它周边的脏活累活。</p>
+
+<table>
+<tr><th>版本</th><th>多线程化了什么</th><th>命令执行</th></tr>
+<tr><td><b>4.0</b></td><td>引入<b>后台线程（bio）</b>：把耗时的"大对象删除"等异步化 —— <code>UNLINK</code>（惰性删除）、<code>FLUSHDB/FLUSHALL ASYNC</code>、<code>AOF fsync</code>、关闭文件等。避免删一个几 GB 的大 key 把主线程卡住。</td><td>仍单线程</td></tr>
+<tr><td><b>6.0</b></td><td>引入<b>多线程 IO</b>：多个 IO 线程并行负责 <b>socket 数据的读取/写回 + 协议解析</b>。因为随着网卡和并发变大，<b>网络 IO（读请求、写响应）成了瓶颈</b>，而非命令本身。</td><td><b>仍单线程</b></td></tr>
+</table>
+
+<div class="hd">
+  <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">6.0 多线程 IO：只并行"读写网络"，不并行"执行命令"</div>
+  <div class="lane">
+    <div class="grp2 g-blue"><div class="cap">① 读 + 解析（多线程）</div><div class="note">多个 IO 线程并行<br>从 socket 读数据、解析协议</div></div>
+    <div class="arrow-r">──▶</div>
+    <div class="grp2 g-green"><div class="cap">② 执行命令（单线程）</div><div class="note">主线程逐条串行执行<br>✅ 无锁、无并发问题</div></div>
+    <div class="arrow-r">──▶</div>
+    <div class="grp2 g-blue"><div class="cap">③ 写回结果（多线程）</div><div class="note">多个 IO 线程并行<br>把结果写回各 socket</div></div>
+  </div>
+</div>
+<p>正因为<b>只有读写 socket 这段并行、执行阶段依然单线程</b>，所以依然<b>没有并发安全问题</b>，不需要为数据加锁。</p>
+<div class="info box"><b>配置：</b><code>io-threads</code> 默认为 1（即关闭多线程 IO），需手动开启并设为 CPU 核数的一部分（如 4）；默认只多线程化<b>写回</b>，要连<b>读取+解析</b>也多线程需再开 <code>io-threads-do-reads yes</code>。官方建议 4 核以上再开，小机器开了反而亏。</div>
+<details class="q"><summary>既然多线程好，为什么执行命令不做成多线程？</summary><div class="a">一旦多线程执行命令，就要对共享的键空间加锁，锁粒度难把控：粗锁退化成串行、细锁又复杂且易出 bug，收益抵不过成本。而瓶颈本就在网络 IO 而非命令执行，所以 Redis 选择"IO 并行、执行串行"——既吃到多核扛网络的红利，又保住单线程无锁的简单与安全。</div></details>
+</section>
+
+<!-- ============ 1 数据类型 ============ -->
+<section id="datatype">
+<h2 class="sec">1 · 数据类型与底层数据结构 <span class="tag ds">数据结构</span></h2>
+<p>5 种基础类型（String / List / Hash / Set / ZSet）+ 常考的扩展类型（Bitmap / HyperLogLog / GEO / Stream）。重点不是"有哪些"，而是<b>每种类型底层可能是哪几种数据结构、何时转换</b>。</p>
+
+<h4>基础 5 种类型</h4>
+<table>
+<tr><th>类型</th><th>典型命令</th><th>真实业务场景</th><th>底层编码(encoding)</th></tr>
+<tr><td><b>String</b><br>字符串</td><td><code>SET/GET</code> <code>INCR</code> <code>SETNX</code></td><td>缓存对象(JSON)、计数器(点赞/库存)、分布式锁、限流</td><td><code>int</code> / <code>embstr</code> / <code>raw</code></td></tr>
+<tr><td><b>List</b><br>列表</td><td><code>LPUSH/RPOP</code> <code>LRANGE</code> <code>BRPOP</code></td><td>简单消息队列、最新列表(朋友圈/时间线)、栈/队列</td><td><code>listpack</code> / <code>quicklist</code></td></tr>
+<tr><td><b>Hash</b><br>哈希</td><td><code>HSET/HGET</code> <code>HGETALL</code></td><td>存对象(用户信息的各字段)、购物车(field=商品 value=数量)</td><td><code>listpack</code> / <code>hashtable</code></td></tr>
+<tr><td><b>Set</b><br>集合</td><td><code>SADD</code> <code>SINTER</code> <code>SMEMBERS</code></td><td>去重(UV)、共同好友/交集、抽奖、标签</td><td><code>intset</code> / <code>listpack</code> / <code>hashtable</code></td></tr>
+<tr><td><b>ZSet</b><br>有序集合</td><td><code>ZADD</code> <code>ZRANGE</code> <code>ZRANK</code></td><td><b>排行榜</b>、延迟队列(score=执行时间)、带权重的范围查询</td><td><code>listpack</code> / <code>skiplist</code></td></tr>
+</table>
+
+<h4>常考扩展类型</h4>
+<table>
+<tr><th>类型</th><th>本质</th><th>场景</th></tr>
+<tr><td><b>Bitmap</b> 位图</td><td>基于 String 的按位操作</td><td>签到、用户活跃统计、布隆过滤器的底层</td></tr>
+<tr><td><b>HyperLogLog</b></td><td>概率基数统计（有误差 ~0.81%，但只占 12KB）</td><td>超大规模 UV 去重统计（亿级 IP/用户去重）</td></tr>
+<tr><td><b>GEO</b></td><td>底层就是 ZSet（score 存 GeoHash）</td><td>附近的人、打车距离计算</td></tr>
+<tr><td><b>Stream</b></td><td>5.0 引入的专业消息队列</td><td>消息队列（见 <a href="#mq">§10</a>）</td></tr>
+</table>
+
+<h3 id="encoding">底层数据结构 / 对象编码</h3>
+<p>Redis 每个 value 都是一个 <code>redisObject</code>，里面有 <code>type</code>（对外类型，<code>TYPE</code> 命令看到的）和 <code>encoding</code>（底层实现，<code>OBJECT ENCODING</code> 看到的）。<b>同一个 type 在不同数据规模下会切换底层结构</b>，在"省内存"（小数据用紧凑结构）和"高性能"（大数据用高效结构）间权衡。</p>
+
+<p>先看这个统领全局的 <code>redisObject</code>（robj）长什么样 —— 它是所有 value 的统一外壳，本节后面讲的每种底层结构，都是挂在它的 <code>ptr</code> 指针下：</p>
+<div class="sd">
+  <div class="cap">redisObject 结构（共 16 字节）</div>
+  <div class="cells">
+    <div class="cell"><div class="k">type : 4 bit</div><div class="v">对外类型</div></div>
+    <div class="cell"><div class="k">encoding : 4 bit</div><div class="v">底层编码</div></div>
+    <div class="cell"><div class="k">lru : 24 bit</div><div class="v">淘汰信息</div></div>
+    <div class="cell"><div class="k">refcount : 4 B</div><div class="v">引用计数</div></div>
+    <div class="cell"><div class="k">*ptr : 8 B</div><div class="v">指向真实数据 ▸</div></div>
+  </div>
+  <div class="note">
+    <b>type</b>　对外数据类型（string/list/hash/set/zset）→ <code>TYPE key</code> 返回它<br>
+    <b>encoding</b>　底层实现（int/embstr/raw/listpack/quicklist/intset/hashtable/skiplist）→ <code>OBJECT ENCODING key</code> 返回它<br>
+    <b>lru</b>　24 bit，存最后访问时间（LRU）或访问频率（LFU）→ 供<a href="#evict">内存淘汰</a>用<br>
+    <b>refcount</b>　引用计数，减到 0 才回收；<b>共享整数池</b>（0~9999）的对象 refcount 会 &gt; 1<br>
+    <b>ptr</b>　核心指针，指向真正的底层结构（SDS / quicklist / dict / intset / skiplist…）；<b>int 编码时例外</b>：直接把整数塞进 ptr，不再另存
+  </div>
+</div>
+<div class="info box"><b>把这张图和其它知识点串起来：</b>type / encoding 两个字段，正对应你能用 <code>TYPE</code> / <code>OBJECT ENCODING</code> 查到的两个值；<code>lru</code> 字段供 <a href="#evict">§5 内存淘汰</a>用。而前 4 个字段（type+encoding+lru = 4B）加 refcount（4B）加 ptr（8B）正好 <b>16 字节</b> —— 记住这个数，<b>下面 ①-b 讲 embstr「44 字节边界」时要减掉的 <code>redisObject 头 16B</code> 就是它</b>。</div>
+
+<h4>① SDS —— 所有字符串的底层</h4>
+<p>Redis 没用 C 的原生字符串（以 <code>\0</code> 结尾的字符数组），而是自己实现了 <b>SDS（Simple Dynamic String）</b>：结构大致是 <code>len</code>（已用长度）+ <code>alloc</code>（总容量）+ <code>flags</code> + <code>buf[]</code>（数据）。</p>
+<div class="sd">
+  <div class="cap">SDS 结构（以存字符串 "Redis" 为例）</div>
+  <div class="cells">
+    <div class="cell"><div class="k">len</div><div class="v">5</div></div>
+    <div class="cell"><div class="k">alloc</div><div class="v">10</div></div>
+    <div class="cell"><div class="k">flags</div><div class="v">type</div></div>
+    <div class="cell">
+      <div class="k">buf[]（实际数据 + 预留空间）</div>
+      <div class="bytes">
+        <span>R</span><span>e</span><span>d</span><span>i</span><span>s</span><span>\0</span>
+        <span class="pad">·</span><span class="pad">·</span><span class="pad">·</span><span class="pad">·</span><span class="pad">·</span>
+      </div>
+    </div>
+  </div>
+  <div class="note">
+    <b>len = 5</b>　已用长度 → 取长度直接读字段，<b>O(1)</b>，不用遍历到 <code>\0</code><br>
+    <b>alloc = 10</b>　总容量 → 还空着 5 格（灰点·是预留空间），追加时先用它，减少 realloc<br>
+    <b>buf</b>　实际数据 → 结尾靠 len 定界、不靠 <code>\0</code> → 能存任意二进制（图片/序列化数据）
+  </div>
+</div>
+<table>
+<tr><th>对比点</th><th>C 字符串</th><th>SDS</th></tr>
+<tr><td>取长度</td><td>遍历到 <code>\0</code>，O(n)</td><td>读 <code>len</code> 字段，<b>O(1)</b></td></tr>
+<tr><td>二进制安全</td><td>遇 <code>\0</code> 截断，存不了图片/序列化数据</td><td>靠 <code>len</code> 判断结尾，<b>能存任意二进制</b></td></tr>
+<tr><td>缓冲区溢出</td><td><code>strcat</code> 不检查空间，可能越界</td><td>拼接前检查 <code>alloc</code>，不够先扩容</td></tr>
+<tr><td>内存重分配</td><td>每次增减都要 realloc</td><td><b>空间预分配</b>（扩容时多给）+ <b>惰性释放</b>（缩短不立刻还），减少 realloc 次数</td></tr>
+</table>
+<p class="kbd">SDS 还按长度分了 sdshdr5/8/16/32/64 几种头部，短字符串用小头部，进一步省内存。</p>
+
+<h4>①-b String 的三种编码：int / embstr / raw</h4>
+<p>String 对外都是"字符串"，但底层会按内容选三种编码之一（<code>OBJECT ENCODING</code> 可查）：</p>
+<table>
+<tr><th>编码</th><th>什么时候用</th><th>怎么存</th></tr>
+<tr><td><code>int</code></td><td>值是<b>整数</b>且能用 long（int64）表示，如 <code>SET n 100</code></td><td>redisObject 里直接存这个整数，<b>不用 SDS</b>；0~9999 还会命中共享整数池，连对象都复用</td></tr>
+<tr><td><code>embstr</code></td><td>字符串且<b>字节数 ≤ 44</b></td><td>redisObject 和 SDS <b>一次性连续分配在一块内存</b>里（嵌入式）</td></tr>
+<tr><td><code>raw</code></td><td>字符串且<b>字节数 &gt; 44</b></td><td>redisObject 和 SDS <b>分两次各自分配</b>，对象里存指向 SDS 的指针</td></tr>
+</table>
+
+<div class="fig">
+  <div class="cap">embstr（≤44B）：一块连续内存　vs　raw（&gt;44B）：两块分开</div>
+  <div class="row">
+    <div class="qnode"><div class="t">embstr — 1 次 malloc</div><div class="bs"><span>redisObject</span><span>SDS(len/alloc/buf)</span></div></div>
+    <span class="nil" style="margin:0 8px">连续相邻</span>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <div class="qnode"><div class="t">raw — 2 次 malloc</div><div class="bs"><span>redisObject<br>(含指针 ▸)</span></div></div>
+    <span class="arw">╌╌▶</span>
+    <div class="qnode"><div class="t">另一块内存</div><div class="bs"><span>SDS(len/alloc/buf)</span></div></div>
+  </div>
+</div>
+
+<div class="info box"><b>为什么分界线是 44 字节？</b> Redis 希望 embstr 这一整块正好<b>装进一个 64 字节的内存分配单元</b>（jemalloc 的常用规格，一次分配、缓存友好）。64 减去 redisObject 头（16B）、sdshdr8 头（len+alloc+flags 共 3B）、结尾 <code>\0</code>（1B），剩 <b>64−16−3−1 = 44 字节</b>给实际内容。所以 ≤44 字节用 embstr（省一次分配），超了就用 raw。</div>
+
+<div class="warn box"><b>编码会转换，且不可逆：</b>
+<ul style="margin:6px 0 0">
+<li><b>embstr 是只读的</b>：一旦对它做修改（<code>APPEND</code>、<code>SETRANGE</code> 等），哪怕结果仍很短，也会<b>转成 raw</b>（因为 embstr 那块连续内存不方便原地扩展）。</li>
+<li><b>int 一旦拼接</b>：对 int 编码的 key 执行 <code>APPEND</code>，它不再是纯整数，会<b>转成 raw</b>。</li>
+<li>方向都是 <code>int/embstr → raw</code>，<b>只往"更通用"的方向转，不回退</b>。</li>
+</ul></div>
+
+<h4>② 其余核心底层结构</h4>
+<p class="kbd">每行右侧点「看图」可弹窗查看该结构的示意图。</p>
+<table>
+<tr><th>结构</th><th>长什么样</th><th>关键点</th><th>图</th></tr>
+<tr><td><b>intset</b><br>整数集合</td><td>有序的整数数组</td><td>Set 全是整数且不多时用它；按最大元素选 int16/32/64 编码，放入更大的数触发<b>升级</b>（不降级）；二分查找</td><td><span class="ex-btn" onclick="openModal('fig-intset')">看图</span></td></tr>
+<tr><td><b>dict</b><br>哈希表<br><span class="kbd">编码名 hashtable</span></td><td>数组 + 链表（链地址法解决冲突，头插）</td><td>Hash/Set 大了、以及 DB 的键空间都用它；负载因子过高触发扩容 + <b>渐进式 rehash</b>（见下）。<b>③ 表里的 <code>hashtable</code> 编码，底层就是这个 dict</b></td><td><span class="ex-btn" onclick="openModal('fig-dict')">看图</span></td></tr>
+<tr><td><b>ziplist</b><br>压缩列表<br><span class="kbd">(旧)</span></td><td>一块连续内存，紧凑存放多个 entry</td><td>省内存，但每个 entry 存了"前一项长度"，改动中间元素可能引发<b>连锁更新</b>（级联 realloc）</td><td><span class="ex-btn" onclick="openModal('fig-zl')">看图</span></td></tr>
+<tr><td><b>listpack</b><br>紧凑列表<br><span class="tag ds">7.0</span></td><td>ziplist 的替代，同样连续紧凑</td><td>每个 entry 只记<b>自己的长度</b>，不再记前项长度 → <b>彻底消除连锁更新</b></td><td><span class="ex-btn" onclick="openModal('fig-zl')">对比图</span></td></tr>
+<tr><td><b>quicklist</b></td><td>双向链表，每个节点是一个 listpack/ziplist</td><td>List 的底层。把"链表(省改动)"和"listpack(省内存)"结合：分段紧凑存储，避免单个超大压缩列表</td><td><span class="ex-btn" onclick="openModal('fig-ql')">看图</span></td></tr>
+<tr><td><b>skiplist</b><br>跳表</td><td>多层索引的有序链表，查找 O(log n)</td><td>ZSet 数据量大时的底层（<b>skiplist + dict 一起用</b>：跳表管范围/排序，dict 管 O(1) 按成员查 score）</td><td><span class="ex-btn" onclick="openModal('fig-skl')">看图</span></td></tr>
+</table>
+
+<!-- ===== intset 弹窗 ===== -->
+<div class="modal-overlay" id="fig-intset">
+  <div class="modal"><span class="close" onclick="closeModal('fig-intset')">&times;</span>
+    <h3 class="modal-title">intset · 整数集合</h3>
+    <div class="fig">
+      <div class="cap">一个有序整数数组（当前 encoding = int16）</div>
+      <div class="entry">
+        <span class="k">encoding: int16</span><span>-5</span><span>3</span><span>12</span><span>100</span><span>4000</span>
+      </div>
+      <div class="row"><span class="arw">插入 40000 ▶</span> 超出 int16 范围 <span class="arw">▶</span> 整体<b style="color:#ffcf8f">升级</b>为 int32（重新分配、逐个搬迁）</div>
+      <div class="entry">
+        <span class="k">encoding: int32</span><span>-5</span><span>3</span><span>12</span><span>100</span><span>4000</span><span class="hl">40000</span>
+      </div>
+      <div class="sd note" style="margin-top:12px">
+        <b>有序</b> → 查找用<b>二分</b>，O(log n)；<b>只升级不降级</b>（删掉 40000 也不会退回 int16）；元素太多则整个 Set 转成 <code>hashtable</code>。
+      </div>
+
+      <div class="cap" style="margin-top:16px">升级路径（单向，只升不降）</div>
+      <div class="row">
+        <div class="qnode"><div class="t">INTSET_ENC_INT16</div><div class="bs"><span>2 字节/个</span></div></div>
+        <span class="arw">──▶</span>
+        <div class="qnode"><div class="t">INTSET_ENC_INT32</div><div class="bs"><span>4 字节/个</span></div></div>
+        <span class="arw">──▶</span>
+        <div class="qnode"><div class="t">INTSET_ENC_INT64</div><div class="bs"><span>8 字节/个</span></div></div>
+      </div>
+      <table style="margin-top:8px">
+        <tr><th>编码</th><th>每个元素</th><th>能表示的范围</th><th>放入超过范围的数 → 升到</th></tr>
+        <tr><td><code>int16</code></td><td>2 字节</td><td>−32,768 ~ 32,767（约 ±3.2 万）</td><td>int32 或 int64</td></tr>
+        <tr><td><code>int32</code></td><td>4 字节</td><td>约 ±21 亿（−2³¹ ~ 2³¹−1）</td><td>int64</td></tr>
+        <tr><td><code>int64</code></td><td>8 字节</td><td>约 ±922 亿亿（−2⁶³ ~ 2⁶³−1）</td><td>已是最高，不再升</td></tr>
+      </table>
+      <div class="sd note">
+        新元素<b>直接跳到能容纳它的那一级</b>：比如当前是 int16，插入一个 30 亿的数（超过 int32），会<b>一步升到 int64</b>，不必逐级 int16→int32→int64。升级时按新宽度<b>重新分配整块内存</b>，再把老元素逐个搬进去。
+      </div>
+
+      <div class="cap" style="margin-top:16px">为什么要「整体」升级，而不是只把新元素存大？</div>
+      <div class="diagram">int16 数组：每格固定 2 字节，第 i 个元素地址 = base + i×2
+ ┌────┬────┬────┬────┬────┐
+ │ -5 │  3 │ 12 │100 │4000│   ← 等宽，随手就能算出"中间那个"在哪
+ └────┴────┴────┴────┴────┘
+   2B   2B   2B   2B   2B</div>
+      <div class="sd note">
+        关键在于 intset 是一整块<b>「等宽」的连续数组</b> —— 所有元素<b>用同一种编码、占同样的字节数</b>。正因为等宽，才能用 <code>base + i×宽度</code> <b>O(1) 直接算出第 i 个元素的位置</b>，这正是<b>二分查找</b>的前提（二分要能瞬间跳到中间那个元素）。
+        <br><br>
+        如果只把 40000 单独存成 4 字节、其余仍是 2 字节，数组就变成<b>「宽窄不一」</b>：想找第 i 个元素得从头一个个累加字节偏移，退化成 O(n) 扫描，<b>二分就废了</b>。所以一旦有元素超出当前编码范围，就必须把<b>整个数组统一升到更宽的编码</b>，保持"等宽"这个不变量。
+        <br><br>
+        <b>那为什么平时不直接都用 int64？</b> 因为绝大多数集合里都是小整数，用 int16 能<b>省 4 倍内存</b>。只在真正放入大数时才升级 —— <b>常见情况省内存，必要时才付升级代价</b>。<b>不降级</b>同理：要判断能否降级得扫全数组找最大值（O(n)），不划算。
+      </div>
+
+      <div class="cap" style="margin-top:16px">那超过 int64 呢？—— 直接换数据结构</div>
+      <div class="row">
+        <div class="qnode"><div class="t">intset</div><div class="bs"><span>全是整数<br>且 ≤ int64</span></div></div>
+        <span class="arw">超 int64 / 加入非整数 / 元素太多 ▶</span>
+        <div class="qnode"><div class="t">listpack 或 hashtable</div><div class="bs"><span>能存字符串</span></div></div>
+      </div>
+      <div class="sd note">
+        int64 已经是 intset 的<b>最高编码</b>，没有 int128。超过 int64 范围的数，Redis <b>没法把它当整数存</b>，只能当成<b>普通字符串</b>元素 —— 而 intset 只装整数，装不了字符串，于是<b>整个 Set 的底层就地转换</b>成能存字符串的结构。<b>Set 底层从 intset 转走，有三个触发条件（满足任一即转）：</b>
+        <ul style="margin:6px 0 0">
+          <li>加入的元素<b>不是整数</b>（包括<b>超过 int64 范围的大数</b>，它只能按字符串处理）；</li>
+          <li>元素个数超过 <code>set-max-intset-entries</code>（默认 512）；</li>
+          <li>（7.2+）若还满足 listpack 的小阈值就转 <code>listpack</code>，否则转 <code>hashtable</code>；7.2 之前则直接转 <code>hashtable</code>。</li>
+        </ul>
+        <b>注意方向是不可逆的：</b>一旦从 intset 变成 listpack/hashtable，即便后来把大数删了，也<b>不会退回</b> intset。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== dict 弹窗 ===== -->
+<div class="modal-overlay" id="fig-dict">
+  <div class="modal"><span class="close" onclick="closeModal('fig-dict')">&times;</span>
+    <h3 class="modal-title">dict · 哈希表（数组 + 链表）</h3>
+    <div class="fig">
+      <div class="cap">index = hash(key) &amp; (size − 1) → 决定落在哪个桶</div>
+      <div class="row"><span class="idx">桶 0</span><span class="arw">──▶</span><span class="kv"><b>k1</b>│v1</span><span class="arw">──▶</span><span class="kv"><b>k4</b>│v4</span><span class="nil">　← 冲突，串成链表（头插）</span></div>
+      <div class="row"><span class="idx">桶 1</span><span class="arw">──▶</span><span class="nil">NULL（空）</span></div>
+      <div class="row"><span class="idx">桶 2</span><span class="arw">──▶</span><span class="kv"><b>k2</b>│v2</span></div>
+      <div class="row"><span class="idx">桶 3</span><span class="arw">──▶</span><span class="kv"><b>k3</b>│v3</span><span class="arw">──▶</span><span class="kv"><b>k5</b>│v5</span></div>
+      <div class="sd note" style="margin-top:12px">
+        不同 key 算到同一个桶 = <b>哈希冲突</b>，用<b>链地址法</b>把它们串成链表（新节点头插，O(1)）。<br>
+        元素变多、链变长会拖慢查找 → 负载因子过高就<b>扩容 + 渐进式 rehash</b>（见下一节）。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ziplist vs listpack 弹窗 ===== -->
+<div class="modal-overlay" id="fig-zl">
+  <div class="modal"><span class="close" onclick="closeModal('fig-zl')">&times;</span>
+    <h3 class="modal-title">ziplist vs listpack · 区别只在"每个 entry 记谁的长度"</h3>
+    <div class="fig">
+      <div class="cap">ziplist（旧）：每个 entry 都存「前一项的长度 prevlen」</div>
+      <div class="cellrow">
+        <div class="entry"><span class="k hl">prevlen</span><span>enc</span><span>data</span></div>
+        <div class="entry"><span class="k hl">prevlen</span><span>enc</span><span>data</span></div>
+        <div class="entry"><span class="k hl">prevlen</span><span>enc</span><span>data</span></div>
+      </div>
+      <div class="note" style="color:var(--danger)">某项 data 变大 → 它的 prevlen 要变长 → 挤得<b style="color:#ff9d9d">后一项</b>的 prevlen 也要变长 → 一路推下去 = <b style="color:#ff9d9d">连锁更新</b>（最坏 O(n²) 级联 realloc）</div>
+
+      <div class="cap">listpack（7.0）：每个 entry 只存「自己的长度 mylen」</div>
+      <div class="cellrow">
+        <div class="entry"><span>enc</span><span>data</span><span class="k hl">mylen</span></div>
+        <div class="entry"><span>enc</span><span>data</span><span class="k hl">mylen</span></div>
+        <div class="entry"><span>enc</span><span>data</span><span class="k hl">mylen</span></div>
+      </div>
+      <div class="note" style="color:var(--accent2)">每项只记自己的长度，改一项<b>不牵连邻居</b> → 连锁更新问题从根上消失。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== quicklist 弹窗 ===== -->
+<div class="modal-overlay" id="fig-ql">
+  <div class="modal"><span class="close" onclick="closeModal('fig-ql')">&times;</span>
+    <h3 class="modal-title">quicklist · List 的底层（双向链表 + listpack）</h3>
+    <div class="fig">
+      <div class="cap">双向链表，每个节点内嵌一个 listpack</div>
+      <div class="row">
+        <span class="nil">head</span><span class="arw">⇄</span>
+        <div class="qnode"><div class="t">listpack 节点</div><div class="bs"><span>a</span><span>b</span><span>c</span><span>d</span></div></div>
+        <span class="arw">⇄</span>
+        <div class="qnode"><div class="t">listpack 节点</div><div class="bs"><span>e</span><span>f</span><span>g</span><span>h</span></div></div>
+        <span class="arw">⇄</span>
+        <div class="qnode"><div class="t">listpack 节点</div><div class="bs"><span>i</span><span>j</span></div></div>
+        <span class="arw">⇄</span><span class="nil">tail</span>
+      </div>
+      <div class="sd note" style="margin-top:12px">
+        <b>链表</b>层：避免"单块超大连续内存"的整体搬动，增删节点方便。<br>
+        <b>listpack</b>层：每个节点内部紧凑存放，省内存、少指针开销。<br>
+        —— 一句话：兼顾「链表好增删」和「listpack 省内存」两头。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== skiplist 弹窗 ===== -->
+<div class="modal-overlay" id="fig-skl">
+  <div class="modal"><span class="close" onclick="closeModal('fig-skl')">&times;</span>
+    <h3 class="modal-title">skiplist · 跳表（多层索引的有序链表）</h3>
+    <div class="fig">
+      <div class="cap">上层是下层的"快速通道"，绿色格 = 查 score=27 的经过路径</div>
+      <table class="skl">
+        <tr><th></th><th>HEAD</th><th>3</th><th>6</th><th>9</th><th>12</th><th>17</th><th>19</th><th>21</th><th>27</th><th>31</th><th>35</th><th>NULL</th></tr>
+        <tr><td class="lv">L3</td><td class="on hit">•</td><td class="off">·</td><td class="off">·</td><td class="off">·</td><td class="off">·</td><td class="off">·</td><td class="off">·</td><td class="off">·</td><td class="on hit">27</td><td class="off">·</td><td class="off">·</td><td class="on">▪</td></tr>
+        <tr><td class="lv">L2</td><td class="on">•</td><td class="off">·</td><td class="off">·</td><td class="off">·</td><td class="on">12</td><td class="off">·</td><td class="off">·</td><td class="off">·</td><td class="on hit">27</td><td class="off">·</td><td class="off">·</td><td class="on">▪</td></tr>
+        <tr><td class="lv">L1</td><td class="on">•</td><td class="off">·</td><td class="on">6</td><td class="off">·</td><td class="on">12</td><td class="off">·</td><td class="on">19</td><td class="off">·</td><td class="on hit">27</td><td class="off">·</td><td class="on">35</td><td class="on">▪</td></tr>
+        <tr><td class="lv">L0</td><td class="on">•</td><td class="on">3</td><td class="on">6</td><td class="on">9</td><td class="on">12</td><td class="on">17</td><td class="on">19</td><td class="on">21</td><td class="on hit">27</td><td class="on">31</td><td class="on">35</td><td class="on">▪</td></tr>
+      </table>
+      <div class="sd note" style="margin-top:12px">
+        <b>L0 是完整有序链表</b>（所有节点都在），越往上节点越稀疏，上层是下层的"快速通道"。
+      </div>
+
+      <div class="cap" style="margin-top:18px">① 怎么实现（节点结构）</div>
+      <p style="font-size:13.5px;margin:4px 0 8px">每个节点存 <code>score</code> + <code>member</code>，外加一个<b>层数组 level[]</b>：第 i 层有个 <code>forward</code> 指针指向<b>同层的下一个节点</b>。节点有几层，level[] 就有多长。</p>
+      <div class="entry" style="margin-bottom:6px"><span class="k">score=27</span><span class="k">member="tom"</span><span>backward ◂</span><span class="hl">level[0..k]</span></div>
+      <div class="row"><span class="nil">level[3].forward ▶ NULL</span></div>
+      <div class="row"><span class="nil">level[2].forward ▶</span> <span class="kv"><b>后面某节点</b></span></div>
+      <div class="row"><span class="nil">level[1].forward ▶</span> <span class="kv"><b>35</b></span></div>
+      <div class="row"><span class="nil">level[0].forward ▶</span> <span class="kv"><b>31</b></span><span class="nil">　（backward 指针只在 L0，用于反向遍历 ZREVRANGE）</span></div>
+      <div class="sd note">
+        · <b>层数插入时随机决定</b>：每往上加一层的概率是 <code>p=1/4</code>（Redis 取值），所以大约 3/4 的节点只有 1 层、越高越少 —— 天然形成"下密上疏"的金字塔，<b>不用旋转/再平衡</b>就近似有序平衡。最大层数上限 32（新版 64）。<br>
+        · 头节点 <code>head</code> 固定拥有最高层，是每次查找的起点。<br>
+        · <b>ZSet = skiplist + dict 一起用</b>：skiplist 管"按 score 排序/范围"，dict 存 <code>member→score</code> 做<b>按成员 O(1) 查</b>（如 <code>ZSCORE</code>）。
+      </div>
+
+      <div class="cap" style="margin-top:18px">② 怎么查询（规则 + 走一遍）</div>
+      <p style="font-size:13.5px;margin:4px 0 8px"><b>规则：从 head 最高层开始，每一层"能往右就往右，不能就下沉"</b> —— 若<b>本层下一个节点的 score ≤ 目标</b>，就前进；否则下沉一层。到 L0 还没命中就是不存在。</p>
+      <div class="diagram">查 score = 19：
+ L3: head 的 forward = 27，27 &gt; 19 → 不前进，下沉
+ L2: head 的 forward = 12，12 ≤ 19 → 走到 12；12 的 forward = 27 &gt; 19 → 下沉
+ L1: 12 的 forward = 19，19 ≤ 19 → 走到 19 → 命中 ✅
+ 全程只比较 3 次，跳过了 3、6、9、17 等一堆节点</div>
+      <p style="font-size:13.5px;margin:4px 0"><span class="kbd">对比图中查 27：L3 一步就从 head 跳到 27（因为 3~21 都没长到 L3 这么高），而在 L0 要挨个走 8 步。</span></p>
+
+      <div class="cap" style="margin-top:18px">③ 为什么快</div>
+      <div class="sd note">
+        每上升一层，节点数大约<b>减少到 1/4</b>（由概率 p 决定），层数因此约为 <b>log₄n</b>；查找每层最多走几步就下沉，总步数正比于层数 → <b>平均 O(log n)</b>。本质和二分查找同理：<b>用高层指针一次跳过一大段</b>，把"逐个扫 O(n)"变成"分层跳 O(log n)"。<br>
+        代价是每个节点要多存几个 forward 指针（空间换时间），但指针不多，内存开销可接受。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="info box"><b>ZSet 为什么用跳表而不是红黑树 / B+ 树？</b>
+<ul style="margin:6px 0 0">
+<li><b>范围查询友好：</b>ZSet 大量 <code>ZRANGE</code> 这类范围操作，跳表最底层就是有序链表，定位后顺着指针扫即可；红黑树做范围要中序遍历，麻烦。</li>
+<li><b>实现简单：</b>跳表靠随机层数维持平衡，代码远比红黑树的旋转简单，易维护、易调试。</li>
+<li><b>B+ 树是为磁盘设计的：</b>B+ 树的矮胖是为了减少磁盘 IO，Redis 全在内存，用不上这个优势，反而增加复杂度。</li>
+</ul></div>
+
+<h4>②-b 各结构怎么查找数据（复杂度）</h4>
+<p>"怎么定位一个元素"决定了查找复杂度，也正是下面 ③ "小数据用紧凑结构、大了就换"的<b>根本原因</b>：</p>
+<table>
+<tr><th>结构</th><th>怎么查找</th><th>查找复杂度</th><th>特点</th></tr>
+<tr><td><b>intset</b></td><td>有序整数数组 → <b>二分查找</b></td><td>O(log n)</td><td>等宽数组能 O(1) 定位第 i 个，才能二分</td></tr>
+<tr><td><b>dict / hashtable</b></td><td><code>hash(key)</code> 定位桶 → 桶内链表逐个比对</td><td><b>O(1)</b> 平均<br>（冲突多时退化 O(链长)）</td><td>最快的按 key 精确查找，但无序</td></tr>
+<tr><td><b>listpack / ziplist</b></td><td>一块连续内存，<b>从头挨个 entry 遍历</b></td><td>O(n)</td><td>省内存但只能顺序扫 → <b>只适合元素少</b></td></tr>
+<tr><td><b>quicklist</b></td><td>先沿链表找到节点，再在节点内 listpack 顺序扫</td><td>O(n)</td><td>List 本就多按位置/两端操作，少随机查</td></tr>
+<tr><td><b>skiplist</b></td><td>从高层索引"跳"着逼近，逐层下沉</td><td>O(log n)</td><td>兼顾按 score 定位 + 范围扫（配 dict 按成员 O(1) 查）</td></tr>
+</table>
+<div class="tip box"><b>把逻辑闭环：</b><code>listpack</code> 查找是 <b>O(n)</b> —— 元素<b>少</b>时 n 很小、几乎等于 O(1)，还省内存，所以小数据首选它；一旦元素<b>多</b>，O(n) 就慢了，必须换成 <code>hashtable</code>（O(1)）或 <code>skiplist</code>（O(log n)）。<b>这就是 ③ 那些转换阈值存在的意义</b> —— 在"省内存"和"查得快"之间按规模自动切换。</div>
+
+<h4>③ type → encoding 转换阈值（面试高频）</h4>
+<table>
+<tr><th>类型</th><th>小数据（省内存）</th><th>大数据（高性能）</th><th>转换阈值（配置项）</th></tr>
+<tr><td><b>String</b></td><td><code>int</code>（整数）/ <code>embstr</code>（≤44字节，和 redisObject 连续分配，只读）</td><td><code>raw</code>（&gt;44字节，单独分配）</td><td>整数→int；短字符串→embstr；&gt;44 字节→raw</td></tr>
+<tr><td><b>List</b></td><td><code>listpack</code></td><td><code>quicklist</code></td><td><code>list-max-listpack-size</code>（默认 128 项）</td></tr>
+<tr><td><b>Hash</b></td><td><code>listpack</code></td><td><code>hashtable</code></td><td><code>hash-max-listpack-entries</code>(128) / <code>-value</code>(64字节)</td></tr>
+<tr><td><b>Set</b></td><td><code>intset</code>（全整数）/ <code>listpack</code>（少量非整数，7.2+）</td><td><code>hashtable</code></td><td><code>set-max-intset-entries</code>(512) / <code>set-max-listpack-entries</code>(128)</td></tr>
+<tr><td><b>ZSet</b></td><td><code>listpack</code></td><td><code>skiplist</code></td><td><code>zset-max-listpack-entries</code>(128) / <code>-value</code>(64字节)</td></tr>
+</table>
+<div class="tip box"><b>记忆法：</b>元素<b>少且小</b> → 用紧凑结构（<code>listpack</code>/<code>intset</code>/<code>embstr</code>）省内存；<b>一旦超过阈值</b>（数量多 or 单值大）→ 转成高效结构（<code>hashtable</code>/<code>skiplist</code>/<code>quicklist</code>/<code>raw</code>）保证操作复杂度。<b>转换通常不可逆</b>（删到很小也不会转回去）。</div>
+
+<div class="warn box"><b>那扩展类型（Bitmap / HyperLogLog / GEO / Stream）呢？</b> 上表只列了 5 种<b>基础类型</b>，因为扩展类型<b>大多没有独立编码</b> —— 要么复用基础类型，要么用专属结构、根本不存在"阈值切换"。</div>
+<table>
+<tr><th>扩展类型</th><th>底层实际是什么</th><th>有没有"转换阈值"</th></tr>
+<tr><td><b>Bitmap</b></td><td>就是 <b>String</b>（SDS 字节数组），用 <code>SETBIT</code> 按位操作</td><td>❌ 没有。<code>OBJECT ENCODING</code> 看到的就是 String 的 <code>raw</code>（位图一般 &gt;44B），不涉及编码切换</td></tr>
+<tr><td><b>HyperLogLog</b></td><td>也用 <b>String</b> 存，但内部有 <code>sparse</code>（稀疏）/ <code>dense</code>（稠密）两种表示</td><td>✅ 有，但<b>独立于 String 那套</b>：由 <code>hll-sparse-max-bytes</code>（默认 3000）控制，<code>sparse → dense</code>，<b>不可逆</b></td></tr>
+<tr><td><b>GEO</b></td><td>本质就是一个 <b>ZSet</b>（把经纬度编码成 GeoHash 当 score）</td><td>✅ <b>完全复用 ZSet 阈值</b>：<code>zset-max-listpack-entries</code>(128) / <code>-value</code>(64B)，listpack ↔ skiplist</td></tr>
+<tr><td><b>Stream</b></td><td>专属结构 <b>rax（基数树）+ listpack</b>（每个节点一个 listpack 存一批消息）</td><td>❌ 没有"小→大"切换，编码固定就是 <code>stream</code></td></tr>
+</table>
+<div class="tip box"><b>一句话：</b> <b>Bitmap / HLL → String</b>、<b>GEO → ZSet</b>，所以它们要么沿用基础类型规则（GEO）、要么根本不切换（Bitmap）；<b>HLL</b> 有自己的 <code>sparse→dense</code>，算一条独立阈值；<b>Stream</b> 是唯一有专属结构、且不做编码转换的。</div>
+
+<h4>④ 这些阈值怎么配置？</h4>
+<p>上面那些转换阈值都是 <code>redis.conf</code> 里的可调参数。控制"<b>元素个数</b>"的以 <code>-entries</code> 结尾，控制"<b>单个值大小(字节)</b>"的以 <code>-value</code> 结尾。超过任一个就从紧凑结构转成高效结构。</p>
+<table>
+<tr><th>类型</th><th>配置项</th><th>默认值</th><th>含义</th></tr>
+<tr><td rowspan="2"><b>Hash</b></td><td><code>hash-max-listpack-entries</code></td><td>128</td><td>field 个数超过它 → 转 hashtable</td></tr>
+<tr><td><code>hash-max-listpack-value</code></td><td>64</td><td>任一 field/value 字节数超过它 → 转 hashtable</td></tr>
+<tr><td rowspan="2"><b>ZSet</b></td><td><code>zset-max-listpack-entries</code></td><td>128</td><td>成员个数超过它 → 转 skiplist</td></tr>
+<tr><td><code>zset-max-listpack-value</code></td><td>64</td><td>任一成员字节数超过它 → 转 skiplist</td></tr>
+<tr><td rowspan="2"><b>Set</b></td><td><code>set-max-intset-entries</code></td><td>512</td><td>纯整数集合元素个数超过它 → 转 listpack/hashtable</td></tr>
+<tr><td><code>set-max-listpack-entries</code></td><td>128</td><td>（7.2+）含非整数时元素个数超过它 → 转 hashtable</td></tr>
+<tr><td><b>List</b></td><td><code>list-max-listpack-size</code></td><td>128</td><td>单个 quicklist 节点内元素个数上限（正数按个数、负数按 KB）</td></tr>
+</table>
+<p class="kbd">注：<code>hash-max-ziplist-*</code> / <code>zset-max-ziplist-*</code> 是 7.0 之前的旧名（那时底层还叫 ziplist），7.0 起改叫 <code>-listpack-*</code>，旧名仍作别名保留兼容。String 的 embstr↔raw 边界（44 字节）是<b>硬编码</b>的，不可配置。</p>
+
+<h4>三种配置方式</h4>
+<div class="hd">
+  <div class="node"><span class="em">① 改配置文件 redis.conf</span>（永久，重启后生效）<br><span class="sub">写一行：<code>hash-max-listpack-entries 256</code>，然后重启 Redis</span></div>
+  <div class="node accent"><span class="em">② 运行时 CONFIG SET</span>（即时生效，无需重启，但重启后丢失）<br><span class="sub"><code>CONFIG SET hash-max-listpack-entries 256</code></span></div>
+  <div class="node"><span class="em">③ 查看当前值 CONFIG GET</span><br><span class="sub"><code>CONFIG GET hash-max-listpack-entries</code>　支持通配：<code>CONFIG GET *listpack*</code> 一次看全</span></div>
+</div>
+<pre><code># redis.conf 里的写法（一行一个）
+hash-max-listpack-entries 128
+hash-max-listpack-value   64
+set-max-intset-entries    512
+
+# 或运行时动态改（立刻生效，不用重启）
+127.0.0.1:6379&gt; CONFIG SET set-max-intset-entries 1024
+OK
+127.0.0.1:6379&gt; CONFIG GET set-max-intset-entries
+1) "set-max-intset-entries"
+2) "1024"
+
+# 想让 CONFIG SET 的改动也永久保存，可回写配置文件：
+127.0.0.1:6379&gt; CONFIG REWRITE</code></pre>
+<div class="warn box"><b>两个注意点：</b>① <code>CONFIG SET</code> 只对<b>之后</b>的 key 判定生效，<b>不会回头</b>把已经转成 hashtable 的 key 变回 listpack（转换不可逆）；② 阈值调大能<b>省内存</b>（更多 key 用紧凑结构），但紧凑结构增删是 O(n)，<b>调太大反而拖慢操作</b> —— 默认值是官方权衡过的，非必要不用改。</div>
+
+<h3 id="rehash">渐进式 rehash</h3>
+<p>dict（哈希表）里保存了<b>两张哈希表 ht[0]、ht[1]</b>。平时只用 ht[0]；当<b>负载因子</b>过高要扩容、或过低要缩容时，就需要把 ht[0] 的所有键<b>重新哈希</b>到更大/更小的 ht[1]。</p>
+
+<h4>什么是负载因子？为什么要扩容/缩容</h4>
+<div class="diagram">负载因子 load factor = used / size = 已存元素个数 / 桶数组大小</div>
+<p>它衡量哈希表的"拥挤程度"：</p>
+<ul>
+<li><b>太高（快满了）</b>：元素挤在有限的桶里，冲突变多、链表变长，查找从理想的 O(1) 退化成 O(链长)。→ 需要<b>扩容</b>（换更大的桶数组），把链摊平。</li>
+<li><b>太低（很空旷）</b>：桶数组占着大量内存却没几个元素，浪费空间。→ 需要<b>缩容</b>，把桶数组缩小。</li>
+</ul>
+<p>Redis 里 dict 的触发阈值（<code>used / size</code>）：</p>
+<table>
+<tr><th>动作</th><th>触发条件</th><th>新表大小</th></tr>
+<tr><td><b>扩容</b>（常规）</td><td>负载因子 <b>≥ 1</b>，且当前<b>没有</b>子进程在做 RDB/AOF</td><td>第一个 ≥ <code>used×2</code> 的 2 的幂</td></tr>
+<tr><td><b>扩容</b>（强制）</td><td>负载因子 <b>≥ 5</b>（不管有没有子进程，太挤了必须扩）</td><td>同上</td></tr>
+<tr><td><b>缩容</b></td><td>负载因子 <b>&lt; 0.1</b>（低于 10%，由后台定时任务检查）</td><td>第一个 ≥ <code>used</code> 的 2 的幂</td></tr>
+</table>
+<div class="info box"><b>为什么"有子进程时"要把扩容阈值放宽到 5？</b> RDB 的 <code>bgsave</code>、AOF 重写都靠 <b>fork 子进程 + 写时复制（COW）</b>：父子共享内存页，父进程一改动就要复制一份页。而扩容 rehash 会<b>大面积改动内存</b>（搬迁所有 key），触发海量页复制、内存暴涨。所以 fork 期间<b>尽量不扩容</b>，把阈值抬高到 5，除非实在太挤（≥5）才强制扩。这是"<b>写时复制友好</b>"的一个典型权衡。</div>
+
+<div class="danger box"><b>为什么不能一次性迁移？</b> Redis 是单线程。如果字典里有几百万个 key，一次性 rehash 会把主线程<b>卡死几百毫秒甚至几秒</b>，期间所有命令全部阻塞 —— 这是不可接受的。</div>
+
+<h4>为什么要两张表 ht[0] / ht[1]？</h4>
+<p>扩容的本质是：<b>换一个更大的桶数组，把所有 key 按新大小重新哈希、搬过去</b>。但"边对外服务、边慢慢搬"就必须<b>同时保留两块空间</b> —— 没法在原地把一个数组悄悄变大：</p>
+<ul>
+<li><b>ht[0]</b>：原来那张表，还装着<b>没搬完</b>的 key，继续对外服务；</li>
+<li><b>ht[1]</b>：新分配的目标表（扩容时更大、缩容时更小），<b>接收</b>搬过来的 key；</li>
+<li>迁移期间<b>两张并存</b>，用一个游标 <code>rehashidx</code> 记录"<b>ht[0] 搬到第几个桶了</b>"；</li>
+<li>等 ht[0] 全部搬空，<b>释放 ht[0]，让 ht[1] 顶上成为新的 ht[0]</b>，ht[1] 再次置空。</li>
+</ul>
+<p class="kbd">所以<b>平时（没在 rehash）只有 ht[0] 有数据，ht[1] 是空的</b>；只有 rehash 期间 ht[1] 才被用起来。有了这块"中转空间"，才能把一次大搬迁拆成无数次小搬迁。</p>
+
+<div class="fig">
+  <div class="cap">rehash 进行中：ht[0] 逐桶搬向 ht[1]，rehashidx 指"下一个要搬的桶"</div>
+  <div style="color:var(--muted);font-size:12px;margin:10px 0 4px">▽ ht[0]（旧表，size=4）— 装没搬完的 key，继续服务</div>
+  <div class="row"><span class="idx">桶0</span><span class="arw">──▶</span><span class="nil">已迁空</span></div>
+  <div class="row"><span class="idx">桶1</span><span class="arw">──▶</span><span class="nil">已迁空</span></div>
+  <div class="row"><span class="idx" style="border-color:var(--warn);color:var(--warn)">桶2</span><span class="arw">──▶</span><span class="kv"><b>k3</b></span><span class="arw">──▶</span><span class="kv"><b>k5</b></span><span class="nil">　◀ rehashidx = 2（正指这里，待迁）</span></div>
+  <div class="row"><span class="idx">桶3</span><span class="arw">──▶</span><span class="kv"><b>k4</b></span><span class="nil">　待迁</span></div>
+  <div class="arw" style="text-align:center;margin:8px 0">逐桶搬迁 ▼</div>
+  <div style="color:var(--muted);font-size:12px;margin:4px 0">▽ ht[1]（新表，size=8）— 桶0、桶1 已收到搬来的 k1、k2</div>
+  <div class="row">
+    <span class="idx">桶0</span><span class="arw">─▶</span><span class="kv"><b>k1</b></span>
+    <span class="idx" style="margin-left:10px">1</span><span class="arw">─▶</span><span class="kv"><b>k2</b></span>
+    <span class="idx" style="margin-left:10px">2</span><span class="arw">─▶</span><span class="nil">空</span>
+    <span class="nil">… 3~7 待接收 k3/k4/k5 …</span>
+  </div>
+  <div class="note" style="margin-top:10px">游标从 rehashidx=0 一路推进到 ht[0] 最后一个桶；到达即代表搬完，此时 ht[1] 转正、ht[0] 释放。</div>
+</div>
+
+<p><b>迁移是怎么一小步一小步推进的：</b></p>
+<ul>
+<li><b>触发后</b>：给 ht[1] 分配好空间，<code>rehashidx</code> 置 0，进入 rehash 状态。</li>
+<li><b>每次增删改查</b>：顺带把 ht[0] 上 <code>rehashidx</code> 指向的那个桶的所有键迁到 ht[1]，然后 <code>rehashidx++</code>。外加 <code>serverCron</code> 定时任务也会帮着搬一批。</li>
+<li><b>迁移完</b>：ht[1] 变成新的 ht[0]，旧表释放，<code>rehashidx</code> 置 -1。</li>
+</ul>
+<p><b>rehash 期间的读写怎么处理？</b></p>
+<ul>
+<li><b>查</b>：<b>先查 ht[0]，没有再查 ht[1]</b>（因为 key 可能还没迁过去）。</li>
+<li><b>新增</b>：<b>只写 ht[1]</b>，保证 ht[0] 只减不增，迁移总能结束。</li>
+<li>删/改：两张表都可能命中，命中哪张改哪张。</li>
+</ul>
+<div class="tip box"><b>一句话：</b>用"<b>两张表 + 进度指针 + 把迁移摊进每次操作</b>"，把一次会卡死的大 rehash 变成无数次几乎无感的小迁移 —— 典型的"化整为零、避免单线程长阻塞"思路。</div>
+
+<h3 id="history">数据结构发展史</h3>
+<p>底层结构不是一开始就长这样，几次关键演进都在解决前一代的痛点：</p>
+<table>
+<tr><th>版本</th><th>变化</th><th>解决了什么问题</th></tr>
+<tr><td>早期</td><td>小集合用 <b>ziplist</b>，List 用 ziplist + 双向链表（linkedlist）</td><td>小数据紧凑省内存，但 ziplist 有连锁更新隐患、大 List 的链表指针又太占内存</td></tr>
+<tr><td><b>3.2</b></td><td>List 改用 <b>quicklist</b>（链表节点内嵌 ziplist）</td><td>统一了 List 实现：分段紧凑，既省内存又避免单个超大 ziplist</td></tr>
+<tr><td><b>4.0</b></td><td>引入<b>后台线程</b>（<code>UNLINK</code> 惰性删除）、<b>混合持久化</b>、<b>LFU</b> 淘汰</td><td>大 key 删除不再卡主线程；持久化兼顾快与稳</td></tr>
+<tr><td><b>5.0</b></td><td>新增 <b>Stream</b> 类型</td><td>提供真正可持久化、可回溯、带消费者组的消息队列</td></tr>
+<tr><td><b>6.0</b></td><td><b>多线程 IO</b></td><td>网络 IO 瓶颈下用多核提吞吐（执行仍单线程）</td></tr>
+<tr><td><b>7.0</b></td><td><b>listpack 全面取代 ziplist</b></td><td><b>彻底消除连锁更新</b>：listpack 每项只存自己的长度，不再存前项长度</td></tr>
+</table>
+<details class="q"><summary>ziplist 的"连锁更新"到底是什么？</summary><div class="a">ziplist 里每个 entry 都记录了<b>前一个 entry 的长度</b>（prevlen），用 1 字节或 5 字节存。如果某个 entry 从 &lt;254 字节增长到 ≥254 字节，它后面那项记录的 prevlen 就要从 1 字节扩成 5 字节，这一扩又可能让<b>再后面一项</b>的 prevlen 跟着扩……像多米诺骨牌一样<b>级联 realloc</b>，最坏 O(n²)。listpack 让每项只记自己的长度，从根上杜绝了这个问题。</div></details>
+</section>
+
+<!-- ============ 2 缓存三大问题 ============ -->
+<section id="cache-problem">
+<h2 class="sec">2 · 缓存三大经典问题 <span class="tag hi">高频</span></h2>
+<p>把 Redis 当缓存用时最常被问。先用一句话分清三者（都会导致请求打到数据库，但<b>触发原因不同</b>）：</p>
+<table>
+<tr><th>问题</th><th>一句话</th><th>打到 DB 的量</th></tr>
+<tr><td><b>缓存穿透</b></td><td>查<b>根本不存在</b>的数据，缓存和 DB 都没有，每次都穿透到 DB</td><td>持续（可被恶意利用）</td></tr>
+<tr><td><b>缓存击穿</b></td><td><b>单个热点 key</b> 突然失效的瞬间，大量请求同时回源</td><td>瞬间尖峰（集中在一个 key）</td></tr>
+<tr><td><b>缓存雪崩</b></td><td><b>大量 key 同时失效</b> 或 Redis 整个宕机，请求洪峰压垮 DB</td><td>瞬间海量（大面积）</td></tr>
+</table>
+
+<h4>① 缓存穿透：查不存在的数据</h4>
+<p>比如恶意用 <code>id=-1</code>、<code>id=999999999</code> 这种不存在的 key 狂刷：缓存没有 → 查 DB → DB 也没有 → 不写缓存 → 下次还是穿透。DB 被反复击打。</p>
+<ul>
+<li><b>缓存空值：</b>DB 查不到时，也往缓存写一个空值（如 <code>""</code> / <code>NULL</code>）并设<b>较短过期</b>（如 60s），挡住后续相同查询。简单，但会存很多无效 key。</li>
+<li><b>布隆过滤器：</b>把所有<b>已存在</b>的 key 先放进布隆过滤器，查询前先问它"这 key 可能存在吗"。</li>
+<li><b>基础校验：</b>对明显非法的参数（负数 id、格式错误）直接拦截。</li>
+</ul>
+<div class="info box"><b>布隆过滤器原理：</b>一个位数组 + 多个哈希函数。加入元素时，用 k 个哈希把它映射到 k 个位置全部置 1；查询时这 k 位只要有一位是 0，就<b>一定不存在</b>（直接拦截）；如果全是 1，则<b>可能存在</b>（放行去查）。特点：<b>有"假阳性"（误判存在），但绝无"假阴性"（说不存在就真不存在）</b> —— 正好够用来挡穿透。缺点是不好删除元素。</div>
+
+<div class="fig">
+  <div class="cap">布隆过滤器：位数组 + k 个哈希函数（下图位数组 12 位，k=3）</div>
+
+  <div class="note" style="margin:6px 0 4px;color:#cfe3fb"><b>加入 key_A</b>：3 个哈希算出位置 <b>2 / 7 / 11</b> → 把这三位从 0 置成 1</div>
+  <div class="bloom">
+    <div class="b"><div class="i">0</div><div class="v">0</div></div>
+    <div class="b"><div class="i">1</div><div class="v">0</div></div>
+    <div class="b on"><div class="i">2</div><div class="v">1</div></div>
+    <div class="b"><div class="i">3</div><div class="v">0</div></div>
+    <div class="b"><div class="i">4</div><div class="v">0</div></div>
+    <div class="b"><div class="i">5</div><div class="v">0</div></div>
+    <div class="b"><div class="i">6</div><div class="v">0</div></div>
+    <div class="b on"><div class="i">7</div><div class="v">1</div></div>
+    <div class="b"><div class="i">8</div><div class="v">0</div></div>
+    <div class="b"><div class="i">9</div><div class="v">0</div></div>
+    <div class="b"><div class="i">10</div><div class="v">0</div></div>
+    <div class="b on"><div class="i">11</div><div class="v">1</div></div>
+  </div>
+
+  <div class="note" style="margin:14px 0 4px"><span style="color:var(--accent2)"><b>查 key_A</b></span>：hash → 2、7、11，<b>三位都是 1</b> → 判定<b>「可能存在」</b>，放行去查缓存/DB</div>
+  <div class="note" style="margin:8px 0 4px"><span style="color:var(--danger)"><b>查 key_X</b>（不存在的 key）</span>：hash → 2、<b style="color:#ff9d9d">5</b>、11，其中<b style="color:#ff9d9d">第 5 位是 0</b> → 判定<b>「一定不存在」</b>，直接拦截，挡住穿透 ✅</div>
+  <div class="bloom">
+    <div class="b"><div class="i">0</div><div class="v">0</div></div>
+    <div class="b"><div class="i">1</div><div class="v">0</div></div>
+    <div class="b on"><div class="i">2</div><div class="v">1</div></div>
+    <div class="b"><div class="i">3</div><div class="v">0</div></div>
+    <div class="b"><div class="i">4</div><div class="v">0</div></div>
+    <div class="b zero"><div class="i">5</div><div class="v">0</div></div>
+    <div class="b"><div class="i">6</div><div class="v">0</div></div>
+    <div class="b on"><div class="i">7</div><div class="v">1</div></div>
+    <div class="b"><div class="i">8</div><div class="v">0</div></div>
+    <div class="b"><div class="i">9</div><div class="v">0</div></div>
+    <div class="b"><div class="i">10</div><div class="v">0</div></div>
+    <div class="b on"><div class="i">11</div><div class="v">1</div></div>
+  </div>
+
+  <div class="sd note" style="margin-top:12px">
+    <b>为什么只有"假阳性"、没有"假阴性"？</b> 只要有一位是 0，就说明这个 key <b>从没被加入过</b>（加入必置 1）→ 说"不存在"绝对可信。反过来 k 位恰好都被<b>别的 key</b> 各自置了 1，就会误判成"可能存在"（<b>假阳性</b>）→ 所以放行后仍要真查一次。位数组越长、哈希越多，误判率越低。
+  </div>
+</div>
+
+<h4>② 缓存击穿：热点 key 失效瞬间</h4>
+<p>某个超热 key（如首页大促商品）到期的一刹那，成千上万并发请求同时发现缓存没了，<b>一起去查 DB 并重建缓存</b>，DB 瞬间被打爆。（和雪崩的区别：击穿是<b>一个</b>热点 key，雪崩是<b>一大批</b>key。）</p>
+<ul>
+<li><b>互斥锁：</b>缓存失效时，只让<b>第一个</b>请求拿到锁去查 DB、重建缓存，其余请求<b>等待或重试</b>，重建好后直接读缓存。保证同一时刻只有一个请求回源。</li>
+<li><b>逻辑过期：</b>热点 key <b>不设真实 TTL</b>，而是把"逻辑过期时间"存进 value。发现逻辑过期就<b>异步</b>开个线程去重建，当前请求先返回旧值。牺牲一致性换不阻塞。</li>
+<li><b>热点数据永不过期 / 提前续期。</b></li>
+</ul>
+
+<h4>③ 缓存雪崩：大面积失效 / Redis 宕机</h4>
+<p>两种成因：(a) 大量 key 设了<b>相同的过期时间</b>，同一刻集体失效；(b) Redis 实例<b>整个挂了</b>，所有请求瞬间全压到 DB。</p>
+<ul>
+<li><b>过期时间加随机值：</b>基础 TTL + 随机几分钟，把失效时间打散，避免同时到期。（针对成因 a）</li>
+<li><b>Redis 高可用：</b>主从 + 哨兵 / 集群，避免单点宕机。（针对成因 b）</li>
+<li><b>多级缓存：</b>本地缓存(Caffeine) + Redis，Redis 挂了本地还能顶一会。</li>
+<li><b>服务熔断 / 限流 / 降级：</b>兜底，保护 DB 不被打垮。</li>
+</ul>
+
+<div class="tip box"><b>对比记忆：</b>穿透=<b>查不存在</b>（布隆过滤器 / 缓存空值）；击穿=<b>一个热点失效</b>（互斥锁 / 逻辑过期）；雪崩=<b>一批失效或宕机</b>（随机 TTL / 高可用 / 多级缓存）。</div>
+
+<h3 id="consistency">缓存与数据库一致性</h3>
+<p>只要数据同时存在 DB 和缓存，就有"改了一个、另一个还是旧值"的风险。主流方案是 <b>Cache Aside（旁路缓存）</b>：读时缓存没有就查 DB 回填；<b>写时更新 DB，然后删除缓存</b>。</p>
+
+<h4>为什么是"删缓存"而不是"更新缓存"？</h4>
+<ul>
+<li><b>省无用功：</b>写完就更新缓存，但这个 key 可能很久没人读，白算白写；删掉让"下次真正读"时再懒加载更划算。</li>
+<li><b>避免并发写覆盖：</b>两个请求都"更新缓存"时，先写 DB 的可能后写缓存，造成缓存是旧值。删除就没有这个顺序问题。<span class="ex-btn" onclick="openModal('ex-cache-cover')">看例子</span></li>
+<li><b>计算型缓存：</b>若缓存是多表聚合算出来的，每次写都重算代价大，删掉更简单。</li>
+</ul>
+
+<h4>先删缓存还是先更新 DB？</h4>
+<table>
+<tr><th>顺序</th><th>并发下的问题</th></tr>
+<tr><td><b>先删缓存，再更新 DB</b></td><td>删完缓存、DB 还没改完时，另一个<b>读</b>请求进来，把<b>旧值</b>重新加载进缓存 → DB 改完后缓存仍是旧值，<b>脏数据直到下次失效</b>。风险更大。<span class="ex-btn" onclick="openModal('ex-cache-del-first')">看例子</span></td></tr>
+<tr><td><b>先更新 DB，再删缓存</b>（推荐）</td><td>大部分情况没问题。极端场景仍可能不一致（见下），但概率低很多，是业界默认选择。</td></tr>
+</table>
+
+<h4>延迟双删</h4>
+<p>针对"先删缓存再更新 DB"的读回填旧值问题：<b>更新 DB 后，延迟一小段时间（如 500ms）再删一次缓存</b>，把这期间可能被回填的旧值清掉。延迟时间要略大于"一次读 DB + 写缓存"的耗时。</p>
+
+<h4>为什么说只能做到"最终一致"？</h4>
+<p>即使是推荐的"先更新 DB 再删缓存"，也有个<b>低概率</b>的不一致时序：读请求的回填 与 写请求的删除 恰好交错。<span class="ex-btn" onclick="openModal('ex-cache-final')">看例子</span></p>
+<p>它要求"读查到旧值"和"写删缓存"卡在极窄的时间窗内，且读的回填比写的删除还晚，实际很少发生。所以工程上<b>接受最终一致</b>：给缓存设 TTL 兜底，到期自然纠正。</p>
+
+<h4>更强的一致性：订阅 binlog</h4>
+<p>用 <b>Canal</b> 之类工具伪装成 MySQL 从库，<b>订阅 binlog</b>，DB 一有变更就由消费端去删/更新缓存。好处是<b>和业务代码解耦</b>、不会漏删（失败可重试），是大厂常用的异步一致性方案。</p>
+<div class="info box"><b>如何选？</b> 绝大多数业务用"<b>更新 DB + 删缓存 + TTL 兜底</b>"的最终一致就够了；对一致性要求更高的，叠加<b>延迟双删</b>或 <b>binlog 订阅</b>；若要求<b>强一致</b>，那就别用缓存，直接读 DB（或加分布式锁串行化）—— 缓存的本质是用一致性换性能。</div>
+
+<!-- ===== 例子1：为什么不"更新缓存" ===== -->
+<div class="modal-overlay" id="ex-cache-cover">
+  <div class="modal"><span class="close" onclick="closeModal('ex-cache-cover')">&times;</span>
+    <h3 class="modal-title">例子 · 为什么"更新缓存"会写覆盖</h3>
+    <p>两个写请求：<b>A 把 X 改成 10</b>、<b>B 把 X 改成 20</b>（B 稍晚，是最新真值）。策略 = <b>更新 DB + 更新缓存</b>。</p>
+    <table>
+      <tr><th>时刻</th><th>请求A（写 X=10）</th><th>请求B（写 X=20）</th><th>DB</th><th>缓存</th></tr>
+      <tr><td>t1</td><td>更新 DB → 10</td><td></td><td>10</td><td>—</td></tr>
+      <tr><td>t2</td><td></td><td>更新 DB → 20</td><td><b>20</b></td><td>—</td></tr>
+      <tr><td>t3</td><td></td><td>更新缓存 → 20</td><td>20</td><td>20</td></tr>
+      <tr><td>t4</td><td>更新缓存 → 10</td><td></td><td>20</td><td style="color:var(--danger)"><b>10 ❌</b></td></tr>
+    </table>
+    <div class="danger box"><b>结果：</b>DB=20（B 最新），缓存=10（A 旧值），长期不一致。<b>根因</b>：两个"写缓存"的到达顺序和"写 DB"的顺序颠倒了（A 的 DB 先写、缓存后写）。</div>
+    <div class="tip box"><b>换成"删缓存"就没事：</b>t3/t4 都变成<b>删除</b>操作，无所谓谁先谁后，最终缓存为空；下次读时回填 DB 的最新值 20 → 一致。</div>
+  </div>
+</div>
+
+<!-- ===== 例子2：先删缓存再更新DB ===== -->
+<div class="modal-overlay" id="ex-cache-del-first">
+  <div class="modal"><span class="close" onclick="closeModal('ex-cache-del-first')">&times;</span>
+    <h3 class="modal-title">例子 · 先删缓存再更新 DB，为什么会脏</h3>
+    <p><b>写请求A</b> 把 X 从 V1 改成 V2；同时来了个<b>读请求B</b>。</p>
+    <table>
+      <tr><th>时刻</th><th>写请求A（X: V1→V2）</th><th>读请求B</th><th>DB</th><th>缓存</th></tr>
+      <tr><td>t1</td><td><b>删除缓存</b></td><td></td><td>V1</td><td>空</td></tr>
+      <tr><td>t2</td><td></td><td>缓存未命中 → 查 DB 得 <b>V1</b></td><td>V1</td><td>空</td></tr>
+      <tr><td>t3</td><td></td><td>把 <b>V1</b> 写回缓存</td><td>V1</td><td>V1</td></tr>
+      <tr><td>t4</td><td><b>更新 DB → V2</b></td><td></td><td><b>V2</b></td><td style="color:var(--danger)"><b>V1 ❌</b></td></tr>
+    </table>
+    <div class="danger box"><b>结果：</b>DB=V2、缓存=V1（旧），而且<b>直到 TTL 到期才纠正</b>——脏得久。问题出在：删缓存后、DB 还没改完的空窗里，读请求把旧值又灌回了缓存。</div>
+    <div class="tip box"><b>延迟双删解决：</b>写 A 在 t4 更新完 DB 后，<b>延迟一小段（如 500ms）再删一次缓存</b>，把 t3 回填的 V1 清掉。延迟要略大于"一次读 DB + 写缓存"的耗时。</div>
+  </div>
+</div>
+
+<!-- ===== 例子3：先更新DB再删缓存的最终一致 ===== -->
+<div class="modal-overlay" id="ex-cache-final">
+  <div class="modal"><span class="close" onclick="closeModal('ex-cache-final')">&times;</span>
+    <h3 class="modal-title">例子 · 先更新 DB 再删缓存，为什么仍可能不一致</h3>
+    <p><b>写请求A</b> 把 X 从 V1 改成 V2；<b>读请求B</b> 恰好在缓存失效的瞬间进来。</p>
+    <table>
+      <tr><th>时刻</th><th>读请求B</th><th>写请求A（X: V1→V2）</th><th>DB</th><th>缓存</th></tr>
+      <tr><td>t1</td><td>缓存失效 → 查 DB 得旧值 <b>V1</b></td><td></td><td>V1</td><td>空</td></tr>
+      <tr><td>t2</td><td></td><td>更新 DB → <b>V2</b></td><td><b>V2</b></td><td>空</td></tr>
+      <tr><td>t3</td><td></td><td>删除缓存（本就是空）</td><td>V2</td><td>空</td></tr>
+      <tr><td>t4</td><td>把 <b>V1</b> 写回缓存</td><td></td><td>V2</td><td style="color:var(--danger)"><b>V1 ❌</b></td></tr>
+    </table>
+    <div class="warn box"><b>结果：</b>缓存=V1、DB=V2。但要同时满足两个苛刻条件：① 读在 t1 就查到了旧值；② 读的<b>回填(t4)</b>竟然比写的<b>删缓存(t3)</b>还晚。<br>通常"读 + 回填"很快（毫秒级），几乎总在写的删除之前完成，所以这个交错<b>概率极低</b>。</div>
+    <div class="tip box"><b>兜底：</b>给缓存设 <b>TTL</b>，即便真撞上了，到期自动失效、下次读回填最新值 —— 这就是"<b>最终一致</b>"。要更强就上 binlog 订阅或强一致方案。</div>
+  </div>
+</div>
+
+<h3 id="bigkey">大 key / 热 key 问题</h3>
+<p>两个容易混的概念：<b>大 key</b> 是"单个 value 体积大"（如一个存了几百万元素的 Hash、几 MB 的 String）；<b>热 key</b> 是"单个 key 访问量极高"（如爆款商品）。</p>
+
+<h4>大 key</h4>
+<table class="rowh">
+<tr><th>危害</th><td>① 读写耗时长，因单线程而<b>阻塞其它命令</b>；② 序列化后<b>网络传输打满带宽</b>；③ <b>删除</b>一个大 key（<code>DEL</code>）也会长时间阻塞；④ 数据倾斜（集群里某节点内存暴涨）。</td></tr>
+<tr><th>排查</th><td><code>redis-cli --bigkeys</code> 扫描、<code>MEMORY USAGE key</code> 看单 key 内存、<code>SCAN</code> + 业务分析。</td></tr>
+<tr><th>解决</th><td>① <b>拆分</b>：大 Hash 按 field 哈希拆成多个小 Hash；② 删除用 <b><code>UNLINK</code></b> 代替 <code>DEL</code>（4.0+，交后台线程异步回收，不阻塞主线程）；③ 压缩 value、只存必要字段。</td></tr>
+</table>
+
+<h4>热 key</h4>
+<table class="rowh">
+<tr><th>危害</th><td>流量全压在某个节点上（集群下尤其明显），可能打满单节点，热 key 失效还会引发<b>缓存击穿</b>。</td></tr>
+<tr><th>发现</th><td><code>redis-cli --hotkeys</code>（需 LFU 策略）、<code>MONITOR</code> 抽样、客户端/代理层埋点统计。</td></tr>
+<tr><th>解决</th><td>① <b>多级缓存</b>：热 key 放一份到应用本地缓存（Caffeine），减少打到 Redis 的量；② <b>读副本分摊</b>：主从 + 读写分离把读分散到多个从节点；③ <b>key 打散</b>：把热 key 复制成 <code>key#1</code>…<code>key#N</code> 分布到不同节点，读时随机选一个。</td></tr>
+</table>
+</section>
+
+<!-- ============ 3 持久化 ============ -->
+<section id="persistence">
+<h2 class="sec">3 · 持久化：RDB / AOF / 混合</h2>
+<p>内存数据库怕宕机丢数据，所以要落盘。两种机制各有取舍：<b>RDB</b> 是某一时刻的内存快照（二进制、体积小、恢复快）；<b>AOF</b> 记录每条写命令（可读、丢数据少）。</p>
+
+<h4>RDB —— 内存快照</h4>
+<p>把某一时刻的全部数据<b>二进制压缩</b>成一个 <code>dump.rdb</code> 文件。两种触发方式：</p>
+<table>
+<tr><th>命令</th><th>怎么做</th><th>问题</th></tr>
+<tr><td><code>save</code></td><td><b>主线程</b>直接生成 RDB</td><td><b>阻塞</b>所有命令，生产禁用</td></tr>
+<tr><td><code>bgsave</code>（默认）</td><td><b>fork 一个子进程</b>去写 RDB，主线程继续服务</td><td>只在 fork 瞬间短暂阻塞</td></tr>
+</table>
+<p><b>fork + 写时复制（COW）</b>：<code>bgsave</code> 时子进程和父进程<b>共享同一份内存页</b>（靠页表，不真复制数据）。子进程安心把这份快照写盘；期间如果主进程要<b>修改</b>某个页，内核才把那个页<b>复制一份</b>给主进程改（Copy-On-Write），子进程看到的仍是 fork 那一刻的旧数据。这样既不阻塞写、又能得到一致的快照。</p>
+<p class="kbd">触发时机：配置文件 <code>save 900 1 / 300 10 / 60 10000</code>（多少秒内有多少次写就 bgsave）、主从全量复制、<code>shutdown</code> 时。</p>
+
+<h4>AOF —— 追加写命令日志</h4>
+<p>把每条<b>写命令</b>按协议格式<b>追加</b>到 <code>appendonly.aof</code>。注意 Redis 是"<b>先执行命令、再写日志</b>"（写后日志），和 MySQL 的 WAL（先写 redo 再改数据）正好相反。</p>
+<div class="info box"><b>为什么"先执行再记日志"？</b> ① 只有执行成功的命令才记，<b>避免记录错误命令</b>（不用像 MySQL 那样额外做语法检查）；② 不阻塞当前命令的执行。<b>代价</b>：如果命令执行完、还没来得及写 AOF 就宕机，<b>这条会丢</b>；而且写 AOF 在主线程，可能阻塞<b>下一条</b>命令。</div>
+<p><b>三种刷盘策略 <code>appendfsync</code></b>（写 AOF 其实是先进 OS 缓冲区，何时 <code>fsync</code> 到磁盘由它决定）：</p>
+<table>
+<tr><th>策略</th><th>fsync 时机</th><th>丢数据 vs 性能</th></tr>
+<tr><td><code>always</code></td><td>每条命令都 fsync</td><td>最多丢 1 条，但最慢</td></tr>
+<tr><td><code>everysec</code>（默认）</td><td>每秒 fsync 一次（后台线程）</td><td>最多丢 1 秒，<b>性能与安全的平衡</b></td></tr>
+<tr><td><code>no</code></td><td>交给操作系统决定</td><td>最快，但宕机可能丢很多</td></tr>
+</table>
+<p><b>AOF 重写（bgrewriteaof）</b>：AOF 越追越大，且有冗余（对同一 key 的 100 次 <code>INCR</code> 其实只需最终值）。重写就是 <b>fork 子进程</b>，按当前内存数据生成一份<b>最精简的等价命令集</b>，替换旧 AOF。不是分析旧文件，而是直接读内存现状。</p>
+
+<h4>混合持久化（4.0+）</h4>
+<p>RDB 恢复快但丢数据多，AOF 丢数据少但文件大、恢复慢。混合持久化（<code>aof-use-rdb-preamble yes</code>）取长补短：<b>AOF 重写时，文件开头写成 RDB 格式的全量快照，之后的增量写命令再用 AOF 格式追加</b>。</p>
+<div class="hd">
+  <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">混合持久化的 AOF 文件结构</div>
+  <div class="lane">
+    <div class="grp2 g-green"><div class="cap">① RDB 格式全量快照</div><div class="note">文件开头一段<br>恢复时先加载 → <b>快</b></div></div>
+    <div class="arrow-r">＋</div>
+    <div class="grp2 g-blue"><div class="cap">② 增量写命令（AOF 格式）</div><div class="note">上次重写之后的新写命令<br>再逐条重放 → <b>数据新</b></div></div>
+  </div>
+  <div class="note" style="margin-top:8px">恢复顺序：先载入 RDB 快照（省去逐条重放的时间），再重放这一小段增量命令 → 又快又新</div>
+</div>
+
+<h4>RDB vs AOF 怎么选</h4>
+<table>
+<tr><th></th><th>RDB</th><th>AOF</th></tr>
+<tr><td>内容</td><td>二进制内存快照</td><td>文本写命令日志</td></tr>
+<tr><td>文件大小</td><td>小</td><td>大（重写后变小）</td></tr>
+<tr><td>恢复速度</td><td><b>快</b></td><td>慢（要重放命令）</td></tr>
+<tr><td>丢数据</td><td>多（两次快照之间全丢）</td><td><b>少</b>（最多 1 秒）</td></tr>
+<tr><td>适合</td><td>备份、容灾、可接受分钟级丢失</td><td>对数据安全要求高</td></tr>
+</table>
+<div class="tip box"><b>选型 &amp; 恢复优先级：</b>生产一般<b>两个都开</b>（或用混合持久化）：RDB 做冷备和快速恢复兜底，AOF 保证丢得少。<b>重启恢复时，只要开启了 AOF，就优先用 AOF 恢复</b>（因为它数据更全、更新）。</div>
+</section>
+
+<!-- ============ 4 过期删除 ============ -->
+<section id="expire">
+<h2 class="sec">4 · 过期 key 的删除策略</h2>
+<p>给 key 设了 TTL（<code>EXPIRE</code>），Redis 把它的过期时间单独存在一个<b>过期字典（expires dict）</b>里。到期后怎么真正删掉？三种理论策略，Redis 采用其中两种的组合。</p>
+<table>
+<tr><th>策略</th><th>做法</th><th>CPU</th><th>内存</th></tr>
+<tr><td><b>定时删除</b></td><td>每个 key 都配一个定时器，到点立刻删</td><td>❌ 差：大量定时器吃 CPU，可能在高峰期抢占主线程</td><td>✅ 好：到期即删，不占内存</td></tr>
+<tr><td><b>惰性删除</b></td><td>不主动删，<b>访问到它时</b>才检查是否过期，过期就删</td><td>✅ 好：只在访问时花一点</td><td>❌ 差：没人访问的过期 key 一直占内存</td></tr>
+<tr><td><b>定期删除</b></td><td>每隔一段时间<b>随机抽一批</b>检查并删过期的</td><td>折中：频率/抽样量可调</td><td>折中：能清掉一部分"没人访问"的</td></tr>
+</table>
+<p><b>Redis = 惰性删除 + 定期删除</b>，互补：</p>
+<ul>
+<li><b>为什么不用定时删除？</b> 单线程下，成千上万个定时器既费 CPU 又可能在关键时刻抢占主线程去删 key，得不偿失。</li>
+<li><b>惰性删除</b>解决"被访问到的过期 key"——读到它顺手删掉，几乎零额外成本。</li>
+<li><b>定期删除</b>补上"惰性删除的漏网之鱼"——那些过期了又一直没人访问的 key。默认每秒约 10 次（<code>hz</code>）：每次从过期字典<b>随机抽 20 个</b>检查，删掉其中过期的；如果过期比例超过 25%，就再抽一轮，直到低于阈值或超时（避免一次占用太久）。</li>
+</ul>
+
+<h4>主从场景下的过期处理</h4>
+<div class="danger box"><b>从节点不会自己删过期 key。</b> 为保证主从数据一致，过期删除<b>统一由主节点负责</b>：主节点删除一个过期 key 后，会<b>向所有从节点传播一条 <code>DEL</code>（或 <code>UNLINK</code>）命令</b>，从节点收到才删。从节点即使发现某 key 逻辑上已过期，也不主动删除，只是在<b>读</b>的时候按过期逻辑对客户端返回空（较新版本行为），但<b>物理删除要等主节点的 DEL</b> —— 这样避免主从因为各自计时误差导致数据不一致。</div>
+</section>
+
+<!-- ============ 5 内存淘汰 ============ -->
+<section id="evict">
+<h2 class="sec">5 · 内存淘汰策略（maxmemory）</h2>
+<p>和"过期删除"区分开：过期删除针对<b>设了 TTL 的 key</b>；内存淘汰是<b>内存用量达到 <code>maxmemory</code> 上限时</b>，为了给新数据腾空间而主动删 key（不管有没有设 TTL）。由 <code>maxmemory-policy</code> 配置，共 8 种：</p>
+<table>
+<tr><th>作用范围 ＼ 算法</th><th>LRU（最久未用）</th><th>LFU（最少频率，4.0+）</th><th>random（随机）</th><th>ttl（将到期）</th></tr>
+<tr><td><b>volatile-*</b><br>只淘汰设了 TTL 的 key</td><td><code>volatile-lru</code></td><td><code>volatile-lfu</code></td><td><code>volatile-random</code></td><td><code>volatile-ttl</code><br>优先删最快过期的</td></tr>
+<tr><td><b>allkeys-*</b><br>所有 key 都可淘汰</td><td><code>allkeys-lru</code></td><td><code>allkeys-lfu</code></td><td><code>allkeys-random</code></td><td>—</td></tr>
+</table>
+<p>外加第 8 种 <b><code>noeviction</code></b>（默认）：不淘汰，内存满了之后<b>写命令直接报错</b>，读和删仍可用。</p>
+
+<h4>LRU vs LFU</h4>
+<ul>
+<li><b>LRU（Least Recently Used）</b>：淘汰<b>最久没被访问</b>的。问题：一个 key 偶尔被访问一次（比如被扫描到），就会被误判成"最近用过"而留下，挤掉真正的热点。</li>
+<li><b>LFU（Least Frequently Used，4.0 引入）</b>：淘汰<b>访问频率最低</b>的。给每个 key 维护一个访问计数器（带<b>随时间衰减</b>，防止历史热点永远赖着不走）。更能反映"长期热度"，适合有稳定热点的场景。</li>
+</ul>
+
+<h4>近似 LRU / 近似 LFU</h4>
+<div class="info box"><b>Redis 不维护一条全局的 LRU 链表</b>（那样每次访问都要移动节点，内存和性能开销大）。它只在每个 key 的 redisObject 里存一个 <b>24 bit 的时间戳（lru 字段）</b>。淘汰时<b>随机采样</b> <code>maxmemory-samples</code> 个 key（默认 5），从这几个里挑最该淘汰的，放进一个淘汰池逐步淘汰。所以是<b>"近似" LRU</b> —— 用少量采样换取巨大的内存/性能节省，代价是偶尔淘汰得不那么精确。LFU 同理复用这个字段存访问计数。</div>
+
+<div class="tip box"><b>选型：</b>大多数当缓存用的场景选 <b><code>allkeys-lru</code></b>（或有明显热点时用 <code>allkeys-lfu</code>）；如果部分数据是"持久化数据不能丢、只有缓存数据可删"，就给缓存数据设 TTL 并选 <code>volatile-lru</code>；不希望丢任何数据（把 Redis 当存储而非缓存）就用 <code>noeviction</code> + 监控告警。</div>
+</section>
+
+<!-- ============ 6 主从复制 ============ -->
+<section id="replication">
+<h2 class="sec">6 · 主从复制 <span class="tag hi">高可用</span></h2>
+<p>单点不可靠的第一步解法：<b>一主多从</b>，主负责写、从负责读（读写分离），数据在多台机器上冗余。整个过程分三步：<b>建立连接（握手）→ 数据同步（全量/增量）→ 命令持续传播</b>。</p>
+
+<h4>第一步：主从怎么建立连接（握手）</h4>
+<p>在从节点上执行 <code>replicaof &lt;主IP&gt; &lt;主端口&gt;</code>（旧称 slaveof，也可写在配置文件里），从节点就记下主节点地址，由后台定时任务发起建连。握手过程：</p>
+<div class="hd">
+  <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">从节点 → 主节点 建连握手</div>
+  <div class="node">① 从执行 <code>replicaof 主IP 主端口</code> → 记下主地址，标记"我要当从了"</div>
+  <div class="arrow-d">▼</div>
+  <div class="node">② 从与主建立 <b>TCP 连接</b>，然后发 <code>PING</code>，主回 <code>PONG</code> —— 探测网络是否通、主能否正常响应</div>
+  <div class="arrow-d">▼</div>
+  <div class="node">③ <b>权限认证</b>：若主配了 <code>requirepass</code>，从需用 <code>masterauth</code> 里的密码通过 <code>AUTH</code> 认证（没配则跳过）</div>
+  <div class="arrow-d">▼</div>
+  <div class="node">④ 从用 <code>REPLCONF</code> 上报自己的<b>监听端口</b>和<b>能力</b>（如 psync2、eof）→ 让主记录这个从的信息</div>
+  <div class="arrow-d">▼</div>
+  <div class="node accent">⑤ 从发送 <code>PSYNC</code>，正式请求同步数据 → 进入下面的「全量 / 增量同步」</div>
+</div>
+<p class="kbd">握手成功后，主节点会把这个从加入自己的<b>从节点列表</b>，之后所有写命令都会传播给它。可用 <code>INFO replication</code> 在主/从上查看角色、连接状态、offset。</p>
+
+<h4>第二步：全量同步（首次）</h4>
+<div class="hd">
+  <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">第一次同步：发一份 RDB 快照</div>
+  <div class="node">① 从节点发送 <code>psync ? -1</code>（我没数据，请求全量）</div>
+  <div class="arrow-d">▼</div>
+  <div class="node">② 主节点执行 <b>bgsave</b> 生成 RDB，期间新来的写命令<b>先存进「复制缓冲区 replication buffer」</b></div>
+  <div class="arrow-d">▼</div>
+  <div class="node">③ 主把 RDB 发给从，从<b>清空自己的数据</b>并加载 RDB</div>
+  <div class="arrow-d">▼</div>
+  <div class="node accent">④ 主再把②期间缓冲的写命令发给从，从重放 → 主从数据一致</div>
+</div>
+
+<h4>增量同步（断线重连）</h4>
+<p>同步建立后，主节点会把每条写命令<b>持续传播</b>给从节点（命令传播）。如果从节点<b>短暂断线</b>又重连，不必重新全量，而是走增量：</p>
+<ul>
+<li><b>复制偏移量 offset：</b>主、从各自记录已复制到的字节偏移量。两者差值就是从节点落后的数据。</li>
+<li><b>复制积压缓冲区 <code>repl_backlog</code>：</b>主节点维护的一个<b>固定大小环形缓冲</b>，持续记录最近传播的写命令。</li>
+<li><b>重连时：</b>从节点发 <code>psync &lt;replid&gt; &lt;offset&gt;</code>，主节点判断：<b>从的 offset 还在 backlog 范围内 → 只补发这段差量（增量）；已经被环形覆盖冲掉了 → 退化为全量同步</b>。</li>
+</ul>
+
+<div class="fig">
+  <div class="cap">增量同步：靠 offset + repl_backlog 判断"补发差量"还是"退回全量"</div>
+  <div class="note" style="margin:6px 0 10px">主从各记一个<b>复制偏移量 offset</b>（已复制的字节数）：主一直写、offset 一直涨；从的 offset 落后多少，就是断线期间漏掉的数据。主节点把最近传播的命令留在<b>固定大小的环形缓冲 <code>repl_backlog</code></b> 里。</div>
+
+  <div style="color:var(--muted);font-size:12px;margin:4px 0">▽ repl_backlog（只保留最近这一段，旧的被环形覆盖）　假设当前主 offset = 500，缓冲只留 offset 200~500</div>
+  <div class="row" style="gap:0;flex-wrap:nowrap;overflow-x:auto">
+    <span class="kv nil" style="border-radius:6px 0 0 6px">…offset&lt;200 已被覆盖冲掉…</span>
+    <span class="kv" style="border-radius:0"><b>200</b></span>
+    <span class="kv" style="border-radius:0">…</span>
+    <span class="kv" style="border-radius:0;border-color:var(--accent2);color:#bdeccf">480</span>
+    <span class="kv" style="border-radius:0">…</span>
+    <span class="kv" style="border-radius:0 6px 6px 0;border-color:var(--warn);color:#ffcf8f"><b>500</b>=主 offset</span>
+  </div>
+  <div class="note" style="text-align:left;margin:4px 0 12px">　　　　▲ backlog 起点=200　　　　　　　　　　　　　　　▲ 最新写入</div>
+
+  <div class="hd" style="margin:0">
+    <div class="cap" style="color:var(--accent);font-weight:600;font-size:12.5px;text-align:center;margin-bottom:8px">从重连时带着自己的 offset，主节点二选一</div>
+    <div class="lane">
+      <div class="grp2 g-green">
+        <div class="cap">从 offset = 480 ≥ 200</div>
+        <div class="note">差量还在缓冲里 → 主回 <code>+CONTINUE</code><br><b>增量同步</b>：只补发 481~500 这段命令</div>
+      </div>
+      <div class="grp2" style="border-color:rgba(255,107,107,.4);background:rgba(255,107,107,.06)">
+        <div class="cap" style="color:var(--danger)">从 offset = 150 &lt; 200</div>
+        <div class="note">已被环形覆盖、补不齐 → 主回 <code>+FULLRESYNC</code><br><b>退回全量同步</b>（重发 RDB）</div>
+      </div>
+    </div>
+  </div>
+  <div class="note" style="margin-top:10px">所以 <code>repl_backlog</code> <b>越大</b>，能容忍的断线时间越长、越不容易触发昂贵的全量同步（由 <code>repl-backlog-size</code> 配置，默认 1MB，写入量大的实例应调大）。</div>
+</div>
+
+<div class="info box"><b>replid</b> 是主节点的复制 ID，用来标识"是不是同一个主"。重连时若 replid 对不上（比如主从关系变了），也会触发全量。</div>
+
+<h4>两个常见坑</h4>
+<ul>
+<li><b>复制风暴：</b>一主挂了<b>大量</b>从，主节点宕机/重启后所有从同时要求全量同步，主节点 fork + 发 RDB 压力暴增。缓解：用<b>主-从-从</b>级联（让部分从去同步另一个从）分摊。</li>
+<li><b>主从延迟：</b>命令传播是<b>异步</b>的，从节点数据总是略滞后于主。读写分离时可能"刚写完马上读从却读到旧值"。对一致性敏感的读要读主，或等待复制追上。</li>
+</ul>
+<div class="warn box"><b>注意：</b>主从复制<b>本身不提供自动故障转移</b> —— 主挂了，从不会自动顶上、客户端也不知道该连谁。这正是下一节<b>哨兵</b>要解决的。</div>
+</section>
+
+<!-- ============ 7 哨兵 ============ -->
+<section id="sentinel">
+<h2 class="sec">7 · 哨兵 Sentinel</h2>
+<p>主从本身<b>不会自动故障转移</b> —— 主挂了需要人工切。哨兵（Sentinel）是一组独立进程，专门负责<b>自动监控 + 选主 + 切换 + 通知</b>。生产至少部署 <b>3 个哨兵</b>（奇数，便于投票）。</p>
+<h4>哨兵的四大职责</h4>
+<div class="pill-row">
+<span class="pill"><b>监控</b>：定期 PING 主从是否存活</span>
+<span class="pill"><b>自动故障转移</b>：主挂了选新主并切换</span>
+<span class="pill"><b>配置中心</b>：告诉客户端当前主节点是谁</span>
+<span class="pill"><b>通知</b>：故障信息推给管理员/客户端</span>
+</div>
+
+<h4>主观下线 vs 客观下线</h4>
+<table>
+<tr><th>概念</th><th>含义</th></tr>
+<tr><td><b>主观下线 SDOWN</b></td><td><b>单个哨兵</b>在 <code>down-after-milliseconds</code> 内 PING 不通某节点，自己认为它下线了。可能是网络抖动误判。</td></tr>
+<tr><td><b>客观下线 ODOWN</b></td><td>当认为主节点主观下线的哨兵数量达到 <b>quorum</b>（法定人数），就判定主节点<b>客观下线</b> —— 多个哨兵达成共识，才真正触发故障转移。只对<b>主节点</b>有这个概念。</td></tr>
+</table>
+
+<h4>故障转移流程</h4>
+<div class="hd">
+  <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">正常时：哨兵集群盯着主从</div>
+  <div class="lane">
+    <div class="node cli">哨兵1</div><div class="node cli">哨兵2</div><div class="node cli">哨兵3</div>
+  </div>
+  <div class="arrow-d">▼　每秒 PING 监控（哨兵之间也互发心跳）</div>
+  <div class="lane">
+    <div class="grp2 g-green" style="max-width:180px"><div class="cap">Master（主）</div><div class="note">对外写</div></div>
+    <div class="arrow-r">复制 ⇄</div>
+    <div class="grp2 g-blue"><div class="cap">Slave1 / Slave2（从）</div><div class="note">对外读 + 数据冗余</div></div>
+  </div>
+</div>
+
+<div class="hd">
+  <div class="node">① 主节点挂了：某哨兵 PING 不到 → 主观下线 <b>SDOWN</b>；达到 quorum 个哨兵都这么认为 → <b>客观下线 ODOWN</b></div>
+  <div class="arrow-d">▼</div>
+  <div class="node">② 哨兵之间<b>用 Raft 选举出一个 Leader 哨兵</b>，由它来主持这次故障转移</div>
+  <div class="arrow-d">▼</div>
+  <div class="node">③ Leader 从从节点中<b>挑选新主</b>，规则依次为：<br>　· 剔除已下线/长期失联的<br>　· 比 <code>slave-priority</code>（优先级，越小越优先）<br>　· 比<b>复制 offset</b>（数据最全的优先）<br>　· 比 <code>runid</code>（最小的）</div>
+  <div class="arrow-d">▼</div>
+  <div class="node accent">④ 把选中的从 <code>replicaof no one</code> 升为主，让其它从改挂到新主；旧主恢复后降级为从</div>
+  <div class="arrow-d">▼</div>
+  <div class="node">⑤ 哨兵把<b>新主地址通知客户端</b>（客户端通过订阅哨兵获知切换）</div>
+</div>
+
+<div class="fig">
+  <div class="cap">故障转移前 → 后</div>
+  <div class="lane" style="align-items:stretch">
+    <div class="grp2" style="border-color:rgba(255,107,107,.4);background:rgba(255,107,107,.06)">
+      <div class="cap" style="color:var(--danger)">转移前（主已宕机）</div>
+      <div class="node" style="text-decoration:line-through;opacity:.6">Master ✗ 宕机</div>
+      <div class="node">Slave1（从）</div>
+      <div class="node">Slave2（从）</div>
+    </div>
+    <div class="arrow-r">选 Slave1 升主 ▶</div>
+    <div class="grp2 g-green">
+      <div class="cap">转移后</div>
+      <div class="node hold">Slave1 → 新 Master</div>
+      <div class="node">Slave2 改挂到<b>新主</b></div>
+      <div class="node"><span class="sub">旧 Master 恢复后 → 降级为新主的从</span></div>
+    </div>
+  </div>
+</div>
+
+<h4>脑裂问题</h4>
+<div class="danger box"><b>脑裂：</b>主节点其实没死，只是和哨兵们<b>网络分区</b>了。哨兵以为它死了，选了新主 —— 于是<b>出现两个主</b>。老客户端还在往旧主写，这些写在网络恢复、旧主降级为从时会<b>被新主的数据覆盖而丢失</b>。<br><br>
+<b>缓解：</b>给主节点配 <code>min-replicas-to-write N</code> + <code>min-replicas-max-lag S</code> —— 要求至少 N 个从节点、且延迟不超过 S 秒，主节点才接受写。分区后旧主连不上足够的从，就会<b>主动拒绝写入</b>，从而把脑裂期间的数据损失降到最小。</div>
+</section>
+
+<!-- ============ 8 集群 ============ -->
+<section id="cluster">
+<h2 class="sec">8 · 集群 Cluster</h2>
+<p>主从 + 哨兵解决了<b>高可用</b>，但所有数据还是在<b>一台主</b>上（从只是副本）。当<b>数据量或写并发超过单机上限</b>，就需要 <b>分片（sharding）</b>：把数据拆到多个主节点上，每个主再各带自己的从。Redis Cluster 用<b>哈希槽</b>来分片。</p>
+
+<h4>16384 个哈希槽</h4>
+<p>集群固定有 <b>16384 个槽（slot）</b>，每个主节点负责其中一段。定位一个 key 的流程：</p>
+<div class="diagram">
+ key ──▶ CRC16(key) % 16384 ──▶ 得到槽号 ──▶ 找到负责该槽的节点
+ 例：3 个主节点　节点A: 槽 0~5460　节点B: 槽 5461~10922　节点C: 槽 10923~16383
+</div>
+<p>扩容/缩容时只需<b>迁移部分槽</b>到新节点，不用像"取模 key 总数"那样全量重哈希。</p>
+<details class="q"><summary>为什么是 16384（2¹⁴）而不是 65536（2¹⁶）？</summary><div class="a">核心是<b>心跳包体积</b>：节点间用 Gossip 互发心跳，心跳里要带一个<b>位图</b>标明自己负责哪些槽。16384 个槽位图是 <b>16384/8 = 2KB</b>；若用 65536 则是 <b>8KB</b>，心跳包大 4 倍，在节点间频繁交换时很浪费带宽。而且 Redis 作者认为集群节点数一般不会超过 1000，16384 个槽<b>分给上千节点已经足够均匀</b>，没必要用 65536。另外槽越少，位图压缩率也越高。</div></details>
+
+<h4>Gossip 协议</h4>
+<p>集群<b>没有中心节点</b>，节点之间通过 <b>Gossip 协议</b>互相通信（消息类型：<code>MEET</code> 邀请入群、<code>PING</code>/<code>PONG</code> 心跳交换状态、<code>FAIL</code> 广播某节点下线）。每个节点都保存整个集群的槽-节点映射，靠 Gossip 最终收敛到一致。</p>
+
+<h4>客户端重定向：MOVED / ASK</h4>
+<table>
+<tr><th>重定向</th><th>含义</th></tr>
+<tr><td><b>MOVED</b></td><td>key 所在的槽<b>已经固定属于</b>另一个节点 → 永久重定向，客户端应<b>更新本地缓存的槽映射</b>，以后直接连对的节点。</td></tr>
+<tr><td><b>ASK</b></td><td>槽<b>正在迁移中</b>，这个 key 刚好已迁到目标节点 → <b>临时</b>重定向这一次请求，<b>不更新</b>本地映射（迁移没完成）。</td></tr>
+</table>
+
+<h4>多 key 操作的限制 + hash tag</h4>
+<div class="warn box"><b>限制：</b><code>MSET</code>、<code>SINTER</code> 等多 key 命令，要求涉及的所有 key 都在<b>同一个槽</b>，否则报错（跨节点没法原子操作）。<br><br>
+<b>hash tag 解决：</b>给 key 加 <code>{...}</code>，<b>只用大括号里的部分计算槽</b>。例如 <code>user:{1001}:name</code> 和 <code>user:{1001}:age</code> 都只按 <code>1001</code> 算槽 → 落到<b>同一个槽</b>，就能一起操作。常用于把"需要一起处理的一组 key"绑到同一节点。</div>
+
+<h4>集群的故障转移</h4>
+<p>集群<b>自带故障转移</b>，不需要额外哨兵：每个主节点的从节点会通过 Gossip 感知主是否 <code>FAIL</code>，若主下线，其从节点发起投票，<b>得到多数主节点认可的从晋升为新主</b>，接管原来的槽。所以生产中每个主都要配至少一个从，否则该主挂了、它负责的槽就不可用（整个集群进入 fail 状态，除非开 <code>cluster-require-full-coverage no</code>）。</p>
+
+<div class="tip box"><b>三级演进总结：</b><b>主从复制</b>=数据冗余 + 读写分离（但不自动切）；<b>哨兵</b>=在主从之上加自动故障转移（但数据仍在一台主上）；<b>集群</b>=分片横向扩容 + 自带高可用（数据分散到多主，每主带从）。</div>
+</section>
+
+<!-- ============ 9 分布式锁 ============ -->
+<section id="lock">
+<h2 class="sec">9 · 分布式锁</h2>
+<p>用 Redis 实现跨进程/跨机器的互斥锁。从最朴素的写法一步步补全到生产可用，每一步都在堵上一个坑。</p>
+
+<h4>第 1 步：加锁要原子地"设值 + 设过期"</h4>
+<pre><code>SET lock_key  unique_value  NX  EX 10
+# NX：key 不存在才设置成功（抢锁）   EX 10：10 秒后自动过期（防死锁）</code></pre>
+<p>必须用这一条命令<b>同时</b>完成"占锁"和"设过期"。如果拆成 <code>SETNX</code> + <code>EXPIRE</code> 两条，万一设完锁、还没来得及设过期就宕机，这锁就<b>永远不释放（死锁）</b>。</p>
+
+<h4>第 2 步：防止误删别人的锁</h4>
+<div class="danger box"><b>误删场景：</b>线程 A 拿锁，但业务执行超过 10 秒，锁自动过期；线程 B 趁机拿到锁；此时 A 执行完直接 <code>DEL lock_key</code> —— <b>删掉的是 B 的锁</b>！</div>
+<p>解决：加锁时 value 存一个<b>唯一标识</b>（如 UUID + 线程 ID）；释放时先<b>校验 value 是不是自己的</b>，是才删。而"<b>判断 + 删除</b>"这两步又必须原子，否则判断完、删除前锁又过期被别人抢走，还是会误删。用 <b>Lua 脚本</b>保证原子：</p>
+<pre><code>-- 释放锁：值匹配才删
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+else
+    return 0
+end</code></pre>
+
+<h4>第 3 步：锁续期（业务没跑完锁就过期了）</h4>
+<p>过期时间设短了怕业务没跑完锁就没了，设长了又怕宕机后锁迟迟不释放。<b>Redisson</b> 的 <b>watchdog（看门狗）</b>解决：加锁后默认给 30 秒，并起一个后台定时任务<b>每 10 秒检查一次</b>，若业务还在执行就<b>自动把锁续到 30 秒</b>；直到业务结束或客户端宕机（宕机后不再续期，锁到期自动释放）。</p>
+
+<h4>第 4 步：可重入</h4>
+<p>同一线程要能重复拿同一把锁（比如递归、方法互调）。Redisson 用 <b>Hash</b> 存锁：field = 线程标识，value = <b>重入次数</b>。同线程再次加锁就把次数 +1，释放时 -1，减到 0 才真正删除 key。</p>
+
+<h4>进阶：RedLock 及其争议</h4>
+<p>以上都基于<b>单个 Redis（主从）</b>。问题：主拿到锁后<b>还没同步给从就宕机</b>，哨兵把从切成主，新主上<b>没有这把锁</b> → 另一个客户端又能拿到同一把锁，<b>互斥被破坏</b>。</p>
+<p><b>RedLock</b> 算法想解决这个：部署 <b>N 个独立的 Redis 主节点</b>（不主从），客户端<b>依次向全部节点加锁</b>，只有在<b>超过半数（N/2+1）节点</b>都成功、且总耗时小于锁有效期，才算加锁成功。</p>
+<div class="warn box"><b>著名争议（Martin Kleppmann vs antirez）：</b>分布式专家 Martin 撰文质疑 RedLock 在 <b>GC 停顿、进程暂停、时钟漂移</b>下并不安全 —— 比如客户端拿到锁后发生长 GC，锁已过期被别人拿走，它 GC 恢复后却以为自己还持有锁。他主张要安全必须引入<b>fencing token（单调递增版本号）</b>由被保护资源来校验。Redis 作者 antirez 则回应 RedLock 的假设和适用场景。<br><br><b>结论：</b>Redis 锁本质是<b>为性能/效率服务的、允许极小概率失效</b>的锁；<b>要求绝对正确、一丝不能错</b>的强一致场景（如金融扣款），应该用 <b>ZooKeeper / etcd</b>（基于一致性协议）或数据库的唯一约束/乐观锁，而不是 Redis。</div>
+</section>
+
+<!-- ============ 10 消息队列 / 其他 ============ -->
+<section id="mq">
+<h2 class="sec">10 · 消息队列 &amp; 其他应用</h2>
+<h4>用 Redis 做消息队列的三种方式</h4>
+<table>
+<tr><th>方式</th><th>怎么做</th><th>局限</th></tr>
+<tr><td><b>List</b></td><td><code>LPUSH</code> 生产，<code>BRPOP</code> 阻塞消费</td><td>没有消费确认(ACK)、不能多消费者组重复消费、消息取出即删（消费者崩了消息就丢）</td></tr>
+<tr><td><b>Pub/Sub</b><br>发布订阅</td><td><code>PUBLISH</code> / <code>SUBSCRIBE</code>，一对多广播</td><td><b>不持久化、不可靠</b>：发消息时不在线的订阅者<b>收不到</b>（fire-and-forget），消息也不存储、无法回溯</td></tr>
+<tr><td><b>Stream</b><br><span class="tag ds">5.0</span></td><td>专为 MQ 设计，见下</td><td>功能相对专业 MQ(Kafka/RocketMQ)仍简单，但够用</td></tr>
+</table>
+
+<h4>Stream 详解</h4>
+<p>Stream 是 5.0 专为消息队列设计的类型，模型很像一个<b>只能追加的消息日志</b>（append-only log），思路和 Kafka 一脉相承。</p>
+
+<h5 style="color:#eaf0f6;margin:18px 0 8px">① 数据模型：一条条带唯一 ID 的消息</h5>
+<div class="diagram">Stream "orders"（一条 append-only 日志）
+ ┌───────────────┬───────────────┬───────────────┬──────────┐
+ │ 1699-0        │ 1700-0        │ 1700-1        │   ...    │  ← 消息 ID（自动递增，全局有序）
+ │ user=1 amt=50 │ user=2 amt=99 │ user=3 amt=12 │          │  ← 每条消息是若干 field-value
+ └───────────────┴───────────────┴───────────────┴──────────┘</div>
+<p>每条消息的 <b>ID = <code>毫秒时间戳-序号</code></b>（如 <code>1699000000000-0</code>）：同一毫秒内多条就靠序号递增区分，保证<b>整体单调递增、全局有序</b>。消息内容是任意多个 field-value（像个小 Hash）。</p>
+
+<h5 style="color:#eaf0f6;margin:18px 0 8px">② 两种读法：直接读 vs 消费者组</h5>
+<p>不带组时用 <code>XREAD</code> 从某 ID 之后读，谁读都能读到全部（广播）。真正做 MQ 靠<b>消费者组</b>，它同时提供了"广播"和"负载均衡"两种语义：</p>
+<div class="hd">
+  <div class="cap" style="color:var(--accent);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">消费者组模型：组间广播、组内分摊</div>
+  <div class="node" style="text-align:center">Stream：msg1　msg2　msg3　msg4　msg5 …（同一份数据）</div>
+  <div class="arrow-d">▼</div>
+  <div class="lane">
+    <div class="grp2 g-green">
+      <div class="cap">消费者组 group1（有自己的 last_delivered_id）</div>
+      <div class="node">consumerA　←　分到 msg1、msg3</div>
+      <div class="node">consumerB　←　分到 msg2、msg4</div>
+      <div class="note">组内<b>分摊</b>：每条只发给组内一个消费者 → 负载均衡</div>
+    </div>
+    <div class="grp2 g-blue">
+      <div class="cap">消费者组 group2（独立的 last_delivered_id）</div>
+      <div class="node">consumerC　←　msg1、msg2、msg3…</div>
+      <div class="note">和 group1 <b>互不影响</b>，能把全量再消费一遍 → 广播</div>
+    </div>
+  </div>
+</div>
+<ul>
+<li><b>组间广播：</b>每个组各自维护一个 <code>last_delivered_id</code>（游标，记到本组发到哪了），互不干扰。所以多个业务各建一个组，就能<b>各自消费全量</b>。</li>
+<li><b>组内分摊：</b>同一个组里，一条消息<b>只会投递给其中一个消费者</b>，多个消费者并行处理不同消息，实现<b>负载均衡</b>与横向扩容。</li>
+</ul>
+
+<h5 style="color:#eaf0f6;margin:18px 0 8px">③ 可靠投递：PEL + ACK</h5>
+<p>这是 Stream 比 List / Pub-Sub 强的关键——<b>消息不会读了就没</b>：</p>
+<div class="hd">
+  <div class="node">① 消费者用 <code>XREADGROUP</code> 读到消息 → 该消息进入这个消费者的 <b>PEL（Pending Entries List 待确认列表）</b></div>
+  <div class="arrow-d">▼</div>
+  <div class="node">② 消费者处理完，发 <code>XACK</code> 确认 → 消息<b>从 PEL 移除</b>，投递闭环完成</div>
+  <div class="arrow-d">▼</div>
+  <div class="node accent">③ 若消费者<b>崩溃/没 ACK</b>：消息一直留在 PEL；别的消费者可用 <code>XPENDING</code> 查出、<code>XCLAIM</code>/<code>XAUTOCLAIM</code> <b>认领并重新处理</b> → 不丢</div>
+</div>
+<p class="kbd">代价：ACK 保证了"至少投递一次（at-least-once）"，但重新认领可能导致<b>同一条被处理两次</b>，所以消费端最好做<b>幂等</b>。</p>
+
+<h5 style="color:#eaf0f6;margin:18px 0 8px">④ 常用命令 + 一个最小例子</h5>
+<pre><code># 生产：往 orders 追加一条消息（* = 让 Redis 自动生成 ID）
+XADD orders * user 1 amount 50        → 返回 "1699000000000-0"
+
+# 建消费者组 g1，从头(0)开始消费
+XGROUP CREATE orders g1 0
+
+# 组内消费者 c1 读取新消息（&gt; 表示"还没发给本组的新消息"）
+XREADGROUP GROUP g1 c1 COUNT 10 STREAMS orders &gt;
+
+# 处理完确认
+XACK orders g1 1699000000000-0
+
+# 查本组还没 ACK 的消息（谁持有、多久了）
+XPENDING orders g1
+
+# 认领超时未处理的消息，转给自己重试
+XAUTOCLAIM orders g1 c2 60000 0</code></pre>
+<table>
+<tr><th>命令</th><th>作用</th></tr>
+<tr><td><code>XADD</code></td><td>生产消息（可带 <code>MAXLEN</code> 限长，见下）</td></tr>
+<tr><td><code>XLEN</code> / <code>XRANGE</code></td><td>看长度 / 按 ID 范围读历史（可回溯就靠它）</td></tr>
+<tr><td><code>XREAD</code></td><td>不用组，直接从某 ID 之后读（可阻塞）</td></tr>
+<tr><td><code>XGROUP CREATE</code></td><td>创建消费者组</td></tr>
+<tr><td><code>XREADGROUP</code></td><td>以"组+消费者"身份消费，读到即入 PEL</td></tr>
+<tr><td><code>XACK</code></td><td>确认，移出 PEL</td></tr>
+<tr><td><code>XPENDING</code></td><td>查未确认（PEL）情况</td></tr>
+<tr><td><code>XCLAIM</code> / <code>XAUTOCLAIM</code></td><td>认领他人超时未处理的消息，做故障转移</td></tr>
+</table>
+
+<h5 style="color:#eaf0f6;margin:18px 0 8px">⑤ 控制内存：消息要限长</h5>
+<div class="warn box">Stream 会把消息<b>持久化留存</b>，不限制的话会一直涨、吃爆内存。生产要用 <code>XADD orders <b>MAXLEN ~ 10000</b> * ...</code> 限制大致长度（<code>~</code> 表示近似裁剪，性能更好），或定期 <code>XTRIM</code>。这也是它和 Kafka（数据落磁盘、可存很久）的一大差距。</div>
+
+<div class="info box"><b>选型：</b>要求可靠、大堆积、高吞吐、长期留存的正经消息队列，还是上 <b>Kafka / RocketMQ</b>；Redis Stream 适合<b>轻量级、量不大、又想要"消费者组 + ACK 可靠投递"</b>的场景（比 List/Pub-Sub 强很多，但受内存限制）。能不用 Redis 做 MQ 就不用——它的本职是缓存。</div>
+
+<h4>其它常见应用结构（附实际样例）</h4>
+
+<h5 style="color:#eaf0f6;margin:16px 0 6px">Bitmap · 用户签到 / 月度活跃</h5>
+<p style="font-size:13.5px;margin:4px 0">把"用户 ID / 天"当成位偏移，1 位表示一个状态（签到=1）。1 个月 31 天才 31 位、不到 4 字节，极省内存。</p>
+<pre><code># 用户每天签到：key=uid的月份，offset=当月第几天
+SETBIT sign:u1001:202609 8  1     # 9 号签到（offset 从 0 开始）
+SETBIT sign:u1001:202609 9  1     # 10 号签到
+
+GETBIT sign:u1001:202609 8        # 查 9 号有没有签 → 1
+BITCOUNT sign:u1001:202609        # 本月共签到几天 → 2
+# 统计某天所有用户是否活跃，也可反过来把「日期」当 key、uid 当 offset</code></pre>
+
+<h5 style="color:#eaf0f6;margin:16px 0 6px">HyperLogLog · 海量 UV 去重</h5>
+<p style="font-size:13.5px;margin:4px 0">只估算<b>基数（不重复元素个数）</b>，不存具体元素。无论多少亿访问，固定占 <b>12KB</b>，误差约 0.81%。适合 UV、独立 IP 这种"只要个大概数字"的场景。</p>
+<pre><code># 页面 UV：把访问用户塞进去，自动去重
+PFADD uv:page:2026-09-09 u1001 u1002 u1001   # u1001 重复，只算一次
+PFADD uv:page:2026-09-09 u1003
+
+PFCOUNT uv:page:2026-09-09                   # 估算 UV → 3
+PFMERGE uv:week uv:page:2026-09-08 uv:page:2026-09-09  # 合并多天算周 UV</code></pre>
+<p class="kbd">要精确去重、且量不大 → 用 Set；量巨大、能容忍微小误差、要省内存 → 用 HyperLogLog。</p>
+
+<h5 style="color:#eaf0f6;margin:16px 0 6px">GEO · 附近的人 / 附近门店</h5>
+<p style="font-size:13.5px;margin:4px 0">底层就是 ZSet，把经纬度编码成 GeoHash 存进 score，于是能按距离范围查询、排序。</p>
+<pre><code># 存门店坐标（经度 纬度 成员）
+GEOADD shops 116.40 39.90 "店A"
+GEOADD shops 116.41 39.91 "店B"
+
+# 查距离某坐标 2km 内的门店，按距离升序、带上距离
+GEOSEARCH shops FROMLONLAT 116.40 39.90 BYRADIUS 2 km ASC WITHDIST
+GEODIST shops "店A" "店B" km          # 两店直线距离</code></pre>
+
+<h5 style="color:#eaf0f6;margin:16px 0 6px">ZSet · 排行榜 / 延迟队列</h5>
+<p style="font-size:13.5px;margin:4px 0">score 存什么，就能按什么排序 —— 存分数=排行榜，存"到期时间戳"=延迟队列。</p>
+<pre><code># ① 游戏排行榜：score = 玩家积分
+ZADD rank 1500 "张三"  980 "李四"  2100 "王五"
+ZINCRBY rank 50 "张三"                 # 张三加 50 分
+ZREVRANGE rank 0 2 WITHSCORES          # Top3（从高到低）
+ZREVRANK rank "张三"                    # 张三当前排名
+
+# ② 延迟队列：score = 消息该执行的时间戳
+ZADD delay 1757400000 "订单123待取消"
+# 消费者轮询：取出 score ≤ 当前时间的到期任务
+ZRANGEBYSCORE delay 0 1757400000</code></pre>
+
+<div class="info box"><b>一句话选型：</b>状态是"是/否" → <b>Bitmap</b>；只要去重<b>个数</b>、量巨大可容误差 → <b>HyperLogLog</b>；跟<b>位置/距离</b>有关 → <b>GEO</b>；要<b>排序/排名/按分值范围取</b> → <b>ZSet</b>。</div>
+</section>
+
+<!-- ============ 附 ============ -->
+<section id="misc">
+<h2 class="sec">附 · 事务 / Lua / Pipeline</h2>
+
+<h4>事务 MULTI / EXEC / WATCH</h4>
+<p><code>MULTI</code> 开启事务，之后的命令<b>先入队不执行</b>，<code>EXEC</code> 时<b>一次性按顺序执行</b>队列里的命令（中间不会被别的客户端命令插入，保证"隔离执行"）。<code>WATCH</code> 用于<b>乐观锁</b>：监视某些 key，若在 EXEC 前被别人改过，则整个事务<b>放弃执行</b>。</p>
+<div class="danger box"><b>为什么 Redis 事务不支持回滚？</b>
+<ul style="margin:6px 0 0">
+<li><b>入队时的语法错误</b>（命令不存在/参数个数不对）：整个事务<b>拒绝执行</b>（EXEC 直接失败）。</li>
+<li><b>执行时的运行错误</b>（如对 String 执行 <code>LPUSH</code>、类型不匹配）：<b>出错的命令失败，其它命令照常执行，不回滚</b>。</li>
+</ul>
+官方理由：运行期错误几乎都是<b>程序 bug（用错类型/命令）</b>，应在开发阶段发现，而非线上回滚；不支持回滚让 Redis 保持<b>简单高效</b>。所以 Redis 事务只保证"<b>顺序、不被打断、全入队</b>"，<b>不保证原子性中的"全成功或全失败"</b>，这点和关系型数据库事务有本质区别。</div>
+
+<h4>Lua 脚本</h4>
+<p>把多个命令写进一段 Lua 脚本用 <code>EVAL</code> 执行，Redis <b>把整个脚本当作一个命令原子地执行</b>（单线程期间不会被打断）。比事务更好用：能在脚本里写<b>条件判断和逻辑</b>（如前面分布式锁的"比较 value 再删"）。注意脚本不能太耗时，否则会阻塞主线程。</p>
+
+<h4>Pipeline（管道）</h4>
+<p>客户端把多条命令<b>一次性打包发给服务端</b>，服务端执行完<b>一次性把所有结果返回</b>，从而把 N 次网络往返（RTT）压成 1 次，大幅提升批量操作吞吐。</p>
+<div class="info box"><b>Pipeline ≠ 事务：</b>Pipeline 只是<b>把多条命令攒一起发、减少网络往返</b>，命令之间<b>不保证原子、中间可能插入其它客户端的命令</b>，纯粹是网络层优化；事务（MULTI/EXEC）才保证这批命令"顺序执行、不被打断"。两者解决的是不同问题，也可以结合用。</div>
+</section>
+
+<!-- ============ 速记 ============ -->
+<section id="cheat">
+<h2 class="sec">附 · 高频面试速记</h2>
+<details class="q"><summary>Redis 为什么快？单线程为什么不慢？</summary><div class="a">纯内存 + IO 多路复用 + 单线程免锁免切换 + 高效数据结构；瓶颈在内存/网络而非 CPU。</div></details>
+<details class="q"><summary>Redis 是单线程还是多线程？6.0 改了什么？</summary><div class="a">命令执行始终单线程；4.0 后台线程做异步删除，6.0 多线程 IO 只分担网络读写与协议解析。</div></details>
+<details class="q"><summary>ZSet 底层为什么用跳表而不是红黑树？</summary><div class="a">跳表实现简单、范围查询友好、并发/调整成本低；小数据量时用 listpack。</div></details>
+<details class="q"><summary>缓存穿透 / 击穿 / 雪崩的区别与解决？</summary><div class="a">穿透=查不存在（布隆/空值）；击穿=热点失效（互斥锁/逻辑过期）；雪崩=大量同时失效或宕机（随机 TTL/多级缓存/高可用）。</div></details>
+<details class="q"><summary>怎么保证缓存和数据库一致？</summary><div class="a">Cache Aside 更新 DB + 删缓存；延迟双删；binlog 订阅；追求最终一致。</div></details>
+<details class="q"><summary>RDB 和 AOF 的区别？怎么选？</summary><div class="a">RDB 快照、体积小恢复快、丢数据多；AOF 记命令、丢数据少、体积大；4.0 混合持久化兼顾。</div></details>
+<details class="q"><summary>过期 key 怎么删除？内存满了怎么办？</summary><div class="a">惰性删除 + 定期删除；内存到 maxmemory 触发 8 种淘汰策略（LRU/LFU/random/ttl × allkeys/volatile）。</div></details>
+<details class="q"><summary>主从 / 哨兵 / 集群分别解决什么问题？</summary><div class="a">主从=数据冗余读写分离；哨兵=自动故障转移；集群=分片扩容（16384 槽）。</div></details>
+<details class="q"><summary>Redis 分布式锁怎么做才安全？</summary><div class="a">SET NX EX + 唯一 value + Lua 原子释放 + watchdog 续期；强一致场景慎用（RedLock 争议）。</div></details>
+</section>
+
+<footer>
+Redis 知识体系笔记 · 系统学习版。<br>
+主线：为什么快 → 数据结构 → 缓存三大问题 → 持久化 → 过期/淘汰 → 主从/哨兵/集群 → 分布式锁 → 消息队列。
+<br><a href="../index.html">← 回到 note-garden</a>
+</footer>
+</main>
+</div>
+<script>
+  function openModal(id){document.getElementById(id).classList.add('open');document.body.style.overflow='hidden';}
+  function closeModal(id){document.getElementById(id).classList.remove('open');document.body.style.overflow='';}
+  document.addEventListener('click',function(e){
+    if(e.target.classList.contains('modal-overlay')){e.target.classList.remove('open');document.body.style.overflow='';}
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){document.querySelectorAll('.modal-overlay.open').forEach(function(m){m.classList.remove('open');});document.body.style.overflow='';}
+  });
+</script>
 </body>
 </html>
