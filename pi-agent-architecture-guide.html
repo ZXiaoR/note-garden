@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>从按下回车到修好 Bug：12 站关系图谱与源码导读</title>
+  <title>从按下回车到处理 Bug：Pi 的 12 个机制与源码导读</title>
   <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
   <style>
     body {
@@ -116,6 +116,8 @@
       animation: dashFlow 0.7s linear infinite;
     }
     /* Code Viewer Line Styles */
+    .scope-note { white-space: pre-line; }
+    #step-story, #step-pain { white-space: pre-line; }
     .code-line {
       display: flex;
       padding: 1px 14px;
@@ -124,10 +126,13 @@
       white-space: pre;
     }
     .code-line.hl {
-      background-color: #fef3c7;
-      border-left: 3px solid #f59e0b;
+      background-color: #fff0b3;
+      border-left: 3px solid #d97706;
       padding-left: 11px;
     }
+    .code-line.hl .line-num { color: #92400e; font-weight: 700; }
+    .code-line.hl > span:last-child { font-weight: 500; }
+    #code-focus-notes { white-space: pre-line; line-height: 1.9; }
     .line-num {
       width: 38px;
       flex-shrink: 0;
@@ -151,11 +156,18 @@
 
   <div class="max-w-7xl mx-auto space-y-3.5">
 
+
+    <div class="card px-4 py-3 border-l-4 border-amber-500 text-xs leading-relaxed" style="border-left:4px solid #f59e0b;padding:12px 16px;font-size:12px;line-height:1.8">
+      <strong>阅读范围 · 已核对本地 Pi 版本 62752fd4c37a（2026-11-07）</strong><br>
+      这 12 站是机制导读，不是每次请求都会依次执行的流水线。Jev 路由、危险命令弹窗属于示例扩展；缓存保活、MCP 与 codemode 受配置和运行条件影响。<br>
+      场景中的工具数量、数据大小与概率若写“示例”，均为教学假设。右侧代码为该版本的连续原文节选，中文解释放在代码框外；此页不代表实测结果或安全保证。
+    </div>
+
     <!-- ==================== STORY CONTEXT HEADER ==================== -->
     <div class="card px-4 py-3 bg-stone-900 text-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
       <div class="flex items-center gap-2.5 text-xs sm:text-sm">
         <span class="px-2 py-0.5 rounded bg-amber-500 text-stone-950 font-bold text-xs shrink-0">贯穿故事线</span>
-        <span>你在终端敲下回车：<code class="text-amber-300 font-mono">「帮我查 GitHub 上的登录报错 Issue，修好 login.ts，再删掉旧日志 rm -rf /tmp/logs」</code></span>
+        <span>教学场景（非运行记录）：<code class="text-amber-300 font-mono">「帮我查 GitHub 上的登录报错 Issue，修好 login.ts，再删掉旧日志 rm -rf /tmp/logs」</code></span>
       </div>
       <span class="text-xs text-stone-400 shrink-0 font-mono">按键盘 ← → 键看关系图连线流转</span>
     </div>
@@ -187,7 +199,7 @@
               <div id="step-story" class="text-stone-600"></div>
             </div>
             <div class="p-3 rounded-xl bg-amber-50/70 border border-amber-200/90 text-xs leading-relaxed">
-              <div class="font-bold text-amber-950 mb-1">💥 如果不这么设计会踩什么坑？（工程精华）</div>
+              <div class="font-bold text-amber-950 mb-1">设计解决什么问题？有哪些边界？</div>
               <div id="step-pain" class="text-amber-900"></div>
             </div>
           </div>
@@ -207,8 +219,8 @@
       <div class="lg:col-span-5 card p-4">
         <div class="flex items-center justify-between mb-3 px-1">
           <div>
-            <h2 class="text-xs font-bold text-stone-800">12 站全链路关系拓扑图</h2>
-            <p class="text-[11px] text-stone-400">实线为正向数据流，橙色动态流向为当前激活链路，虚线为闭环回路</p>
+            <h2 class="text-xs font-bold text-stone-800">12 个机制关系图（教学视图）</h2>
+            <p class="text-[11px] text-stone-400">连线表示讲解关联，并非固定执行顺序；橙色表示当前选中节点</p>
           </div>
           <div class="flex items-center gap-2 text-[11px]">
             <span class="flex items-center gap-1 text-amber-800 font-semibold">
@@ -243,7 +255,7 @@
               <div onclick="goToStep(1)" id="st-node-1" class="station-node">
                 <div class="station-num">2</div>
                 <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">树状记账本(短期)</div>
+                  <div class="text-xs font-bold text-stone-900 truncate">树状会话历史</div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">session.jsonl 树</div>
                 </div>
               </div>
@@ -253,8 +265,8 @@
               <div onclick="goToStep(2)" id="st-node-2" class="station-node w-4/5">
                 <div class="station-num">3</div>
                 <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">长期记忆 (AGENTS.md) 与技能目录菜单</div>
-                  <div class="text-[10.5px] font-mono text-stone-400 truncate">updateSystemPromptSection()</div>
+                  <div class="text-xs font-bold text-stone-900 truncate">项目指令 AGENTS.md 与技能目录</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">buildSystemPromptSections()</div>
                 </div>
               </div>
             </div>
@@ -263,14 +275,14 @@
           <!-- ZONE 2: 阶段 2 · 挂载 MCP 与动态加工具 (保护缓存) -->
           <div id="zone-P2" class="graph-zone">
             <div class="zone-label">
-              <span>阶段 2 · 挂载 MCP 与动态工具注入 (保 1 折缓存)</span>
+              <span>阶段 2 · MCP 暴露与工具变更</span>
               <span class="font-mono text-[10px]">MCP &amp; KV Cache</span>
             </div>
             <div class="grid grid-cols-2 gap-4">
               <div onclick="goToStep(3)" id="st-node-3" class="station-node">
                 <div class="station-num">4</div>
                 <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">MCP 80工具0成本隐藏</div>
+                  <div class="text-xs font-bold text-stone-900 truncate">MCP 按需暴露（有开销）</div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">exposure: "codemode"</div>
                 </div>
               </div>
@@ -287,15 +299,15 @@
           <!-- ZONE 3: 阶段 3 · 大模型派单与 3 道生死安全防线 -->
           <div id="zone-P3" class="graph-zone space-y-3.5">
             <div class="zone-label">
-              <span>阶段 3 · 模型推理与 3 道安全拦截防线</span>
-              <span class="font-mono text-[10px]">LLM &amp; 3 Security Gates</span>
+              <span>阶段 3 · 模型请求与执行前检查</span>
+              <span class="font-mono text-[10px]">Model &amp; Execution Checks</span>
             </div>
             <!-- Row 1: Station 6 (Router & CacheWarmer Hub) -->
             <div class="flex justify-center">
               <div onclick="goToStep(5)" id="st-node-5" class="station-node w-4/5">
                 <div class="station-num">6</div>
                 <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">小模型打分派单 &amp; 算账续命保活</div>
+                  <div class="text-xs font-bold text-stone-900 truncate">模型请求 / 可选路由 / 条件保活</div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">jev-router &amp; CacheWarmer</div>
                 </div>
               </div>
@@ -305,14 +317,14 @@
               <div onclick="goToStep(6)" id="st-node-6" class="station-node">
                 <div class="station-num">7</div>
                 <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">【防线1】防半截代码</div>
+                  <div class="text-xs font-bold text-stone-900 truncate">截断响应检查</div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">stopReason=="length"</div>
                 </div>
               </div>
               <div onclick="goToStep(7)" id="st-node-7" class="station-node">
                 <div class="station-num">8</div>
                 <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">【防线2】强转与拦 rm</div>
+                  <div class="text-xs font-bold text-stone-900 truncate">参数校验 / 可选审批</div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">beforeToolCall 串行</div>
                 </div>
               </div>
@@ -322,7 +334,7 @@
           <!-- ZONE 4: 阶段 4 · 沙箱并发执行、中途打断与超限瘦身闭环 -->
           <div id="zone-P4" class="graph-zone space-y-3.5">
             <div class="zone-label">
-              <span>阶段 4 · 并发执行、实时打断与超长压缩闭环</span>
+              <span>阶段 4 · 工具执行、补充指令与容量管理</span>
               <span class="font-mono text-[10px]">Sandbox, Steer &amp; Compact</span>
             </div>
             <!-- Row 1: Parallel Fan-out from Station 8 -> Station 9 (Left) & Station 10 (Right) -->
@@ -330,14 +342,14 @@
               <div onclick="goToStep(8)" id="st-node-8" class="station-node">
                 <div class="station-num">9</div>
                 <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">【防线3】QuickJS沙箱</div>
+                  <div class="text-xs font-bold text-stone-900 truncate">codemode VM 与宿主桥接</div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">过滤 Issue / runToolCall</div>
                 </div>
               </div>
               <div onclick="goToStep(9)" id="st-node-9" class="station-node">
                 <div class="station-num">10</div>
                 <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">同文件写锁&amp;日志分流</div>
+                  <div class="text-xs font-bold text-stone-900 truncate">进程内队列与日志分流</div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">mutationQueue &amp; bash</div>
                 </div>
               </div>
@@ -347,14 +359,14 @@
               <div onclick="goToStep(10)" id="st-node-10" class="station-node">
                 <div class="station-num">11</div>
                 <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">中途敲键盘实时打断</div>
-                  <div class="text-[10.5px] font-mono text-stone-400 truncate">↺ 插队回第 1 站内层循环</div>
+                  <div class="text-xs font-bold text-stone-900 truncate">检查点读取补充指令</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">↺ 新要求进入下一轮</div>
                 </div>
               </div>
               <div onclick="goToStep(11)" id="st-node-11" class="station-node">
                 <div class="station-num">12</div>
                 <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">上下文超限自动瘦身</div>
+                  <div class="text-xs font-bold text-stone-900 truncate">按 Token 水位压缩</div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">↺ 压完写回第 2 站记账本</div>
                 </div>
               </div>
@@ -364,9 +376,9 @@
         </div>
 
         <!-- Active Edge Relationship Explanation Bar -->
-        <div class="mt-3 p-2.5 rounded-lg bg-amber-50/80 border border-amber-200 text-xs flex items-center justify-between">
-          <span class="font-bold text-amber-900 shrink-0">🔗 当前节点上下游关系：</span>
-          <span id="edge-relation-text" class="font-mono text-[11.5px] text-amber-950 truncate ml-2"></span>
+        <div class="mt-3 p-2.5 rounded-lg bg-amber-50/80 border border-amber-200 text-xs" style="display:block;padding:10px 12px">
+          <span class="font-bold text-amber-900" style="display:block;margin-bottom:5px">🔗 当前节点上下游关系：</span>
+          <span id="edge-relation-text" class="font-mono text-[11.5px] text-amber-950" style="display:block;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;line-height:1.8;overflow:visible;text-overflow:clip"></span>
         </div>
       </div>
 
@@ -406,6 +418,7 @@
           <div class="px-4 py-2 bg-amber-50/90 border-b border-amber-200/70 text-xs text-amber-950 font-medium" id="code-takeaway">
           </div>
 
+          <div id="code-focus-notes" class="px-4 py-3 text-xs border-b border-amber-200 bg-amber-50 text-amber-950" style="padding:10px 16px;background:#fffbeb;color:#78350f;font-size:12px;white-space:pre-line;line-height:1.9"></div>
           <!-- Highlighted Source Code Lines -->
           <div id="code-container" class="py-3 overflow-x-auto overflow-y-auto bg-white max-h-[450px]">
             <!-- Rendered by JS -->
@@ -437,561 +450,763 @@
       { from: 6, to: 7, type: "h", label: "未截断放行" },
       // Phase 3 -> Phase 4: Gate 2 fans out in parallel to Station 9 (Sandbox) & Station 10 (Edit/Bash)
       { from: 7, to: 8, type: "v", label: "放行脚本" },
-      { from: 7, to: 9, type: "v", label: "并发执行" },
+      { from: 7, to: 9, type: "v", label: "按调用关系执行" },
       // Sandbox nested guard check back to Gate 2
       { from: 8, to: 7, type: "loop-inner", label: "runToolCall守卫" },
       // Execution -> Steering & Compaction
       { from: 8, to: 10, type: "v", label: "脚本完成" },
       { from: 9, to: 10, type: "v", label: "本轮跑完" },
-      { from: 10, to: 11, type: "h", label: "50轮超限" },
+      { from: 10, to: 11, type: "h", label: "必要时压缩" },
       // Loop-back edges to top of graph!
-      { from: 10, to: 0, type: "loop-left", label: "↺ 打断插队回第1站" },
+      { from: 10, to: 0, type: "loop-left", label: "↺ 补充指令进入下一轮" },
       { from: 11, to: 1, type: "loop-right", label: "↺ 压缩写回第2站" }
     ];
 
     const phaseTitles = {
       P1: "阶段 1：消息进站与记忆组装（第 1～3 站）",
       P2: "阶段 2：挂上 MCP 与动态加工具（第 4～5 站）",
-      P3: "阶段 3：派单给模型与安全拦截（第 6～8 站）",
-      P4: "阶段 4：沙箱执行、打断与超限瘦身（第 9～12 站）"
+      P3: "阶段 3：模型请求与执行前检查（第 6～8 站）",
+      P4: "阶段 4：工具执行、补充指令与容量管理（第 9～12 站）"
     };
 
     // =========================================================================
     // 12 STATIONS DATA
     // =========================================================================
     const stations = [
-      {
-        phaseId: "P1",
-        title: "第 1 站：你按下回车发消息，为什么需要「双层 while 循环」来接？",
-        story: "你在终端敲下回车发出指令。Agent 收到这句话后，启动了它的心脏 `runAgentLoop`——注意看右边代码，它用了「外层 while 套内层 while」两层循环来跑你的任务！",
-        pain: "如果只写一个普通的 while 循环：当模型正在跑工具改代码时，你突然敲键盘喊「等一下，日志别删了！」（紧急打断 Steering），或者说「修好后再帮我写个文档」（排队追问 Follow-up），单层循环根本分不清哪句话该立刻插队、哪句话该等任务彻底做完再执行！",
-        relationText: "[你的输入 / ⑪中途打断] ──▶ ① 双层循环中枢 ──▶ ② 写入树状记账本",
-        moduleTag: "核心中枢 · packages/agent/src/agent-loop.ts",
-        dataBefore: `你的键盘输入:\n"帮我查 GitHub 上的登录报错 Issue，修好 login.ts，再删掉旧日志 rm -rf /tmp/logs"`,
-        dataAfter: `进入双层循环状态机:\n• 内层循环 (Inner Loop): 负责【调模型 ➔ 跑工具 ➔ 盯紧第 11 站的紧急打断】\n• 外层循环 (Outer Loop): 等整件事做完停下时，再看你有无【排队追问】`,
-        file: "packages/agent/src/agent-loop.ts",
-        lineRange: "Lines 212–255",
-        startLine: 212,
-        hlLines: [213, 217, 221, 232, 238],
-        takeaway: "💡 看高亮第 213 行和第 217 行：外层循环管「做完一件再做下一件」，内层循环管「当前这件任务里不断调工具和响应第 11 站的随时插队」。",
-        code: [
-          `  // 【外层循环】：只有当当前任务彻底做完、准备停下时，才检查有没有排队追问 (Follow-up)`,
-          `  while (true) {`,
-          `    let hasMoreToolCalls = true;`,
-          ``,
-          `    // 【内层循环】：只要模型还要调工具，或者你中途插话打断 (pendingMessages)，就一直转`,
-          `    while (hasMoreToolCalls || pendingMessages.length > 0 || explicitContinuation) {`,
-          `      if (await config.prepareNextTurn?.(currentContext, signal) === false) break;`,
-          ``,
-          `      // 把你刚发的提问（或中途插队的话）正式塞进当前聊天记录 currentContext.messages`,
-          `      if (pendingMessages.length > 0) {`,
-          `        for (const message of pendingMessages) {`,
-          `          await emit({ type: "message_start", message });`,
-          `          await emit({ type: "message_end", message });`,
-          `          currentContext.messages.push(message);`,
-          `          newMessages.push(message);`,
-          `        }`,
-          `        pendingMessages = [];`,
-          `      }`,
-          ``,
-          `      // 检查本轮有没有新激活或关闭的工具（流向第 5 站）`,
-          `      await declareToolChanges(currentContext, config, declaredToolKeys, emit);`,
-          ``,
-          `      // 把上下文发给大模型，流式获取回答（流向第 6 站）`,
-          `      const message = await streamAssistantResponse(currentContext, config, signal, emit);`
-        ]
-      },
-      {
-        phaseId: "P1",
-        title: "第 2 站：聊天记录怎么存？为什么不用数组，而要在单个文件里存成「树」？",
-        story: "你的话从第 1 站流进来，立刻被追加写进硬盘的 `session.jsonl` 文件里。Pi 给每条消息打上 `id` 和 `parentId`（它的上一条是谁），在单个文件里连成一棵树！",
-        pain: "写代码时经常遇到：模型改了 5 轮把代码改乱了，你想退回第 2 轮换个思路重来。如果是普通直线数组，退回就会把第 3~5 轮删掉，有用的报错信息也全丢了！用 `id + parentId` 树结构，随时跳回任意一轮分叉重聊，而且第 12 站压缩时也只需往树尾追加一个节点。",
-        relationText: "① 双层循环 / ⑫ 超限压缩写回 ──▶ ② 树状记账本 ──▶ ③ 组装系统提示词",
-        moduleTag: "短期记忆 · packages/coding-agent/src/core/session-manager.ts",
-        dataBefore: `硬盘上的 session.jsonl (只追加不删改):\n{"id":"msg_1", "parentId":null, "role":"user", "text":"你好"}\n{"id":"msg_2", "parentId":"msg_1", "role":"assistant", ...}`,
-        dataAfter: `追加你的新提问并沿叶子向上回溯出当前分支:\n{"id":"msg_3", "parentId":"msg_2", "role":"user", "text":"帮我查 GitHub..."}\n➔ buildSessionPath() 顺着 parentId 串出 [msg_1, msg_2, msg_3]`,
-        file: "packages/coding-agent/src/core/session-manager.ts",
-        lineRange: "Lines 390–416",
-        startLine: 390,
-        hlLines: [390, 408, 410, 411, 412, 414],
-        takeaway: "💡 看高亮第 410–414 行：从当前最后一条消息 (leaf) 顺着 `current.parentId` 往上找祖先，再反转过来，就是当前分支的聊天记录！",
-        code: [
-          `function buildSessionPath(`,
-          `  entries: SessionEntry[],`,
-          `  leafId?: string | null,`,
-          `  byId?: Map<string, SessionEntry>,`,
-          `): SessionEntry[] {`,
-          `  const index = buildEntryIndex(entries, byId);`,
-          `  let leaf: SessionEntry | undefined;`,
-          `  if (leafId === null) return [];`,
-          `  if (leafId) {`,
-          `    leaf = index.get(leafId);`,
-          `  }`,
-          `  leaf ??= entries[entries.length - 1];`,
-          `  if (!leaf) return [];`,
-          ``,
-          `  // 从当前所在的叶子节点 (leaf) 开始，顺着 parentId 一路往回找祖先`,
-          `  const path: SessionEntry[] = [];`,
-          `  let current: SessionEntry | undefined = leaf;`,
-          `  while (current) {`,
-          `    path.push(current);`,
-          `    current = current.parentId ? index.get(current.parentId) : undefined;`,
-          `  }`,
-          `  path.reverse(); // 反转成从早到晚的时间顺序`,
-          `  return path;`,
-          `}`
-        ]
-      },
-      {
-        phaseId: "P1",
-        title: "第 3 站：长期记忆 (AGENTS.md) 与 20 个技能 (Skills) 怎么塞进提示词才不撑爆？",
-        story: "有了第 2 站的聊天记录，还要拼上「系统提示词」，告诉模型项目规范（自动向上扫描各级目录的 `AGENTS.md` 作为长期记忆）以及它拥有哪些技能包 (`SKILL.md`)。",
-        pain: "假设你装了 20 个技能包，每个技能文件有 3000 字。如果一上来把 6 万字全塞进系统提示词，你还没开口说话，每次请求的钱全花在读说明书上了！所以 Pi 只放「技能名字 + 1 句话简介 + 文件路径」，模型需要哪个自己用 `read` 去读哪个。",
-        relationText: "② 树状记账本 ──▶ ③ 长期记忆与技能菜单 ──▶ ④ 挂载 MCP 工具配置",
-        moduleTag: "长期记忆与 Skill · packages/coding-agent/src/core/system-prompt.ts",
-        dataBefore: `本地安装了 20 个厚厚的 SKILL.md 技能说明书 (共 60,000 字)\n+ 项目根目录的 AGENTS.md 开发铁律`,
-        dataAfter: `拼装成按章节 (Section) 切分的超精简 System Prompt:\n• [project_context]: 注入 AGENTS.md 长期规范\n• [skills]: 仅注入每个技能的 <name> + <description> + <location> (仅占几百字!)`,
-        file: "packages/coding-agent/src/core/system-prompt.ts",
-        lineRange: "Lines 270–308",
-        startLine: 270,
-        hlLines: [270, 275, 276, 289, 297],
-        takeaway: "💡 看第 275 行：系统提示词被切成了独立的 Section（章节），中途状态变了只局部替换对应小章节，绝不推翻重拼。",
-        code: [
-          `export function updateSystemPromptSection(`,
-          `  systemMessage: SystemMessage,`,
-          `  id: SystemPromptSectionId,`,
-          `  content: string | undefined,`,
-          `): SystemMessage {`,
-          `  // 系统提示词按章节存储：[intro, tools, guidelines, project_context(AGENTS.md), skills, mcp_servers, runtime]`,
-          `  const sections = systemMessage.sections ? [...systemMessage.sections] : [];`,
-          `  const existingIndex = sections.findIndex((s) => s.id === id);`,
-          ``,
-          `  if (!content) {`,
-          `    if (existingIndex === -1) return systemMessage;`,
-          `    sections.splice(existingIndex, 1);`,
-          `  } else {`,
-          `    const nextSection: SystemPromptSection = { id, content };`,
-          `    if (existingIndex === -1) {`,
-          `      sections.push(nextSection);`,
-          `    } else {`,
-          `      // 如果章节内容没变，直接原样返回，保护缓存`,
-          `      if (sections[existingIndex].content === content) return systemMessage;`,
-          `      sections[existingIndex] = nextSection;`,
-          `    }`,
-          `  }`,
-          `  return {`,
-          `    ...systemMessage,`,
-          `    content: joinSystemPromptSections(sections),`,
-          `    sections,`,
-          `  };`,
-          `}`
-        ]
-      },
-      {
-        phaseId: "P2",
-        title: "第 4 站：为了查 GitHub 挂载了 80 个 MCP 工具，怎么做到「0 Token」暴露？",
-        story: "你的需求里有「查 GitHub 上的登录报错 Issue」，所以 Pi 连接了 GitHub MCP Server（里面有 80 个工具）。注意看左图：第 4 站处理完后，直接汇入第 6 站大模型请求。",
-        pain: "普通 Agent 一连上 MCP，就把 80 个工具的 JSON 定义全塞进大模型的 `tools` 参数里——哪怕你只是问一句「你好」，每次也要白花 4 万 Token！Pi 用 `getMcpToolExposure` 默认把所有 MCP 工具设为 `codemode`（藏进第 9 站的沙箱），首轮向模型声明 0 个 MCP 工具！",
-        relationText: "③ 系统提示词 ──▶ ④ MCP 0成本隐藏 ──▶ ⑤ 动态工具 / ⑥ 汇入大模型请求",
-        moduleTag: "MCP 减负 · packages/coding-agent/src/core/mcp-servers.ts",
-        dataBefore: `GitHub MCP Server 吐出 80 个工具的完整 JSON Schema:\n[ mcp__github__list_issues, mcp__github__create_pr, ... 共 80 个, 约 40,000 Tokens ]`,
-        dataAfter: `经过 getMcpToolExposure() 4 级分流后:\n• 发给主模型 tools 列表的 MCP 工具数: 0 个 (省下 40,000 Tokens!)\n• 仅在提示词留一句话: "MCP server github 已挂载至第 9 站沙箱 tools.mcp__github__*"`,
-        file: "packages/coding-agent/src/core/mcp-servers.ts",
-        lineRange: "Lines 244–255",
-        startLine: 244,
-        hlLines: [245, 247, 248, 250, 252],
-        takeaway: "💡 看高亮第 252 行：默认返回 `\"codemode\"`！4 个级别分别是：direct（直接塞给模型）、deferred（搜到再走第 5 站激活）、codemode（藏进第 9 站沙箱按需调）、hidden（彻底屏蔽）。",
-        code: [
-          `/** 决定一个 MCP 工具如何暴露给模型：优先看单工具覆盖配置，否则默认走 "codemode" */`,
-          `export function getMcpToolExposure(config: McpServerConfig, toolName: string): McpExposure {`,
-          `  const overrides = config.toolExposure ?? {};`,
-          `  const exact = overrides[toolName];`,
-          `  if (exact !== undefined) return exact;`,
-          `  for (const [pattern, exposure] of Object.entries(overrides)) {`,
-          `    if (pattern.includes("*") && toolPatternRegExp(pattern).test(toolName)) return exposure;`,
-          `  }`,
-          `  return config.exposure ?? "codemode";`,
-          `}`
-        ]
-      },
-      {
-        phaseId: "P2",
-        title: "第 5 站：对话中途新加了工具，怎么避免前面几万字的「1 折缓存」全部作废？",
-        story: "如果在对话中途启用了一个新工具（比如从第 4 站搜到了一个 deferred 工具），需要告诉第 6 站的大模型「你现在多了一个新工具」。",
-        pain: "大模型厂商的缓存打折规则是「从第 1 个字开始严格比对前缀」。如果你把新工具加到最开头的 System Prompt 里，开头变了，前面几万字的 1 折缓存瞬间全部作废，全按 10 倍原价重算！所以 Pi 绝不改开头，而是往聊天记录最后面 `push` 一条通知消息！",
-        relationText: "④ MCP 按需激活 ──▶ ⑤ 队尾追加工具变更消息 ──▶ ⑥ 汇入大模型请求",
-        moduleTag: "缓存保护 · packages/agent/src/agent-loop.ts",
-        dataBefore: `已完成 10 轮对话: [ SystemPrompt(已缓存), Round1(已缓存) ... Round10(已缓存) ]\n此时动态激活了新工具: mcp__github__get_issue`,
-        dataAfter: `开头 SystemPrompt 原封不动，直接在数组末尾 push 一条消息:\n[ ...前10轮100%命中1折缓存..., SystemMessage("<system-reminder>新增工具: mcp__github__get_issue</system-reminder>") ]`,
-        file: "packages/agent/src/agent-loop.ts",
-        lineRange: "Lines 502–544",
-        startLine: 502,
-        hlLines: [511, 513, 534, 536, 537],
-        takeaway: "💡 看高亮第 537 行：直接 `context.messages.push(systemMessage)` 追加在历史最后面！既让模型立刻看到新工具，又让前面所有历史稳享 1 折缓存。",
-        code: [
-          `async function declareToolChanges(`,
-          `  context: AgentContext,`,
-          `  config: AgentLoopConfig,`,
-          `  declaredToolKeys: Map<string, string>,`,
-          `  emit: AgentEventSink,`,
-          `): Promise<AgentMessage | undefined> {`,
-          `  const currentTools = config.tools ?? [];`,
-          `  const added: AgentTool[] = [];`,
-          `  for (const tool of currentTools) {`,
-          `    const key = toolDeclarationKey(tool);`,
-          `    // 发现当前工具列表里有之前没向模型声明过的新工具`,
-          `    if (declaredToolKeys.get(tool.name) !== key) {`,
-          `      added.push(tool);`,
-          `      declaredToolKeys.set(tool.name, key);`,
-          `    }`,
-          `  }`,
-          `  // ...省略移除工具检测...`,
-          `  const content = formatToolChangeReminder(added, removed);`,
-          `  if (!content) return undefined;`,
-          `  const systemMessage: SystemMessage = { role: "system", content, timestamp: Date.now() };`,
-          `  context.messages.push(systemMessage); // 关键：直接追加到消息历史末尾，绝不篡改头部！`,
-          `  await emit({ type: "message_start", message: systemMessage });`,
-          `  await emit({ type: "message_end", message: systemMessage });`,
-          `  return systemMessage;`,
-          `}`
-        ]
-      },
-      {
-        phaseId: "P3",
-        title: "第 6 站：先让 1 分钱小模型看一眼难度派单，再由「精算师」决定要不要给缓存续命",
-        story: "看左图：第 4 站和第 5 站组装好的上下文全部汇入第 6 站！这里先由 `jev-router` 用超小模型给任务打难度分派单；请求发出后，再由 `CacheWarmer` 精算 5 分钟后要不要发 1 字请求给缓存续命。",
-        pain: "1. 路由器看出「查 Issue 修 Bug」难度分高达 0.82（>=0.44），自动派给深度思考模型 Sol；等后面第 10 站改完代码收尾时再切回高速模型 Luna。\n2. 云端缓存 5 分钟不用就会清零。保活器在 90% TTL 时自动算账：`预计省下的重算费 - 续命费 >= $0.05` 才发包续命！",
-        relationText: "[④ MCP + ⑤ 上下文] ──▶ ⑥ 小模型派单与缓存算账 ──▶ ⑦ 模型返回工具调用进入防线1",
-        moduleTag: "智能省钱 · cache-warmer.ts & jev-router.ts",
-        dataBefore: `待发送的 80,000 Tokens 请求 + 5 分钟 (300秒) 缓存过期倒计时`,
-        dataAfter: `1. Jev 打分 0.82 >= 0.44 ➔ 派单给深度推理模型 Sol\n2. CacheWarmer 在第 270 秒算账: 0.15 * $0.45(重算差价) - $0.01(续命成本) = $0.057 >= $0.05 ➔ 自动发 maxTokens:1 续命！`,
-        file: "packages/coding-agent/src/core/cache-warmer.ts",
-        lineRange: "Lines 378–400",
-        startLine: 378,
-        hlLines: [386, 387, 388, 390, 398],
-        takeaway: "💡 看高亮第 390 行和 398 行：真金白银算出来的 `expectedSavings >= $0.05` 才会触发保活！",
-        code: [
-          `  private evaluate(run: ActiveRun): CacheWarmingDecision {`,
-          `    const model = run.model;`,
-          `    const promptTokens = lastPromptTokens(this.sessionManager.getBranch());`,
-          `    const cacheHitCost = price(model, { cacheRead: promptTokens });`,
-          `    const cacheMissCost = price(`,
-          `      model,`,
-          `      model.cost.cacheWrite > 0 ? { cacheWrite: promptTokens } : { input: promptTokens },`,
-          `    );`,
-          `    const warmCost = price(model, { cacheRead: promptTokens, output: 1 }); // 续命一次的成本(读缓存+1个输出词)`,
-          `    const missCost = Math.max(0, cacheMissCost - cacheHitCost); // 如果缓存过期，下次重算多花的冤枉钱`,
-          `    const continuationProbability = run.phase === "idle" ? IDLE_CONTINUATION_PROBABILITY : 1; // 运行中100%继续，闲置15%概率`,
-          `    const economicsAvailable = promptTokens > 0 && (cacheHitCost > 0 || cacheMissCost > 0);`,
-          `    const expectedSavings = continuationProbability * missCost - warmCost; // 期望净省下的美元`,
-          `    return {`,
-          `      phase: run.phase,`,
-          `      warmCost,`,
-          `      missCost,`,
-          `      continuationProbability,`,
-          `      expectedSavings,`,
-          `      economicsAvailable,`,
-          `      action: expectedSavings >= CACHE_WARMING_MINIMUM_EXPECTED_SAVINGS ? "warm" : "stop", // 净省 >= $0.05 才续命！`,
-          `    };`,
-          `  }`
-        ]
-      },
-      {
-        phaseId: "P3",
-        title: "第 7 站：【安全防线 1】万一模型写代码写到一半「字数超限断了」，怎么防止半截代码写进文件？",
-        story: "第 6 站的大模型思考完后，返回了工具调用请求。第一道关卡（第 7 站）立刻检查模型停下来的原因 (`stopReason`) 是不是因为触发了单次最大输出字数限制 (`stopReason === \"length\"`)。",
-        pain: "为了让界面能边打字边显示，底层有个「残缺 JSON 自动补全括号」解析器。如果模型原本要往 `login.ts` 写 200 行代码，结果写到第 80 行因为字数超限被掐断了，补全器会自动帮它补上 `\"})` 变成合法 JSON！如果不拦截，半截代码就会写进硬盘毁掉文件！",
-        relationText: "⑥ 模型返回 ToolCalls ──▶ ⑦ 防线1(检查是否超长截断) ──▶ ⑧ 未截断则进入防线2",
-        moduleTag: "截断熔断 · packages/agent/src/agent-loop.ts",
-        dataBefore: `模型返回 ToolCall: write("src/login.ts", "export function login() { // 写到一半被掐断...")\n且 stopReason === "length" (输出 Token 耗尽)`,
-        dataAfter: `触发 failToolCallsFromTruncatedMessage() 整批拦截！\n不进入第 8 站，直接返回报错给模型："你的回答触达输出上限被截断，请分段重发完整的工具调用"`,
-        file: "packages/agent/src/agent-loop.ts",
-        lineRange: "Lines 485–510",
-        startLine: 485,
-        hlLines: [485, 499, 500, 501, 502],
-        takeaway: "💡 看高亮第 500 行：一旦发现是 `length` 截断，当场拒绝执行并通知模型分段重发；只有完整生成的工具调用才能流向旁边的第 8 站。",
-        code: [
-          `async function failToolCallsFromTruncatedMessage(`,
-          `  toolCalls: AgentToolCall[],`,
-          `  emit: AgentEventSink,`,
-          `): Promise<ExecutedToolCallBatch> {`,
-          `  const messages: ToolResultMessage[] = [];`,
-          `  for (const toolCall of toolCalls) {`,
-          `    await emit({`,
-          `      type: "tool_execution_start",`,
-          `      toolCallId: toolCall.id,`,
-          `      toolName: toolCall.name,`,
-          `      args: toolCall.arguments,`,
-          `    });`,
-          `    const finalized: FinalizedToolCallOutcome = {`,
-          `      toolCall,`,
-          `      result: createErrorToolResult(`,
-          `        \`Tool call "\${toolCall.name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.\`,`,
-          `      ),`,
-          `      isError: true,`,
-          `    };`,
-          `    await emitToolExecutionEnd(finalized, emit);`,
-          `    const toolResultMessage = createToolResultMessage(finalized);`,
-          `    await emitToolResultMessage(toolResultMessage, emit);`,
-          `    messages.push(toolResultMessage);`,
-          `  }`,
-          `  return { messages, terminate: false };`,
-          `}`
-        ]
-      },
-      {
-        phaseId: "P3",
-        title: "第 8 站：【安全防线 2】自动修好模型手滑写错的参数类型，并弹窗拦截 `rm -rf /tmp/logs`！",
-        story: "通过第 7 站后，模型发来的 3 个工具调用（① `codemode` 查 Issue、② `edit` 改代码、③ `bash` 执行 `rm -rf /tmp/logs`）进入第 8 站排队预检。看左图：只有通过第 8 站放行的工具，才会向下分叉进入第 9 站和第 10 站执行！",
-        pain: "1. 模型常把数字 `timeout: 30` 手滑写成字符串 `\"30\"`；`pi-schema` 会先静默把它强转回数字 `30`。\n2. 3 个工具用 `for...of` **排队一个接一个跑 `beforeToolCall` 守卫**——检测到第 3 个工具是高危 `rm -rf`，立刻弹窗让你审批！你点「拒绝 (`block: true`)」，`rm -rf` 当场作废，只放行前 2 个工具往下走！",
-        relationText: "⑦ 防线1放行 ──▶ ⑧ 防线2(强转 + 拦掉 rm -rf) ──┬──▶ ⑨ 放行至 QuickJS 沙箱\n                                            └──▶ ⑩ 放行至 Edit/Bash 执行",
-        moduleTag: "强转与守卫 · packages/agent/src/agent-loop.ts",
-        dataBefore: `3 个待检工具:\n1. codemode(查 Issue)\n2. edit(path="login.ts")\n3. bash(command="rm -rf /tmp/logs", timeout="30")`,
-        dataAfter: `串行预检分流结果:\n• bash("rm -rf") ➔ 被你弹窗拒绝 (block: true)，当场拦死！\n• codemode & edit ➔ 预检通过 (prepared)，向下并发分叉流向第 9 站与第 10 站！`,
-        file: "packages/agent/src/agent-loop.ts",
-        lineRange: "Lines 606–658 & 730–758 (串行预检 return 后紧接着 Promise.all 调 tool.execute)",
-        startLine: 606,
-        hlLines: [614, 615, 622, 625, 629, 632, 637, 646],
-        takeaway: "💡 看高亮第 614–637 行：`prepareToolCall` 返回 `{ kind: \"prepared\" }` 后并没有结束！外层立刻把它包进 `finalizedCalls`，并在第 637 行 `Promise.all` 并发调用 `prepared.tool.execute()`（进入第 9 站沙箱和第 10 站改文件）！",
-        code: [
-          `  // 【阶段 A：串行预检循环】一个接一个调用 prepareToolCall 做类型强转 + beforeToolCall 弹窗拦截`,
-          `  for (const toolCall of toolCalls) {`,
-          `    // prepareToolCall 内部：1) pi-schema 将 "30" 强转为 30；2) 调 beforeToolCall 弹窗审批`,
-          `    //   • 若被你点拒绝 (block: true) ➔ 返回 { kind: "immediate", isError: true }`,
-          `    //   • 若审批放行                 ➔ 返回 { kind: "prepared", toolCall, tool, args }`,
-          `    const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);`,
-          `    if (preparation.kind === "immediate") {`,
-          `      // 像被拒绝的 rm -rf 走这里：直接把 Blocked 报错塞进结果数组，continue 跳过，绝不执行！`,
-          `      const finalized = { toolCall, result: preparation.result, isError: preparation.isError };`,
-          `      await emitToolExecutionEnd(finalized, emit);`,
-          `      finalizedCalls.push(finalized);`,
-          `      continue;`,
-          `    }`,
-          ``,
-          `    // 【衔接第 9 / 10 站的关键点】：预检放行的工具 (kind === "prepared")，把真正执行的函数塞进队列`,
-          `    finalizedCalls.push(async () => {`,
-          `      // executePreparedToolCall 内部直接调用：await preparation.tool.execute(id, preparation.args)`,
-          `      //   • 当 tool 是 codemode 时 ➔ 调它的 execute() 进入【第 9 站】拉起 QuickJS Wasm 虚拟机！`,
-          `      //   • 当 tool 是 edit/bash 时 ➔ 调它的 execute() 进入【第 10 站】排队改文件！`,
-          `      const executed = await executePreparedToolCall(preparation, signal, emitToolExecutionUpdate(toolCall, emit));`,
-          `      return finalizeExecutedToolCall(currentContext, assistantMessage, preparation, executed, config, signal);`,
-          `    });`,
-          `  }`,
-          ``,
-          `  // 【阶段 B：并发启动！】所有通过第 8 站预检的工具，在这里同时触发各自的 tool.execute()！`,
-          `  const orderedFinalizedCalls = await Promise.all(`,
-          `    finalizedCalls.map((entry) => (typeof entry === "function" ? entry() : Promise.resolve(entry))),`,
-          `  );`
-        ]
-      },
-      {
-        phaseId: "P4",
-        title: "第 9 站：【QuickJS 沙箱揭秘】`codemode.execute()` 被调用后，沙箱是怎么造出来并运行 JS 的？",
-        story: "承接第 8 站末尾的 `Promise.all`：当放行的 `codemode` 工具执行 `tool.execute(id, { code })` 时，它调用 `startVm` 用 `quickjs-wasi` 瞬间拉起一个独立的 **WebAssembly 虚拟机实例**：限制 256MB 内存、阉割掉文件/网络/定时器，把模型写的 JS 包进 `(async (tools, console) => { ... })` 运行！",
-        pain: "造一个跑模型代码的沙箱有 4 个核心工程难题（右边源码逐一解决）：\n1. **怎么防越狱读写硬盘/网络？** 用 WebAssembly 跑 QuickJS，WASI 层只挂载 `discardOutput`（无文件系统、无网卡、无环境变量）。\n2. **怎么防原型链投毒？** 启动先跑 `PRELUDE_SOURCE` 冻结所有内置对象 (`Object.freeze`)，并把 `bridge` 藏进闭包，脚本只能调 `tools.xxx()` 传 JSON 字符串，拿不到任何宿主机对象引用。\n3. **怎么防 `while(true)` 死循环和 `new Promise(()=>{})` 死锁？** 字节码轮询 `shouldInterrupt` 超预算强杀；微任务清空后立刻调 `stalled()` 检测悬空 Promise。\n4. **脚本调工具怎么防绕过权限？** `bridge(\"call\")` 发给宿主机后，宿主机强制调 `runToolCall` 回穿第 8 站的 `prepareToolCall` 弹窗守卫！",
-        relationText: "⑧ 预检放行 ──▶ ⑨ QuickJS Wasm 沙箱 (bridge 发消息 ↺ 回穿 ⑧ 守卫) ──▶ ⑪ 回合汇合",
-        moduleTag: "Wasm 沙箱内核 · packages/codemode/src/runtime/vm.ts",
-        dataBefore: `模型传入的裸 JS 字符串 (data.code):\nconst issues = await tools.mcp__github__list_issues({ state: "open" }); // 50条(120KB)\nreturn issues.filter(i => i.body.includes("login.ts"));`,
-        dataAfter: `1. QuickJS.create() 创建 256MB Wasm 隔离堆 + 冻结全部原型链\n2. 脚本调 tools.mcp__* ➔ 触发 bridge("call") 传出 JSON 字符串 ➔ 宿主机走第 8 站守卫执行后调 settle() 唤醒沙箱 Promise\n3. 120KB 原始数据随 vm.dispose() 销毁，主模型仅收到过滤后的 1 条 Issue！`,
-        file: "packages/codemode/src/runtime/vm.ts",
-        lineRange: "Lines 170–180, 242–266 & 301–335",
-        startLine: 170,
-        hlLines: [170, 172, 176, 177, 187, 192, 195, 207, 215, 224],
-        takeaway: "💡 看高亮行：① 第 170 行用 Wasm 创建隔离的 QuickJS 实例；② 第 192 行通过 `bridge` 只传字符串/数字原语向宿主请求调工具；③ 第 215 行把模型代码包成 async 函数丢进沙箱执行；④ 第 224 行宿主强制走 `runToolCall` 过第 8 站守卫！",
-        code: [
-          `  // 1. 拉起独立的 QuickJS WebAssembly 虚拟机实例（物理隔离内存，阉割所有系统调用）`,
-          `  const vm = await QuickJS.create({`,
-          `    wasm: options.wasm,`,
-          `    memoryLimit: data.memoryLimitBytes, // 默认 256MB 内存硬上限，防内存炸弹`,
-          `    maxStackSize,                       // 512KB/256KB 栈上限，防无限递归爆栈`,
-          `    interruptHandler: options.shouldInterrupt, // 轮询中断器：死循环超预算立即强杀`,
-          `    wasi: clock ? deterministicWasi(clock) : discardOutput, // 无文件系统、无网络、丢弃底层 stdout`,
-          `  });`,
-          ``,
-          `  // 2. 排空微任务队列 + 悬空 Promise 死锁检测 (stalled)`,
-          `  const drain = () => {`,
-          `    let jobs = 0;`,
-          `    while (exports.qjs_is_job_pending()) {`,
-          `      if (exports.qjs_execute_pending_job() < 0) throw new Error("Promise job failed");`,
-          `      if (++jobs % JOBS_PER_POLL === 0 && options.shouldInterrupt()) throw new Error("Execution interrupted");`,
-          `    }`,
-          `    vm.callFunction(stalled, api).dispose(); // 若脚本未结束但宿主无待决工具调用，立即判定死锁报错！`,
-          `  };`,
-          ``,
-          `  // 3. 注入全沙箱唯一的通信窄桥 bridge（仅允许传数字/字符串原语，绝不跨边界传对象引用）`,
-          `  const bridge = vm.newFunction("bridge", (kind, a, b, c) => {`,
-          `    if (kind.toString() === "call") {`,
-          `      // 脚本调 tools.xxx(args) 时，转成纯字符串消息 post 给宿主机`,
-          `      post({ type: "call", id: a.toNumber(), target: "tool", name: b.toString(), args: c.toString() });`,
-          `    }`,
-          `    return vm.undefined;`,
-          `  });`,
-          ``,
-          `  // 4. 先跑 PRELUDE_SOURCE 锁死 Object/Array 原型链，并把 bridge 藏进闭包生成 tools 代理对象`,
-          `  api = vm.withScope((scope) => scope.escape(`,
-          `    vm.callFunction(vm.evalCode(PRELUDE_SOURCE, "codemode-prelude.js"), vm.undefined, bridge, ...)`,
-          `  ));`,
-          `  settle = api.getProp("settle"); // 宿主机跑完工具后，调 settle(id, ok, json) 唤醒沙箱内的 await`,
-          ``,
-          `  // 5. 把模型写的脚本包裹成 async 函数，在 QuickJS 沙箱内编译运行！`,
-          `  const fn = vm.evalCode(\`(async (tools, console) => {\${data.code}\\n})\`, "codemode.js");`,
-          `  vm.callFunction(api.getProp("run"), api, fn).dispose();`,
-          `  drain();`,
-          ``,
-          `  // 6. 【宿主机侧收到 post({ type: "call" }) 后】：强制回穿第 8 站的 prepareToolCall 安全守卫！`,
-          `  // const preparation = await prepareToolCall(context, assistantMessage, toolCall, options, signal);`
-        ]
-      },
-      {
-        phaseId: "P4",
-        title: "第 10 站：并发改文件怎么防互相覆盖？跑测试吐出 5 万行日志怎么防撑爆上下文？",
-        story: "看左图右分支：与第 9 站同时进行的，是第 10 站修改 `src/login.ts` 并跑 `bash` 测试。这里靠「同文件排队写锁」防止并发写坏文件，靠「三通道分流」防止巨型日志撑爆模型。",
-        pain: "1. 如果模型一轮发了 2 个 `edit` 改同一个 `login.ts`，同时读写会把先改好的冲掉！`withFileMutationQueue` 给每个文件真身路径建了一条排队锁：不同文件同时改，同一文件排队改。\n2. 跑测试吐出 5 万行日志（2MB），`bash.ts` 把它拆成 3 份：给主模型的 `content` 只留最后 2000 行（<=50KB），给沙箱脚本的留 1MB，给终端界面的存完整文件路径。",
-        relationText: "⑧ 预检放行 ──▶ ⑩ 同文件排队写锁 & 日志三通道分流 ──▶ ⑪ 回合汇合",
-        moduleTag: "并发写锁与分流 · file-mutation-queue.ts & bash.ts",
-        dataBefore: `• 两个并发的 edit("src/login.ts") 同时到达\n• bash("npm test") 吐出了 50,000 行测试输出 (2 MB)`,
-        dataAfter: `• 同文件写锁: edit #1 改完写盘后，edit #2 才读取新文件继续改\n• bash 三通道分流:\n  1. content (给主模型): 仅截留最后 2000 行 (≤50KB)\n  2. structuredContent (给沙箱脚本): 保留 ≤1MB\n  3. details (给终端 TUI): 存 2MB 完整日志临时文件路径`,
-        file: "packages/coding-agent/src/core/tools/file-mutation-queue.ts",
-        lineRange: "Lines 32–59",
-        startLine: 32,
-        hlLines: [34, 35, 41, 49, 51, 53],
-        takeaway: "💡 看高亮第 34 行和第 49 行：按文件的真实物理路径挂在 Promise 队列上，`await currentQueue` 保证了同一个文件的修改永远一前一后排队执行。",
-        code: [
-          `export async function withFileMutationQueue<T>(filePath: string, fn: () => Promise<T>): Promise<T> {`,
-          `  const registration = registrationQueue.then(async () => {`,
-          `    const key = await getMutationQueueKey(filePath); // 解析软链接拿到真实绝对路径`,
-          `    const currentQueue = fileMutationQueues.get(key) ?? Promise.resolve();`,
-          ``,
-          `    let releaseNext!: () => void;`,
-          `    const nextQueue = new Promise<void>((resolveQueue) => {`,
-          `      releaseNext = resolveQueue;`,
-          `    });`,
-          `    const chainedQueue = currentQueue.then(() => nextQueue);`,
-          `    fileMutationQueues.set(key, chainedQueue);`,
-          ``,
-          `    return { key, currentQueue, chainedQueue, releaseNext };`,
-          `  });`,
-          `  registrationQueue = registration.then(() => undefined, () => undefined);`,
-          ``,
-          `  const { key, currentQueue, chainedQueue, releaseNext } = await registration;`,
-          `  await currentQueue; // 等排在前面的同文件修改先跑完`,
-          `  try {`,
-          `    return await fn(); // 执行本次文件修改`,
-          `  } finally {`,
-          `    releaseNext(); // 放行排在后面的下一个修改`,
-          `    if (fileMutationQueues.get(key) === chainedQueue) fileMutationQueues.delete(key);`,
-          `  }`,
-          `}`
-        ]
-      },
-      {
-        phaseId: "P4",
-        title: "第 11 站：模型还在干活，你突然敲键盘喊「别跑全量测试了！」它是怎么立刻听话拐弯的？",
-        story: "看左图最左侧那条从 ⑪ 一路向上连回 ① 的大回环曲线！第 9、10 站的工具刚跑完，你在工具运行期间敲了一句：「行了，别跑集成测试了，直接告诉我就行！」",
-        pain: "普通 Agent 跑任务时要么锁死输入框，要么逼你按 `Ctrl+C` 重来。而在 Pi 里，你随时敲回车都会存进 `steeringQueue`。第 9、10 站工具一跑完，第 11 站 (`getSteeringMessages`) 立刻捞出这句话，**顺着左图左侧回环曲线直接插队回到第 1 站的内层循环顶部**，模型瞬间接收新指令急转弯！",
-        relationText: "[⑨ 沙箱 + ⑩ 工具跑完] ──▶ ⑪ 检测 Steering 打断 ──(↺ 左侧回环曲线)──▶ ① 插队回内层循环",
-        moduleTag: "实时方向盘 · packages/agent/src/agent-loop.ts",
-        dataBefore: `本轮工具刚跑完，你在工具运行期间敲入了:\nsteeringQueue: ["行了，别跑集成测试了，直接告诉我就行！"]`,
-        dataAfter: `第 11 站 getSteeringMessages() 立即命中！\n➔ 沿着左图左侧虚线回环直接跳回第 1 站内层 while 顶部，带着你的新指令开启下一轮！`,
-        file: "packages/agent/src/agent-loop.ts",
-        lineRange: "Lines 295–325",
-        startLine: 295,
-        hlLines: [304, 305, 311, 312, 315],
-        takeaway: "💡 看第 304 行：这就是左图左侧那条从 ⑪ 飞回 ① 的回环线——只要 `pendingMessages.length > 0`，内层 while 就直接带着打断消息继续下一轮！",
-        code: [
-          `      const decision = await config.finishTurn?.(lastCompletedTurn, signal);`,
-          `      await emit({ type: "turn_end", message, toolResults });`,
-          ``,
-          `      if (decision?.action === "end") {`,
-          `        await emit({ type: "agent_end", messages: newMessages });`,
-          `        return;`,
-          `      }`,
-          ``,
-          `      explicitContinuation = decision?.action === "continue";`,
-          `      // 【内层循环末尾】：立刻检查你在工具执行期间有没有敲入“打断指令 (Steering)”`,
-          `      pendingMessages = (await config.getSteeringMessages?.()) || [];`,
-          `      if (hasMoreToolCalls || pendingMessages.length > 0) {`,
-          `        explicitContinuation = false;`,
-          `      }`,
-          `    } // <--- 沿着左图左侧回环线，直接跳回第 1 站内层 while 顶部插队执行！`,
-          ``,
-          `    // 【外层循环末尾】：只有当前任务彻底停下，才去取“待办追问 (Follow-up)”`,
-          `    const followUpMessages = (await config.getFollowUpMessages?.()) || [];`,
-          `    if (followUpMessages.length > 0) {`,
-          `      explicitContinuation = false;`,
-          `      pendingMessages = followUpMessages;`,
-          `      continue;`,
-          `    }`
-        ]
-      },
-      {
-        phaseId: "P4",
-        title: "第 12 站：接着聊了 50 轮终于「上下文超出」了！怎么自动瘦身并写回第 2 站记账本？",
-        story: "看左图最右侧那条从 ⑫ 一路向上连回 ② 的大回环曲线！当你顺着窗口聊了 50 轮、总字数快撞上 20 万上限时，第 12 站自动触发滑动压缩，并把压缩节点写回第 2 站的 `session.jsonl` 树里！",
-        pain: "1. **防短期失忆**：倒着数够最近 2 万词 (`keepRecentTokens: 20000`) 原文保留，只压更早的历史。\n2. **防切在 `toolResult` 上报 400 错误**：`findCutPoint` 严禁在孤立的工具返回结果上落刀，只准切在 `user/assistant` 边界。\n3. **防多轮压缩后忘了改过哪些文件**：把历次压缩的 `readFiles / modifiedFiles` 名单一路累加写进新节点，再顺着右侧回环线追加回第 2 站的树状记账本！",
-        relationText: "⑪ 回合结束检测水位超限 ──▶ ⑫ 滑动压缩与文件接力追踪 ──(↺ 右侧回环曲线)──▶ ② 追加回记账本",
-        moduleTag: "无损瘦身 · packages/coding-agent/src/core/compaction/compaction.ts",
-        dataBefore: `50 轮对话共 186,000 Tokens (超出 200,000 - 16,384 安全线!)\n包含第 1~40 轮旧历史 + 第 41~50 轮近期对话 (约 20,000 Tokens)`,
-        dataAfter: `沿着左图右侧回环线写回第 2 站 session.jsonl (骤降至 ~22,500 Tokens):\n1. 新增 CompactionEntry: 第 1~40 轮摘要 + 累计修改文件表 ["src/login.ts"]\n2. 保留第 41~50 轮原文 (从合法的 user/assistant 边界切分)`,
-        file: "packages/coding-agent/src/core/compaction/compaction.ts",
-        lineRange: "Lines 452–480 & 60–78",
-        startLine: 452,
-        hlLines: [453, 454, 467, 469, 478, 482, 487],
-        takeaway: "💡 看高亮第 453–469 行：避开 `toolResult` 切出最近 20k 原文，合并历次修改过的文件名，最后追加回第 2 站的 JSONL 树，完成 12 站完美闭环！",
-        code: [
-          `export function findCutPoint(entries: SessionEntry[], startIndex: number, endIndex: number, keepRecentTokens: number) {`,
-          `  // 找出所有合法下刀点：只允许切在 user / assistant / custom 上，绝对禁止切在 toolResult 上！`,
-          `  const cutPoints = findValidCutPoints(entries, startIndex, endIndex);`,
-          `  let accumulatedTokens = 0;`,
-          `  let cutIndex = cutPoints[0];`,
-          ``,
-          `  // 从最新一条消息往回倒着数，凑够最近 20,000 Tokens 原文保留`,
-          `  for (let i = endIndex - 1; i >= startIndex; i--) {`,
-          `    const entry = entries[i];`,
-          `    const messageTokens = sessionEntryToContextMessages(entry).reduce((s, m) => s + estimateTokens(m), 0);`,
-          `    if (messageTokens === 0) continue;`,
-          `    accumulatedTokens += messageTokens;`,
-          ``,
-          `    if (accumulatedTokens >= keepRecentTokens) {`,
-          `      // 凑够 20k 后，取 >= i 的最近一个合法切分点（避开孤立的 toolResult）`,
-          `      cutIndex = cutPoints.find((candidate) => candidate >= i) ?? cutPoints[cutPoints.length - 1];`,
-          `      break;`,
-          `    }`,
-          `  }`,
-          `  return { firstKeptEntryIndex: cutIndex };`,
-          `}`,
-          ``,
-          `// 接力累加历次压缩读过和改过的所有文件路径，沿着右侧回环线写回第 2 站记账本`,
-          `if (prevCompactionIndex >= 0) {`,
-          `  const details = (entries[prevCompactionIndex] as CompactionEntry).details as CompactionDetails;`,
-          `  for (const f of details.readFiles ?? []) fileOps.read.add(f);`,
-          `  for (const f of details.modifiedFiles ?? []) fileOps.edited.add(f);`,
-          `}`
-        ]
-      }
-    ];
+  {
+    "phaseId": "P1",
+    "title": "第 1 站：按下回车后，Agent 怎样一轮轮处理任务？",
+    "story": "你按下回车后，Pi 会反复做三件事：把任务交给模型、按模型请求调用工具、把工具结果交回模型。源码用两层循环，分别处理“眼前这件事还要不要继续”和“这件事做完后，是否还有排队的新任务”。",
+    "pain": "比如它正在修登录报错，你补一句“先别删日志”：这是运行中追加的指令（源码称 Steering），会在后续检查点加入当前任务。若你排队说“修完再写使用文档”，则属于后续追问（Follow-up），等当前任务准备结束后再处理。这里的检查点，可以理解为当前步骤处理完、准备继续的时刻，不是立刻强行停止正在运行的命令。",
+    "relationText": "输入 → ① 会话循环；②③ 为会话与请求提供上下文；⑪ 返回下一轮",
+    "moduleTag": "核心机制 · Agent 循环",
+    "dataBefore": "你先说：“修复登录报错。”\n工作中补充：“先别删日志。”\n另一个排队需求：“修完再写使用文档。”",
+    "dataAfter": "① 当前任务：模型与工具反复往返，继续处理登录报错。\n② 运行中追加指令：在检查点加入“先别删日志”，影响后续操作。\n③ 排队的后续任务：当前任务准备结束后，再处理写文档的需求。",
+    "file": "packages/agent/src/agent-loop.ts",
+    "lineRange": "本地源码原文 · L187–L226",
+    "startLine": 187,
+    "hlLines": [
+      188,
+      192,
+      195,
+      214,
+      220,
+      223
+    ],
+    "takeaway": "先看两处 while：外层管理“做完后还有什么”，内层管理“当前这件事如何继续”。Steering 就是任务进行时追加的指令；Follow-up 是排队等当前任务结束后的追问。",
+    "code": [
+      "  // Outer loop: continues when queued follow-up messages arrive after agent would stop",
+      "  while (true) {",
+      "    let hasMoreToolCalls = true;",
+      "",
+      "    // Inner loop: process tool calls and steering messages",
+      "    while (hasMoreToolCalls || pendingMessages.length > 0) {",
+      "      let preparedMessages: AgentMessage[] = [];",
+      "      if (lastCompletedTurn) {",
+      "        const nextTurnSnapshot = await config.prepareNextTurn?.(lastCompletedTurn);",
+      "        if (nextTurnSnapshot) {",
+      "          currentContext = nextTurnSnapshot.context ?? currentContext;",
+      "          preparedMessages = nextTurnSnapshot.messages ?? [];",
+      "          config = {",
+      "            ...config,",
+      "            model: nextTurnSnapshot.model ?? config.model,",
+      "            reasoning:",
+      "              nextTurnSnapshot.thinkingLevel === undefined",
+      "                ? config.reasoning",
+      "                : nextTurnSnapshot.thinkingLevel === \"off\"",
+      "                  ? undefined",
+      "                  : nextTurnSnapshot.thinkingLevel,",
+      "          };",
+      "        }",
+      "        // Preparation can be long-running (for example, compaction). Pick up steering",
+      "        // queued while it ran. Only poll again if the earlier poll returned nothing;",
+      "        // otherwise one-at-a-time mode would deliver two messages in this turn.",
+      "        if (pendingMessages.length === 0) {",
+      "          pendingMessages = (await config.getSteeringMessages?.()) || [];",
+      "        }",
+      "        await emit({ type: \"turn_start\" });",
+      "      }",
+      "",
+      "      // Process prepared and queued messages before the next assistant response.",
+      "      for (const message of declareToolChanges(currentContext, [...preparedMessages, ...pendingMessages])) {",
+      "        await emit({ type: \"message_start\", message });",
+      "        await emit({ type: \"message_end\", message });",
+      "        currentContext.messages.push(message);",
+      "        newMessages.push(message);",
+      "      }",
+      "      pendingMessages = [];"
+    ],
+    "scope": "核心机制",
+    "focusNotes": [
+      "L188、192：外层管做完后排队的追问，内层管当前任务的继续执行。",
+      "L195、214：准备下一轮时，再检查是否收到运行中追加的指令。",
+      "L220、223：把工具变化和新收到的指令放入本轮上下文。"
+    ]
+  },
+  {
+    "phaseId": "P1",
+    "title": "第 2 站：为什么聊天历史用 JSONL 保存成树？",
+    "story": "SessionManager 用 JSONL 持久化会话条目。条目通过 id 与 parentId 关联，沿当前叶子回溯可得到选中的历史分支；这与运行时使用消息数组并不矛盾。",
+    "pain": "分支结构便于回到之前的对话节点，尝试另一条思路，同时保留旧分支。这里只切换会话历史，不会自动撤销之前对文件、终端或外部服务产生的操作。",
+    "relationText": "② 当前会话分支 → 请求上下文；⑫ 压缩条目也写回会话",
+    "moduleTag": "核心机制 · 会话持久化与分支",
+    "dataBefore": "示例：同一段历史 A → B → C。\n想从 B 再试另一种解法。",
+    "dataAfter": "保留 A → B → C，同时追加分支 B → D。\n沿 D 的 parentId 回溯，构造当前分支历史。\n文件恢复需要另外处理。",
+    "file": "packages/coding-agent/src/core/session-manager.ts",
+    "lineRange": "本地源码原文 · L390–L417",
+    "startLine": 390,
+    "hlLines": [
+      403,
+      410,
+      411,
+      412,
+      414
+    ],
+    "takeaway": "阅读重点：沿 parentId 回溯并反转，得到当前分支。磁盘树状记录与运行时消息数组承担不同职责。",
+    "code": [
+      "function buildSessionPath(",
+      "  entries: SessionEntry[],",
+      "  leafId?: string | null,",
+      "  byId?: Map<string, SessionEntry>,",
+      "): SessionEntry[] {",
+      "  const index = buildEntryIndex(entries, byId);",
+      "  let leaf: SessionEntry | undefined;",
+      "  if (leafId === null) {",
+      "    return [];",
+      "  }",
+      "  if (leafId) {",
+      "    leaf = index.get(leafId);",
+      "  }",
+      "  leaf ??= entries[entries.length - 1];",
+      "  if (!leaf) {",
+      "    return [];",
+      "  }",
+      "",
+      "  const path: SessionEntry[] = [];",
+      "  let current: SessionEntry | undefined = leaf;",
+      "  while (current) {",
+      "    path.push(current);",
+      "    current = current.parentId ? index.get(current.parentId) : undefined;",
+      "  }",
+      "  path.reverse();",
+      "  return path;",
+      "}",
+      ""
+    ],
+    "scope": "核心机制",
+    "focusNotes": [
+      "L403：未指定叶子时，选择最后一条会话条目。",
+      "L410–412：沿 parentId 逐级回溯，构造当前分支。",
+      "L414：反转为从早到晚的消息顺序。"
+    ]
+  },
+  {
+    "phaseId": "P1",
+    "title": "第 3 站：项目说明和 Skills 怎样进入上下文？",
+    "story": "构建系统提示词时，会纳入加载好的项目上下文和技能目录。AGENTS.md 是项目指令文件，不是会自动学习的长期记忆；Skills 可以先呈现名称、简介与位置，按需读取正文。",
+    "pain": "把所有技能全文预先塞入上下文，会增加请求体积。目录式呈现让模型先知道有哪些技能，需要时再读取；实际是否加载、如何读取，受资源与可用工具配置影响。",
+    "relationText": "② 会话历史 + ③ 项目与技能上下文 → 模型请求",
+    "moduleTag": "核心机制 · 项目上下文与技能目录",
+    "dataBefore": "教学假设：20 个技能，每份说明 3000 字。\n项目另有 AGENTS.md 指令。",
+    "dataAfter": "按章节构建系统提示词。\n纳入项目上下文；在满足条件时加入技能目录。\n20 × 3000 是说明成本问题的例子，不是性能测量。",
+    "file": "packages/coding-agent/src/core/system-prompt.ts",
+    "lineRange": "本地源码原文 · L178–L190",
+    "startLine": 178,
+    "hlLines": [
+      178,
+      179,
+      180,
+      188,
+      189
+    ],
+    "takeaway": "阅读重点：当前本地版本使用 buildSystemPromptSections 等函数；原导读中的 updateSystemPromptSection 不在此版本该文件中。",
+    "code": [
+      "  if (skillFileReadTool && skills.length > 0) {",
+      "    const skillsPrompt = formatSkillsForPrompt(skills, skillFileReadTool).trim();",
+      "    if (skillsPrompt) promptSections.skills = skillsPrompt;",
+      "  }",
+      "  promptSections.cwd = cwd.replace(/\\\\/g, \"/\");",
+      "  for (const [name, content] of Object.entries(customSections)) {",
+      "    if (content) promptSections[name] = content;",
+      "  }",
+      "",
+      "  const sections: SystemPromptSections = { preamble: promptSections.preamble };",
+      "  for (const [name, content] of Object.entries(promptSections)) {",
+      "    if (name !== \"preamble\") sections[name] = `<${name}>\\n${content}\\n</${name}>`;",
+      "  }"
+    ],
+    "scope": "核心机制",
+    "focusNotes": [
+      "L178：存在可用读取工具和技能时，才生成技能目录。",
+      "L179–180：格式化技能提示，并写入 skills 章节。",
+      "L188–189：各章节按名称封装；项目上下文的构建在本文件前段。"
+    ]
+  },
+  {
+    "phaseId": "P2",
+    "title": "第 4 站：MCP 工具很多，怎样避免一次声明全部 Schema？",
+    "story": "接入 MCP 后，工具可以选择 direct、deferred、codemode、hidden 等暴露方式。此版本 getMcpToolExposure 在没有覆盖配置时返回 codemode；这只是暴露规则，连接和执行还依赖相应组件。",
+    "pain": "codemode 不把每个 MCP 工具都作为直接工具声明给主模型，脚本可通过工具发现按需调用。但仍有命名空间说明、查找和调用成本，不能称为“0 Token”或“0 成本”。",
+    "relationText": "③ 请求准备 → ④ 按配置连接与暴露工具 → ⑤ 工具变更声明",
+    "moduleTag": "按配置生效 · MCP 工具暴露",
+    "dataBefore": "教学假设：GitHub MCP 提供 80 个工具。\n如果全部直接声明，需要携带许多工具定义。",
+    "dataAfter": "direct：直接声明。\ndeferred：搜索加载后直接调用。\ncodemode：脚本发现并调用。\nhidden：不可达。实际 Token 开销需测量。",
+    "file": "packages/coding-agent/src/core/mcp-servers.ts",
+    "lineRange": "本地源码原文 · L246–L256",
+    "startLine": 246,
+    "hlLines": [
+      247,
+      248,
+      249,
+      251,
+      253
+    ],
+    "takeaway": "阅读重点：先匹配单工具覆盖与通配规则，再看服务器配置，最后才使用 codemode 默认值。工具数量与节省量均非实测。",
+    "code": [
+      "export function getMcpToolExposure(config: McpServerConfig, toolName: string): McpExposure {",
+      "  const overrides = config.toolExposure ?? {};",
+      "  const exact = overrides[toolName];",
+      "  if (exact !== undefined) return exact;",
+      "  for (const [pattern, exposure] of Object.entries(overrides)) {",
+      "    if (pattern.includes(\"*\") && toolPatternRegExp(pattern).test(toolName)) return exposure;",
+      "  }",
+      "  return config.exposure ?? \"codemode\";",
+      "}",
+      "",
+      "/**"
+    ],
+    "scope": "按配置使用",
+    "focusNotes": [
+      "L247–249：优先采用单个工具的精确覆盖配置。",
+      "L251：其次匹配通配规则。",
+      "L253：最后使用服务器配置；未配置时才回退到 codemode。"
+    ]
+  },
+  {
+    "phaseId": "P2",
+    "title": "第 5 站：中途工具发生变化，怎样通知模型？",
+    "story": "本地版本会比较当前工具状态，将新增与移除工具信息合入待发送的 system 消息，必要时插入新的更新消息，再与待处理消息一起进入会话。",
+    "pain": "这种增量表示有助于避免不必要地改写历史，但不能直接保证缓存命中。缓存还取决于模型供应商、序列化方式、模型切换和请求内容；没有统一的“一折”或“十倍”结论。",
+    "relationText": "④ 工具状态变化 → ⑤ 增量声明 → ⑥ 模型请求",
+    "moduleTag": "核心机制 · 增量工具声明",
+    "dataBefore": "示例：对话中途启用了一个工具，或移除了旧工具。",
+    "dataAfter": "比较已有工具状态与当前工具列表。\n产生 toolsAdded / toolsRemoved 更新。\n合入当前待发送消息，后续请求据此获知变化。",
+    "file": "packages/agent/src/agent-loop.ts",
+    "lineRange": "本地源码原文 · L342–L375",
+    "startLine": 342,
+    "hlLines": [
+      356,
+      357,
+      358,
+      360,
+      365,
+      367,
+      368,
+      371
+    ],
+    "takeaway": "阅读重点：当前实现处理 ToolStateChanges；这里展示真实的 declareToolChanges 节选，不再使用旧版伪连续行号。",
+    "code": [
+      "function declareToolChanges(context: AgentContext, pendingMessages: AgentMessage[]): AgentMessage[] {",
+      "  let systemIndex = -1;",
+      "  for (let i = pendingMessages.length - 1; i >= 0; i--) {",
+      "    if (pendingMessages[i].role === \"system\") {",
+      "      systemIndex = i;",
+      "      break;",
+      "    }",
+      "  }",
+      "  const pending = pendingMessages[systemIndex] as SystemMessage | undefined;",
+      "  const baseline = pending",
+      "    ? pendingMessages.map((message, index) =>",
+      "        index === systemIndex ? withToolChanges(pending, NO_CHANGES) : message,",
+      "      )",
+      "    : pendingMessages;",
+      "  const changes = getToolStateChanges(",
+      "    getCurrentTools([...context.messages, ...baseline]),",
+      "    (context.tools ?? []).map(toToolDeclaration),",
+      "  );",
+      "  const unchanged = changes.toolsAdded.length === 0 && changes.toolsRemoved.length === 0;",
+      "",
+      "  if (pending) {",
+      "    // Keep the caller's message object when it already declares no tool changes.",
+      "    if (unchanged && !pending.toolsAdded?.length && !pending.toolsRemoved?.length) return pendingMessages;",
+      "    return baseline.map((message, index) => (index === systemIndex ? withToolChanges(pending, changes) : message));",
+      "  }",
+      "  if (unchanged) return pendingMessages;",
+      "  const update = withToolChanges({ role: \"system\", content: \"\", timestamp: Date.now() }, changes);",
+      "  const insertIndex = pendingMessages.findIndex((message) => message.role !== \"system\");",
+      "  const index = insertIndex === -1 ? pendingMessages.length : insertIndex;",
+      "  return [...pendingMessages.slice(0, index), update, ...pendingMessages.slice(index)];",
+      "}",
+      "",
+      "const NO_CHANGES: ToolStateChanges = { toolsAdded: [], toolsRemoved: [] };",
+      ""
+    ],
+    "scope": "核心机制",
+    "focusNotes": [
+      "L356–360：比较已有声明与当前工具列表，判断是否发生变化。",
+      "L365：已有待发 system 消息时，将变化合入它。",
+      "L367–371：无变化则跳过；否则构造更新消息并插入待发列表。"
+    ]
+  },
+  {
+    "phaseId": "P3",
+    "title": "第 6 站：可选模型路由，和有条件的缓存保活",
+    "story": "普通请求使用配置好的模型。若显式加载 jev-router 示例扩展并选择 jev/auto，分类器才参与规划模型选择。CacheWarmer 是另一套机制：是否保活还要看设置、模型缓存信息与请求兼容性。",
+    "pain": "本地路由示例中，complex 概率 ≥ 0.5 时选 Sol，否则选 Terra；首次成功 edit/write 后，下一请求转到 Luna 做实现，而非等代码写完才切换。缓存保活也不是每个请求必经的同步步骤。",
+    "relationText": "上下文 → 配置模型 / 可选路由 → ⑦ 响应检查；缓存保活是独立的定时条件逻辑",
+    "moduleTag": "示例扩展 + 条件机制 · 不属于固定必经站",
+    "dataBefore": "启用路由示例需要扩展配置、TypeSafe 凭据和相应模型登录。\n教学假设：分类器 complex 概率为 0.82。",
+    "dataAfter": "规划：0.82 ≥ 0.5 → Sol。\n首次成功 edit/write 后：后续请求 → Luna。\n缓存保活独立评估：模型支持的 TTL、设置与兼容性满足时，再计算期望节省；本地门槛为 $0.05。",
+    "file": "packages/coding-agent/examples/extensions/jev-router.ts",
+    "lineRange": "本地源码原文 · L62–L96",
+    "startLine": 62,
+    "hlLines": [
+      67,
+      68,
+      69,
+      86,
+      87,
+      91
+    ],
+    "takeaway": "阅读重点：这里展示 examples/extensions/jev-router.ts 的真实节选。CacheWarmer 另见 core/cache-warmer.ts；TTL 来自模型元数据，不统一固定为 5 分钟。",
+    "code": [
+      "async function choosePlanningModel(request: JevRequest, ctx: ExtensionContext): Promise<string> {",
+      "  // Keep a planning model the session already uses, so switching to jev/auto costs no cache miss.",
+      "  const previous = request.previous?.model;",
+      "  if (previous?.provider === PROVIDER && (previous.id === SOL || previous.id === TERRA)) return previous.id;",
+      "",
+      "  const jev = ctx.modelRegistry.findOfType(\"classifier\", \"typesafe\", \"jev-latest\");",
+      "  if (!jev) return TERRA;",
+      "  const result = await ctx.modelRegistry.classify(",
+      "    jev,",
+      "    {",
+      "      state: { prompt: lastUserText(request.messages).slice(0, 16_000) },",
+      "      questions: {",
+      "        complexity: {",
+      "          type: \"choice\",",
+      "          instructions: \"How demanding is the software engineering work requested in `prompt`?\",",
+      "          criteria: {",
+      "            standard: \"Ordinary features, fixes, reviews, or questions\",",
+      "            complex: \"Subtle design, cross-cutting changes, or hard debugging\",",
+      "          },",
+      "        },",
+      "      },",
+      "    },",
+      "    { signal: request.signal },",
+      "  );",
+      "  const answer = result.stopReason === \"stop\" ? result.answers.complexity : undefined;",
+      "  return answer?.type === \"choice\" && (answer.probabilities.complex ?? 0) >= 0.5 ? SOL : TERRA;",
+      "}",
+      "",
+      "export default function (pi: ExtensionAPI) {",
+      "  pi.registerVirtualModel<JevState>({",
+      "    provider: \"jev\",",
+      "    id: \"auto\",",
+      "    name: \"Auto (Jev)\",",
+      "    thinkingLevels: [\"low\", \"medium\", \"high\", \"xhigh\"],",
+      "    // Shared by all three models; shown before the first response."
+    ],
+    "scope": "可选示例扩展 / 条件机制",
+    "focusNotes": [
+      "L67–69：寻找分类器；不存在时回退 Terra，否则发起分类。",
+      "L86–87：检查分类结果；complex 概率 ≥ 0.5 时选 Sol。",
+      "L91：这属于注册虚拟模型的示例扩展，不是 Pi 默认路由。"
+    ]
+  },
+  {
+    "phaseId": "P3",
+    "title": "第 7 站：模型输出被截断，为什么暂不执行工具？",
+    "story": "当模型响应以 stopReason === \"length\" 结束，工具参数可能不完整。当前循环会拒绝执行这条响应中的工具调用，将错误结果回传给模型，要求重新给出完整参数。",
+    "pain": "流式 JSON 的尽力解析不代表参数语义完整。截断检查可以降低把残缺参数拿去执行的风险，但并不保证完整生成的参数就是正确、安全或已授权的。",
+    "relationText": "⑥ 模型响应 → ⑦ 截断检查 → ⑧ 参数与执行前钩子",
+    "moduleTag": "核心机制 · 截断响应检查",
+    "dataBefore": "示例：write 的内容生成到一半，模型触及输出 Token 上限。",
+    "dataAfter": "不执行该响应中的工具调用。\n生成工具错误结果，要求模型重发完整参数。\n完整参数仍须经过校验与执行策略。",
+    "file": "packages/agent/src/agent-loop.ts",
+    "lineRange": "本地源码原文 · L488–L517",
+    "startLine": 488,
+    "hlLines": [
+      493,
+      502,
+      503,
+      505,
+      508,
+      509,
+      510,
+      512
+    ],
+    "takeaway": "阅读重点：工具参数可能被截断时整批返回错误，而不是尝试用残缺参数修改文件。",
+    "code": [
+      "async function failToolCallsFromTruncatedMessage(",
+      "  toolCalls: AgentToolCall[],",
+      "  emit: AgentEventSink,",
+      "): Promise<ExecutedToolCallBatch> {",
+      "  const messages: ToolResultMessage[] = [];",
+      "  for (const toolCall of toolCalls) {",
+      "    await emit({",
+      "      type: \"tool_execution_start\",",
+      "      toolCallId: toolCall.id,",
+      "      toolName: toolCall.name,",
+      "      args: toolCall.arguments,",
+      "    });",
+      "    const finalized: FinalizedToolCallOutcome = {",
+      "      toolCall,",
+      "      result: createErrorToolResult(",
+      "        `Tool call \"${toolCall.name}\" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`,",
+      "      ),",
+      "      isError: true,",
+      "    };",
+      "    await emitToolExecutionEnd(finalized, emit);",
+      "    const toolResultMessage = createToolResultMessage(finalized);",
+      "    await emitToolResultMessage(toolResultMessage, emit);",
+      "    messages.push(toolResultMessage);",
+      "  }",
+      "  return { messages, terminate: false };",
+      "}",
+      "",
+      "/**",
+      " * Execute tool calls from an assistant message.",
+      " */"
+    ],
+    "scope": "核心机制",
+    "focusNotes": [
+      "L493、502–505：对截断响应中的每个工具调用，构造错误结果。",
+      "L508–510：将错误作为工具结果发出并收集，而不是调用工具执行。",
+      "L512：返回这一批错误结果，供上层继续处理。"
+    ]
+  },
+  {
+    "phaseId": "P3",
+    "title": "第 8 站：参数校验与审批，各由谁负责？",
+    "story": "工具调用先解析、准备和校验参数；如果配置了 beforeToolCall，再由该钩子决定是否阻止执行。危险命令的弹窗示例来自 permission-gate 扩展，不是核心钩子自动生成的通用审批机制。",
+    "pain": "只有加载并实际启用相应策略，危险命令才会按它的规则受控。permission-gate 示例主要靠命令正则匹配，不能视作完整安全沙箱；参数也并非任何类型错误都能自动修复。",
+    "relationText": "⑦ → ⑧ 校验与钩子 → ⑨/⑩ 已获准的调用；并行不意味着有依赖的操作适合同时执行",
+    "moduleTag": "核心校验 + 可选审批扩展",
+    "dataBefore": "示例：模型请求 bash 执行删除日志。\n已加载 permission-gate 时，命令匹配其危险模式。",
+    "dataAfter": "核心：参数准备 → Schema 校验 → 可选 beforeToolCall。\n扩展示例：有 UI 时询问；拒绝则返回 blocked。\n无 UI 时该示例默认阻止匹配命令。\n嵌套工具调用也应通过对应钩子路径。",
+    "file": "packages/agent/src/agent-loop.ts",
+    "lineRange": "本地源码原文 · L718–L782",
+    "startLine": 718,
+    "hlLines": [
+      736,
+      737,
+      738,
+      739,
+      755,
+      756,
+      760,
+      761,
+      763,
+      774,
+      775
+    ],
+    "takeaway": "阅读重点：if (config.beforeToolCall) 表示钩子是可选的。弹窗 UI 与命令匹配另见 examples/extensions/permission-gate.ts。",
+    "code": [
+      "async function prepareToolCall(",
+      "  currentContext: AgentContext,",
+      "  assistantMessage: AssistantMessage,",
+      "  toolCall: AgentToolCall,",
+      "  config: ToolCallHooks,",
+      "  signal: AbortSignal | undefined,",
+      "  tools: readonly AgentTool<any>[] = currentContext.tools ?? [],",
+      "): Promise<PreparedToolCall | ImmediateToolCallOutcome> {",
+      "  const tool = tools.find((t) => t.name === toolCall.name);",
+      "  if (!tool) {",
+      "    return {",
+      "      kind: \"immediate\",",
+      "      result: createErrorToolResult(`Tool ${toolCall.name} not found`),",
+      "      isError: true,",
+      "    };",
+      "  }",
+      "",
+      "  try {",
+      "    const preparedToolCall = prepareToolCallArguments(tool, toolCall);",
+      "    const validatedArgs = validateToolArguments(tool, preparedToolCall);",
+      "    if (config.beforeToolCall) {",
+      "      const beforeResult = await config.beforeToolCall(",
+      "        {",
+      "          assistantMessage,",
+      "          toolCall,",
+      "          args: validatedArgs,",
+      "          context: currentContext,",
+      "        },",
+      "        signal,",
+      "      );",
+      "      if (signal?.aborted) {",
+      "        return {",
+      "          kind: \"immediate\",",
+      "          result: createErrorToolResult(\"Operation aborted\"),",
+      "          isError: true,",
+      "        };",
+      "      }",
+      "      if (beforeResult?.block) {",
+      "        const result = createErrorToolResult(beforeResult.reason || \"Tool execution was blocked\");",
+      "        if (beforeResult.terminate === true) {",
+      "          result.terminate = true;",
+      "        }",
+      "        return {",
+      "          kind: \"immediate\",",
+      "          result,",
+      "          isError: true,",
+      "        };",
+      "      }",
+      "    }",
+      "    if (signal?.aborted) {",
+      "      return {",
+      "        kind: \"immediate\",",
+      "        result: createErrorToolResult(\"Operation aborted\"),",
+      "        isError: true,",
+      "      };",
+      "    }",
+      "    return {",
+      "      kind: \"prepared\",",
+      "      toolCall,",
+      "      tool,",
+      "      args: validatedArgs,",
+      "    };",
+      "  } catch (error) {",
+      "    return {",
+      "      kind: \"immediate\","
+    ],
+    "scope": "核心 + 可选审批策略",
+    "focusNotes": [
+      "L736–737：先准备参数，再进行 Schema 校验。",
+      "L738–739：只有配置了 beforeToolCall 才调用该钩子。",
+      "L755–763：钩子阻止时立即返回错误；L774–775 为准备通过的分支。"
+    ]
+  },
+  {
+    "phaseId": "P4",
+    "title": "第 9 站：codemode 脚本怎样运行，又怎样调用宿主工具？",
+    "story": "codemode 使用 QuickJS / WebAssembly 执行 JavaScript，通过受控桥接请求宿主工具。脚本运行环境与宿主工具权限是两层边界：脚本不直接拿到宿主对象，不代表工具无法访问文件或网络。",
+    "pain": "工具代理一旦调用具有文件、网络等能力的宿主工具，仍会产生真实操作。内存与执行预算由配置和运行模式决定，不能仅凭 vm.ts 中的变量声明就断言所有模式都固定限制为 256MB。",
+    "relationText": "⑧ → ⑨ VM 与桥接；嵌套调用走宿主工具检查；结果回填下一轮",
+    "moduleTag": "按配置使用 · codemode 脚本执行边界",
+    "dataBefore": "教学示例：脚本获取 Issue 列表，再筛出与 login.ts 有关的项。\n列表条数、120KB 等仅是示例，不是实测。",
+    "dataAfter": "建立 VM → 注入桥接 → 运行脚本 → 请求宿主工具 → 回填结果。\n脚本可只返回筛选结果，减少主模型收到的原始数据。\n不能据此保证零泄漏、零副作用或绝对隔离。",
+    "file": "packages/codemode/src/runtime/vm.ts",
+    "lineRange": "本地源码原文 · L160–L194",
+    "startLine": 160,
+    "hlLines": [
+      170,
+      171,
+      172,
+      175,
+      176,
+      177,
+      189,
+      191,
+      192,
+      194
+    ],
+    "takeaway": "阅读重点：VM 的 memoryLimit 接收配置值。沙箱内代码、宿主桥接和工具权限需要分别分析。",
+    "code": [
+      "export async function startVm(options: StartVmOptions): Promise<VmSession> {",
+      "  const { data, post } = options;",
+      "  const maxStackSize = options.maxStackSize ?? MAX_STACK_SIZE;",
+      "  const deterministic = data.deterministic;",
+      "  const clock: VirtualClock | undefined = deterministic && {",
+      "    creating: true,",
+      "    startedAt: deterministic.startedAt,",
+      "    now: deterministic.startedAt,",
+      "    seed: deterministic.seed >>> 0,",
+      "  };",
+      "  const vm = await QuickJS.create({",
+      "    wasm: options.wasm,",
+      "    memoryLimit: data.memoryLimitBytes,",
+      "    // Without a guard, deep recursion overflows the wasm stack and traps instead of throwing a",
+      "    // catchable RangeError.",
+      "    maxStackSize,",
+      "    interruptHandler: options.shouldInterrupt,",
+      "    wasi: clock ? deterministicWasi(clock) : discardOutput,",
+      "    ...(clock ? { timezoneOffset: 0, intrinsics: Intrinsics.ALL & ~Intrinsics.WEAK_REF } : {}),",
+      "  });",
+      "  if (clock) clock.creating = false;",
+      "  let disposed = false;",
+      "  /** Calls the script has issued, tools and globals; reported with every `idle`. */",
+      "  let issued = 0;",
+      "  /** Deterministic mode: the next result to apply, and results that arrived before it. */",
+      "  let nextSeq = 1;",
+      "  /** The result being processed, 0 during the script's first run; reported with `done`. */",
+      "  let current = 0;",
+      "  const early = new Map<number, HostToWorkerMessage>();",
+      "  const apply = (message: HostToWorkerMessage): void => {",
+      "    vm.withScope(() => {",
+      "      vm.callFunction(",
+      "        settle,",
+      "        api,",
+      "        vm.newNumber(message.id),"
+    ],
+    "scope": "按配置使用",
+    "focusNotes": [
+      "L170–172：创建 QuickJS VM，并传入配置的 Wasm 与内存上限。",
+      "L175–177：传入栈限制、中断处理器及 WASI 配置。",
+      "L189–194：宿主收到结果后，向 VM 的 settle 回填；桥接发送逻辑在后续源码中。"
+    ]
+  },
+  {
+    "phaseId": "P4",
+    "title": "第 10 站：并发修改与大段日志，怎么减少冲突和上下文负担？",
+    "story": "同一进程中，经 withFileMutationQueue 包装的文件修改，会按文件路径排队；不同文件仍可并行。bash 则区分给模型的文本、程序化返回数据和完整输出位置。",
+    "pain": "这是进程内队列，不是操作系统文件锁：外部编辑器、其他进程或未走该队列的操作不受它保护。日志截断可以控制上下文体积，但可能隐藏关键信息，需要时仍须读取完整日志。",
+    "relationText": "⑧ → ⑩ 文件/命令工具 → 结果回填；是否并发还取决于调用之间的依赖",
+    "moduleTag": "核心工具机制 · 进程内修改队列与输出限制",
+    "dataBefore": "教学示例：同一进程有两个 edit 操作指向同一文件。\n测试日志超过当前工具输出限额。",
+    "dataAfter": "同文件：按队列依次执行；不同文件：允许并行。\n此版本模型文本默认取尾部，受 2000 行 / 50KiB 两项限制。\n程序化输出有独立上限；超限时可通过完整日志路径继续读取。",
+    "file": "packages/coding-agent/src/core/tools/file-mutation-queue.ts",
+    "lineRange": "本地源码原文 · L32–L63",
+    "startLine": 32,
+    "hlLines": [
+      34,
+      35,
+      41,
+      42,
+      52,
+      54,
+      56,
+      57,
+      58
+    ],
+    "takeaway": "阅读重点：Map 与 Promise 实现进程内串行队列，不是跨进程锁。日志分流另见 tools/bash.ts 和 tools/truncate.ts。",
+    "code": [
+      "export async function withFileMutationQueue<T>(filePath: string, fn: () => Promise<T>): Promise<T> {",
+      "  const registration = registrationQueue.then(async () => {",
+      "    const key = await getMutationQueueKey(filePath);",
+      "    const currentQueue = fileMutationQueues.get(key) ?? Promise.resolve();",
+      "",
+      "    let releaseNext!: () => void;",
+      "    const nextQueue = new Promise<void>((resolveQueue) => {",
+      "      releaseNext = resolveQueue;",
+      "    });",
+      "    const chainedQueue = currentQueue.then(() => nextQueue);",
+      "    fileMutationQueues.set(key, chainedQueue);",
+      "",
+      "    return { key, currentQueue, chainedQueue, releaseNext };",
+      "  });",
+      "  registrationQueue = registration.then(",
+      "    () => undefined,",
+      "    () => undefined,",
+      "  );",
+      "",
+      "  const { key, currentQueue, chainedQueue, releaseNext } = await registration;",
+      "  await currentQueue;",
+      "  try {",
+      "    return await fn();",
+      "  } finally {",
+      "    releaseNext();",
+      "    if (fileMutationQueues.get(key) === chainedQueue) {",
+      "      fileMutationQueues.delete(key);",
+      "    }",
+      "  }",
+      "}"
+    ],
+    "scope": "核心机制",
+    "focusNotes": [
+      "L34–35：根据文件路径找到当前进程中的修改队列。",
+      "L41–42：把本次修改接到队尾；L52 等待前一个操作完成。",
+      "L54、56–58：执行修改，随后释放队列并清理登记。"
+    ]
+  },
+  {
+    "phaseId": "P4",
+    "title": "第 11 站：你中途补一句话，Agent 什么时候会收到？",
+    "story": "你可以在任务进行时补一句“后面别跑集成测试”。这类补充指令在源码中叫 Steering：先排队，再在循环的检查点取出，让下一轮模型请求知道你的新要求。",
+    "pain": "它改变的是后续操作方向，不等同于立即取消正在运行的命令，也不会撤销已经完成的修改。另一个概念 Follow-up 是“做完这件事以后再处理”的排队追问；Abort 则是取消信号，是否停止取决于工具对取消的处理。",
+    "relationText": "当前回合结束 → ⑪ 读取补充指令 → ① 下一轮；不是强制回滚",
+    "moduleTag": "核心机制 · 读取运行中追加的指令",
+    "dataBefore": "示例：工具还在运行时，你输入“后面不要再跑集成测试”。",
+    "dataAfter": "补充指令排队 → 循环在检查点读取 → 下一轮纳入上下文。\n正在运行的操作是否被取消，要另看取消信号与工具实现。",
+    "file": "packages/agent/src/agent-loop.ts",
+    "lineRange": "本地源码原文 · L304–L325",
+    "startLine": 304,
+    "hlLines": [
+      304,
+      305,
+      311,
+      312,
+      315,
+      316,
+      320,
+      322
+    ],
+    "takeaway": "getSteeringMessages 的意思是“取出任务进行时追加的指令”。取消息与停止进程是两件事；这段代码展示的是何时把新要求交给下一轮。",
+    "code": [
+      "      pendingMessages = (await config.getSteeringMessages?.()) || [];",
+      "      if (hasMoreToolCalls || pendingMessages.length > 0) {",
+      "        explicitContinuation = false;",
+      "      }",
+      "    }",
+      "",
+      "    // Agent would stop here. Check for follow-up messages.",
+      "    const followUpMessages = (await config.getFollowUpMessages?.()) || [];",
+      "    if (followUpMessages.length > 0) {",
+      "      // Set as pending so inner loop processes them",
+      "      explicitContinuation = false;",
+      "      pendingMessages = followUpMessages;",
+      "      continue;",
+      "    }",
+      "",
+      "    // No natural request was selected, so fulfill the continuation decision with one context-only turn.",
+      "    if (explicitContinuation) {",
+      "      explicitContinuation = false;",
+      "      continue;",
+      "    }",
+      "",
+      "    // No more messages, exit"
+    ],
+    "scope": "核心机制",
+    "focusNotes": [
+      "L304–305：读取运行中追加的指令，检查当前任务是否继续。",
+      "L311–316：当前任务准备结束后，再获取排队的后续追问。",
+      "L320–322：若有显式继续决定，则再执行下一轮。"
+    ]
+  },
+  {
+    "phaseId": "P4",
+    "title": "第 12 站：上下文接近容量时，怎样摘要并继续？",
+    "story": "自动压缩根据上下文 Token 用量、模型上下文窗口和预留额度判断，不按固定对话轮数触发。处理时可保留近期原文、摘要更早历史，并记录相关文件信息。",
+    "pain": "摘要是有损转换，不能保证记住所有细节。保留近期内容、维护有效消息边界、累计文件记录，都是降低信息损失与协议错误的措施，不等于无限记忆。",
+    "relationText": "请求准备/容量检查 → ⑫ 必要时压缩 → ② 会话投影；不是每轮最后必跑的串行步骤",
+    "moduleTag": "核心机制 · 按 Token 水位压缩",
+    "dataBefore": "教学示例：上下文窗口 200000 Tokens，预留 16384；\n当前估算用量 186000，已越过触发水位。\n“50 轮”只是场景数字，与触发条件无直接绑定。",
+    "dataAfter": "启用压缩且用量 > 窗口 - 预留额度 → 进入压缩流程。\n近期保留额度是 token 数，不是汉字数或固定轮数。\n摘要与文件记录写回会话；实际压缩率需测量。",
+    "file": "packages/coding-agent/src/core/compaction/compaction.ts",
+    "lineRange": "本地源码原文 · L267–L270",
+    "startLine": 267,
+    "hlLines": [
+      268,
+      269
+    ],
+    "takeaway": "阅读重点：shouldCompact 的判断是 Token 用量；此版本默认 keepRecentTokens 为 20000，可配置，不能称为无损压缩。",
+    "code": [
+      "export function shouldCompact(contextTokens: number, contextWindow: number, settings: CompactionSettings): boolean {",
+      "  if (!settings.enabled) return false;",
+      "  return contextTokens > contextWindow - settings.reserveTokens;",
+      "}"
+    ],
+    "scope": "核心机制",
+    "focusNotes": [
+      "L268：没有启用自动压缩时，不触发。",
+      "L269：用量超过“模型窗口 − 预留额度”才触发，与固定轮数无关。"
+    ]
+  }
+];
 
     let curStepIdx = 0;
 
     function highlightLine(raw) {
-      let s = raw
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-
-      if (s.trim().startsWith("//") || s.trim().startsWith("/**") || s.trim().startsWith("*")) {
-        return `<span class="cm">${s}</span>`;
+      const escape = (value) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const token = /(\/\/.*$|\/\*.*$|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\x60(?:\\.|[^\x60\\])*\x60|\b(?:export|async|function|const|let|var|if|else|for|of|while|return|await|try|catch|finally|new|true|false|undefined|null|switch|case|break|continue|default|interface|type|class|extends|private|readonly)\b)/g;
+      if (/^\s*\*/.test(raw)) return '<span class="cm">' + escape(raw) + '</span>';
+      let html = "", cursor = 0;
+      for (const match of raw.matchAll(token)) {
+        html += escape(raw.slice(cursor, match.index));
+        const text = match[0];
+        const cls = text.startsWith("//") || text.startsWith("/*") ? "cm" : /^["'\x60]/.test(text) ? "str" : "kw";
+        html += '<span class="' + cls + '">' + escape(text) + '</span>';
+        cursor = match.index + text.length;
       }
-      const commentIdx = s.indexOf(" //");
-      let codePart = commentIdx !== -1 ? s.slice(0, commentIdx) : s;
-      let commentPart = commentIdx !== -1 ? `<span class="cm">${s.slice(commentIdx)}</span>` : "";
-
-      codePart = codePart.replace(/(".*?"|'.*?'|`.*?`)/g, '<span class="str">$1</span>');
-      codePart = codePart.replace(
-        /\b(export|async|function|const|let|var|if|else|for|of|while|return|await|try|catch|finally|new|true|false|undefined|null|switch|case|break|continue|default|interface|type|class|extends|private|readonly)\b/g,
-        '<span class="kw">$1</span>'
-      );
-      return codePart + commentPart;
+      return html + escape(raw.slice(cursor));
     }
 
     // Draw SVG directed edges between the 12 station nodes
@@ -1131,7 +1346,7 @@
 
       // Top step controller & plain-language explanation
       document.getElementById("step-counter").textContent = `${curStepIdx + 1} / ${total}`;
-      document.getElementById("step-phase-badge").textContent = phaseTitles[st.phaseId] || st.phaseId;
+      document.getElementById("step-phase-badge").textContent = `${st.scope} · ${phaseTitles[st.phaseId] || st.phaseId}`;
       document.getElementById("step-title").textContent = st.title;
       document.getElementById("step-story").textContent = st.story;
       document.getElementById("step-pain").textContent = st.pain;
@@ -1155,8 +1370,9 @@
 
       // Code Viewer
       document.getElementById("code-filepath").textContent = st.file;
-      document.getElementById("code-lines-badge").textContent = st.lineRange;
+      document.getElementById("code-lines-badge").textContent = `${st.lineRange} · ${st.hlLines.length} 行重点`;
       document.getElementById("code-takeaway").textContent = st.takeaway;
+      document.getElementById("code-focus-notes").textContent = "先看黄色行（其余代码保留上下文）\n" + st.focusNotes.join("\n");
 
       const codeBox = document.getElementById("code-container");
       let firstHlElId = null;
