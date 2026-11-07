@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>从按下回车到修好 Bug：12 站关系图谱与源码导读</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    body {
+      background-color: #f8f7f4;
+      color: #1c1917;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    code, pre, .font-mono {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e7e5e4;
+      border-radius: 14px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+    }
+    /* Graph Canvas & Phase Zones */
+    .graph-zone {
+      background: rgba(250, 250, 249, 0.85);
+      border: 1px dashed #d6d3d1;
+      border-radius: 12px;
+      padding: 10px 12px 12px 12px;
+      position: relative;
+      z-index: 1;
+      transition: all 0.2s ease;
+    }
+    .graph-zone.zone-active {
+      background: rgba(255, 251, 235, 0.55);
+      border-color: #f59e0b;
+    }
+    .zone-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #78716c;
+      letter-spacing: 0.02em;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .graph-zone.zone-active .zone-label {
+      color: #b45309;
+    }
+    /* Station Nodes inside Relationship Graph */
+    .station-node {
+      background: #ffffff;
+      border: 1.5px solid #d6d3d1;
+      border-radius: 10px;
+      padding: 7px 9px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      user-select: none;
+      position: relative;
+      z-index: 3;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    }
+    .station-node:hover {
+      border-color: #d97706;
+      background: #fffbeb;
+    }
+    .station-node.active {
+      background: #fef3c7;
+      border: 2px solid #f59e0b;
+      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
+      transform: translateY(-1px);
+    }
+    .station-node.neighbor {
+      background: #fffef7;
+      border: 1.5px solid #fbbf24;
+    }
+    .station-node.visited {
+      border-color: #e7e5e4;
+      background: #fafaf9;
+    }
+    .station-num {
+      width: 20px;
+      height: 20px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: #f5f5f4;
+      color: #57534e;
+      border: 1px solid #d6d3d1;
+    }
+    .station-node.active .station-num {
+      background: #f59e0b;
+      color: #ffffff;
+      border-color: #d97706;
+    }
+    .station-node.neighbor .station-num {
+      background: #fef3c7;
+      color: #b45309;
+      border-color: #f59e0b;
+    }
+    /* Animated active SVG edge */
+    @keyframes dashFlow {
+      to {
+        stroke-dashoffset: -16;
+      }
+    }
+    .edge-active-anim {
+       stroke-dasharray: 5 3;
+      animation: dashFlow 0.7s linear infinite;
+    }
+    /* Code Viewer Line Styles */
+    .code-line {
+      display: flex;
+      padding: 1px 14px;
+      font-size: 12.5px;
+      line-height: 1.65;
+      white-space: pre;
+    }
+    .code-line.hl {
+      background-color: #fef3c7;
+      border-left: 3px solid #f59e0b;
+      padding-left: 11px;
+    }
+    .line-num {
+      width: 38px;
+      flex-shrink: 0;
+      color: #a8a29e;
+      text-align: right;
+      padding-right: 14px;
+      user-select: none;
+    }
+    .kw { color: #9333ea; font-weight: 500; }
+    .str { color: #16a34a; }
+    .cm { color: #78716c; font-style: italic; }
+    .seg-pill {
+      height: 6px;
+      border-radius: 999px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body class="antialiased py-4 px-4 sm:px-6 lg:px-8">
+
+  <div class="max-w-7xl mx-auto space-y-3.5">
+
+    <!-- ==================== STORY CONTEXT HEADER ==================== -->
+    <div class="card px-4 py-3 bg-stone-900 text-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5 text-xs sm:text-sm">
+        <span class="px-2 py-0.5 rounded bg-amber-500 text-stone-950 font-bold text-xs shrink-0">贯穿故事线</span>
+        <span>你在终端敲下回车：<code class="text-amber-300 font-mono">「帮我查 GitHub 上的登录报错 Issue，修好 login.ts，再删掉旧日志 rm -rf /tmp/logs」</code></span>
+      </div>
+      <span class="text-xs text-stone-400 shrink-0 font-mono">按键盘 ← → 键看关系图连线流转</span>
+    </div>
+
+    <!-- ==================== STEP CONTROLLER & PLAIN-LANGUAGE EXPLANATION ==================== -->
+    <div class="card p-4 sm:p-5">
+      <div class="flex flex-col md:flex-row md:items-start gap-4">
+        <!-- Prev / Next Buttons -->
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="prevStep()" class="px-3.5 py-2 rounded-lg border border-stone-300 bg-white hover:bg-stone-50 text-xs font-medium text-stone-700 transition-colors">
+            ◀ 上一站
+          </button>
+          <span id="step-counter" class="font-mono text-xs text-stone-500 w-14 text-center">1 / 12</span>
+          <button onclick="nextStep()" class="px-4 py-2 rounded-lg border-2 border-amber-400 bg-amber-50 hover:bg-amber-100/80 text-xs font-semibold text-stone-900 transition-colors shadow-sm">
+            下一站 ▶
+          </button>
+        </div>
+
+        <!-- Station Story & Beginner Q&A -->
+        <div class="flex-1 min-w-0 space-y-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <span id="step-phase-badge" class="px-2 py-0.5 text-xs font-semibold rounded bg-amber-100 text-amber-900 border border-amber-300"></span>
+            <h1 id="step-title" class="text-base sm:text-lg font-bold text-stone-900"></h1>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+            <div class="p-3 rounded-xl bg-stone-50 border border-stone-200/80 text-xs leading-relaxed">
+              <div class="font-bold text-stone-800 mb-1">📍 这一站发生了什么？（大白话）</div>
+              <div id="step-story" class="text-stone-600"></div>
+            </div>
+            <div class="p-3 rounded-xl bg-amber-50/70 border border-amber-200/90 text-xs leading-relaxed">
+              <div class="font-bold text-amber-950 mb-1">💥 如果不这么设计会踩什么坑？（工程精华）</div>
+              <div id="step-pain" class="text-amber-900"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 12-Station Segmented Progress Bar -->
+      <div class="mt-3.5 pt-3 border-t border-stone-100 flex items-center gap-1.5" id="progress-segments">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+
+    <!-- ==================== MAIN SPLIT VIEW: LEFT RELATIONSHIP GRAPH + RIGHT CODE & DATA ==================== -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+
+      <!-- LEFT: Interactive Node-and-Edge Relationship Diagram (5 cols) -->
+      <div class="lg:col-span-5 card p-4">
+        <div class="flex items-center justify-between mb-3 px-1">
+          <div>
+            <h2 class="text-xs font-bold text-stone-800">12 站全链路关系拓扑图</h2>
+            <p class="text-[11px] text-stone-400">实线为正向数据流，橙色动态流向为当前激活链路，虚线为闭环回路</p>
+          </div>
+          <div class="flex items-center gap-2 text-[11px]">
+            <span class="flex items-center gap-1 text-amber-800 font-semibold">
+              <span class="w-2.5 h-2.5 rounded-sm bg-amber-200 border-2 border-amber-500 inline-block"></span>当前站
+            </span>
+            <span class="flex items-center gap-1 text-stone-500">
+              <span class="w-3 h-0.5 bg-amber-500 inline-block"></span>关联流向
+            </span>
+          </div>
+        </div>
+
+        <!-- Graph Container with SVG Overlay for Directed Edges -->
+        <div id="graph-canvas" class="relative px-3 py-1 space-y-5">
+          <!-- SVG overlay where directed edges & loop-back curves are drawn dynamically -->
+          <svg id="graph-svg" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 2;"></svg>
+
+          <!-- ZONE 1: 阶段 1 · 消息进站与记忆组装 -->
+          <div id="zone-P1" class="graph-zone space-y-3.5">
+            <div class="zone-label">
+              <span>阶段 1 · 消息进站与记忆组装</span>
+              <span class="font-mono text-[10px]">Entry &amp; Memory</span>
+            </div>
+            <!-- Row 1: Station 1 -> Station 2 -->
+            <div class="grid grid-cols-2 gap-4">
+              <div onclick="goToStep(0)" id="st-node-0" class="station-node">
+                <div class="station-num">1</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">按下回车·双层循环</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">runAgentLoop()</div>
+                </div>
+              </div>
+              <div onclick="goToStep(1)" id="st-node-1" class="station-node">
+                <div class="station-num">2</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">树状记账本(短期)</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">session.jsonl 树</div>
+                </div>
+              </div>
+            </div>
+            <!-- Row 2: Station 3 (Long-term memory & Skills) -->
+            <div class="flex justify-center">
+              <div onclick="goToStep(2)" id="st-node-2" class="station-node w-4/5">
+                <div class="station-num">3</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">长期记忆 (AGENTS.md) 与技能目录菜单</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">updateSystemPromptSection()</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ZONE 2: 阶段 2 · 挂载 MCP 与动态加工具 (保护缓存) -->
+          <div id="zone-P2" class="graph-zone">
+            <div class="zone-label">
+              <span>阶段 2 · 挂载 MCP 与动态工具注入 (保 1 折缓存)</span>
+              <span class="font-mono text-[10px]">MCP &amp; KV Cache</span>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div onclick="goToStep(3)" id="st-node-3" class="station-node">
+                <div class="station-num">4</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">MCP 80工具0成本隐藏</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">exposure: "codemode"</div>
+                </div>
+              </div>
+              <div onclick="goToStep(4)" id="st-node-4" class="station-node">
+                <div class="station-num">5</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">中途加工具贴队尾</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">declareToolChanges()</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ZONE 3: 阶段 3 · 大模型派单与 3 道生死安全防线 -->
+          <div id="zone-P3" class="graph-zone space-y-3.5">
+            <div class="zone-label">
+              <span>阶段 3 · 模型推理与 3 道安全拦截防线</span>
+              <span class="font-mono text-[10px]">LLM &amp; 3 Security Gates</span>
+            </div>
+            <!-- Row 1: Station 6 (Router & CacheWarmer Hub) -->
+            <div class="flex justify-center">
+              <div onclick="goToStep(5)" id="st-node-5" class="station-node w-4/5">
+                <div class="station-num">6</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">小模型打分派单 &amp; 算账续命保活</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">jev-router &amp; CacheWarmer</div>
+                </div>
+              </div>
+            </div>
+            <!-- Row 2: Gate 1 (Station 7) -> Gate 2 (Station 8) -->
+            <div class="grid grid-cols-2 gap-4">
+              <div onclick="goToStep(6)" id="st-node-6" class="station-node">
+                <div class="station-num">7</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">【防线1】防半截代码</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">stopReason=="length"</div>
+                </div>
+              </div>
+              <div onclick="goToStep(7)" id="st-node-7" class="station-node">
+                <div class="station-num">8</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">【防线2】强转与拦 rm</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">beforeToolCall 串行</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ZONE 4: 阶段 4 · 沙箱并发执行、中途打断与超限瘦身闭环 -->
+          <div id="zone-P4" class="graph-zone space-y-3.5">
+            <div class="zone-label">
+              <span>阶段 4 · 并发执行、实时打断与超长压缩闭环</span>
+              <span class="font-mono text-[10px]">Sandbox, Steer &amp; Compact</span>
+            </div>
+            <!-- Row 1: Parallel Fan-out from Station 8 -> Station 9 (Left) & Station 10 (Right) -->
+            <div class="grid grid-cols-2 gap-4">
+              <div onclick="goToStep(8)" id="st-node-8" class="station-node">
+                <div class="station-num">9</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">【防线3】QuickJS沙箱</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">过滤 Issue / runToolCall</div>
+                </div>
+              </div>
+              <div onclick="goToStep(9)" id="st-node-9" class="station-node">
+                <div class="station-num">10</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">同文件写锁&amp;日志分流</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">mutationQueue &amp; bash</div>
+                </div>
+              </div>
+            </div>
+            <!-- Row 2: Loop-backs -> Station 11 (Steering) & Station 12 (Compaction) -->
+            <div class="grid grid-cols-2 gap-4">
+              <div onclick="goToStep(10)" id="st-node-10" class="station-node">
+                <div class="station-num">11</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">中途敲键盘实时打断</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">↺ 插队回第 1 站内层循环</div>
+                </div>
+              </div>
+              <div onclick="goToStep(11)" id="st-node-11" class="station-node">
+                <div class="station-num">12</div>
+                <div class="min-w-0">
+                  <div class="text-xs font-bold text-stone-900 truncate">上下文超限自动瘦身</div>
+                  <div class="text-[10.5px] font-mono text-stone-400 truncate">↺ 压完写回第 2 站记账本</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Active Edge Relationship Explanation Bar -->
+        <div class="mt-3 p-2.5 rounded-lg bg-amber-50/80 border border-amber-200 text-xs flex items-center justify-between">
+          <span class="font-bold text-amber-900 shrink-0">🔗 当前节点上下游关系：</span>
+          <span id="edge-relation-text" class="font-mono text-[11.5px] text-amber-950 truncate ml-2"></span>
+        </div>
+      </div>
+
+      <!-- RIGHT: Real Data Packet Change (Before -> After) + Highlighted Source Code (7 cols) -->
+      <div class="lg:col-span-7 space-y-4 lg:sticky lg:top-4">
+
+        <!-- Concrete Data Packet Transformation (Before -> After) -->
+        <div class="card p-4 bg-stone-50/70">
+          <div class="text-xs font-bold text-stone-700 mb-2 flex items-center justify-between">
+            <span>📦 这一站的数据包长什么样？（进站前 ➔ 出站后对比）</span>
+            <span id="module-tag" class="font-mono text-[11px] text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded"></span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div class="p-3 rounded-lg bg-white border border-stone-200/90">
+              <div class="text-[11px] font-bold text-stone-400 mb-1">⬅ 进站前的数据 / 状态</div>
+              <pre id="data-before" class="font-mono text-[11.5px] text-stone-700 whitespace-pre-wrap leading-relaxed"></pre>
+            </div>
+            <div class="p-3 rounded-lg bg-amber-50/60 border border-amber-300">
+              <div class="text-[11px] font-bold text-amber-800 mb-1">➡ 出站后的数据 / 结果</div>
+              <pre id="data-after" class="font-mono text-[11.5px] text-stone-900 whitespace-pre-wrap leading-relaxed"></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Source Code Viewer Card -->
+        <div class="card flex flex-col overflow-hidden">
+          <!-- File Header -->
+          <div class="px-4 py-2.5 border-b border-stone-200 bg-stone-50 flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0"></span>
+              <span id="code-filepath" class="font-mono text-xs font-semibold text-stone-800 truncate"></span>
+            </div>
+            <span id="code-lines-badge" class="text-xs font-mono text-stone-400 shrink-0"></span>
+          </div>
+
+          <!-- One-Line Code Guide -->
+          <div class="px-4 py-2 bg-amber-50/90 border-b border-amber-200/70 text-xs text-amber-950 font-medium" id="code-takeaway">
+          </div>
+
+          <!-- Highlighted Source Code Lines -->
+          <div id="code-container" class="py-3 overflow-x-auto overflow-y-auto bg-white max-h-[450px]">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    // =========================================================================
+    // GRAPH EDGES: Defines the exact directed relationships between the 12 stations
+    // =========================================================================
+    const graphEdges = [
+      // Phase 1 internal flow
+      { from: 0, to: 1, type: "h", label: "写入提问" },
+      { from: 1, to: 2, type: "v", label: "读取分支" },
+      // Phase 1 -> Phase 2
+      { from: 2, to: 3, type: "v", label: "挂载MCP" },
+      { from: 3, to: 4, type: "h", label: "按需激活" },
+      // Phase 2 -> Phase 3 (Context converges into Station 6 LLM Router)
+      { from: 3, to: 5, type: "v", label: "汇入上下文" },
+      { from: 4, to: 5, type: "v", label: "追加至队尾" },
+      // Phase 3: LLM -> Gate 1 -> Gate 2
+      { from: 5, to: 6, type: "v", label: "返回ToolCall" },
+      { from: 6, to: 7, type: "h", label: "未截断放行" },
+      // Phase 3 -> Phase 4: Gate 2 fans out in parallel to Station 9 (Sandbox) & Station 10 (Edit/Bash)
+      { from: 7, to: 8, type: "v", label: "放行脚本" },
+      { from: 7, to: 9, type: "v", label: "并发执行" },
+      // Sandbox nested guard check back to Gate 2
+      { from: 8, to: 7, type: "loop-inner", label: "runToolCall守卫" },
+      // Execution -> Steering & Compaction
+      { from: 8, to: 10, type: "v", label: "脚本完成" },
+      { from: 9, to: 10, type: "v", label: "本轮跑完" },
+      { from: 10, to: 11, type: "h", label: "50轮超限" },
+      // Loop-back edges to top of graph!
+      { from: 10, to: 0, type: "loop-left", label: "↺ 打断插队回第1站" },
+      { from: 11, to: 1, type: "loop-right", label: "↺ 压缩写回第2站" }
+    ];
+
+    const phaseTitles = {
+      P1: "阶段 1：消息进站与记忆组装（第 1～3 站）",
+      P2: "阶段 2：挂上 MCP 与动态加工具（第 4～5 站）",
+      P3: "阶段 3：派单给模型与安全拦截（第 6～8 站）",
+      P4: "阶段 4：沙箱执行、打断与超限瘦身（第 9～12 站）"
+    };
+
+    // =========================================================================
+    // 12 STATIONS DATA
+    // =========================================================================
+    const stations = [
+      {
+        phaseId: "P1",
+        title: "第 1 站：你按下回车发消息，为什么需要「双层 while 循环」来接？",
+        story: "你在终端敲下回车发出指令。Agent 收到这句话后，启动了它的心脏 `runAgentLoop`——注意看右边代码，它用了「外层 while 套内层 while」两层循环来跑你的任务！",
+        pain: "如果只写一个普通的 while 循环：当模型正在跑工具改代码时，你突然敲键盘喊「等一下，日志别删了！」（紧急打断 Steering），或者说「修好后再帮我写个文档」（排队追问 Follow-up），单层循环根本分不清哪句话该立刻插队、哪句话该等任务彻底做完再执行！",
+        relationText: "[你的输入 / ⑪中途打断] ──▶ ① 双层循环中枢 ──▶ ② 写入树状记账本",
+        moduleTag: "核心中枢 · packages/agent/src/agent-loop.ts",
+        dataBefore: `你的键盘输入:\n"帮我查 GitHub 上的登录报错 Issue，修好 login.ts，再删掉旧日志 rm -rf /tmp/logs"`,
+        dataAfter: `进入双层循环状态机:\n• 内层循环 (Inner Loop): 负责【调模型 ➔ 跑工具 ➔ 盯紧第 11 站的紧急打断】\n• 外层循环 (Outer Loop): 等整件事做完停下时，再看你有无【排队追问】`,
+        file: "packages/agent/src/agent-loop.ts",
+        lineRange: "Lines 212–255",
+        startLine: 212,
+        hlLines: [213, 217, 221, 232, 238],
+        takeaway: "💡 看高亮第 213 行和第 217 行：外层循环管「做完一件再做下一件」，内层循环管「当前这件任务里不断调工具和响应第 11 站的随时插队」。",
+        code: [
+          `  // 【外层循环】：只有当当前任务彻底做完、准备停下时，才检查有没有排队追问 (Follow-up)`,
+          `  while (true) {`,
+          `    let hasMoreToolCalls = true;`,
+          ``,
+          `    // 【内层循环】：只要模型还要调工具，或者你中途插话打断 (pendingMessages)，就一直转`,
+          `    while (hasMoreToolCalls || pendingMessages.length > 0 || explicitContinuation) {`,
+          `      if (await config.prepareNextTurn?.(currentContext, signal) === false) break;`,
+          ``,
+          `      // 把你刚发的提问（或中途插队的话）正式塞进当前聊天记录 currentContext.messages`,
+          `      if (pendingMessages.length > 0) {`,
+          `        for (const message of pendingMessages) {`,
+          `          await emit({ type: "message_start", message });`,
+          `          await emit({ type: "message_end", message });`,
+          `          currentContext.messages.push(message);`,
+          `          newMessages.push(message);`,
+          `        }`,
+          `        pendingMessages = [];`,
+          `      }`,
+          ``,
+          `      // 检查本轮有没有新激活或关闭的工具（流向第 5 站）`,
+          `      await declareToolChanges(currentContext, config, declaredToolKeys, emit);`,
+          ``,
+          `      // 把上下文发给大模型，流式获取回答（流向第 6 站）`,
+          `      const message = await streamAssistantResponse(currentContext, config, signal, emit);`
+        ]
+      },
+      {
+        phaseId: "P1",
+        title: "第 2 站：聊天记录怎么存？为什么不用数组，而要在单个文件里存成「树」？",
+        story: "你的话从第 1 站流进来，立刻被追加写进硬盘的 `session.jsonl` 文件里。Pi 给每条消息打上 `id` 和 `parentId`（它的上一条是谁），在单个文件里连成一棵树！",
+        pain: "写代码时经常遇到：模型改了 5 轮把代码改乱了，你想退回第 2 轮换个思路重来。如果是普通直线数组，退回就会把第 3~5 轮删掉，有用的报错信息也全丢了！用 `id + parentId` 树结构，随时跳回任意一轮分叉重聊，而且第 12 站压缩时也只需往树尾追加一个节点。",
+        relationText: "① 双层循环 / ⑫ 超限压缩写回 ──▶ ② 树状记账本 ──▶ ③ 组装系统提示词",
+        moduleTag: "短期记忆 · packages/coding-agent/src/core/session-manager.ts",
+        dataBefore: `硬盘上的 session.jsonl (只追加不删改):\n{"id":"msg_1", "parentId":null, "role":"user", "text":"你好"}\n{"id":"msg_2", "parentId":"msg_1", "role":"assistant", ...}`,
+        dataAfter: `追加你的新提问并沿叶子向上回溯出当前分支:\n{"id":"msg_3", "parentId":"msg_2", "role":"user", "text":"帮我查 GitHub..."}\n➔ buildSessionPath() 顺着 parentId 串出 [msg_1, msg_2, msg_3]`,
+        file: "packages/coding-agent/src/core/session-manager.ts",
+        lineRange: "Lines 390–416",
+        startLine: 390,
+        hlLines: [390, 408, 410, 411, 412, 414],
+        takeaway: "💡 看高亮第 410–414 行：从当前最后一条消息 (leaf) 顺着 `current.parentId` 往上找祖先，再反转过来，就是当前分支的聊天记录！",
+        code: [
+          `function buildSessionPath(`,
+          `  entries: SessionEntry[],`,
+          `  leafId?: string | null,`,
+          `  byId?: Map<string, SessionEntry>,`,
+          `): SessionEntry[] {`,
+          `  const index = buildEntryIndex(entries, byId);`,
+          `  let leaf: SessionEntry | undefined;`,
+          `  if (leafId === null) return [];`,
+          `  if (leafId) {`,
+          `    leaf = index.get(leafId);`,
+          `  }`,
+          `  leaf ??= entries[entries.length - 1];`,
+          `  if (!leaf) return [];`,
+          ``,
+          `  // 从当前所在的叶子节点 (leaf) 开始，顺着 parentId 一路往回找祖先`,
+          `  const path: SessionEntry[] = [];`,
+          `  let current: SessionEntry | undefined = leaf;`,
+          `  while (current) {`,
+          `    path.push(current);`,
+          `    current = current.parentId ? index.get(current.parentId) : undefined;`,
+          `  }`,
+          `  path.reverse(); // 反转成从早到晚的时间顺序`,
+          `  return path;`,
+          `}`
+        ]
+      },
+      {
+        phaseId: "P1",
+        title: "第 3 站：长期记忆 (AGENTS.md) 与 20 个技能 (Skills) 怎么塞进提示词才不撑爆？",
+        story: "有了第 2 站的聊天记录，还要拼上「系统提示词」，告诉模型项目规范（自动向上扫描各级目录的 `AGENTS.md` 作为长期记忆）以及它拥有哪些技能包 (`SKILL.md`)。",
+        pain: "假设你装了 20 个技能包，每个技能文件有 3000 字。如果一上来把 6 万字全塞进系统提示词，你还没开口说话，每次请求的钱全花在读说明书上了！所以 Pi 只放「技能名字 + 1 句话简介 + 文件路径」，模型需要哪个自己用 `read` 去读哪个。",
+        relationText: "② 树状记账本 ──▶ ③ 长期记忆与技能菜单 ──▶ ④ 挂载 MCP 工具配置",
+        moduleTag: "长期记忆与 Skill · packages/coding-agent/src/core/system-prompt.ts",
+        dataBefore: `本地安装了 20 个厚厚的 SKILL.md 技能说明书 (共 60,000 字)\n+ 项目根目录的 AGENTS.md 开发铁律`,
+        dataAfter: `拼装成按章节 (Section) 切分的超精简 System Prompt:\n• [project_context]: 注入 AGENTS.md 长期规范\n• [skills]: 仅注入每个技能的 <name> + <description> + <location> (仅占几百字!)`,
+        file: "packages/coding-agent/src/core/system-prompt.ts",
+        lineRange: "Lines 270–308",
+        startLine: 270,
+        hlLines: [270, 275, 276, 289, 297],
+        takeaway: "💡 看第 275 行：系统提示词被切成了独立的 Section（章节），中途状态变了只局部替换对应小章节，绝不推翻重拼。",
+        code: [
+          `export function updateSystemPromptSection(`,
+          `  systemMessage: SystemMessage,`,
+          `  id: SystemPromptSectionId,`,
+          `  content: string | undefined,`,
+          `): SystemMessage {`,
+          `  // 系统提示词按章节存储：[intro, tools, guidelines, project_context(AGENTS.md), skills, mcp_servers, runtime]`,
+          `  const sections = systemMessage.sections ? [...systemMessage.sections] : [];`,
+          `  const existingIndex = sections.findIndex((s) => s.id === id);`,
+          ``,
+          `  if (!content) {`,
+          `    if (existingIndex === -1) return systemMessage;`,
+          `    sections.splice(existingIndex, 1);`,
+          `  } else {`,
+          `    const nextSection: SystemPromptSection = { id, content };`,
+          `    if (existingIndex === -1) {`,
+          `      sections.push(nextSection);`,
+          `    } else {`,
+          `      // 如果章节内容没变，直接原样返回，保护缓存`,
+          `      if (sections[existingIndex].content === content) return systemMessage;`,
+          `      sections[existingIndex] = nextSection;`,
+          `    }`,
+          `  }`,
+          `  return {`,
+          `    ...systemMessage,`,
+          `    content: joinSystemPromptSections(sections),`,
+          `    sections,`,
+          `  };`,
+          `}`
+        ]
+      },
+      {
+        phaseId: "P2",
+        title: "第 4 站：为了查 GitHub 挂载了 80 个 MCP 工具，怎么做到「0 Token」暴露？",
+        story: "你的需求里有「查 GitHub 上的登录报错 Issue」，所以 Pi 连接了 GitHub MCP Server（里面有 80 个工具）。注意看左图：第 4 站处理完后，直接汇入第 6 站大模型请求。",
+        pain: "普通 Agent 一连上 MCP，就把 80 个工具的 JSON 定义全塞进大模型的 `tools` 参数里——哪怕你只是问一句「你好」，每次也要白花 4 万 Token！Pi 用 `getMcpToolExposure` 默认把所有 MCP 工具设为 `codemode`（藏进第 9 站的沙箱），首轮向模型声明 0 个 MCP 工具！",
+        relationText: "③ 系统提示词 ──▶ ④ MCP 0成本隐藏 ──▶ ⑤ 动态工具 / ⑥ 汇入大模型请求",
+        moduleTag: "MCP 减负 · packages/coding-agent/src/core/mcp-servers.ts",
+        dataBefore: `GitHub MCP Server 吐出 80 个工具的完整 JSON Schema:\n[ mcp__github__list_issues, mcp__github__create_pr, ... 共 80 个, 约 40,000 Tokens ]`,
+        dataAfter: `经过 getMcpToolExposure() 4 级分流后:\n• 发给主模型 tools 列表的 MCP 工具数: 0 个 (省下 40,000 Tokens!)\n• 仅在提示词留一句话: "MCP server github 已挂载至第 9 站沙箱 tools.mcp__github__*"`,
+        file: "packages/coding-agent/src/core/mcp-servers.ts",
+        lineRange: "Lines 244–255",
+        startLine: 244,
+        hlLines: [245, 247, 248, 250, 252],
+        takeaway: "💡 看高亮第 252 行：默认返回 `\"codemode\"`！4 个级别分别是：direct（直接塞给模型）、deferred（搜到再走第 5 站激活）、codemode（藏进第 9 站沙箱按需调）、hidden（彻底屏蔽）。",
+        code: [
+          `/** 决定一个 MCP 工具如何暴露给模型：优先看单工具覆盖配置，否则默认走 "codemode" */`,
+          `export function getMcpToolExposure(config: McpServerConfig, toolName: string): McpExposure {`,
+          `  const overrides = config.toolExposure ?? {};`,
+          `  const exact = overrides[toolName];`,
+          `  if (exact !== undefined) return exact;`,
+          `  for (const [pattern, exposure] of Object.entries(overrides)) {`,
+          `    if (pattern.includes("*") && toolPatternRegExp(pattern).test(toolName)) return exposure;`,
+          `  }`,
+          `  return config.exposure ?? "codemode";`,
+          `}`
+        ]
+      },
+      {
+        phaseId: "P2",
+        title: "第 5 站：对话中途新加了工具，怎么避免前面几万字的「1 折缓存」全部作废？",
+        story: "如果在对话中途启用了一个新工具（比如从第 4 站搜到了一个 deferred 工具），需要告诉第 6 站的大模型「你现在多了一个新工具」。",
+        pain: "大模型厂商的缓存打折规则是「从第 1 个字开始严格比对前缀」。如果你把新工具加到最开头的 System Prompt 里，开头变了，前面几万字的 1 折缓存瞬间全部作废，全按 10 倍原价重算！所以 Pi 绝不改开头，而是往聊天记录最后面 `push` 一条通知消息！",
+        relationText: "④ MCP 按需激活 ──▶ ⑤ 队尾追加工具变更消息 ──▶ ⑥ 汇入大模型请求",
+        moduleTag: "缓存保护 · packages/agent/src/agent-loop.ts",
+        dataBefore: `已完成 10 轮对话: [ SystemPrompt(已缓存), Round1(已缓存) ... Round10(已缓存) ]\n此时动态激活了新工具: mcp__github__get_issue`,
+        dataAfter: `开头 SystemPrompt 原封不动，直接在数组末尾 push 一条消息:\n[ ...前10轮100%命中1折缓存..., SystemMessage("<system-reminder>新增工具: mcp__github__get_issue</system-reminder>") ]`,
+        file: "packages/agent/src/agent-loop.ts",
+        lineRange: "Lines 502–544",
+        startLine: 502,
+        hlLines: [511, 513, 534, 536, 537],
+        takeaway: "💡 看高亮第 537 行：直接 `context.messages.push(systemMessage)` 追加在历史最后面！既让模型立刻看到新工具，又让前面所有历史稳享 1 折缓存。",
+        code: [
+          `async function declareToolChanges(`,
+          `  context: AgentContext,`,
+          `  config: AgentLoopConfig,`,
+          `  declaredToolKeys: Map<string, string>,`,
+          `  emit: AgentEventSink,`,
+          `): Promise<AgentMessage | undefined> {`,
+          `  const currentTools = config.tools ?? [];`,
+          `  const added: AgentTool[] = [];`,
+          `  for (const tool of currentTools) {`,
+          `    const key = toolDeclarationKey(tool);`,
+          `    // 发现当前工具列表里有之前没向模型声明过的新工具`,
+          `    if (declaredToolKeys.get(tool.name) !== key) {`,
+          `      added.push(tool);`,
+          `      declaredToolKeys.set(tool.name, key);`,
+          `    }`,
+          `  }`,
+          `  // ...省略移除工具检测...`,
+          `  const content = formatToolChangeReminder(added, removed);`,
+          `  if (!content) return undefined;`,
+          `  const systemMessage: SystemMessage = { role: "system", content, timestamp: Date.now() };`,
+          `  context.messages.push(systemMessage); // 关键：直接追加到消息历史末尾，绝不篡改头部！`,
+          `  await emit({ type: "message_start", message: systemMessage });`,
+          `  await emit({ type: "message_end", message: systemMessage });`,
+          `  return systemMessage;`,
+          `}`
+        ]
+      },
+      {
+        phaseId: "P3",
+        title: "第 6 站：先让 1 分钱小模型看一眼难度派单，再由「精算师」决定要不要给缓存续命",
+        story: "看左图：第 4 站和第 5 站组装好的上下文全部汇入第 6 站！这里先由 `jev-router` 用超小模型给任务打难度分派单；请求发出后，再由 `CacheWarmer` 精算 5 分钟后要不要发 1 字请求给缓存续命。",
+        pain: "1. 路由器看出「查 Issue 修 Bug」难度分高达 0.82（>=0.44），自动派给深度思考模型 Sol；等后面第 10 站改完代码收尾时再切回高速模型 Luna。\n2. 云端缓存 5 分钟不用就会清零。保活器在 90% TTL 时自动算账：`预计省下的重算费 - 续命费 >= $0.05` 才发包续命！",
+        relationText: "[④ MCP + ⑤ 上下文] ──▶ ⑥ 小模型派单与缓存算账 ──▶ ⑦ 模型返回工具调用进入防线1",
+        moduleTag: "智能省钱 · cache-warmer.ts & jev-router.ts",
+        dataBefore: `待发送的 80,000 Tokens 请求 + 5 分钟 (300秒) 缓存过期倒计时`,
+        dataAfter: `1. Jev 打分 0.82 >= 0.44 ➔ 派单给深度推理模型 Sol\n2. CacheWarmer 在第 270 秒算账: 0.15 * $0.45(重算差价) - $0.01(续命成本) = $0.057 >= $0.05 ➔ 自动发 maxTokens:1 续命！`,
+        file: "packages/coding-agent/src/core/cache-warmer.ts",
+        lineRange: "Lines 378–400",
+        startLine: 378,
+        hlLines: [386, 387, 388, 390, 398],
+        takeaway: "💡 看高亮第 390 行和 398 行：真金白银算出来的 `expectedSavings >= $0.05` 才会触发保活！",
+        code: [
+          `  private evaluate(run: ActiveRun): CacheWarmingDecision {`,
+          `    const model = run.model;`,
+          `    const promptTokens = lastPromptTokens(this.sessionManager.getBranch());`,
+          `    const cacheHitCost = price(model, { cacheRead: promptTokens });`,
+          `    const cacheMissCost = price(`,
+          `      model,`,
+          `      model.cost.cacheWrite > 0 ? { cacheWrite: promptTokens } : { input: promptTokens },`,
+          `    );`,
+          `    const warmCost = price(model, { cacheRead: promptTokens, output: 1 }); // 续命一次的成本(读缓存+1个输出词)`,
+          `    const missCost = Math.max(0, cacheMissCost - cacheHitCost); // 如果缓存过期，下次重算多花的冤枉钱`,
+          `    const continuationProbability = run.phase === "idle" ? IDLE_CONTINUATION_PROBABILITY : 1; // 运行中100%继续，闲置15%概率`,
+          `    const economicsAvailable = promptTokens > 0 && (cacheHitCost > 0 || cacheMissCost > 0);`,
+          `    const expectedSavings = continuationProbability * missCost - warmCost; // 期望净省下的美元`,
+          `    return {`,
+          `      phase: run.phase,`,
+          `      warmCost,`,
+          `      missCost,`,
+          `      continuationProbability,`,
+          `      expectedSavings,`,
+          `      economicsAvailable,`,
+          `      action: expectedSavings >= CACHE_WARMING_MINIMUM_EXPECTED_SAVINGS ? "warm" : "stop", // 净省 >= $0.05 才续命！`,
+          `    };`,
+          `  }`
+        ]
+      },
+      {
+        phaseId: "P3",
+        title: "第 7 站：【安全防线 1】万一模型写代码写到一半「字数超限断了」，怎么防止半截代码写进文件？",
+        story: "第 6 站的大模型思考完后，返回了工具调用请求。第一道关卡（第 7 站）立刻检查模型停下来的原因 (`stopReason`) 是不是因为触发了单次最大输出字数限制 (`stopReason === \"length\"`)。",
+        pain: "为了让界面能边打字边显示，底层有个「残缺 JSON 自动补全括号」解析器。如果模型原本要往 `login.ts` 写 200 行代码，结果写到第 80 行因为字数超限被掐断了，补全器会自动帮它补上 `\"})` 变成合法 JSON！如果不拦截，半截代码就会写进硬盘毁掉文件！",
+        relationText: "⑥ 模型返回 ToolCalls ──▶ ⑦ 防线1(检查是否超长截断) ──▶ ⑧ 未截断则进入防线2",
+        moduleTag: "截断熔断 · packages/agent/src/agent-loop.ts",
+        dataBefore: `模型返回 ToolCall: write("src/login.ts", "export function login() { // 写到一半被掐断...")\n且 stopReason === "length" (输出 Token 耗尽)`,
+        dataAfter: `触发 failToolCallsFromTruncatedMessage() 整批拦截！\n不进入第 8 站，直接返回报错给模型："你的回答触达输出上限被截断，请分段重发完整的工具调用"`,
+        file: "packages/agent/src/agent-loop.ts",
+        lineRange: "Lines 485–510",
+        startLine: 485,
+        hlLines: [485, 499, 500, 501, 502],
+        takeaway: "💡 看高亮第 500 行：一旦发现是 `length` 截断，当场拒绝执行并通知模型分段重发；只有完整生成的工具调用才能流向旁边的第 8 站。",
+        code: [
+          `async function failToolCallsFromTruncatedMessage(`,
+          `  toolCalls: AgentToolCall[],`,
+          `  emit: AgentEventSink,`,
+          `): Promise<ExecutedToolCallBatch> {`,
+          `  const messages: ToolResultMessage[] = [];`,
+          `  for (const toolCall of toolCalls) {`,
+          `    await emit({`,
+          `      type: "tool_execution_start",`,
+          `      toolCallId: toolCall.id,`,
+          `      toolName: toolCall.name,`,
+          `      args: toolCall.arguments,`,
+          `    });`,
+          `    const finalized: FinalizedToolCallOutcome = {`,
+          `      toolCall,`,
+          `      result: createErrorToolResult(`,
+          `        \`Tool call "\${toolCall.name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.\`,`,
+          `      ),`,
+          `      isError: true,`,
+          `    };`,
+          `    await emitToolExecutionEnd(finalized, emit);`,
+          `    const toolResultMessage = createToolResultMessage(finalized);`,
+          `    await emitToolResultMessage(toolResultMessage, emit);`,
+          `    messages.push(toolResultMessage);`,
+          `  }`,
+          `  return { messages, terminate: false };`,
+          `}`
+        ]
+      },
+      {
+        phaseId: "P3",
+        title: "第 8 站：【安全防线 2】自动修好模型手滑写错的参数类型，并弹窗拦截 `rm -rf /tmp/logs`！",
+        story: "通过第 7 站后，模型发来的 3 个工具调用（① `codemode` 查 Issue、② `edit` 改代码、③ `bash` 执行 `rm -rf /tmp/logs`）进入第 8 站排队预检。看左图：只有通过第 8 站放行的工具，才会向下分叉进入第 9 站和第 10 站执行！",
+        pain: "1. 模型常把数字 `timeout: 30` 手滑写成字符串 `\"30\"`；`pi-schema` 会先静默把它强转回数字 `30`。\n2. 3 个工具用 `for...of` **排队一个接一个跑 `beforeToolCall` 守卫**——检测到第 3 个工具是高危 `rm -rf`，立刻弹窗让你审批！你点「拒绝 (`block: true`)」，`rm -rf` 当场作废，只放行前 2 个工具往下走！",
+        relationText: "⑦ 防线1放行 ──▶ ⑧ 防线2(强转 + 拦掉 rm -rf) ──┬──▶ ⑨ 放行至 QuickJS 沙箱\n                                            └──▶ ⑩ 放行至 Edit/Bash 执行",
+        moduleTag: "强转与守卫 · packages/agent/src/agent-loop.ts",
+        dataBefore: `3 个待检工具:\n1. codemode(查 Issue)\n2. edit(path="login.ts")\n3. bash(command="rm -rf /tmp/logs", timeout="30")`,
+        dataAfter: `串行预检分流结果:\n• bash("rm -rf") ➔ 被你弹窗拒绝 (block: true)，当场拦死！\n• codemode & edit ➔ 预检通过 (prepared)，向下并发分叉流向第 9 站与第 10 站！`,
+        file: "packages/agent/src/agent-loop.ts",
+        lineRange: "Lines 606–658 & 730–758 (串行预检 return 后紧接着 Promise.all 调 tool.execute)",
+        startLine: 606,
+        hlLines: [614, 615, 622, 625, 629, 632, 637, 646],
+        takeaway: "💡 看高亮第 614–637 行：`prepareToolCall` 返回 `{ kind: \"prepared\" }` 后并没有结束！外层立刻把它包进 `finalizedCalls`，并在第 637 行 `Promise.all` 并发调用 `prepared.tool.execute()`（进入第 9 站沙箱和第 10 站改文件）！",
+        code: [
+          `  // 【阶段 A：串行预检循环】一个接一个调用 prepareToolCall 做类型强转 + beforeToolCall 弹窗拦截`,
+          `  for (const toolCall of toolCalls) {`,
+          `    // prepareToolCall 内部：1) pi-schema 将 "30" 强转为 30；2) 调 beforeToolCall 弹窗审批`,
+          `    //   • 若被你点拒绝 (block: true) ➔ 返回 { kind: "immediate", isError: true }`,
+          `    //   • 若审批放行                 ➔ 返回 { kind: "prepared", toolCall, tool, args }`,
+          `    const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);`,
+          `    if (preparation.kind === "immediate") {`,
+          `      // 像被拒绝的 rm -rf 走这里：直接把 Blocked 报错塞进结果数组，continue 跳过，绝不执行！`,
+          `      const finalized = { toolCall, result: preparation.result, isError: preparation.isError };`,
+          `      await emitToolExecutionEnd(finalized, emit);`,
+          `      finalizedCalls.push(finalized);`,
+          `      continue;`,
+          `    }`,
+          ``,
+          `    // 【衔接第 9 / 10 站的关键点】：预检放行的工具 (kind === "prepared")，把真正执行的函数塞进队列`,
+          `    finalizedCalls.push(async () => {`,
+          `      // executePreparedToolCall 内部直接调用：await preparation.tool.execute(id, preparation.args)`,
+          `      //   • 当 tool 是 codemode 时 ➔ 调它的 execute() 进入【第 9 站】拉起 QuickJS Wasm 虚拟机！`,
+          `      //   • 当 tool 是 edit/bash 时 ➔ 调它的 execute() 进入【第 10 站】排队改文件！`,
+          `      const executed = await executePreparedToolCall(preparation, signal, emitToolExecutionUpdate(toolCall, emit));`,
+          `      return finalizeExecutedToolCall(currentContext, assistantMessage, preparation, executed, config, signal);`,
+          `    });`,
+          `  }`,
+          ``,
+          `  // 【阶段 B：并发启动！】所有通过第 8 站预检的工具，在这里同时触发各自的 tool.execute()！`,
+          `  const orderedFinalizedCalls = await Promise.all(`,
+          `    finalizedCalls.map((entry) => (typeof entry === "function" ? entry() : Promise.resolve(entry))),`,
+          `  );`
+        ]
+      },
+      {
+        phaseId: "P4",
+        title: "第 9 站：【QuickJS 沙箱揭秘】`codemode.execute()` 被调用后，沙箱是怎么造出来并运行 JS 的？",
+        story: "承接第 8 站末尾的 `Promise.all`：当放行的 `codemode` 工具执行 `tool.execute(id, { code })` 时，它调用 `startVm` 用 `quickjs-wasi` 瞬间拉起一个独立的 **WebAssembly 虚拟机实例**：限制 256MB 内存、阉割掉文件/网络/定时器，把模型写的 JS 包进 `(async (tools, console) => { ... })` 运行！",
+        pain: "造一个跑模型代码的沙箱有 4 个核心工程难题（右边源码逐一解决）：\n1. **怎么防越狱读写硬盘/网络？** 用 WebAssembly 跑 QuickJS，WASI 层只挂载 `discardOutput`（无文件系统、无网卡、无环境变量）。\n2. **怎么防原型链投毒？** 启动先跑 `PRELUDE_SOURCE` 冻结所有内置对象 (`Object.freeze`)，并把 `bridge` 藏进闭包，脚本只能调 `tools.xxx()` 传 JSON 字符串，拿不到任何宿主机对象引用。\n3. **怎么防 `while(true)` 死循环和 `new Promise(()=>{})` 死锁？** 字节码轮询 `shouldInterrupt` 超预算强杀；微任务清空后立刻调 `stalled()` 检测悬空 Promise。\n4. **脚本调工具怎么防绕过权限？** `bridge(\"call\")` 发给宿主机后，宿主机强制调 `runToolCall` 回穿第 8 站的 `prepareToolCall` 弹窗守卫！",
+        relationText: "⑧ 预检放行 ──▶ ⑨ QuickJS Wasm 沙箱 (bridge 发消息 ↺ 回穿 ⑧ 守卫) ──▶ ⑪ 回合汇合",
+        moduleTag: "Wasm 沙箱内核 · packages/codemode/src/runtime/vm.ts",
+        dataBefore: `模型传入的裸 JS 字符串 (data.code):\nconst issues = await tools.mcp__github__list_issues({ state: "open" }); // 50条(120KB)\nreturn issues.filter(i => i.body.includes("login.ts"));`,
+        dataAfter: `1. QuickJS.create() 创建 256MB Wasm 隔离堆 + 冻结全部原型链\n2. 脚本调 tools.mcp__* ➔ 触发 bridge("call") 传出 JSON 字符串 ➔ 宿主机走第 8 站守卫执行后调 settle() 唤醒沙箱 Promise\n3. 120KB 原始数据随 vm.dispose() 销毁，主模型仅收到过滤后的 1 条 Issue！`,
+        file: "packages/codemode/src/runtime/vm.ts",
+        lineRange: "Lines 170–180, 242–266 & 301–335",
+        startLine: 170,
+        hlLines: [170, 172, 176, 177, 187, 192, 195, 207, 215, 224],
+        takeaway: "💡 看高亮行：① 第 170 行用 Wasm 创建隔离的 QuickJS 实例；② 第 192 行通过 `bridge` 只传字符串/数字原语向宿主请求调工具；③ 第 215 行把模型代码包成 async 函数丢进沙箱执行；④ 第 224 行宿主强制走 `runToolCall` 过第 8 站守卫！",
+        code: [
+          `  // 1. 拉起独立的 QuickJS WebAssembly 虚拟机实例（物理隔离内存，阉割所有系统调用）`,
+          `  const vm = await QuickJS.create({`,
+          `    wasm: options.wasm,`,
+          `    memoryLimit: data.memoryLimitBytes, // 默认 256MB 内存硬上限，防内存炸弹`,
+          `    maxStackSize,                       // 512KB/256KB 栈上限，防无限递归爆栈`,
+          `    interruptHandler: options.shouldInterrupt, // 轮询中断器：死循环超预算立即强杀`,
+          `    wasi: clock ? deterministicWasi(clock) : discardOutput, // 无文件系统、无网络、丢弃底层 stdout`,
+          `  });`,
+          ``,
+          `  // 2. 排空微任务队列 + 悬空 Promise 死锁检测 (stalled)`,
+          `  const drain = () => {`,
+          `    let jobs = 0;`,
+          `    while (exports.qjs_is_job_pending()) {`,
+          `      if (exports.qjs_execute_pending_job() < 0) throw new Error("Promise job failed");`,
+          `      if (++jobs % JOBS_PER_POLL === 0 && options.shouldInterrupt()) throw new Error("Execution interrupted");`,
+          `    }`,
+          `    vm.callFunction(stalled, api).dispose(); // 若脚本未结束但宿主无待决工具调用，立即判定死锁报错！`,
+          `  };`,
+          ``,
+          `  // 3. 注入全沙箱唯一的通信窄桥 bridge（仅允许传数字/字符串原语，绝不跨边界传对象引用）`,
+          `  const bridge = vm.newFunction("bridge", (kind, a, b, c) => {`,
+          `    if (kind.toString() === "call") {`,
+          `      // 脚本调 tools.xxx(args) 时，转成纯字符串消息 post 给宿主机`,
+          `      post({ type: "call", id: a.toNumber(), target: "tool", name: b.toString(), args: c.toString() });`,
+          `    }`,
+          `    return vm.undefined;`,
+          `  });`,
+          ``,
+          `  // 4. 先跑 PRELUDE_SOURCE 锁死 Object/Array 原型链，并把 bridge 藏进闭包生成 tools 代理对象`,
+          `  api = vm.withScope((scope) => scope.escape(`,
+          `    vm.callFunction(vm.evalCode(PRELUDE_SOURCE, "codemode-prelude.js"), vm.undefined, bridge, ...)`,
+          `  ));`,
+          `  settle = api.getProp("settle"); // 宿主机跑完工具后，调 settle(id, ok, json) 唤醒沙箱内的 await`,
+          ``,
+          `  // 5. 把模型写的脚本包裹成 async 函数，在 QuickJS 沙箱内编译运行！`,
+          `  const fn = vm.evalCode(\`(async (tools, console) => {\${data.code}\\n})\`, "codemode.js");`,
+          `  vm.callFunction(api.getProp("run"), api, fn).dispose();`,
+          `  drain();`,
+          ``,
+          `  // 6. 【宿主机侧收到 post({ type: "call" }) 后】：强制回穿第 8 站的 prepareToolCall 安全守卫！`,
+          `  // const preparation = await prepareToolCall(context, assistantMessage, toolCall, options, signal);`
+        ]
+      },
+      {
+        phaseId: "P4",
+        title: "第 10 站：并发改文件怎么防互相覆盖？跑测试吐出 5 万行日志怎么防撑爆上下文？",
+        story: "看左图右分支：与第 9 站同时进行的，是第 10 站修改 `src/login.ts` 并跑 `bash` 测试。这里靠「同文件排队写锁」防止并发写坏文件，靠「三通道分流」防止巨型日志撑爆模型。",
+        pain: "1. 如果模型一轮发了 2 个 `edit` 改同一个 `login.ts`，同时读写会把先改好的冲掉！`withFileMutationQueue` 给每个文件真身路径建了一条排队锁：不同文件同时改，同一文件排队改。\n2. 跑测试吐出 5 万行日志（2MB），`bash.ts` 把它拆成 3 份：给主模型的 `content` 只留最后 2000 行（<=50KB），给沙箱脚本的留 1MB，给终端界面的存完整文件路径。",
+        relationText: "⑧ 预检放行 ──▶ ⑩ 同文件排队写锁 & 日志三通道分流 ──▶ ⑪ 回合汇合",
+        moduleTag: "并发写锁与分流 · file-mutation-queue.ts & bash.ts",
+        dataBefore: `• 两个并发的 edit("src/login.ts") 同时到达\n• bash("npm test") 吐出了 50,000 行测试输出 (2 MB)`,
+        dataAfter: `• 同文件写锁: edit #1 改完写盘后，edit #2 才读取新文件继续改\n• bash 三通道分流:\n  1. content (给主模型): 仅截留最后 2000 行 (≤50KB)\n  2. structuredContent (给沙箱脚本): 保留 ≤1MB\n  3. details (给终端 TUI): 存 2MB 完整日志临时文件路径`,
+        file: "packages/coding-agent/src/core/tools/file-mutation-queue.ts",
+        lineRange: "Lines 32–59",
+        startLine: 32,
+        hlLines: [34, 35, 41, 49, 51, 53],
+        takeaway: "💡 看高亮第 34 行和第 49 行：按文件的真实物理路径挂在 Promise 队列上，`await currentQueue` 保证了同一个文件的修改永远一前一后排队执行。",
+        code: [
+          `export async function withFileMutationQueue<T>(filePath: string, fn: () => Promise<T>): Promise<T> {`,
+          `  const registration = registrationQueue.then(async () => {`,
+          `    const key = await getMutationQueueKey(filePath); // 解析软链接拿到真实绝对路径`,
+          `    const currentQueue = fileMutationQueues.get(key) ?? Promise.resolve();`,
+          ``,
+          `    let releaseNext!: () => void;`,
+          `    const nextQueue = new Promise<void>((resolveQueue) => {`,
+          `      releaseNext = resolveQueue;`,
+          `    });`,
+          `    const chainedQueue = currentQueue.then(() => nextQueue);`,
+          `    fileMutationQueues.set(key, chainedQueue);`,
+          ``,
+          `    return { key, currentQueue, chainedQueue, releaseNext };`,
+          `  });`,
+          `  registrationQueue = registration.then(() => undefined, () => undefined);`,
+          ``,
+          `  const { key, currentQueue, chainedQueue, releaseNext } = await registration;`,
+          `  await currentQueue; // 等排在前面的同文件修改先跑完`,
+          `  try {`,
+          `    return await fn(); // 执行本次文件修改`,
+          `  } finally {`,
+          `    releaseNext(); // 放行排在后面的下一个修改`,
+          `    if (fileMutationQueues.get(key) === chainedQueue) fileMutationQueues.delete(key);`,
+          `  }`,
+          `}`
+        ]
+      },
+      {
+        phaseId: "P4",
+        title: "第 11 站：模型还在干活，你突然敲键盘喊「别跑全量测试了！」它是怎么立刻听话拐弯的？",
+        story: "看左图最左侧那条从 ⑪ 一路向上连回 ① 的大回环曲线！第 9、10 站的工具刚跑完，你在工具运行期间敲了一句：「行了，别跑集成测试了，直接告诉我就行！」",
+        pain: "普通 Agent 跑任务时要么锁死输入框，要么逼你按 `Ctrl+C` 重来。而在 Pi 里，你随时敲回车都会存进 `steeringQueue`。第 9、10 站工具一跑完，第 11 站 (`getSteeringMessages`) 立刻捞出这句话，**顺着左图左侧回环曲线直接插队回到第 1 站的内层循环顶部**，模型瞬间接收新指令急转弯！",
+        relationText: "[⑨ 沙箱 + ⑩ 工具跑完] ──▶ ⑪ 检测 Steering 打断 ──(↺ 左侧回环曲线)──▶ ① 插队回内层循环",
+        moduleTag: "实时方向盘 · packages/agent/src/agent-loop.ts",
+        dataBefore: `本轮工具刚跑完，你在工具运行期间敲入了:\nsteeringQueue: ["行了，别跑集成测试了，直接告诉我就行！"]`,
+        dataAfter: `第 11 站 getSteeringMessages() 立即命中！\n➔ 沿着左图左侧虚线回环直接跳回第 1 站内层 while 顶部，带着你的新指令开启下一轮！`,
+        file: "packages/agent/src/agent-loop.ts",
+        lineRange: "Lines 295–325",
+        startLine: 295,
+        hlLines: [304, 305, 311, 312, 315],
+        takeaway: "💡 看第 304 行：这就是左图左侧那条从 ⑪ 飞回 ① 的回环线——只要 `pendingMessages.length > 0`，内层 while 就直接带着打断消息继续下一轮！",
+        code: [
+          `      const decision = await config.finishTurn?.(lastCompletedTurn, signal);`,
+          `      await emit({ type: "turn_end", message, toolResults });`,
+          ``,
+          `      if (decision?.action === "end") {`,
+          `        await emit({ type: "agent_end", messages: newMessages });`,
+          `        return;`,
+          `      }`,
+          ``,
+          `      explicitContinuation = decision?.action === "continue";`,
+          `      // 【内层循环末尾】：立刻检查你在工具执行期间有没有敲入“打断指令 (Steering)”`,
+          `      pendingMessages = (await config.getSteeringMessages?.()) || [];`,
+          `      if (hasMoreToolCalls || pendingMessages.length > 0) {`,
+          `        explicitContinuation = false;`,
+          `      }`,
+          `    } // <--- 沿着左图左侧回环线，直接跳回第 1 站内层 while 顶部插队执行！`,
+          ``,
+          `    // 【外层循环末尾】：只有当前任务彻底停下，才去取“待办追问 (Follow-up)”`,
+          `    const followUpMessages = (await config.getFollowUpMessages?.()) || [];`,
+          `    if (followUpMessages.length > 0) {`,
+          `      explicitContinuation = false;`,
+          `      pendingMessages = followUpMessages;`,
+          `      continue;`,
+          `    }`
+        ]
+      },
+      {
+        phaseId: "P4",
+        title: "第 12 站：接着聊了 50 轮终于「上下文超出」了！怎么自动瘦身并写回第 2 站记账本？",
+        story: "看左图最右侧那条从 ⑫ 一路向上连回 ② 的大回环曲线！当你顺着窗口聊了 50 轮、总字数快撞上 20 万上限时，第 12 站自动触发滑动压缩，并把压缩节点写回第 2 站的 `session.jsonl` 树里！",
+        pain: "1. **防短期失忆**：倒着数够最近 2 万词 (`keepRecentTokens: 20000`) 原文保留，只压更早的历史。\n2. **防切在 `toolResult` 上报 400 错误**：`findCutPoint` 严禁在孤立的工具返回结果上落刀，只准切在 `user/assistant` 边界。\n3. **防多轮压缩后忘了改过哪些文件**：把历次压缩的 `readFiles / modifiedFiles` 名单一路累加写进新节点，再顺着右侧回环线追加回第 2 站的树状记账本！",
+        relationText: "⑪ 回合结束检测水位超限 ──▶ ⑫ 滑动压缩与文件接力追踪 ──(↺ 右侧回环曲线)──▶ ② 追加回记账本",
+        moduleTag: "无损瘦身 · packages/coding-agent/src/core/compaction/compaction.ts",
+        dataBefore: `50 轮对话共 186,000 Tokens (超出 200,000 - 16,384 安全线!)\n包含第 1~40 轮旧历史 + 第 41~50 轮近期对话 (约 20,000 Tokens)`,
+        dataAfter: `沿着左图右侧回环线写回第 2 站 session.jsonl (骤降至 ~22,500 Tokens):\n1. 新增 CompactionEntry: 第 1~40 轮摘要 + 累计修改文件表 ["src/login.ts"]\n2. 保留第 41~50 轮原文 (从合法的 user/assistant 边界切分)`,
+        file: "packages/coding-agent/src/core/compaction/compaction.ts",
+        lineRange: "Lines 452–480 & 60–78",
+        startLine: 452,
+        hlLines: [453, 454, 467, 469, 478, 482, 487],
+        takeaway: "💡 看高亮第 453–469 行：避开 `toolResult` 切出最近 20k 原文，合并历次修改过的文件名，最后追加回第 2 站的 JSONL 树，完成 12 站完美闭环！",
+        code: [
+          `export function findCutPoint(entries: SessionEntry[], startIndex: number, endIndex: number, keepRecentTokens: number) {`,
+          `  // 找出所有合法下刀点：只允许切在 user / assistant / custom 上，绝对禁止切在 toolResult 上！`,
+          `  const cutPoints = findValidCutPoints(entries, startIndex, endIndex);`,
+          `  let accumulatedTokens = 0;`,
+          `  let cutIndex = cutPoints[0];`,
+          ``,
+          `  // 从最新一条消息往回倒着数，凑够最近 20,000 Tokens 原文保留`,
+          `  for (let i = endIndex - 1; i >= startIndex; i--) {`,
+          `    const entry = entries[i];`,
+          `    const messageTokens = sessionEntryToContextMessages(entry).reduce((s, m) => s + estimateTokens(m), 0);`,
+          `    if (messageTokens === 0) continue;`,
+          `    accumulatedTokens += messageTokens;`,
+          ``,
+          `    if (accumulatedTokens >= keepRecentTokens) {`,
+          `      // 凑够 20k 后，取 >= i 的最近一个合法切分点（避开孤立的 toolResult）`,
+          `      cutIndex = cutPoints.find((candidate) => candidate >= i) ?? cutPoints[cutPoints.length - 1];`,
+          `      break;`,
+          `    }`,
+          `  }`,
+          `  return { firstKeptEntryIndex: cutIndex };`,
+          `}`,
+          ``,
+          `// 接力累加历次压缩读过和改过的所有文件路径，沿着右侧回环线写回第 2 站记账本`,
+          `if (prevCompactionIndex >= 0) {`,
+          `  const details = (entries[prevCompactionIndex] as CompactionEntry).details as CompactionDetails;`,
+          `  for (const f of details.readFiles ?? []) fileOps.read.add(f);`,
+          `  for (const f of details.modifiedFiles ?? []) fileOps.edited.add(f);`,
+          `}`
+        ]
+      }
+    ];
+
+    let curStepIdx = 0;
+
+    function highlightLine(raw) {
+      let s = raw
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+      if (s.trim().startsWith("//") || s.trim().startsWith("/**") || s.trim().startsWith("*")) {
+        return `<span class="cm">${s}</span>`;
+      }
+      const commentIdx = s.indexOf(" //");
+      let codePart = commentIdx !== -1 ? s.slice(0, commentIdx) : s;
+      let commentPart = commentIdx !== -1 ? `<span class="cm">${s.slice(commentIdx)}</span>` : "";
+
+      codePart = codePart.replace(/(".*?"|'.*?'|`.*?`)/g, '<span class="str">$1</span>');
+      codePart = codePart.replace(
+        /\b(export|async|function|const|let|var|if|else|for|of|while|return|await|try|catch|finally|new|true|false|undefined|null|switch|case|break|continue|default|interface|type|class|extends|private|readonly)\b/g,
+        '<span class="kw">$1</span>'
+      );
+      return codePart + commentPart;
+    }
+
+    // Draw SVG directed edges between the 12 station nodes
+    function drawGraphEdges() {
+      const canvas = document.getElementById("graph-canvas");
+      const svg = document.getElementById("graph-svg");
+      if (!canvas || !svg) return;
+
+      const cRect = canvas.getBoundingClientRect();
+      svg.setAttribute("viewBox", `0 0 ${cRect.width} ${cRect.height}`);
+
+      // Helper to get relative bounding box of a station node
+      function getBox(idx) {
+        const el = document.getElementById(`st-node-${idx}`);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {
+          left: r.left - cRect.left,
+          right: r.right - cRect.left,
+          top: r.top - cRect.top,
+          bottom: r.bottom - cRect.top,
+          cx: r.left - cRect.left + r.width / 2,
+          cy: r.top - cRect.top + r.height / 2,
+          w: r.width,
+          h: r.height
+        };
+      }
+
+      let defs = `
+        <defs>
+          <marker id="arrow-muted" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#cbd5e1" />
+          </marker>
+          <marker id="arrow-active" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="#f59e0b" />
+          </marker>
+        </defs>
+      `;
+
+      let pathsHtml = "";
+
+      graphEdges.forEach((edge) => {
+        const b1 = getBox(edge.from);
+        const b2 = getBox(edge.to);
+        if (!b1 || !b2) return;
+
+        // An edge is highlighted if it connects to/from the current active station
+        const isActive = edge.from === curStepIdx || edge.to === curStepIdx;
+        const strokeColor = isActive ? "#f59e0b" : "#cbd5e1";
+        const strokeWidth = isActive ? "2.2" : "1.4";
+        const marker = isActive ? "url(#arrow-active)" : "url(#arrow-muted)";
+        const animClass = isActive ? "edge-active-anim" : "";
+
+        let d = "";
+        if (edge.type === "h") {
+          // Horizontal arrow from right of b1 to left of b2
+          const x1 = b1.right + 2;
+          const y1 = b1.cy;
+          const x2 = b2.left - 4;
+          const y2 = b2.cy;
+          d = `M ${x1} ${y1} L ${x2} ${y2}`;
+        } else if (edge.type === "v") {
+          // Vertical/curved arrow from bottom of b1 to top of b2
+          const x1 = b1.cx;
+          const y1 = b1.bottom + 2;
+          const x2 = b2.cx;
+          const y2 = b2.top - 4;
+          const midY = (y1 + y2) / 2;
+          d = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
+        } else if (edge.type === "loop-inner") {
+          // Dashed inner guard check from Station 9 (index 8) back up to Station 8 (index 7)
+          const x1 = b1.cx + 15;
+          const y1 = b1.top - 2;
+          const x2 = b2.cx - 15;
+          const y2 = b2.bottom + 4;
+          const midY = (y1 + y2) / 2;
+          d = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
+        } else if (edge.type === "loop-left") {
+          // Long loop-back curve along the left margin from Station 11 (index 10) up to Station 1 (index 0)
+          const x1 = b1.left;
+          const y1 = b1.cy;
+          const x2 = b2.left;
+          const y2 = b2.cy;
+          const railX = 4;
+          d = `M ${x1} ${y1} C ${railX} ${y1}, ${railX} ${y2}, ${x2 - 3} ${y2}`;
+        } else if (edge.type === "loop-right") {
+          // Long loop-back curve along the right margin from Station 12 (index 11) up to Station 2 (index 1)
+          const x1 = b1.right;
+          const y1 = b1.cy;
+          const x2 = b2.right;
+          const y2 = b2.cy;
+          const railX = cRect.width - 4;
+          d = `M ${x1} ${y1} C ${railX} ${y1}, ${railX} ${y2}, ${x2 + 3} ${y2}`;
+        }
+
+        const isLoop = edge.type.startsWith("loop");
+        const dashAttr = !isActive && isLoop ? `stroke-dasharray="4 3"` : "";
+
+        pathsHtml += `<path d="${d}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" ${dashAttr} class="${animClass}" marker-end="${marker}" />`;
+      });
+
+      svg.innerHTML = defs + pathsHtml;
+    }
+
+    function renderAll() {
+      const st = stations[curStepIdx];
+      const total = stations.length;
+
+      // Update Zone highlights
+      ["P1", "P2", "P3", "P4"].forEach((pid) => {
+        const zEl = document.getElementById(`zone-${pid}`);
+        if (zEl) {
+          zEl.classList.toggle("zone-active", pid === st.phaseId);
+        }
+      });
+
+      // Find directly connected neighbor stations for visual context
+      const neighbors = new Set();
+      graphEdges.forEach((e) => {
+        if (e.from === curStepIdx) neighbors.add(e.to);
+        if (e.to === curStepIdx) neighbors.add(e.from);
+      });
+
+      // Update Station Node classes
+      for (let i = 0; i < total; i++) {
+        const nEl = document.getElementById(`st-node-${i}`);
+        if (!nEl) continue;
+        nEl.classList.remove("active", "neighbor", "visited");
+        if (i === curStepIdx) {
+          nEl.classList.add("active");
+        } else if (neighbors.has(i)) {
+          nEl.classList.add("neighbor");
+        } else if (i < curStepIdx) {
+          nEl.classList.add("visited");
+        }
+      }
+
+      // Top step controller & plain-language explanation
+      document.getElementById("step-counter").textContent = `${curStepIdx + 1} / ${total}`;
+      document.getElementById("step-phase-badge").textContent = phaseTitles[st.phaseId] || st.phaseId;
+      document.getElementById("step-title").textContent = st.title;
+      document.getElementById("step-story").textContent = st.story;
+      document.getElementById("step-pain").textContent = st.pain;
+      document.getElementById("edge-relation-text").textContent = st.relationText;
+
+      // 12-station progress bar
+      const segContainer = document.getElementById("progress-segments");
+      segContainer.innerHTML = stations
+        .map((item, idx) => {
+          let cls = "bg-stone-200 hover:bg-stone-300";
+          if (idx < curStepIdx) cls = "bg-amber-300";
+          if (idx === curStepIdx) cls = "bg-amber-500";
+          return `<div onclick="goToStep(${idx})" title="${item.title}" class="seg-pill flex-1 ${cls}"></div>`;
+        })
+        .join("");
+
+      // Concrete Before -> After Data Packet
+      document.getElementById("module-tag").textContent = st.moduleTag;
+      document.getElementById("data-before").textContent = st.dataBefore;
+      document.getElementById("data-after").textContent = st.dataAfter;
+
+      // Code Viewer
+      document.getElementById("code-filepath").textContent = st.file;
+      document.getElementById("code-lines-badge").textContent = st.lineRange;
+      document.getElementById("code-takeaway").textContent = st.takeaway;
+
+      const codeBox = document.getElementById("code-container");
+      let firstHlElId = null;
+      codeBox.innerHTML = st.code
+        .map((lineText, idx) => {
+          const lineNo = st.startLine + idx;
+          const isHl = st.hlLines.includes(lineNo);
+          const rowId = `code-row-${lineNo}`;
+          if (isHl && !firstHlElId) firstHlElId = rowId;
+          return `<div id="${rowId}" class="code-line ${isHl ? "hl" : ""}">
+            <span class="line-num font-mono">${lineNo}</span>
+            <span class="font-mono text-stone-800">${highlightLine(lineText)}</span>
+          </div>`;
+        })
+        .join("");
+
+      if (firstHlElId) {
+        const hlEl = document.getElementById(firstHlElId);
+        if (hlEl) {
+          codeBox.scrollTop = Math.max(0, hlEl.offsetTop - codeBox.offsetTop - 65);
+        }
+      } else {
+        codeBox.scrollTop = 0;
+      }
+
+      // Draw SVG lines after layout settles
+      requestAnimationFrame(drawGraphEdges);
+    }
+
+    function goToStep(idx) {
+      curStepIdx = idx;
+      renderAll();
+    }
+
+    function nextStep() {
+      curStepIdx = (curStepIdx + 1) % stations.length;
+      renderAll();
+    }
+
+    function prevStep() {
+      curStepIdx = (curStepIdx - 1 + stations.length) % stations.length;
+      renderAll();
+    }
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight") nextStep();
+      if (e.key === "ArrowLeft") prevStep();
+    });
+
+    window.addEventListener("resize", drawGraphEdges);
+
+    renderAll();
+  </script>
+</body>
+</html>
