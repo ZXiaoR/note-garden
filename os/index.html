@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>操作系统 知识体系笔记</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2028; --panel2:#222b36; --text:#d7dde5; --muted:#8b97a6;
+    --accent:#4aa8ff; --accent2:#38c172; --warn:#ffb454; --danger:#ff6b6b; --purple:#c792ea;
+    --border:#2c3742; --code-bg:#11161c; --os:#f0883e;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;}
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+
+  /* layout */
+  .wrap{display:flex;max-width:1400px;margin:0 auto;}
+  nav{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;width:280px;
+    padding:24px 16px;border-right:1px solid var(--border);background:var(--bg);font-size:13.5px;flex-shrink:0;}
+  nav h2{font-size:14px;color:var(--os);margin:18px 0 8px;letter-spacing:.5px;}
+  nav a{display:block;color:var(--muted);padding:3px 8px;border-radius:6px;margin:1px 0;}
+  nav a:hover{background:var(--panel);color:var(--text);text-decoration:none;}
+  nav .sub{padding-left:18px;font-size:12.5px;}
+  main{flex:1;min-width:0;padding:36px 44px 120px;}
+
+  h1{font-size:30px;margin:0 0 6px;background:linear-gradient(90deg,#f0883e,#4aa8ff);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
+  .lead{color:var(--muted);margin:0 0 28px;font-size:15px;}
+  section{margin-bottom:52px;scroll-margin-top:20px;}
+  h2.sec{font-size:24px;border-left:5px solid var(--os);padding-left:14px;margin:44px 0 20px;}
+  h3{font-size:19px;color:#eaf0f6;margin:32px 0 12px;border-bottom:1px solid var(--border);padding-bottom:6px;}
+  h4{font-size:16px;color:var(--accent);margin:22px 0 8px;}
+  p{margin:10px 0;}
+  ul,ol{padding-left:24px;}
+  li{margin:5px 0;}
+  code{background:var(--code-bg);padding:2px 6px;border-radius:4px;font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:13px;color:var(--purple);}
+  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;line-height:1.6;color:#c8d3de;}
+  pre code{background:none;padding:0;color:inherit;}
+
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13.5px;}
+  th,td{border:1px solid var(--border);padding:9px 12px;text-align:left;vertical-align:top;}
+  th{background:var(--panel2);color:#eaf0f6;font-weight:600;}
+  tr:nth-child(even) td{background:rgba(255,255,255,.015);}
+  table.rowh th{white-space:nowrap;width:1%;}
+
+  .box{border-radius:10px;padding:14px 18px;margin:16px 0;border-left:4px solid;}
+  .warn{background:rgba(255,180,84,.08);border-color:var(--warn);}
+  .warn b{color:var(--warn);}
+  .danger{background:rgba(255,107,107,.08);border-color:var(--danger);}
+  .danger b{color:var(--danger);}
+  .tip{background:rgba(56,193,114,.08);border-color:var(--accent2);}
+  .tip b{color:var(--accent2);}
+  .info{background:rgba(74,168,255,.08);border-color:var(--accent);}
+  .info b{color:var(--accent);}
+
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:20px;margin-left:6px;vertical-align:middle;
+    background:var(--panel2);color:var(--muted);border:1px solid var(--border);}
+  .tag.li{color:#f0883e;border-color:#6b4423;}
+  .tag.hi{color:#ff6b6b;border-color:#6b2b2b;}
+
+  .diagram{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:18px;margin:16px 0;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;white-space:pre;overflow-x:auto;color:#a9c7e8;}
+
+  /* HTML 结构化流程图 */
+  .hd{margin:16px 0;background:var(--code-bg);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+  .hd .lane{display:flex;gap:16px;flex-wrap:wrap;align-items:center;}
+  .hd .grp2{flex:1;min-width:200px;border:1px solid rgba(74,168,255,.28);border-radius:10px;padding:12px 14px;
+    background:rgba(74,168,255,.06);}
+  .hd .grp2.g-green{border-color:rgba(56,193,114,.3);background:rgba(56,193,114,.07);}
+  .hd .grp2.g-blue{border-color:rgba(74,168,255,.3);background:rgba(74,168,255,.08);}
+  .hd .grp2.g-orange{border-color:rgba(240,136,62,.35);background:rgba(240,136,62,.08);}
+  .hd .grp2 > .cap{font-weight:600;color:var(--accent);font-size:13px;margin-bottom:8px;text-align:center;
+    padding-bottom:6px;border-bottom:1px dashed var(--border);}
+  .hd .grp2.g-green > .cap{color:#38c172;}
+  .hd .grp2.g-orange > .cap{color:var(--os);}
+  .hd .node{border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin:7px 0;background:var(--panel2);
+    font-size:13px;line-height:1.5;}
+  .hd .node .em{color:#eaf0f6;font-weight:600;}
+  .hd .node .sub{color:var(--muted);font-size:12px;}
+  .hd .node.accent{border-color:var(--accent);}
+  .hd .arrow-d{text-align:center;color:var(--muted);font-size:13px;line-height:1.2;margin:3px 0;}
+  .hd .arrow-r{color:var(--purple);font-weight:700;white-space:nowrap;font-size:12.5px;text-align:center;padding:0 2px;}
+  .hd .note{color:var(--muted);font-size:12px;text-align:center;margin-top:6px;}
+
+  .q{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px 18px;margin:14px 0;}
+  .q summary{cursor:pointer;font-weight:600;color:var(--warn);padding:8px 0;list-style:none;}
+  .q summary::before{content:"❓ ";}
+  .q[open] summary{color:var(--accent);}
+  .q .a{padding:4px 0 12px;border-top:1px dashed var(--border);margin-top:4px;}
+
+  .split{display:flex;gap:20px;align-items:flex-start;margin:16px 0;flex-wrap:wrap;}
+  .split > .col{flex:1;min-width:300px;}
+
+  .toc-top{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 24px;margin-bottom:32px;}
+  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
+  .kbd{font-size:12px;color:var(--muted);}
+  footer{color:var(--muted);font-size:13px;border-top:1px solid var(--border);padding-top:20px;margin-top:60px;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#2c3742;border-radius:6px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h2>一、开篇：OS 在管什么</h2>
+  <a href="#what">0 · 操作系统是什么</a>
+  <a href="#mode">1 · 用户态 / 内核态</a>
+  <a href="#syscall">2 · 系统调用 syscall</a>
+  <a href="#interrupt">3 · 中断 / 异常 / 陷阱</a>
+  <h2>二、进程与线程</h2>
+  <a href="#process">4 · 进程与 PCB</a>
+  <a href="#pstate">5 · 进程状态转换</a>
+  <a href="#thread">6 · 线程</a>
+  <a href="#ptc">7 · 进程 vs 线程 vs 协程</a>
+  <a href="#ctxswitch">8 · 上下文切换</a>
+  <a href="#fork">9 · fork / exec / 写时复制</a>
+  <h2>三、内存管理</h2>
+  <a href="#hierarchy">10 · 存储层次结构</a>
+  <a href="#why-vm">11 · 为什么要虚拟内存</a>
+  <a href="#paging">12 · 分段 / 分页 / 段页式</a>
+  <a href="#pagetable">13 · 多级页表 &amp; TLB</a>
+  <a href="#pagefault">14 · 缺页与页面置换</a>
+  <a href="#alloc">15 · Linux 内存分配</a>
+  <a href="#locality">16 · 局部性 &amp; 抖动</a>
+  <h2>四、进程间通信 IPC</h2>
+  <a href="#pipe">17 · 管道</a>
+  <a href="#shm">18 · 消息队列 / 共享内存 / 信号量</a>
+  <a href="#signal">19 · 信号 signal</a>
+  <a href="#socket">20 · Socket</a>
+  <h2>五、并发与同步</h2>
+  <a href="#race">21 · 竞态与临界区</a>
+  <a href="#lock">22 · 锁与同步原语</a>
+  <a href="#classic">23 · 经典同步问题</a>
+  <a href="#deadlock">24 · 死锁</a>
+  <h2>六、CPU 调度</h2>
+  <a href="#sched">25 · 调度目标与时机</a>
+  <a href="#sched-algo">26 · 调度算法</a>
+  <a href="#cfs">27 · Linux CFS</a>
+  <h2>七、文件系统与 I/O</h2>
+  <a href="#fs">28 · 文件系统与 inode</a>
+  <a href="#pagecache">29 · Page Cache 与刷盘</a>
+  <a href="#io-model">30 · I/O 五种模型</a>
+  <a href="#epoll">31 · select / poll / epoll</a>
+  <a href="#zerocopy">32 · 零拷贝</a>
+  <a href="#disk">33 · 磁盘调度</a>
+  <h2>附</h2>
+  <a href="#link">一图串联：程序如何跑起来</a>
+  <a href="#tools">性能排查速查</a>
+  <a href="#cheat">高频面试速记</a>
+</nav>
+
+<main>
+<h1>操作系统 知识体系笔记</h1>
+<p class="lead">按「OS 到底在管什么 → 进程/线程怎么组织 → 内存怎么给它们用 → 进程之间怎么通信 → 并发怎么同步 → CPU 时间怎么分 → 数据怎么落盘/怎么高效 I/O」一条主线组织，侧重 <b>Linux</b> 的具体实现（CFS、epoll、buddy/slab、COW）。<span class="tag li">Linux</span> 标记与内核实现相关，<span class="tag hi">高频</span> 标记面试重点。</p>
+
+<div class="toc-top">
+  <b>阅读主线（问题驱动，每一步都在回答上一步冒出的新问题）：</b>
+  <ol style="margin:10px 0 2px">
+    <li><b>OS 凭什么能管住硬件和一堆程序？</b> 靠 CPU 的特权分级：内核态管硬件，用户态跑程序，中间用系统调用/中断打通。<span class="kbd">（<a href="#what">§0-3</a>）</span></li>
+    <li><b>程序运行的实体是什么？</b> 进程是资源分配单位，线程是调度执行单位；切换有代价。<span class="kbd">（<a href="#process">§4-9</a>）</span></li>
+    <li><b>内存不够、还要互相隔离，怎么办？</b> 先懂存储层次(缓存/内存/磁盘)，再看虚拟内存 + 分页 + 多级页表 + 缺页换页。<span class="kbd">（<a href="#hierarchy">§10-16</a>）</span></li>
+    <li><b>进程之间怎么交换数据？</b> 管道/共享内存/消息队列/信号/socket。<span class="kbd">（<a href="#pipe">§17-20</a>）</span></li>
+    <li><b>多个执行流抢一份数据怎么办？</b> 临界区 + 锁 + 经典模型，别踩死锁。<span class="kbd">（<a href="#race">§21-24</a>）</span></li>
+    <li><b>一个 CPU 怎么伺候这么多任务？</b> 调度算法，Linux 用 CFS。<span class="kbd">（<a href="#sched">§25-27</a>）</span></li>
+    <li><b>数据怎么存、I/O 怎么才快？</b> 文件系统/fd + Page Cache/刷盘 + I/O 模型 + epoll/Reactor + 零拷贝。<span class="kbd">（<a href="#fs">§28-33</a>）</span></li>
+  </ol>
+  <span class="kbd">💡 带 ❓ 的折叠块是高频面试问答，可展开自测；标<span style="color:var(--danger)"> 红框 </span>的是易错/高频陷阱。</span>
+</div>
+
+<!-- ============ 0 OS 是什么 ============ -->
+<section id="what">
+<h2 class="sec">0 · 操作系统是什么</h2>
+<p>操作系统（OS）是<b>介于硬件和应用程序之间</b>的一层软件，核心就干两件事：</p>
+<ul>
+  <li><b>资源管理者</b>：管理 CPU、内存、磁盘、网卡等有限硬件资源，在众多进程间<b>分配、调度、回收</b>，做到公平又高效。</li>
+  <li><b>硬件抽象层 / 虚拟机</b>：把裸硬件包装成好用的抽象——进程（虚拟 CPU）、虚拟内存（虚拟内存条）、文件（虚拟磁盘），应用不用直接跟寄存器和扇区打交道。</li>
+</ul>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-green"><div class="cap">应用程序（用户态）</div><div class="note">浏览器 / 数据库 / 你写的程序</div></div>
+  </div>
+  <div class="arrow-d">▲ 系统调用 syscall（唯一的合法入口）</div>
+  <div class="lane">
+    <div class="grp2 g-orange"><div class="cap">操作系统内核（内核态）</div>
+      <div class="node">进程管理 · 内存管理 · 文件系统 · 设备驱动 · 网络协议栈</div>
+    </div>
+  </div>
+  <div class="arrow-d">▲ 驱动 / 中断</div>
+  <div class="lane">
+    <div class="grp2 g-blue"><div class="cap">硬件</div><div class="note">CPU · 内存 · 磁盘 · 网卡 · 外设</div></div>
+  </div>
+</div>
+<div class="info box"><b>内核（Kernel）vs 操作系统：</b>内核是 OS 最核心、常驻内存、拥有最高权限的部分（进程调度/内存/文件/驱动）。狭义"操作系统"≈ 内核；广义还包括 shell、GUI、系统工具等外围。<b>宏内核</b>（Linux：驱动、文件系统都塞进内核，性能好但耦合高）vs <b>微内核</b>（只留最核心功能在内核态，其余做成用户态服务，稳定但通信开销大）。</div>
+</section>
+
+<!-- ============ 1 用户态/内核态 ============ -->
+<section id="mode">
+<h2 class="sec">1 · 用户态 / 内核态 <span class="tag hi">高频</span></h2>
+<p>为什么要分两个态？因为不能让任意程序直接操作硬件、改别人的内存——那样一个程序崩了或使坏就能拖垮整个系统。于是 CPU 提供了<b>特权级（Ring）</b>：</p>
+<ul>
+  <li><b>内核态（Ring 0）</b>：能执行<b>特权指令</b>（操作 I/O 端口、改页表、关中断），能访问所有内存和硬件。内核代码跑在这。</li>
+  <li><b>用户态（Ring 3）</b>：只能执行普通指令、只能访问自己进程的虚拟内存。想干"越权"的事（读文件、发网络包、申请内存），必须<b>请内核代劳</b>。</li>
+</ul>
+<div class="tip box"><b>怎么从用户态进内核态？</b>只有三条路：① <b>系统调用</b>（主动，软中断/<code>syscall</code> 指令）；② <b>中断</b>（外部设备，如网卡收包、时钟）；③ <b>异常</b>（被动，如缺页、除零）。三者本质都是"陷入（trap）"内核，CPU 切到内核栈、跳到内核预设的处理入口。</div>
+<div class="warn box"><b>为什么说态切换有开销？</b>切换要保存用户态上下文（寄存器）、切到内核栈、执行完再恢复、还可能刷新流水线。虽然比进程切换轻（不换页表、不换地址空间），但频繁 syscall 依然是性能敏感点——这正是<b>零拷贝</b>（§32）、<b>epoll</b>（§31）、批量系统调用要减少的东西。</div>
+<details class="q"><summary>用户态到内核态切换，和进程上下文切换是一回事吗？</summary><div class="a">不是。<b>态切换（模式切换）</b>只是同一个进程内 CPU 特权级的改变，不切换地址空间、页表还是那份，很轻。<b>进程上下文切换</b>是换到另一个进程去跑，要换页表、刷 TLB、换内核栈，重得多。一次系统调用只发生态切换，不一定发生进程切换。</div></details>
+</section>
+
+<!-- ============ 2 系统调用 ============ -->
+<section id="syscall">
+<h2 class="sec">2 · 系统调用 syscall</h2>
+<p>系统调用是用户程序请求内核服务的<b>唯一合法接口</b>。你平时调的 <code>read()</code>/<code>write()</code>/<code>fork()</code> 是 C 库（glibc）封装的函数，它们内部最终会执行一条陷入指令进入内核。</p>
+<h4>一次系统调用发生了什么（x86-64）</h4>
+<ol>
+  <li>把<b>系统调用号</b>放进 <code>rax</code>，参数放进 <code>rdi/rsi/rdx...</code> 等寄存器。</li>
+  <li>执行 <code>syscall</code> 指令（老机制是软中断 <code>int 0x80</code>），CPU <b>切到内核态</b>、跳到内核入口 <code>entry_SYSCALL_64</code>。</li>
+  <li>内核用系统调用号查<b>系统调用表（sys_call_table）</b>，找到对应内核函数执行（如 <code>sys_read</code>）。</li>
+  <li>执行完把返回值放回寄存器，执行 <code>sysret</code> <b>切回用户态</b>，glibc 继续往下走。</li>
+</ol>
+<table>
+<tr><th>类别</th><th>常见系统调用</th></tr>
+<tr><td>进程控制</td><td><code>fork</code> / <code>vfork</code> / <code>clone</code> / <code>execve</code> / <code>exit</code> / <code>wait4</code></td></tr>
+<tr><td>文件操作</td><td><code>open</code> / <code>read</code> / <code>write</code> / <code>close</code> / <code>lseek</code> / <code>stat</code></td></tr>
+<tr><td>内存</td><td><code>brk</code> / <code>mmap</code> / <code>munmap</code></td></tr>
+<tr><td>进程通信</td><td><code>pipe</code> / <code>shmget</code> / <code>semop</code> / <code>kill</code> / <code>socket</code></td></tr>
+<tr><td>I/O 多路复用</td><td><code>select</code> / <code>poll</code> / <code>epoll_create</code> / <code>epoll_ctl</code> / <code>epoll_wait</code></td></tr>
+</table>
+<div class="info box"><b>库函数 ≠ 系统调用：</b><code>printf</code> 是库函数，内部带缓冲区，攒够了才调一次 <code>write</code> 系统调用；<code>malloc</code> 也是库函数，小内存自己从内存池切，池不够才调 <code>brk</code>/<code>mmap</code>。<b>能少陷入内核就少陷入</b>，这是很多"用户态缓冲"设计的动机。</div>
+</section>
+
+<!-- ============ 3 中断 ============ -->
+<section id="interrupt">
+<h2 class="sec">3 · 中断 / 异常 / 陷阱</h2>
+<p>三者都会让 CPU <b>暂停当前流程、陷入内核</b>去处理，区别在于触发来源：</p>
+<table>
+<tr><th>类型</th><th>来源</th><th>是否同步</th><th>例子</th></tr>
+<tr><td><b>中断 Interrupt</b>（硬中断）</td><td><b>外部硬件</b>异步发来</td><td>异步（跟当前指令无关）</td><td>时钟中断、网卡收包、键盘按键、磁盘完成</td></tr>
+<tr><td><b>异常 Exception</b>（故障/终止）</td><td>CPU 执行指令时<b>内部</b>出错</td><td>同步</td><td>缺页 page fault、除零、非法指令、段错误</td></tr>
+<tr><td><b>陷阱 Trap</b>（软中断）</td><td>程序<b>主动</b>触发</td><td>同步</td><td>系统调用、断点调试</td></tr>
+</table>
+<h4>Linux 中断处理：上半部 / 下半部 <span class="tag li">Linux</span></h4>
+<p>中断处理要<b>快</b>（处理期间可能关中断，拖久了会丢中断）。Linux 把它拆成两半：</p>
+<ul>
+  <li><b>上半部（Top Half，硬中断）</b>：紧急、必须马上做的（比如把网卡数据从寄存器搬到内存），执行极短，关中断运行。</li>
+  <li><b>下半部（Bottom Half，软中断/tasklet/workqueue）</b>：耗时的后续处理（协议栈解析等）延后做，开中断，可被打断。<code>top</code> 里看到的 <code>si</code>（softirq）就是它。</li>
+</ul>
+<div class="warn box"><b>面试常问：为什么要拆上下半部？</b>因为硬中断处理期间通常屏蔽同类中断，如果在里面干重活，会长时间无法响应新中断（丢包、卡顿）。拆开后上半部秒退恢复响应，重活交给下半部慢慢干，兼顾<b>实时性</b>与<b>吞吐</b>。</div>
+</section>
+
+<!-- ============ 4 进程与PCB ============ -->
+<section id="process">
+<h2 class="sec">4 · 进程与 PCB <span class="tag hi">高频</span></h2>
+<p><b>进程 = 一个正在运行的程序实例</b>。程序是躺在磁盘上的静态代码，进程是它被加载进内存、分到资源、跑起来后的<b>动态实体</b>。进程是操作系统进行<b>资源分配</b>的基本单位（地址空间、打开的文件、信号等都以进程为单位）。</p>
+<h4>PCB：进程控制块</h4>
+<p>内核用一个结构体描述每个进程，即 <b>PCB（Process Control Block）</b>，Linux 里就是 <code>task_struct</code>。它是"进程存在的唯一标志"，内容包括：</p>
+<ul>
+  <li><b>标识</b>：PID、PPID（父进程）、用户/组 ID。</li>
+  <li><b>状态</b>：运行/就绪/阻塞等（见 §5）。</li>
+  <li><b>CPU 上下文</b>：各寄存器、程序计数器 PC、栈指针——切换时保存/恢复的就是它。</li>
+  <li><b>内存信息</b>：<code>mm_struct</code>（页表指针、各内存区域）。</li>
+  <li><b>打开的文件</b>：文件描述符表。</li>
+  <li><b>调度信息</b>：优先级、时间片、vruntime（CFS）。</li>
+</ul>
+<h4>进程的内存布局（虚拟地址空间，从低到高）</h4>
+<div class="diagram">高地址 ┌───────────────────────┐
+       │  内核空间（用户态不可访问） │  所有进程共享映射同一份内核
+       ├───────────────────────┤
+       │  栈 stack ↓            │  函数调用帧、局部变量；向下增长
+       │        ...             │
+       │  ↑ mmap 区（共享库/文件映射）│  malloc 大块、动态库、mmap
+       │        ...             │
+       │  堆 heap ↑             │  malloc/new 动态分配；向上增长（brk）
+       ├───────────────────────┤
+       │  BSS 段（未初始化全局/静态）│  清零
+       │  Data 段（已初始化全局/静态）│
+       │  Text 段（代码，只读）    │  程序指令
+低地址 └───────────────────────┘</div>
+<div class="info box"><b>堆和栈的区别（高频）：</b>栈由编译器/系统自动管理（函数进出自动分配回收），空间小（默认 8MB）、快、局部变量；堆手动管理（malloc/free），空间大、灵活但慢、可能碎片和泄漏。栈向下长、堆向上长，中间那片空档留给二者伸展和 mmap。</div>
+</section>
+
+<!-- ============ 5 进程状态 ============ -->
+<section id="pstate">
+<h2 class="sec">5 · 进程状态转换</h2>
+<p>经典<b>五态模型</b>：</p>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-blue"><div class="cap">创建 New</div><div class="note">分配 PCB、资源</div></div>
+    <div class="arrow-r">▶</div>
+    <div class="grp2 g-green"><div class="cap">就绪 Ready</div><div class="note">万事俱备<br>只差 CPU</div></div>
+    <div class="arrow-r">调度◀▶时间片到</div>
+    <div class="grp2 g-orange"><div class="cap">运行 Running</div><div class="note">正占用 CPU</div></div>
+    <div class="arrow-r">▶</div>
+    <div class="grp2 g-blue"><div class="cap">终止 Terminated</div><div class="note">运行结束/被杀</div></div>
+  </div>
+  <div class="arrow-d">运行中等待 I/O/锁 ▼ ▲ 事件就绪后回到就绪（注意：不是直接回到运行）</div>
+  <div class="lane">
+    <div class="grp2"><div class="cap">阻塞 Blocked / Waiting</div><div class="note">等 I/O、等锁、等信号，主动让出 CPU，事件到了才被唤醒</div></div>
+  </div>
+</div>
+<div class="warn box"><b>三个关键转换要记牢：</b>① 运行→就绪：<b>时间片用完</b>或被更高优先级抢占（还能跑，只是没轮到）。② 运行→阻塞：<b>主动</b>等待资源（如读磁盘），自己放弃 CPU。③ 阻塞→就绪：等的事件来了，但<b>不能直接抢到 CPU</b>，得先回就绪队列排队。<b>阻塞不能直接到运行、就绪不能直接到阻塞</b>是常考陷阱。</div>
+<h4>Linux 的进程状态 <span class="tag li">Linux</span></h4>
+<table class="rowh">
+<tr><th>R</th><td>Running/Runnable，运行或就绪（在运行队列里）</td></tr>
+<tr><th>S</th><td>可中断睡眠（等事件，能被信号唤醒），最常见</td></tr>
+<tr><th>D</th><td>不可中断睡眠（通常等 I/O，连 <code>kill -9</code> 都杀不掉），大量 D 状态往往意味着 I/O 卡了</td></tr>
+<tr><th>Z</th><td><b>僵尸态 Zombie</b>：进程已结束，但父进程还没 <code>wait</code> 回收它的退出状态，PCB 残留</td></tr>
+<tr><th>T</th><td>停止（收到 SIGSTOP，或被调试器暂停）</td></tr>
+</table>
+<div class="danger box"><b>僵尸进程 vs 孤儿进程（必考）：</b><b>僵尸进程</b>——子进程死了、父进程没回收（没调 wait），残留 PCB 占着 PID，多了会耗尽 PID。解决：父进程调 <code>wait/waitpid</code>，或处理 <code>SIGCHLD</code> 信号。<b>孤儿进程</b>——父进程先死了、子进程还活着，会被 <code>init</code>（PID 1）收养，由它负责回收，<b>无害</b>。</div>
+</section>
+
+<!-- ============ 6 线程 ============ -->
+<section id="thread">
+<h2 class="sec">6 · 线程 <span class="tag hi">高频</span></h2>
+<p><b>线程 = 进程内的一条执行流</b>，是 CPU <b>调度</b>的基本单位。一个进程可以有多个线程，它们<b>共享进程的地址空间和资源</b>（代码、堆、全局变量、打开的文件），但<b>各自独立的栈、寄存器、PC、栈指针</b>——因为每条执行流的调用链和"当前执行到哪"都是独立的。</p>
+<table>
+<tr><th>线程共享（进程级）</th><th>线程独占（线程级）</th></tr>
+<tr><td>代码段、数据段、堆、全局变量<br>打开的文件、信号处理设置<br>进程 PID、当前工作目录</td><td>栈（stack）<br>寄存器、程序计数器 PC<br>线程 ID（tid）、errno<br>信号掩码、优先级</td></tr>
+</table>
+<h4>为什么要线程？</h4>
+<ul>
+  <li><b>更轻的并发</b>：创建/切换比进程便宜（不用换地址空间和页表）。</li>
+  <li><b>共享数据方便</b>：同进程线程直接读写共享内存，无需 IPC。</li>
+  <li><b>利用多核</b>：一个进程的多个线程可同时跑在多个核上。</li>
+</ul>
+<h4>用户级线程 vs 内核级线程</h4>
+<table>
+<tr><th>维度</th><th>用户级线程（ULT）</th><th>内核级线程（KLT）</th></tr>
+<tr><td>谁调度</td><td>用户态线程库，内核不知情</td><td>内核直接调度</td></tr>
+<tr><td>切换成本</td><td>低（不陷入内核）</td><td>高（要陷入内核）</td></tr>
+<tr><td>多核并行</td><td>不能（内核只看到一个进程）</td><td>能</td></tr>
+<tr><td>一个线程阻塞</td><td><b>整个进程都阻塞</b></td><td>只阻塞该线程</td></tr>
+</table>
+<div class="info box"><b>Linux 的线程实现 <span class="tag li">Linux</span>：</b>Linux 内核<b>不严格区分进程和线程</b>，统一用 <code>task_struct</code> 描述，都叫"任务(task)"。线程就是<b>和别的任务共享地址空间等资源的 task</b>。创建时都走 <code>clone()</code>，区别只在传的 flag：<code>fork</code> 不共享（拷贝），创建线程时传 <code>CLONE_VM|CLONE_FILES|...</code> 表示共享内存/文件。这就是"线程是轻量级进程(LWP)"的由来。用户库 NPTL 是 <b>1:1 模型</b>（一个用户线程对应一个内核线程）。</div>
+</section>
+
+<!-- ============ 7 进程/线程/协程 ============ -->
+<section id="ptc">
+<h2 class="sec">7 · 进程 vs 线程 vs 协程 <span class="tag hi">高频</span></h2>
+<table>
+<tr><th>维度</th><th>进程</th><th>线程</th><th>协程</th></tr>
+<tr><td>本质</td><td>资源分配单位</td><td>CPU 调度单位</td><td>用户态的轻量执行流</td></tr>
+<tr><td>地址空间</td><td>独立</td><td>共享所属进程</td><td>共享所属线程</td></tr>
+<tr><td>切换开销</td><td>最大（换页表+刷TLB）</td><td>较小（同进程不换页表）</td><td>最小（纯用户态存少量寄存器）</td></tr>
+<tr><td>谁来调度</td><td>内核</td><td>内核</td><td>用户态运行时/库（协作式为主）</td></tr>
+<tr><td>崩溃影响</td><td>互相隔离，一个崩不影响别的</td><td>一个崩可能整个进程挂</td><td>同线程内</td></tr>
+<tr><td>通信</td><td>IPC（管道/共享内存/socket…）</td><td>直接读共享内存（需加锁）</td><td>共享内存 / channel</td></tr>
+</table>
+<div class="tip box"><b>一句话串起来：</b>进程之间<b>隔离</b>但通信贵、切换贵；线程之间<b>共享</b>省资源但要处理同步；协程把调度从内核挪到用户态，切换更廉价、能开成千上万个，适合<b>高并发 I/O 密集</b>场景（对应 Go 的 goroutine，见 <a href="../go/index.html">Go 笔记</a>）。CPU 密集型任务协程帮不上忙，还得靠多线程/多进程吃满多核。</div>
+<details class="q"><summary>多进程 vs 多线程，实际怎么选？</summary><div class="a">要<b>稳定隔离、互不影响</b>（如 Nginx master/worker、Chrome 每个 tab 一进程）→ 多进程；要<b>频繁共享大量数据、并发高</b>→ 多线程。多进程更健壮（一个崩不拖累别的）但内存占用大、通信麻烦；多线程高效但一处内存越界可能全崩、且要小心锁。</div></details>
+</section>
+
+<!-- ============ 8 上下文切换 ============ -->
+<section id="ctxswitch">
+<h2 class="sec">8 · 上下文切换</h2>
+<p>CPU 从一个执行流切到另一个，要保存当前的"现场"、恢复目标的"现场"，这就是上下文切换。三种粒度、成本递减：</p>
+<table>
+<tr><th>切换类型</th><th>要保存/恢复什么</th><th>成本</th></tr>
+<tr><td><b>进程切换</b></td><td>寄存器 + <b>切换页表（CR3）</b> + 刷新 TLB + 内核栈</td><td>最高（TLB 刷新后要重新建立映射，缓存也凉了）</td></tr>
+<tr><td><b>线程切换</b>（同进程）</td><td>寄存器 + 内核栈；<b>页表不变、TLB 不刷</b></td><td>中等</td></tr>
+<tr><td><b>模式切换</b>（用户↔内核）</td><td>只切特权级和栈，不换进程</td><td>最低</td></tr>
+</table>
+<div class="warn box"><b>为什么进程切换贵在 TLB？</b>页表切换后，TLB（页表缓存）里全是旧进程的映射，得<b>失效重建</b>，之后一段时间访存都要走完整的多级页表翻译，慢。现代 CPU 用 <b>PCID/ASID</b>（地址空间标识）给 TLB 项打进程标签，避免全量刷新，缓解了这个问题。</div>
+<div class="info box"><b>切换的诱因：</b>时间片用完、被更高优先级抢占、主动阻塞（等 I/O/锁）、系统调用中让出。<code>vmstat</code> 里的 <code>cs</code> 就是每秒上下文切换次数——数值异常高往往意味着锁竞争激烈或线程开太多。</div>
+</section>
+
+<!-- ============ 9 fork/exec/COW ============ -->
+<section id="fork">
+<h2 class="sec">9 · fork / exec / 写时复制 <span class="tag li">Linux</span></h2>
+<p>Linux 创建新进程的经典组合：<code>fork()</code> 复制出一个子进程，<code>exec()</code> 把它替换成另一个程序。</p>
+<pre><code>pid_t pid = fork();          // 复制当前进程
+if (pid == 0) {              // 返回 0 → 我是子进程
+    execve("/bin/ls", ...);  // 用 ls 程序把自己整个替换掉
+} else if (pid > 0) {        // 返回子进程 PID → 我是父进程
+    waitpid(pid, &status, 0);// 等子进程结束并回收
+}</code></pre>
+<div class="info box"><b>fork 一次返回两次：</b>在父进程里返回子进程 PID（&gt;0），在子进程里返回 0，出错返回 -1。就是靠这个返回值区分"我现在是谁"。子进程拷贝了父进程几乎所有东西（地址空间、打开的文件描述符），但有独立 PID。</div>
+<h4>写时复制 COW（Copy-On-Write）<span class="tag hi">高频</span></h4>
+<p>如果 fork 真的把父进程整个地址空间物理拷贝一份，太浪费——何况很多时候 fork 完马上就 exec 换成别的程序，拷了也白拷。所以 Linux 用 <b>写时复制</b>：</p>
+<ol>
+  <li>fork 时<b>不真拷贝物理内存</b>，父子进程的页表都指向<b>同一批物理页</b>，并把这些页标记为<b>只读</b>。</li>
+  <li>父子谁都只读时相安无事，共享同一份。</li>
+  <li>一旦有人<b>写</b>某页 → 触发<b>缺页异常</b> → 内核这才为它<b>复制一份该页</b>、改成可写，双方从此各写各的。</li>
+</ol>
+<div class="tip box"><b>好处：</b>fork 变得极快（只拷页表、不拷数据），且只在真正写的时候按页复制，很多页从头到尾都不用复制。Redis 的 RDB 持久化正是靠 fork 出子进程 + COW，让子进程用"快照那一刻"的数据落盘，父进程照常服务（见 <a href="../redis/index.html">Redis 笔记</a>）。</div>
+</section>
+
+<!-- ============ 10 存储层次结构 ============ -->
+<section id="hierarchy">
+<h2 class="sec">10 · 存储层次结构 <span class="tag hi">高频</span></h2>
+<p>进内存管理之前，先建立硬件底座——为什么会有寄存器、L1/L2/L3 缓存、内存、磁盘这么多层？因为存储有条铁律：<b>越快 → 越贵 → 容量越小；越慢 → 越便宜 → 容量越大</b>。没有一种介质能同时做到"又快又大又便宜"，于是把它们<b>分层堆叠</b>，让数据在层与层之间流动，用小容量的快设备撑起大容量的快体验。</p>
+
+<h4>金字塔：容量、速度、由谁管理</h4>
+<table>
+<tr><th>层级</th><th>典型容量</th><th>访问延迟</th><th>由谁管理</th></tr>
+<tr><td><b>寄存器 Register</b></td><td>几百字节</td><td>~0.3 ns</td><td>CPU / 编译器</td></tr>
+<tr><td><b>L1 Cache</b></td><td>32~64 KB / 核</td><td>~1 ns</td><td>硬件自动</td></tr>
+<tr><td><b>L2 Cache</b></td><td>256KB~1MB / 核</td><td>~4 ns</td><td>硬件自动</td></tr>
+<tr><td><b>L3 Cache</b></td><td>几~几十 MB（多核共享）</td><td>~15 ns</td><td>硬件自动</td></tr>
+<tr><td><b>物理内存 DRAM</b></td><td>几 GB~几百 GB</td><td>~100 ns</td><td><b>操作系统</b></td></tr>
+<tr><td><b>SSD 固态硬盘</b></td><td>几百 GB~几 TB</td><td>~100 μs</td><td>OS / 文件系统</td></tr>
+<tr><td><b>HDD 机械硬盘</b></td><td>几 TB</td><td>~10 ms</td><td>OS / 文件系统</td></tr>
+</table>
+
+<div class="hd">
+  <div class="cap" style="color:var(--os);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">把延迟放大成人能感知的时间（经典类比，面试可直接甩）</div>
+  <div class="lane">
+    <div class="grp2 g-orange"><div class="cap">寄存器 1ns ≈ 1 秒</div><div class="note">手边桌上，伸手就拿</div></div>
+    <div class="grp2 g-blue"><div class="cap">内存 100ns ≈ 1 分半</div><div class="note">下楼去仓库取</div></div>
+    <div class="grp2 g-green"><div class="cap">SSD 100μs ≈ 1 天多</div><div class="note">开车去城郊</div></div>
+    <div class="grp2"><div class="cap">机械硬盘 10ms ≈ 1 年</div><div class="note">坐飞机去外地</div></div>
+  </div>
+  <div class="note" style="margin-top:8px">CPU 从内存拿数据像等 1 分半，从机械硬盘拿像等 1 年 —— 这就是"减少磁盘 I/O、让数据留在内存/缓存"是一切性能优化头等大事的原因</div>
+</div>
+<div class="tip box"><b>为什么分层还能高效？靠局部性（详见 <a href="#locality">§16</a>）。</b>真实程序访问有<b>时间局部性</b>（刚用过的还会用）和<b>空间局部性</b>（用了一处，附近也快用），所以"把最近/最可能用的数据搬到快层"这招几乎总能命中。Redis 快、数据库加索引/加缓存、CPU 加缓存，本质都是<b>想办法把热数据往金字塔上层挪</b>。</div>
+
+<h3>CPU 缓存：L1 / L2 / L3</h3>
+<p>这几层由<b>硬件全自动管理</b>，操作系统和程序员都不直接控制：</p>
+<ul>
+  <li><b>L1</b> 通常再分 <b>L1d（数据）</b>和 <b>L1i（指令）</b>，每个 CPU 核<b>独占</b>，最快最小。</li>
+  <li><b>L2</b> 一般每核独占；<b>L3</b> 通常<b>多核共享</b>，最大。</li>
+  <li>查找顺序：寄存器 → L1 → L2 → L3 → 物理内存，命中就返回，逐层往下找（<b>miss</b> 才去下一层）。</li>
+</ul>
+<div class="info box"><b>缓存行 Cache Line：</b>缓存不是按字节搬，而是一次搬一整块，通常 <b>64 字节</b>。你读一个 <code>int</code>，它旁边的 60 字节会被一起拉进缓存——这正是空间局部性的硬件体现，也是"数组顺序遍历比跳着访问快得多"的原因。</div>
+<div class="warn box"><b>两个高频延伸：</b>① <b>伪共享 False Sharing</b>——两个核各改一个变量，但它俩恰好落在<b>同一缓存行</b>，一个核写就让另一个核的缓存行失效、来回同步，性能暴跌；解决靠<b>填充对齐</b>到不同缓存行。② <b>缓存一致性 MESI</b>——多核各有缓存副本，靠 MESI（Modified/Exclusive/Shared/Invalid）协议保证一致，这也是并发"可见性"问题（<a href="#race">§21</a>）的硬件根源。</div>
+
+<h3>物理内存 vs 虚拟内存 vs 硬盘（三者关系）</h3>
+<table>
+<tr><th>概念</th><th>是什么</th><th>用的地址</th></tr>
+<tr><td><b>物理内存</b></td><td>主板上真实的<b>内存条（DRAM）</b>，实打实的硬件</td><td>物理地址</td></tr>
+<tr><td><b>虚拟内存</b></td><td>OS 给每个进程<b>画的一张大饼</b>：都以为自己独占一整块连续超大内存</td><td>虚拟地址</td></tr>
+<tr><td><b>硬盘（swap）</b></td><td>物理内存不够时，把暂时不用的内存页<b>换出到硬盘</b>暂存</td><td>—</td></tr>
+</table>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-green"><div class="cap">进程A 虚拟地址空间</div><div class="note">以为独占一整块</div></div>
+    <div class="grp2 g-green"><div class="cap">进程B 虚拟地址空间</div><div class="note">也以为独占一整块</div></div>
+  </div>
+  <div class="arrow-d">▼ 页表 + MMU 翻译（A的0x1000 和 B的0x1000 映射到不同物理位置）</div>
+  <div class="lane">
+    <div class="grp2 g-blue" style="flex:2"><div class="cap">物理内存 DRAM（真实、有限，大家分）</div><div class="node">A页 · B页 · A页 · 空 · B页 …（零散分布）</div></div>
+  </div>
+  <div class="arrow-d">▼ 装不下的页换出</div>
+  <div class="lane">
+    <div class="grp2"><div class="cap">硬盘 swap 交换区</div><div class="node">暂时不用的页存这里，要用再换回内存（慢）</div></div>
+  </div>
+</div>
+<div class="tip box"><b>一句话辨析：</b>物理内存是"真的房间"，虚拟内存是"给每个进程发的一张假房号表"，OS 在后台偷偷把假房号映射到真房间（靠<b>页表 + MMU</b>，见 <a href="#pagetable">§13</a>）；真房间不够了，就把不常用的家具暂存到硬盘（<b>swap</b>）。所以进程用的<b>虚拟地址 ≠ 物理地址</b>，中间永远隔着一步"翻译"。</div>
+<div class="warn box"><b>硬盘的两个身份别搞混：</b>① <b>持久化存储</b>——关机不丢，存文件/程序/数据库（本职）；② <b>内存的后备（swap）</b>——虚拟内存"打破物理限制"靠它兜底。代价是慢几个数量级，一旦频繁换页就是<b>抖动 Thrashing</b>（<a href="#locality">§16</a>），系统卡到怀疑人生。</div>
+
+<h4>串起来：一次数据访问走过的层</h4>
+<div class="diagram">CPU 要一个数据 x
+  → 寄存器有吗？→ L1 → L2 → L3 有吗？   (硬件自动查，命中即返回)
+  → 都没有 → CPU 发出的是【虚拟地址】
+           → MMU 查 TLB / 多级页表，翻译成【物理地址】   (§12-14)
+           → 该页在物理内存吗？
+                在  → 从 DRAM 取（顺便把整条缓存行填进各级 Cache）
+                不在 → 缺页异常：从硬盘(文件/swap)加载进内存 → 再取   (§14)</div>
+<div class="info box"><b>记住这条金线：</b>数据永远在"快而小"和"慢而大"之间流动，系统想尽办法<b>让热数据待在上层</b>。本笔记后面所有性能话题——TLB（<a href="#pagetable">§13</a>）、缺页换页（<a href="#pagefault">§14</a>）、局部性/抖动（<a href="#locality">§16</a>）、零拷贝（<a href="#zerocopy">§32</a>）——都是这条金线的不同侧面。</div>
+</section>
+
+<!-- ============ 11 为什么虚拟内存 ============ -->
+<section id="why-vm">
+<h2 class="sec">11 · 为什么要虚拟内存 <span class="tag hi">高频</span></h2>
+<p>如果程序直接用物理地址会有三个致命问题：① 进程之间<b>没有隔离</b>，A 能改 B 的内存；② 物理内存<b>不够</b>用（跑不了比内存大的程序）；③ 地址<b>不确定</b>，程序装载到哪就得改哪，无法多开。虚拟内存一次性解决：</p>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-green"><div class="cap">进程看到的虚拟地址空间</div><div class="note">每个进程都以为自己独占<br>一整块连续内存（如 64 位下 128TB）</div></div>
+    <div class="arrow-r">MMU + 页表 翻译 ▶</div>
+    <div class="grp2 g-blue"><div class="cap">物理内存 + 磁盘（swap）</div><div class="note">实际零散分布<br>不够就换到磁盘</div></div>
+  </div>
+</div>
+<ul>
+  <li><b>隔离与保护</b>：每个进程一套独立页表，访问不到别人的物理页；页表项还带权限位（只读/可执行），越权就报段错误。</li>
+  <li><b>打破物理限制</b>：程序用的是虚拟地址，暂时用不到的页可以先不加载或换到磁盘（swap），于是能跑比物理内存大的程序。</li>
+  <li><b>连续假象</b>：虚拟地址连续，物理页可以东一块西一块，解决外部碎片，也方便加载。</li>
+</ul>
+<div class="info box"><b>虚拟地址→物理地址：</b>CPU 发出的都是虚拟地址，由硬件 <b>MMU（内存管理单元）</b>查<b>页表</b>翻译成物理地址。翻译失败（页不在内存/越权）就触发<b>缺页异常</b>或段错误交给内核。</div>
+</section>
+
+<!-- ============ 11 分页分段 ============ -->
+<section id="paging">
+<h2 class="sec">12 · 分段 / 分页 / 段页式</h2>
+<table>
+<tr><th>方式</th><th>思路</th><th>优点</th><th>缺点</th></tr>
+<tr><td><b>分段</b></td><td>按<b>逻辑</b>切（代码段/数据段/栈段），每段长度不等</td><td>符合程序逻辑、便于共享和保护</td><td>段长不等 → <b>外部碎片</b>严重</td></tr>
+<tr><td><b>分页</b></td><td>按<b>固定大小</b>切（通常 4KB），虚拟页 ↔ 物理页帧</td><td>无外部碎片、管理简单</td><td>有<b>内部碎片</b>（最后一页填不满）；页表占空间</td></tr>
+<tr><td><b>段页式</b></td><td>先分段、段内再分页（现代主流）</td><td>兼得两者优点</td><td>地址翻译多一层</td></tr>
+</table>
+<div class="info box"><b>分页的核心概念：</b>虚拟内存切成<b>页(page)</b>，物理内存切成同样大小的<b>页帧(page frame)</b>，页表记录"虚拟页号 → 物理页帧号"的映射。一个虚拟地址 = <b>页号 + 页内偏移</b>；翻译时用页号查页表得到页帧号，页内偏移直接拼上去。Linux 默认页大小 <b>4KB</b>，也支持 2MB/1GB 的<b>大页(HugePage)</b>——大页能减少页表项和 TLB miss，适合数据库等大内存应用。</div>
+<div class="warn box"><b>内部碎片 vs 外部碎片：</b><b>内部</b>——分配的块比实际需要大，块内部有浪费（分页的最后一页）。<b>外部</b>——空闲内存总量够，但都是零散小块，凑不出一段连续的大块（分段的老问题）。分页用固定大小消灭了外部碎片。</div>
+</section>
+
+<!-- ============ 12 多级页表 & TLB ============ -->
+<section id="pagetable">
+<h2 class="sec">13 · 多级页表 &amp; TLB <span class="tag hi">高频</span></h2>
+<h4>问题：页表太大了</h4>
+<p>32 位、4KB 页、每个页表项 4 字节，单级页表要 <code>2^20 × 4B = 4MB</code>——而且<b>每个进程</b>都要一份，还大多是空的。64 位下更是天文数字。解决办法是<b>多级页表</b>：只为真正用到的地址区间建立下级页表，没用到的整块不建，省内存。</p>
+<div class="diagram">虚拟地址（x86-64，4 级页表）
+┌──────┬──────┬──────┬──────┬────────────┐
+│ PGD  │ PUD  │ PMD  │ PTE  │  页内偏移    │
+└──┬───┴──┬───┴──┬───┴──┬───┴────────────┘
+   │      │      │      └─→ 页表项 → 物理页帧号
+   │      │      └────────→ 逐级查找，每级一张表
+   │      └───────────────→ 未用到的分支整块不建 = 省内存
+   └──────────────────────→ CR3 寄存器指向顶级页表基址</div>
+<div class="warn box"><b>代价：</b>多级页表把"一次查表"变成"查 N 次表"，N 级页表访问一次内存要额外做 N 次访存，慢。用 <b>TLB</b> 来救。</div>
+<h4>TLB：页表的缓存（快表）</h4>
+<p><b>TLB（Translation Lookaside Buffer）</b>是 MMU 里的一块小而快的缓存，存最近用过的"虚拟页号 → 物理页帧号"映射。</p>
+<ul>
+  <li><b>TLB 命中</b>：直接拿到物理页帧号，一次访存搞定，飞快。</li>
+  <li><b>TLB 未命中</b>：老老实实走多级页表翻译（page table walk），拿到后填回 TLB。</li>
+  <li>命中率极高（靠<b>局部性</b>，见 §16），所以大多数访存不受多级页表拖累。</li>
+</ul>
+<div class="info box"><b>为什么进程切换要刷 TLB？</b>TLB 里存的是虚拟页号，不同进程同一个虚拟页号映射到不同物理页，切进程后旧映射全失效，必须刷（或用 PCID 打标签避免全刷）。这也是进程切换比线程切换贵的原因之一（见 §8）。</div>
+</section>
+
+<!-- ============ 13 缺页与置换 ============ -->
+<section id="pagefault">
+<h2 class="sec">14 · 缺页与页面置换 <span class="tag hi">高频</span></h2>
+<h4>缺页异常（Page Fault）</h4>
+<p>访问的虚拟页<b>不在物理内存</b>（还没加载、或被换到 swap）时，MMU 触发缺页异常，陷入内核处理：</p>
+<ol>
+  <li>检查地址是否合法（在进程的合法内存区域内），非法 → 段错误 <code>SIGSEGV</code>。</li>
+  <li>合法但没加载 → 找一个<b>空闲页帧</b>，从磁盘（文件/swap）把数据读进来，更新页表。</li>
+  <li>没有空闲页帧 → 用<b>页面置换算法</b>选一个"受害者页"换出去（脏页要先写回磁盘），腾出位置。</li>
+  <li>返回，重新执行刚才那条访存指令，这次成功。</li>
+</ol>
+<div class="info box"><b>缺页分两种：</b><b>次缺页(minor)</b>——页其实在内存里（如共享库已被别人加载、COW），只需建立映射，快；<b>主缺页(major)</b>——真要从磁盘读，慢。<code>ps</code> 里的 <code>min_flt/maj_flt</code> 就是它俩的计数。</div>
+<h4>页面置换算法</h4>
+<table>
+<tr><th>算法</th><th>规则</th><th>特点</th></tr>
+<tr><td><b>OPT</b> 最优</td><td>换出"未来最久不用"的页</td><td>理论最优，但要预知未来，<b>无法实现</b>，仅作基准</td></tr>
+<tr><td><b>FIFO</b></td><td>换出最早进来的页</td><td>简单，但会有 <b>Belady 异常</b>（页帧变多缺页反而增多）</td></tr>
+<tr><td><b>LRU</b> 最近最少使用</td><td>换出最久没被访问的页</td><td>效果好、最常提；但要记录每页访问时间，硬件开销大</td></tr>
+<tr><td><b>Clock</b> 时钟/二次机会</td><td>环形扫描 + 访问位，给最近用过的页"第二次机会"</td><td>LRU 的<b>低成本近似</b>，实际系统（含 Linux）多用其改进版</td></tr>
+</table>
+<div class="warn box"><b>Belady 异常：</b>正常想法是"内存越大缺页越少"，但 FIFO 在特定访问序列下，<b>增加页帧数缺页次数反而增加</b>。LRU 和 OPT 属于"栈式算法"，不会有这个异常。这是 FIFO 的经典考点。</div>
+<div class="info box"><b>Linux 实际用的 <span class="tag li">Linux</span>：</b>近似 LRU 的<b>双链表（active/inactive）</b>方案：维护活跃链表和不活跃链表，页被访问就往活跃端移，回收时从不活跃链表尾部选受害者。配合 <code>swappiness</code> 参数调节"宁可换出匿名页还是回收文件缓存页"的倾向。</div>
+</section>
+
+<!-- ============ 14 内存分配 ============ -->
+<section id="alloc">
+<h2 class="sec">15 · Linux 内存分配 <span class="tag li">Linux</span></h2>
+<h4>内核层：伙伴系统 + slab</h4>
+<table class="rowh">
+<tr><th>伙伴系统<br>Buddy</th><td>管理<b>物理页帧</b>，以 2 的幂个连续页为单位（1,2,4,8…页）分配，解决<b>外部碎片</b>。释放时若相邻的"伙伴"也空闲就<b>合并</b>成更大块。</td></tr>
+<tr><th>slab / slub</th><td>伙伴系统最小也要一整页，但内核老要分配很多<b>小对象</b>（task_struct、inode）。slab 在伙伴系统之上做<b>小对象缓存池</b>：预先切好同类对象、复用已释放的，避免频繁向伙伴系统申请、减少内部碎片。</td></tr>
+</table>
+<h4>用户层：malloc 背后是什么 <span class="tag hi">高频</span></h4>
+<p><code>malloc</code> 是 C 库函数，不是系统调用。它向内核批发大块内存、自己零售：</p>
+<ul>
+  <li><b>小内存（默认 &lt; 128KB）</b>：用 <code>brk</code> 系统调用抬高堆顶指针，从堆上切。释放时不一定立刻还给内核，留着复用（减少系统调用）。</li>
+  <li><b>大内存（≥ 128KB）</b>：用 <code>mmap</code> 直接向内核映射一块匿名内存，free 时 <code>munmap</code> 还回去。</li>
+</ul>
+<div class="info box"><b>为什么分两种？</b><code>brk</code> 管理的堆是<b>连续</b>的，只能从顶部收缩，中间的空闲块还不了内核（易碎片），但复用快、适合大量小分配；<code>mmap</code> 每块独立、能单独归还，适合大块。这也是为什么频繁分配释放小对象时，进程占用的内存（RSS）降不下来——被 malloc 留着复用了。</div>
+<div class="warn box"><b>OOM Killer <span class="tag li">Linux</span>：</b>物理内存 + swap 都耗尽时，内核启动 OOM Killer，按"占用大、优先级低"的评分（oom_score）挑一个进程<b>杀掉</b>释放内存。服务器上常见"进程莫名被杀"就是它干的，<code>dmesg</code> 里能看到日志。</div>
+</section>
+
+<!-- ============ 15 局部性 & 抖动 ============ -->
+<section id="locality">
+<h2 class="sec">16 · 局部性原理 &amp; 抖动</h2>
+<p><b>局部性原理</b>是整个存储层次（寄存器→缓存→内存→磁盘）和 TLB、页面置换能高效工作的<b>根本前提</b>：</p>
+<ul>
+  <li><b>时间局部性</b>：刚访问过的数据/指令，很可能<b>不久后再次</b>被访问（循环变量、热点函数）。</li>
+  <li><b>空间局部性</b>：访问了某地址，<b>附近</b>的地址很可能接着被访问（数组顺序遍历、指令顺序执行）。</li>
+</ul>
+<div class="tip box"><b>写代码怎么用它？</b>数组按行遍历（顺着内存）比按列快很多（缓存行命中）；结构体把常一起用的字段放一起。这也是为什么"缓存"这个思想到处都是——CPU 缓存、TLB、页缓存、Redis，全靠局部性吃饭。</div>
+<h4>抖动 Thrashing</h4>
+<p>如果分给进程的页帧太少，装不下它的<b>工作集</b>（当前活跃使用的那批页），就会<b>刚换出的页马上又要用、又换进来</b>，CPU 大部分时间耗在换页 I/O 上、几乎不干正事——这就是<b>抖动/颠簸</b>。</p>
+<div class="danger box"><b>怎么办？</b>① 用<b>工作集模型</b>估算每个进程需要的页帧，保证够；② 内存实在不够就<b>挂起</b>部分进程（降低并发度），把页帧让给活跃进程。现象上：系统极卡、磁盘狂转、CPU 利用率看着不高（都在等换页 I/O）。</div>
+</section>
+
+<!-- ============ 16 管道 ============ -->
+<section id="pipe">
+<h2 class="sec">17 · 管道</h2>
+<p>进程各有独立地址空间，不能直接读对方内存，必须靠内核提供的 <b>IPC（进程间通信）</b>机制。先看最简单的管道：</p>
+<table>
+<tr><th>类型</th><th>特点</th></tr>
+<tr><td><b>匿名管道</b> <code>pipe()</code></td><td>内核里的一块环形缓冲区，<b>半双工</b>（单向）、<b>只能用于有亲缘关系的进程</b>（父子，靠 fork 继承 fd）。shell 里的 <code>ls | grep</code> 就是它。</td></tr>
+<tr><td><b>命名管道</b> FIFO</td><td>以<b>文件形式</b>存在（<code>mkfifo</code>），任意两个进程都能用它通信，不要求亲缘关系。</td></tr>
+</table>
+<div class="info box"><b>管道的本质：</b>内核缓冲区 + "像文件一样读写"的接口。写满会阻塞写端，读空会阻塞读端（天然的流量控制）。数据<b>一次性</b>，读走就没了，且是<b>字节流</b>没有消息边界。</div>
+</section>
+
+<!-- ============ 17 共享内存等 ============ -->
+<section id="shm">
+<h2 class="sec">18 · 消息队列 / 共享内存 / 信号量</h2>
+<table>
+<tr><th>机制</th><th>原理</th><th>特点</th></tr>
+<tr><td><b>消息队列</b></td><td>内核维护的消息链表，进程按<b>消息</b>收发</td><td>有消息边界（不像管道是字节流）、可按类型读；但单条大小和总量有限</td></tr>
+<tr><td><b>共享内存</b><br>Shared Memory</td><td>两个进程把<b>同一块物理内存</b>映射到各自地址空间</td><td><b>最快</b>的 IPC——数据不经过内核拷贝，直接读写同一块内存。但需自己用<b>信号量</b>做同步</td></tr>
+<tr><td><b>信号量</b><br>Semaphore</td><td>一个计数器 + P(减/等待)、V(加/释放)原子操作</td><td>本质是<b>同步/互斥</b>工具而非传数据，常给共享内存配套用</td></tr>
+</table>
+<div class="tip box"><b>为什么共享内存最快？</b>其它 IPC（管道、消息队列、socket）都要经过内核缓冲区，数据至少<b>两次拷贝</b>（用户→内核→用户）。共享内存映射的是同一份物理页，进程读写<b>直达</b>，无需内核中转，所以最快——代价是同步得自己管。</div>
+<details class="q"><summary>Linux 进程间通信有哪些方式？各自适用场景？</summary><div class="a"><b>管道/FIFO</b>：简单的单向数据流（shell 管道）。<b>消息队列</b>：需要消息边界、按类型收发。<b>共享内存 + 信号量</b>：大数据量、高性能，最快。<b>信号</b>：通知类事件（Ctrl+C、子进程结束）。<b>socket</b>：跨主机通信，也可本机（Unix domain socket）。按"要不要跨主机、数据量大小、要不要消息边界、性能要求"来选。</div></details>
+</section>
+
+<!-- ============ 18 信号 ============ -->
+<section id="signal">
+<h2 class="sec">19 · 信号 signal</h2>
+<p>信号是一种<b>异步通知</b>机制（"软件中断"），用来告诉进程"发生了某件事"。它不传数据，只传"发生了几号事件"。</p>
+<table class="rowh">
+<tr><th>SIGINT (2)</th><td>Ctrl+C，请求中断，可被捕获</td></tr>
+<tr><th>SIGKILL (9)</th><td><code>kill -9</code>，<b>强杀，不可被捕获/忽略</b></td></tr>
+<tr><th>SIGTERM (15)</th><td>请求终止（<code>kill</code> 默认），可捕获做优雅退出</td></tr>
+<tr><th>SIGSEGV (11)</th><td>段错误，非法内存访问</td></tr>
+<tr><th>SIGCHLD (17)</th><td>子进程结束，父进程可借此回收（防僵尸）</td></tr>
+<tr><th>SIGSTOP / SIGCONT</th><td>暂停 / 继续，SIGSTOP 同样不可捕获</td></tr>
+</table>
+<p>进程收到信号后有三种反应：<b>执行默认动作</b>（多数是终止）、<b>忽略</b>、或<b>捕获</b>（注册信号处理函数 <code>signal/sigaction</code> 自定义处理）。<code>SIGKILL</code> 和 <code>SIGSTOP</code> 是唯二不能捕获也不能忽略的——保证系统总有办法杀死/暂停任何进程。</p>
+<div class="warn box"><b>优雅关闭：</b>服务程序通常捕获 <code>SIGTERM</code>，收到后停止接新请求、处理完手头的、关闭连接再退出。<code>kill -9</code>（SIGKILL）则是立即强杀，来不及清理，尽量少用。</div>
+</section>
+
+<!-- ============ 19 socket ============ -->
+<section id="socket">
+<h2 class="sec">20 · Socket</h2>
+<p>Socket 是最通用的 IPC——既能<b>跨主机</b>（走 TCP/IP，网络通信的基础），也能本机进程间通信（<b>Unix domain socket</b>，比走网络协议栈快，Nginx、Docker、MySQL 本地连接都用它）。</p>
+<div class="info box"><b>为什么 socket 通用？</b>它把通信双方抽象成"读写一个文件描述符"，屏蔽了对方在本机还是远端。服务端 <code>socket→bind→listen→accept</code>，客户端 <code>socket→connect</code>，之后就 <code>read/write</code>。网络部分的细节（TCP 三次握手、拥塞控制等）属于计算机网络专题，这里只需知道它是进程通信的一种、且和文件描述符/epoll 直接挂钩（见 §31）。</div>
+</section>
+
+<!-- ============ 20 竞态 ============ -->
+<section id="race">
+<h2 class="sec">21 · 竞态与临界区 <span class="tag hi">高频</span></h2>
+<p>多个执行流并发访问<b>共享资源</b>，最终结果依赖于它们的<b>执行时序</b>——这就是<b>竞态条件（Race Condition）</b>。经典例子 <code>count++</code> 其实是三步（读→加→写），两个线程交错执行就可能丢更新。</p>
+<pre><code>// 线程A、B 各执行 1000 次 count++，期望 2000，实际常小于 2000
+读 count(=5) ┐         ┌ 读 count(=5)   ← B 读到的还是旧值
+加 1 →6      │  交错   │
+写回 6 ──────┘         └ 加1→6，写回 6   ← 两次自增只生效一次</code></pre>
+<h4>并发问题的三个要素</h4>
+<ul>
+  <li><b>原子性</b>：一组操作要么全做完、要么全不做，中间不被打断（<code>count++</code> 不是原子的）。</li>
+  <li><b>可见性</b>：一个线程改了共享变量，别的线程能立刻看到（CPU 缓存可能让别人看到旧值）。</li>
+  <li><b>有序性</b>：编译器和 CPU 可能<b>重排</b>指令，多线程下可能出问题（需内存屏障）。</li>
+</ul>
+<p><b>临界区</b>：访问共享资源、必须<b>互斥</b>执行的那段代码。解决竞态的核心就是保证<b>同一时刻只有一个执行流进入临界区</b>——这就要靠锁等同步原语。</p>
+<div class="info box"><b>好的同步方案要满足：</b>① <b>互斥</b>（同时最多一个进临界区）；② <b>空闲让进</b>（没人用时想进的能进）；③ <b>有限等待</b>（不能无限期排队饿死）；④ <b>让权等待</b>（进不去就让出 CPU，别空转）。</div>
+</section>
+
+<!-- ============ 21 锁 ============ -->
+<section id="lock">
+<h2 class="sec">22 · 锁与同步原语 <span class="tag hi">高频</span></h2>
+<table>
+<tr><th>原语</th><th>机制</th><th>适用</th></tr>
+<tr><td><b>互斥锁 Mutex</b></td><td>拿不到锁就<b>阻塞睡眠</b>，让出 CPU，被唤醒再抢</td><td>临界区较长、可能等较久</td></tr>
+<tr><td><b>自旋锁 Spinlock</b></td><td>拿不到锁就<b>忙等（空转）</b>，反复试，不睡眠</td><td>临界区极短、多核；单核上自旋无意义</td></tr>
+<tr><td><b>读写锁 RWLock</b></td><td>读读共享、读写/写写互斥</td><td>读多写少</td></tr>
+<tr><td><b>信号量 Semaphore</b></td><td>计数器，可允许 N 个同时进入（Mutex 是 N=1 的特例）</td><td>控制并发数、资源池</td></tr>
+<tr><td><b>条件变量 Cond</b></td><td>让线程在某条件不满足时睡眠等待，条件满足由别人唤醒</td><td>配合 Mutex，等待特定条件（如队列非空）</td></tr>
+</table>
+<div class="warn box"><b>互斥锁 vs 自旋锁怎么选？</b>关键看<b>临界区时长</b>和<b>切换成本</b>：临界区很短（几条指令）→ 自旋锁，忙等几下就拿到，比"睡眠+唤醒"两次上下文切换划算；临界区长或会阻塞 → 互斥锁，睡觉让出 CPU 给别人干活。<b>自旋锁里绝不能睡眠或做耗时操作</b>，否则别的核陪着空转烧 CPU。</div>
+<h4>底层基石：原子操作与 CAS</h4>
+<p>锁本身也要"抢"，靠的是 CPU 提供的<b>原子指令</b>。最常见的是 <b>CAS（Compare-And-Swap）</b>：<code>比较内存值==预期?则改成新值:不改</code>，整个过程原子。无锁数据结构、乐观锁、自旋锁都建立在 CAS 之上。<b>ABA 问题</b>：值从 A 变 B 又变回 A，CAS 以为没变过，加版本号解决。</p>
+<div class="tip box"><b>用户态快锁 futex <span class="tag li">Linux</span>：</b>传统锁每次加解锁都陷入内核，慢。Linux 的 <b>futex</b>（Fast Userspace Mutex）在<b>无竞争时全程在用户态用 CAS 搞定</b>，只有真正发生竞争、需要睡眠/唤醒时才陷入内核。glibc 的 pthread_mutex 就基于 futex，这是"锁大多数时候很便宜"的原因。</div>
+</section>
+
+<!-- ============ 22 经典同步问题 ============ -->
+<section id="classic">
+<h2 class="sec">23 · 经典同步问题</h2>
+<h4>生产者-消费者</h4>
+<p>生产者往缓冲区放、消费者取，需要：缓冲区满时生产者等、空时消费者等，且对缓冲区的操作互斥。用<b>两个信号量 + 一个互斥锁</b>：<code>empty</code>（空位数）、<code>full</code>（数据数）、<code>mutex</code>（保护缓冲区）。这就是消息队列、线程池任务队列、Kafka 的底层模型。</p>
+<pre><code>生产者：P(empty); P(mutex); 放数据; V(mutex); V(full);
+消费者：P(full);  P(mutex); 取数据; V(mutex); V(empty);</code></pre>
+<div class="danger box"><b>顺序不能错：</b>必须<b>先 P 资源信号量（empty/full），再 P 互斥锁 mutex</b>。若反过来先拿 mutex 再 P(empty)，缓冲区满时生产者会<b>抱着 mutex 睡死</b>，消费者也拿不到 mutex 取数据 → 死锁。</div>
+<h4>读者-写者</h4>
+<p>允许多个读者同时读，但写者必须独占。核心是"第一个读者加写锁、最后一个读者放写锁"。有<b>读者优先</b>（写者可能饿死）和<b>写者优先</b>之分——读写锁（§22）就是它的封装。</p>
+<h4>哲学家就餐</h4>
+<p>5 个哲学家围桌，每人需<b>同时拿起左右两根筷子</b>才能吃。若所有人同时拿起左筷再等右筷 → 全体死锁。解法：① 限制最多 4 人同时拿筷；② 奇偶哲学家<b>拿筷顺序相反</b>（破坏循环等待）；③ 只有左右两筷都空闲才允许拿（一次拿两根）。这是死锁的经典教学模型。</p>
+</section>
+
+<!-- ============ 23 死锁 ============ -->
+<section id="deadlock">
+<h2 class="sec">24 · 死锁 <span class="tag hi">高频</span></h2>
+<p><b>死锁</b>：两个或多个进程互相持有对方需要的资源、都在等对方释放，谁也走不了、永久僵住。</p>
+<h4>产生的四个必要条件（缺一不可）</h4>
+<table class="rowh">
+<tr><th>互斥</th><td>资源同一时刻只能被一个进程占用</td></tr>
+<tr><th>持有并等待</th><td>已持有资源，还在等待新资源，且不释放已持有的</td></tr>
+<tr><th>不可剥夺</th><td>资源只能由持有者主动释放，不能被强抢</td></tr>
+<tr><th>循环等待</th><td>存在一个进程-资源的环形等待链（A等B、B等C、C等A）</td></tr>
+</table>
+<h4>处理策略</h4>
+<table>
+<tr><th>策略</th><th>做法</th></tr>
+<tr><td><b>预防</b>（破坏必要条件）</td><td>破坏其一即可：① 一次性申请全部资源（破坏"持有并等待"）；② 允许抢占（破坏"不可剥夺"）；③ <b>资源按固定顺序申请</b>（破坏"循环等待"，最常用、最实用）</td></tr>
+<tr><td><b>避免</b></td><td><b>银行家算法</b>：每次分配前判断分配后系统是否仍处于"安全状态"（存在一个能让所有进程都跑完的分配序列），不安全就不分配</td></tr>
+<tr><td><b>检测 + 解除</b></td><td>允许死锁发生，定期用资源分配图检测环；发现后靠"杀进程/回滚/抢资源"解除</td></tr>
+<tr><td><b>鸵鸟策略</b></td><td>假装看不见——死锁概率低时，重启了事。通用 OS（含 Linux）实际多用这个</td></tr>
+</table>
+<div class="tip box"><b>工程上最实用的一招：固定加锁顺序。</b>所有线程都按同一个顺序申请多把锁（比如永远先锁 A 再锁 B），就不可能出现环形等待，从根上杜绝死锁。转账场景"锁两个账户"时，按账户 ID 大小排序加锁是经典做法。</div>
+<div class="warn box"><b>活锁 vs 饥饿：</b><b>活锁</b>——进程没阻塞，但都在不停重试同一个动作、互相谦让，状态一直变却没进展（两人过道互相让路）。<b>饥饿</b>——某进程因优先级低总排不上，长期得不到资源。死锁是"卡死不动"，活锁是"忙着但没进展"。</div>
+</section>
+
+<!-- ============ 24 调度目标 ============ -->
+<section id="sched">
+<h2 class="sec">25 · 调度目标与时机</h2>
+<p>就绪队列里一堆进程/线程都想上 CPU，调度器决定<b>下一个跑谁、跑多久</b>。这是一场多目标权衡：</p>
+<table>
+<tr><th>指标</th><th>含义</th></tr>
+<tr><td>CPU 利用率 / 吞吐量</td><td>让 CPU 别闲着 / 单位时间完成的任务数（偏重后台批处理）</td></tr>
+<tr><td>周转时间</td><td>从提交到完成的总时间</td></tr>
+<tr><td>响应时间</td><td>从请求到<b>首次响应</b>的时间（偏重交互式，用户体验的关键）</td></tr>
+<tr><td>公平性</td><td>别让谁饿死，合理分配</td></tr>
+</table>
+<div class="info box"><b>抢占式 vs 非抢占式：</b><b>非抢占</b>——进程一旦上 CPU 就跑到主动让出（结束或阻塞），简单但一个长任务会拖垮响应。<b>抢占式</b>——时间片用完或更高优先级就绪时，内核强制换下当前进程。现代通用 OS（Linux/Windows）都是抢占式，保证交互流畅。</div>
+<p><b>调度时机</b>：进程结束、主动阻塞（等 I/O）、时间片用完、有更高优先级进程就绪、从内核态返回用户态时。</p>
+</section>
+
+<!-- ============ 25 调度算法 ============ -->
+<section id="sched-algo">
+<h2 class="sec">26 · 调度算法</h2>
+<table>
+<tr><th>算法</th><th>规则</th><th>优缺点</th></tr>
+<tr><td><b>FCFS</b> 先来先服务</td><td>按到达顺序，非抢占</td><td>公平简单；但一个长任务在前会让后面短任务等很久（<b>护航效应</b>）</td></tr>
+<tr><td><b>SJF/SRTF</b> 短作业优先</td><td>选运行时间最短的（抢占版=最短剩余时间优先）</td><td><b>平均周转最优</b>；但要预知运行时间，且长任务可能<b>饿死</b></td></tr>
+<tr><td><b>优先级调度</b></td><td>按优先级高低选</td><td>灵活；低优先级可能饿死 → 用<b>老化(aging)</b>随等待时间提升优先级来缓解</td></tr>
+<tr><td><b>时间片轮转 RR</b></td><td>每个进程轮流跑一个时间片，用完排到队尾</td><td>公平、响应好；<b>时间片大小</b>是关键：太大退化成 FCFS，太小切换开销占比高</td></tr>
+<tr><td><b>多级反馈队列 MLFQ</b></td><td>多个优先级队列，新任务进最高级；用完时间片就降级，长期不运行的升级</td><td>不用预知运行时间就能兼顾短任务响应和长任务吞吐，<b>综合性最好</b>，很多真实调度器的思想来源</td></tr>
+</table>
+<div class="tip box"><b>MLFQ 的巧思：</b>它假设"短任务/交互任务优先级应该高"。新来的任务先给高优先级试跑，如果它很快就阻塞（典型交互/IO 型）→ 留在高优先级享受快响应；如果它一直占满时间片（典型 CPU 密集型）→ 逐级降到低优先级慢慢跑。既不需要预知运行时间，又自动区分了任务类型。</div>
+</section>
+
+<!-- ============ 26 CFS ============ -->
+<section id="cfs">
+<h2 class="sec">27 · Linux CFS 完全公平调度 <span class="tag li">Linux</span> <span class="tag hi">高频</span></h2>
+<p>Linux 2.6.23 起普通进程用 <b>CFS（Completely Fair Scheduler，完全公平调度器）</b>。核心思想：<b>让每个进程获得尽量公平的 CPU 时间</b>，抛弃了固定时间片，改用 <b>vruntime（虚拟运行时间）</b>。</p>
+<ul>
+  <li>每个进程记一个 <code>vruntime</code>，表示它"已经跑了多久"（按权重归一化）。<b>调度器总是选 vruntime 最小的进程</b>去跑——谁跑得少就补谁，从而公平。</li>
+  <li>进程运行时 vruntime 增长；<b>优先级（nice 值）</b>影响增长速度：优先级高（nice 小、权重大）的进程 vruntime 长得<b>慢</b>，于是能更频繁被选中、拿到更多 CPU。</li>
+  <li>用<b>红黑树</b>按 vruntime 排序组织就绪队列，取最小值 O(log n)，最左节点就是下一个要跑的。</li>
+</ul>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-orange"><div class="cap">红黑树（按 vruntime 排序）</div>
+      <div class="node accent">最左节点 = vruntime 最小 <span class="sub">→ 下一个被调度</span></div>
+      <div class="node">运行后 vruntime 增大 → 重新插入树中排队</div>
+    </div>
+  </div>
+  <div class="note" style="margin-top:6px">nice 值决定权重：nice 越小权重越大，vruntime 增速越慢 → 分到更多 CPU</div>
+</div>
+<div class="info box"><b>为什么用 vruntime 而不是固定时间片？</b>固定时间片下，进程多了每个响应就慢。CFS 定义一个<b>调度周期</b>，让所有就绪进程在这个周期内都能跑一次，每个分到的时间按权重比例算——进程越多每份越小但依然公平，天然适应负载变化。实时任务另有 <code>SCHED_FIFO/SCHED_RR</code> 策略，优先级高于普通 CFS 任务。</div>
+</section>
+
+<!-- ============ 27 文件系统 ============ -->
+<section id="fs">
+<h2 class="sec">28 · 文件系统与 inode <span class="tag li">Linux</span></h2>
+<h4>inode：文件的"身份证"</h4>
+<p>Linux 文件系统把文件的<b>元数据</b>和<b>数据</b>分开存。<b>inode（索引节点）</b>存元数据：文件大小、权限、属主、时间戳、以及<b>指向数据块的指针</b>——但<b>不含文件名</b>。文件名存在<b>目录</b>里，目录本质是"文件名 → inode 号"的映射表。</p>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-green"><div class="cap">目录项 dentry</div><div class="node">"a.txt" → inode #1234</div></div>
+    <div class="arrow-r">▶</div>
+    <div class="grp2 g-orange"><div class="cap">inode #1234</div><div class="node">权限/大小/时间<br>数据块指针 →</div></div>
+    <div class="arrow-r">▶</div>
+    <div class="grp2 g-blue"><div class="cap">数据块 data block</div><div class="node">真正的文件内容</div></div>
+  </div>
+</div>
+<h4>硬链接 vs 软链接 <span class="tag hi">高频</span></h4>
+<table>
+<tr><th></th><th>硬链接 hard link</th><th>软链接 symbolic link</th></tr>
+<tr><td>本质</td><td>另一个文件名<b>指向同一个 inode</b></td><td>一个独立的小文件，内容是<b>目标的路径</b>（像快捷方式）</td></tr>
+<tr><td>inode</td><td>与原文件<b>相同</b></td><td>自己有独立 inode</td></tr>
+<tr><td>删原文件</td><td>不影响（inode 引用计数减 1，到 0 才真删数据）</td><td>软链接<b>失效</b>（悬空，指向不存在的路径）</td></tr>
+<tr><td>跨文件系统/目录</td><td>不能跨文件系统、不能链目录</td><td>都可以</td></tr>
+</table>
+<div class="info box"><b>删除文件到底删了啥？</b><code>rm</code>（unlink）删的是<b>目录项</b>并把 inode 引用计数减 1。只有<b>计数归零且没有进程打开它</b>时，数据块才真正释放。所以"删了正在被进程写的日志文件，磁盘空间没释放"——因为进程还开着它，计数没到 0，得重启进程或截断。</div>
+<div class="tip box"><b>VFS 虚拟文件系统 <span class="tag li">Linux</span>：</b>Linux 在各种具体文件系统（ext4、xfs、网络文件系统、甚至 /proc）之上抽象了一层 <b>VFS</b>，统一成 <code>open/read/write</code> 接口。所以你用同样的系统调用能操作本地磁盘、U 盘、网络目录——"一切皆文件"就是靠 VFS 实现的。</div>
+
+<h3>文件描述符：三张表 <span class="tag hi">高频</span></h3>
+<p>进程调 <code>open</code> 拿到的那个小整数（fd），背后是<b>三张表</b>的层层指向。理解它，才能解释 fork 后文件怎么共享、重定向怎么实现：</p>
+<table>
+<tr><th>表</th><th>属于谁</th><th>存什么</th></tr>
+<tr><td><b>① 文件描述符表</b> fd table</td><td><b>每个进程</b>一张</td><td>fd 号 → 指向"打开文件表"的某一项。<code>0/1/2</code> 固定是 stdin/stdout/stderr</td></tr>
+<tr><td><b>② 打开文件表</b> open file table</td><td><b>全系统</b>共享</td><td>每次 <code>open</code> 生成一项，记<b>读写偏移 offset</b>、状态标志、指向对应 inode</td></tr>
+<tr><td><b>③ inode 表</b></td><td><b>全系统</b>共享</td><td>文件真正的元数据（同一个文件只有一份 inode）</td></tr>
+</table>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-green"><div class="cap">进程fd表</div><div class="node">fd 3 →</div><div class="node">fd 4 →</div></div>
+    <div class="arrow-r">▶</div>
+    <div class="grp2 g-orange"><div class="cap">打开文件表（各带 offset）</div><div class="node">项A offset=100 →</div><div class="node">项B offset=0 →</div></div>
+    <div class="arrow-r">▶</div>
+    <div class="grp2 g-blue"><div class="cap">inode</div><div class="node">同一文件<br>只一份</div></div>
+  </div>
+</div>
+<div class="info box"><b>三个经典结论：</b>① <b>fork 后</b>子进程复制 fd 表，但父子的 fd <b>指向同一个打开文件表项</b> → <b>共享同一个 offset</b>（父写一段、子接着写，不会互相覆盖）。② <b>两次 open 同一文件</b> → 两个独立的打开文件表项 → offset 各自独立。③ <b>dup2(fd, 1)</b> 让 fd 1 指向和目标同一个表项，这就是 <code>./a &gt; log.txt</code> 和 <code>2&gt;&amp;1</code>（把 stderr 重定向到 stdout）的实现原理。</div>
+</section>
+
+<!-- ============ 29 Page Cache ============ -->
+<section id="pagecache">
+<h2 class="sec">29 · Page Cache 与刷盘 <span class="tag li">Linux</span> <span class="tag hi">高频</span></h2>
+<p>磁盘比内存慢几个数量级（见 <a href="#hierarchy">§10</a>），所以 Linux 用空闲内存做文件的缓存——<b>Page Cache 页缓存</b>。<b>普通的文件读写默认都要经过它</b>，这是理解"数据库为什么要 fsync""Kafka 为什么快"的关键一环。</p>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-green"><div class="cap">进程</div><div class="node">read / write</div></div>
+    <div class="arrow-r">▶</div>
+    <div class="grp2 g-orange"><div class="cap">Page Cache（内核内存）</div><div class="node">命中直接返回<br>写只写到这里就返回（脏页）</div></div>
+    <div class="arrow-r">异步回写▶</div>
+    <div class="grp2 g-blue"><div class="cap">磁盘</div><div class="node">真正落盘</div></div>
+  </div>
+</div>
+<h4>读：预读 + 命中</h4>
+<ul>
+  <li><b>命中</b>：数据已在 page cache → 直接从内存拷给用户，<b>不碰磁盘</b>（热文件反复读几乎零 I/O）。</li>
+  <li><b>未命中</b>：从磁盘读入、顺便缓存起来；还会<b>预读（readahead）</b>——顺序读时提前把后面几页也读进来，利用空间局部性。</li>
+</ul>
+<h4>写：回写（write-back）</h4>
+<p><code>write</code> 默认<b>只把数据写进 page cache、标记为"脏页"就返回</b>，并没真落盘。内核的<b>回写线程</b>（flusher）之后异步刷盘。触发刷盘的时机：脏页比例超阈值（<code>dirty_ratio</code>）、脏页存在太久（<code>dirty_expire</code>）、内存吃紧、或进程主动 <code>fsync</code>。</p>
+<div class="danger box"><b>好处与风险：</b>回写让写操作飞快、还能<b>合并多次小写</b>、顺序化刷盘。但代价是——<b>数据只在 page cache 还没落盘时掉电/宕机，就丢了</b>。这就是所有数据库都要面对的持久化问题。</div>
+<h4>fsync：强制落盘</h4>
+<table class="rowh">
+<tr><th>fsync(fd)</th><td>把该文件的<b>脏页 + 元数据</b>强制刷到磁盘，返回才保证落盘。数据库靠它保证持久化（如 MySQL redo log、Redis AOF 的 <code>appendfsync</code>）</td></tr>
+<tr><th>fdatasync</th><td>只刷数据（不含不影响读取的元数据），比 fsync 少一次元数据写，更快</td></tr>
+<tr><th>O_DIRECT</th><td>打开文件时指定，<b>绕过 page cache</b> 直接读写磁盘。数据库（如 InnoDB）常用它，因为自己有 buffer pool，不想被内核再缓存一层（双重缓存浪费内存）</td></tr>
+</table>
+<h4>mmap：把文件映射进内存</h4>
+<p><code>mmap</code> 把文件<b>直接映射到进程虚拟地址空间</b>，之后像读写内存一样读写文件，<b>省掉 read/write 那次"内核↔用户"拷贝</b>（映射的就是 page cache 里的页）。缺页时才按需从磁盘加载。这也是零拷贝（<a href="#zerocopy">§32</a>）的手段之一。</p>
+<div class="tip box"><b>面试串联：</b>① <code>free</code> 命令里的 <b>buff/cache</b> 就是 page cache，它"占用"的内存在需要时可被回收，所以别被"内存快满了"吓到。② <b>Kafka 快</b>：顺序写 page cache（不立即刷盘）+ 消费时用 sendfile 从 page cache 直接发网卡（零拷贝），全程少碰磁盘、少拷贝。③ <b>数据库的两难</b>：每次 fsync 保证不丢但慢，攒着批量刷快但可能丢——各家用 redo log / WAL + 组提交来平衡。</div>
+<details class="q"><summary>write 返回了，数据一定落盘了吗？</summary><div class="a"><b>不一定。</b>默认 write 只写到 page cache 就返回，数据还是脏页，靠内核异步回写，中间掉电会丢。要确保落盘必须显式调 <code>fsync/fdatasync</code>，或用 <code>O_SYNC</code> 打开。这就是数据库持久化的核心难点。</div></details>
+</section>
+
+<!-- ============ 30 IO模型 ============ -->
+<section id="io-model">
+<h2 class="sec">30 · I/O 五种模型 <span class="tag hi">高频</span></h2>
+<p>一次网络读，数据要经历两个阶段：① <b>等待数据就绪</b>（数据从网卡到达内核缓冲区）；② <b>拷贝数据</b>（从内核缓冲区拷到用户缓冲区）。五种模型的区别就在这两阶段谁等、怎么等：</p>
+<table>
+<tr><th>模型</th><th>阶段① 等数据</th><th>阶段② 拷数据</th><th>说明</th></tr>
+<tr><td><b>阻塞 BIO</b></td><td>阻塞</td><td>阻塞</td><td>调 read 就一直等到数据拷完返回。最简单，但一个线程只能守一个连接</td></tr>
+<tr><td><b>非阻塞 NIO</b></td><td>不阻塞（轮询）</td><td>阻塞</td><td>read 没数据立即返回错误，得反复轮询（<b>忙等浪费 CPU</b>）</td></tr>
+<tr><td><b>I/O 多路复用</b></td><td>阻塞在 select/epoll</td><td>阻塞</td><td>一个线程用 select/poll/epoll <b>同时监听大量 fd</b>，谁就绪处理谁。高并发的基石</td></tr>
+<tr><td><b>信号驱动</b></td><td>不阻塞（信号通知）</td><td>阻塞</td><td>数据就绪时内核发 SIGIO 通知，用得少</td></tr>
+<tr><td><b>异步 AIO</b></td><td>不阻塞</td><td>不阻塞</td><td>内核把两个阶段全干完，完成后才通知你。真正的异步，Linux 支持有限（io_uring 才成熟）</td></tr>
+</table>
+<div class="info box"><b>同步 vs 异步 / 阻塞 vs 非阻塞：</b>前四种都是<b>同步</b>——阶段②的数据拷贝要用户线程自己参与（会阻塞在拷贝上）。只有 AIO 是<b>异步</b>——两个阶段都由内核完成，用户线程完全不参与。阻塞/非阻塞说的是阶段①要不要等；同步/异步说的是阶段②谁来拷。多路复用本质仍是<b>同步阻塞</b>（阻塞在 epoll 上），只是用一个线程管了很多连接。</div>
+</section>
+
+<!-- ============ 29 epoll ============ -->
+<section id="epoll">
+<h2 class="sec">31 · select / poll / epoll <span class="tag li">Linux</span> <span class="tag hi">高频</span></h2>
+<p>I/O 多路复用的三代实现，epoll 是重点中的重点（Redis、Nginx、Netty 高并发都靠它）。</p>
+<table>
+<tr><th></th><th>select</th><th>poll</th><th>epoll</th></tr>
+<tr><td>fd 上限</td><td>有（默认 1024）</td><td>无（链表）</td><td>无</td></tr>
+<tr><td>底层结构</td><td>位图 fd_set</td><td>数组</td><td>红黑树 + 就绪链表</td></tr>
+<tr><td>每次调用</td><td>把全部 fd 从用户态<b>拷到内核</b></td><td>同 select</td><td>fd 用 <code>epoll_ctl</code> <b>一次注册</b>常驻内核，无需每次拷</td></tr>
+<tr><td>找就绪 fd</td><td><b>O(n) 轮询</b>全部 fd</td><td>O(n) 轮询</td><td><b>O(1)</b>：就绪的由回调放进就绪链表，直接返回</td></tr>
+<tr><td>适用</td><td>连接少</td><td>连接较多</td><td><b>海量连接、活跃少</b>（C10K/C10M）</td></tr>
+</table>
+<h4>epoll 为什么高效？</h4>
+<ol>
+  <li><b>fd 常驻内核</b>：<code>epoll_create</code> 建一棵红黑树，<code>epoll_ctl</code> 把 fd 注册进去（增删改 O(log n)），<b>不用每次调用都把 fd 列表从用户态拷进内核</b>——select/poll 每次都要拷，连接多了很贵。</li>
+  <li><b>回调而非轮询</b>：每个 fd 注册时挂一个回调，数据就绪时（网卡中断触发）内核直接把该 fd 加入<b>就绪链表</b>。<code>epoll_wait</code> 只需返回就绪链表，<b>不用遍历所有 fd</b>——这是 O(1) vs O(n) 的关键。</li>
+</ol>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-orange"><div class="cap">红黑树（所有被监听的 fd）</div><div class="node">epoll_ctl 增删改，常驻内核</div></div>
+    <div class="arrow-r">就绪时回调加入▶</div>
+    <div class="grp2 g-green"><div class="cap">就绪链表 rdllist</div><div class="node">epoll_wait 直接取，O(1)</div></div>
+  </div>
+</div>
+<div class="warn box"><b>水平触发 LT vs 边缘触发 ET：</b><b>LT（默认）</b>——只要 fd 还有数据没读完，每次 epoll_wait 都<b>持续通知</b>，编程简单不易漏。<b>ET</b>——只在状态<b>从无到有变化时通知一次</b>，必须<b>一次性把数据读干净</b>（循环 read 到 EAGAIN），否则剩下的不再通知。ET 通知次数少、效率高，但编程要求高，Nginx 用 ET。</div>
+<details class="q"><summary>为什么 Redis 单线程还能扛高并发？</summary><div class="a">因为 Redis 用 <b>epoll 做 I/O 多路复用</b>：单个线程用 epoll 同时监听成千上万个连接，谁的数据就绪就处理谁，全程不阻塞在某个连接上。加上操作都是纯内存（快）、避免了多线程锁竞争和上下文切换，单线程反而简单高效。详见 <a href="../redis/index.html">Redis 笔记</a>。</div></details>
+
+<h3>Reactor 模型：epoll 的上层用法 <span class="tag hi">高频</span></h3>
+<p>epoll 只是"能同时监听一堆 fd"的机制，真正落地成服务器要有个套路把它组织起来——这就是 <b>Reactor 模型</b>：一个 <b>Reactor</b> 阻塞在 <code>epoll_wait</code> 上等事件，事件来了按类型<b>分发（dispatch）</b>给对应的 handler 处理。三种典型结构：</p>
+<table>
+<tr><th>结构</th><th>做法</th><th>代表</th></tr>
+<tr><td><b>单 Reactor 单线程</b></td><td>一个线程既 epoll_wait 收事件，又处理业务</td><td><b>Redis</b>（命令执行本身单线程）</td></tr>
+<tr><td><b>单 Reactor 多线程</b></td><td>Reactor 线程只管 I/O 收发，业务逻辑丢<b>线程池</b>处理</td><td>业务耗时的场景</td></tr>
+<tr><td><b>主从 Reactor 多线程</b></td><td><b>主 Reactor</b> 只管 <code>accept</code> 新连接，分给多个<b>从 Reactor</b>，每个从 Reactor 各管一批连接的读写</td><td><b>Nginx（多 worker）、Netty</b> 默认</td></tr>
+</table>
+<div class="info box"><b>Reactor vs Proactor：</b><b>Reactor</b> 基于<b>同步</b> I/O 多路复用（epoll）——它通知你"数据就绪了，你自己来读"。<b>Proactor</b> 基于<b>异步</b> I/O（AIO）——内核把数据读好放进你的缓冲区，再通知你"读完了直接用"。对应 §30 的同步/异步之分。Linux 下 AIO 生态不成熟，所以主流高性能框架（Netty/Redis/Nginx）几乎都是 <b>Reactor + epoll</b>。</div>
+</section>
+
+<!-- ============ 32 零拷贝 ============ -->
+<section id="zerocopy">
+<h2 class="sec">32 · 零拷贝 zero-copy <span class="tag hi">高频</span></h2>
+<p>传统"读文件→发网络"（如静态文件服务器）要经历<b>4 次拷贝 + 4 次上下文切换</b>，其中两次是无谓的 CPU 拷贝：</p>
+<div class="diagram">传统 read + write：
+磁盘 ─DMA→ [内核缓冲区] ─CPU拷贝→ [用户缓冲区] ─CPU拷贝→ [socket缓冲区] ─DMA→ 网卡
+             ①                    ②(多余)              ③(多余)            ④
+       每次 read/write 还各有一次用户↔内核态切换，共 4 次上下文切换</div>
+<p>数据只是"过一遍用户态"就原样发走，中间那两次用户态拷贝纯属浪费。零拷贝就是<b>省掉这些不必要的 CPU 拷贝和态切换</b>：</p>
+<table>
+<tr><th>技术</th><th>做法</th></tr>
+<tr><td><b>mmap + write</b></td><td>用 mmap 把文件映射到用户空间，省掉"内核→用户"这次拷贝（用户和内核共享映射）。仍有一次内核内拷贝</td></tr>
+<tr><td><b>sendfile</b></td><td>数据<b>全程在内核态</b>流转，不进用户空间。文件→内核缓冲区→socket 缓冲区→网卡。用户态只发一条指令</td></tr>
+<tr><td><b>sendfile + DMA gather / splice</b></td><td>更进一步，连"内核缓冲区→socket 缓冲区"也省了，只传递描述符，实现真正的<b>零 CPU 拷贝</b></td></tr>
+</table>
+<div class="tip box"><b>谁在用？</b>Kafka 用 sendfile 把日志文件直接发给消费者（高吞吐的关键之一）；Nginx 发静态文件用 sendfile；Netty 的 FileRegion 也是。<b>面试串联</b>：问到 Kafka/Nginx 为什么快，"零拷贝减少了数据拷贝和上下文切换"是标准答案。</div>
+</section>
+
+<!-- ============ 31 磁盘调度 ============ -->
+<section id="disk">
+<h2 class="sec">33 · 磁盘调度</h2>
+<p>机械硬盘寻道（磁头移动）最耗时，磁盘调度算法就是<b>优化磁头移动顺序</b>来减少总寻道时间：</p>
+<table>
+<tr><th>算法</th><th>规则</th><th>特点</th></tr>
+<tr><td><b>FCFS</b></td><td>按请求到达顺序</td><td>公平但磁头可能来回乱跑</td></tr>
+<tr><td><b>SSTF</b> 最短寻道优先</td><td>每次选离当前磁头最近的</td><td>寻道短；但近处请求不断则远处<b>饿死</b></td></tr>
+<tr><td><b>SCAN</b> 电梯算法</td><td>磁头单向扫到头再折返，途经的顺路处理</td><td>像电梯，避免饿死，最常用思想</td></tr>
+<tr><td><b>C-SCAN</b></td><td>扫到头直接回到起点重新单向扫（不反向服务）</td><td>响应更均匀</td></tr>
+</table>
+<div class="info box"><b>SSD 时代还重要吗？</b>固态硬盘<b>没有机械寻道</b>，随机访问和顺序访问差距小得多，磁盘调度的意义大幅下降。Linux 对 SSD/NVMe 默认用 <code>none</code>（不排序，multi-queue 直接下发）或 <code>mq-deadline</code>。所以这块了解思想即可，机械盘上才关键。</div>
+</section>
+
+<!-- ============ 附 一图串联 ============ -->
+<section id="link">
+<h2 class="sec">附 · 一图串联：一个程序如何跑起来</h2>
+<p>把前面的知识点串成一条完整链路——你在 shell 敲 <code>./a.out</code> 回车，到程序跑完，操作系统做了什么：</p>
+<div class="hd">
+  <div class="lane"><div class="grp2 g-green" style="flex:1"><div class="cap">1. 创建进程</div>
+    <div class="node">shell 调 <span class="em">fork()</span> 复制自己（<span class="em">COW</span>，不真拷内存 §9），再 <span class="em">execve()</span> 把子进程替换成 a.out：加载代码段/数据段，建立新页表，堆栈就位（§4）</div></div></div>
+  <div class="arrow-d">▼</div>
+  <div class="lane"><div class="grp2 g-orange" style="flex:1"><div class="cap">2. 调度上 CPU</div>
+    <div class="node">新进程进就绪队列，<span class="em">CFS</span> 按 vruntime 挑中它（§27），发生<span class="em">上下文切换</span>切到它的地址空间（§8）</div></div></div>
+  <div class="arrow-d">▼</div>
+  <div class="lane"><div class="grp2 g-blue" style="flex:1"><div class="cap">3. 访存触发缺页</div>
+    <div class="node">首次访问某页，页还没在物理内存 → <span class="em">缺页异常</span>，内核分配页帧、从磁盘加载、填页表、填 <span class="em">TLB</span>（§12-14）</div></div></div>
+  <div class="arrow-d">▼</div>
+  <div class="lane"><div class="grp2 g-green" style="flex:1"><div class="cap">4. 申请内存 / 读文件</div>
+    <div class="node"><span class="em">malloc</span> 不够时 brk/mmap 陷入内核要内存（§15）；<span class="em">read</span> 文件走系统调用陷入内核（§2），可能阻塞等 I/O → 让出 CPU，调度别的进程</div></div></div>
+  <div class="arrow-d">▼</div>
+  <div class="lane"><div class="grp2 g-orange" style="flex:1"><div class="cap">5. I/O 就绪被唤醒</div>
+    <div class="node">磁盘/网卡完成，发<span class="em">硬中断</span>（§3），内核唤醒等待的进程回到就绪队列，等待再次被调度</div></div></div>
+  <div class="arrow-d">▼</div>
+  <div class="lane"><div class="grp2 g-blue" style="flex:1"><div class="cap">6. 退出与回收</div>
+    <div class="node">main 返回调 <span class="em">exit</span>，进程变<span class="em">僵尸态</span>等父进程 <span class="em">wait</span> 回收 PCB（§5）；内存页、fd 全部释放归还</div></div></div>
+</div>
+</section>
+
+<!-- ============ 附 性能排查 ============ -->
+<section id="tools">
+<h2 class="sec">附 · 性能排查速查 <span class="tag li">Linux</span> <span class="tag hi">高频</span></h2>
+<p>"线上 CPU 飙高 / 内存涨 / 服务卡顿，你怎么排查？"——把前面的概念落到工具上。先看几个最容易混的指标：</p>
+<h4>load average：不是 CPU 使用率</h4>
+<p><code>uptime</code>/<code>top</code> 顶部的 1/5/15 分钟负载，是这段时间内平均<b>处于运行(R) + 不可中断(D) 状态的任务数</b>。</p>
+<div class="info box"><b>load 和 CPU 使用率的区别（必问）：</b>CPU 使用率只看"CPU 在忙没忙"；load <b>还算上了等磁盘 I/O 的 D 状态任务</b>。所以磁盘卡住时，一堆任务卡在 D 态，<b>load 很高但 CPU 使用率不高</b>——这正是判断"到底是 CPU 瓶颈还是 I/O 瓶颈"的关键线索。经验判断：load 持续 &gt; CPU 核数，说明任务在排队。</div>
+<h4>top 里的 CPU 几个百分比</h4>
+<table class="rowh">
+<tr><th>us</th><td>用户态耗时。高 → 应用自身在狂算，用 perf 找热点函数</td></tr>
+<tr><th>sy</th><td>内核态耗时。高 → 系统调用/上下文切换频繁（锁竞争、fork 过多）</td></tr>
+<tr><td><b>wa</b></td><td>等待 I/O 的时间。高 → 磁盘是瓶颈，转去看 iostat</td></tr>
+<tr><th>si/hi</th><td>软/硬中断耗时。高 → 网络包量大（网卡中断），看是否需要多队列/RPS</td></tr>
+<tr><th>id</th><td>空闲</td></tr>
+</table>
+<h4>常用工具速查</h4>
+<table>
+<tr><th>工具</th><th>看什么</th></tr>
+<tr><td><code>top</code> / <code>htop</code></td><td>整体 CPU/内存、各进程占用、load</td></tr>
+<tr><td><code>vmstat 1</code></td><td><b>r</b>(运行队列长度) <b>b</b>(阻塞数) <b>si/so</b>(换页,非0说明在用 swap 了) <b>cs</b>(上下文切换) <b>in</b>(中断)</td></tr>
+<tr><td><code>iostat -x 1</code></td><td>磁盘 <b>%util</b>(繁忙程度,接近100%=打满) <b>await</b>(平均 I/O 延迟)</td></tr>
+<tr><td><code>free -h</code></td><td>内存;注意 <b>buff/cache</b> 是 page cache(可回收,别当成内存不够,见 <a href="#pagecache">§29</a>)</td></tr>
+<tr><td><code>pidstat 1</code></td><td>按进程/线程看 CPU、I/O、缺页</td></tr>
+<tr><td><code>strace -p &lt;pid&gt;</code></td><td>跟踪进程的<b>系统调用</b>,查它卡在哪个 syscall(如卡在 read/futex)</td></tr>
+<tr><td><code>perf top</code> / 火焰图</td><td>找 CPU <b>热点函数</b>,us 高时的利器</td></tr>
+<tr><td><code>lsof -p &lt;pid&gt;</code></td><td>进程打开的文件/fd(排查 fd 泄漏、"删了文件空间没释放"，见 <a href="#fs">§28</a>)</td></tr>
+</table>
+<div class="tip box"><b>套路举例：</b>① <b>CPU 高</b> → top 看 us 还是 sy：us 高用 perf 抓热点函数；sy 高看 vmstat 的 cs（上下文切换/锁竞争）。② <b>服务卡顿但 CPU 不高</b> → 看 load 和 top 的 wa，大概率 I/O，转 iostat 看 %util/await。③ <b>内存持续涨</b> → free 看是真占用还是 buff/cache；pmap/pidstat 定位进程；警惕被 OOM Killer 杀（<a href="#alloc">§15</a>，dmesg 里查）。④ <b>进程僵住</b> → strace 看卡在哪个系统调用，D 状态多半在等 I/O。</div>
+</section>
+
+<!-- ============ 附 速记 ============ -->
+<section id="cheat">
+<h2 class="sec">附 · 高频面试速记</h2>
+<table>
+<tr><th>问题</th><th>一句话答案</th></tr>
+<tr><td>进程 vs 线程</td><td>进程是<b>资源分配</b>单位（独立地址空间），线程是 <b>CPU 调度</b>单位（共享进程资源、独立栈和寄存器）；进程切换要换页表刷 TLB，更贵。</td></tr>
+<tr><td>用户态 vs 内核态</td><td>CPU 特权级之分。内核态能执行特权指令、访问所有资源；用户态受限，要越权只能通过<b>系统调用/中断/异常</b>陷入内核。</td></tr>
+<tr><td>存储层次结构</td><td>寄存器→L1/L2/L3→内存→SSD→硬盘，越上层越快越小越贵。靠<b>局部性</b>把热数据往上层挪。内存比机械盘快约百万倍，所以减少磁盘 I/O 是性能第一要务。缓存按 <b>64 字节缓存行</b>搬运。</td></tr>
+<tr><td>物理/虚拟内存/硬盘</td><td>物理内存=真实内存条；虚拟内存=OS 给每进程画的独占大饼，虚拟地址经页表+MMU 翻译到物理地址；硬盘既做持久化，又做 swap 兜底（内存不够时换出页）。</td></tr>
+<tr><td>为什么要虚拟内存</td><td>进程隔离与保护、打破物理内存大小限制、提供连续地址假象。靠页表 + MMU 把虚拟地址翻译成物理地址。</td></tr>
+<tr><td>多级页表 + TLB</td><td>多级页表按需建表省内存，但查表变慢；TLB 缓存常用映射，靠局部性命中，抵消多级开销。</td></tr>
+<tr><td>缺页处理 / 置换</td><td>访问不在内存的页触发缺页异常，内核加载该页；没空闲页帧就按 LRU/Clock 换出受害者。FIFO 有 Belady 异常。</td></tr>
+<tr><td>写时复制 COW</td><td>fork 时父子共享只读物理页，谁写谁才复制该页。让 fork 快、省内存（Redis RDB 靠它）。</td></tr>
+<tr><td>死锁四条件 / 破解</td><td>互斥、持有并等待、不可剥夺、循环等待。工程上最实用：<b>按固定顺序申请锁</b>破坏循环等待。</td></tr>
+<tr><td>互斥锁 vs 自旋锁</td><td>临界区短用自旋（忙等省切换），长用互斥（睡眠让出 CPU）。自旋锁里不能睡眠。</td></tr>
+<tr><td>僵尸 vs 孤儿进程</td><td>僵尸：子死父没 wait 回收，残留 PCB（有害）；孤儿：父先死，子被 init 收养（无害）。</td></tr>
+<tr><td>select/poll/epoll</td><td>epoll 用红黑树常驻 fd（不重复拷贝）+ 就绪回调链表（O(1) 找就绪），适合海量连接。LT 默认，ET 高效但要读干净。</td></tr>
+<tr><td>五种 I/O 模型</td><td>阻塞/非阻塞/多路复用/信号驱动/异步。前四种同步（用户参与数据拷贝），只有 AIO 是真异步。多路复用本质是同步阻塞。</td></tr>
+<tr><td>Reactor 模型</td><td>基于 epoll 的事件分发架构：单Reactor单线程(Redis)、单Reactor多线程、主从Reactor(Nginx/Netty)。Reactor=同步+epoll，Proactor=异步+AIO。</td></tr>
+<tr><td>Page Cache / write</td><td>文件读写默认走 page cache；write 只写缓存标脏页就返回，靠回写异步刷盘，掉电会丢。要落盘必须 fsync；数据库常用 O_DIRECT 绕过。</td></tr>
+<tr><td>文件描述符三张表</td><td>fd 表(每进程)→打开文件表(全局,含 offset)→inode。fork 后父子共享打开文件表项→共享 offset；dup2 实现重定向。</td></tr>
+<tr><td>load vs CPU 使用率</td><td>load 含运行(R)+不可中断(D,等I/O)任务数；CPU 使用率只看 CPU 忙不忙。I/O 卡时 load 高但 CPU 不高——用来区分 CPU 瓶颈还是 I/O 瓶颈。</td></tr>
+<tr><td>零拷贝</td><td>sendfile/mmap 减少数据在内核↔用户间的多余拷贝和上下文切换。Kafka、Nginx 高吞吐的关键。</td></tr>
+<tr><td>Linux CFS</td><td>按 vruntime（虚拟运行时间）红黑树排序，总选最小的跑，实现完全公平；nice 值调节权重。</td></tr>
+<tr><td>中断上下半部</td><td>上半部（硬中断）紧急、极短、关中断；下半部（软中断）延后干重活、开中断。兼顾实时性与吞吐。</td></tr>
+<tr><td>fork 返回值</td><td>父进程里返回子 PID，子进程里返回 0，出错返回 -1。靠它区分身份。</td></tr>
+</table>
+</section>
+
+<footer>
+🖥️ 操作系统专题 · 侧重 Linux 实现 · note-garden 🌿 &nbsp;|&nbsp; 返回 <a href="../index.html">首页</a>
+</footer>
+</main>
+</div>
+</body>
+</html>

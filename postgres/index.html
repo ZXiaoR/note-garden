@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PostgreSQL 知识体系笔记</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2028; --panel2:#222b36; --text:#d7dde5; --muted:#8b97a6;
+    --accent:#4aa8ff; --accent2:#38c172; --warn:#ffb454; --danger:#ff6b6b; --purple:#c792ea;
+    --border:#2c3742; --code-bg:#11161c; --pg:#5b9bd5;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;}
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+
+  /* layout */
+  .wrap{display:flex;max-width:1400px;margin:0 auto;}
+  nav{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;width:280px;
+    padding:24px 16px;border-right:1px solid var(--border);background:var(--bg);font-size:13.5px;flex-shrink:0;}
+  nav h2{font-size:14px;color:var(--accent);margin:18px 0 8px;letter-spacing:.5px;}
+  nav a{display:block;color:var(--muted);padding:3px 8px;border-radius:6px;margin:1px 0;}
+  nav a:hover{background:var(--panel);color:var(--text);text-decoration:none;}
+  nav .sub{padding-left:18px;font-size:12.5px;}
+  nav .home{color:var(--pg);font-weight:600;}
+  main{flex:1;min-width:0;padding:36px 44px 120px;}
+
+  h1{font-size:30px;margin:0 0 6px;background:linear-gradient(90deg,#5b9bd5,#4aa8ff,#c792ea);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
+  .lead{color:var(--muted);margin:0 0 28px;font-size:15px;}
+  section{margin-bottom:52px;scroll-margin-top:20px;}
+  h2.sec{font-size:24px;border-left:5px solid var(--pg);padding-left:14px;margin:44px 0 20px;}
+  h3{font-size:19px;color:#eaf0f6;margin:32px 0 12px;border-bottom:1px solid var(--border);padding-bottom:6px;}
+  h4{font-size:16px;color:var(--accent);margin:22px 0 8px;}
+  p{margin:10px 0;}
+  ul,ol{padding-left:24px;}
+  li{margin:5px 0;}
+  code{background:var(--code-bg);padding:2px 6px;border-radius:4px;font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:13px;color:var(--purple);}
+  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;line-height:1.6;color:#c8d3de;}
+  pre code{background:none;padding:0;color:inherit;}
+  .cmt{color:#5a6b7b;}
+  .kw{color:#5b9bd5;font-weight:600;}
+
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13.5px;}
+  th,td{border:1px solid var(--border);padding:9px 12px;text-align:left;vertical-align:top;}
+  th{background:var(--panel2);color:#eaf0f6;font-weight:600;}
+  tr:nth-child(even) td{background:rgba(255,255,255,.015);}
+
+  .box{border-radius:10px;padding:14px 18px;margin:16px 0;border-left:4px solid;}
+  .warn{background:rgba(255,180,84,.08);border-color:var(--warn);}
+  .warn b{color:var(--warn);}
+  .danger{background:rgba(255,107,107,.08);border-color:var(--danger);}
+  .danger b{color:var(--danger);}
+  .tip{background:rgba(56,193,114,.08);border-color:var(--accent2);}
+  .tip b{color:var(--accent2);}
+  .info{background:rgba(74,168,255,.08);border-color:var(--accent);}
+  .info b{color:var(--accent);}
+
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:20px;margin-left:6px;vertical-align:middle;
+    background:var(--panel2);color:var(--muted);border:1px solid var(--border);}
+  .tag.pg{color:#7fb4e6;border-color:#2b4a6b;}
+  .tag.new{color:#38c172;border-color:#255c3e;}
+
+  .diagram{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:18px;margin:16px 0;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;white-space:pre;overflow-x:auto;color:#a9c7e8;}
+
+  .split{display:flex;gap:20px;align-items:flex-start;margin:16px 0;flex-wrap:wrap;}
+  .split > .col{flex:1;min-width:320px;}
+
+  .q{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px 18px;margin:14px 0;}
+  .q summary{cursor:pointer;font-weight:600;color:var(--warn);padding:8px 0;list-style:none;}
+  .q summary::before{content:"❓ ";}
+  .q[open] summary{color:var(--accent);}
+  .q .a{padding:4px 0 12px;border-top:1px dashed var(--border);margin-top:4px;}
+
+  .pill-row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;}
+  .pill{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:13px;}
+
+  .toc-top{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 24px;margin-bottom:32px;}
+  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
+  .kbd{font-size:12px;color:var(--muted);}
+  footer{color:var(--muted);font-size:13px;border-top:1px solid var(--border);padding-top:20px;margin-top:60px;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#2c3742;border-radius:6px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a href="../index.html" class="home">🌱 ← 返回花园首页</a>
+  <h2>总览</h2>
+  <a href="#arch">0 · PG 是什么 & 进程架构</a>
+  <h2>基础</h2>
+  <a href="#install">1 · 安装 & psql 操作</a>
+  <a href="#types">2 · 数据类型</a>
+  <a href="#types-json" class="sub">JSONB vs JSON</a>
+  <a href="#ddl">3 · DDL & 约束</a>
+  <a href="#relation">4 · 表间关系</a>
+  <h2>查询</h2>
+  <a href="#dml">5 · DML & 查询进阶</a>
+  <a href="#dml-window" class="sub">窗口函数 / CTE</a>
+  <h2>原理（面试重点）</h2>
+  <a href="#trx">6 · 事务 & MVCC & 隔离级别</a>
+  <a href="#mvcc" class="sub">MVCC 多版本</a>
+  <a href="#isolation" class="sub">四种隔离级别</a>
+  <a href="#lock">7 · 锁</a>
+  <a href="#index">8 · 索引</a>
+  <a href="#index-type" class="sub">六种索引类型</a>
+  <a href="#index-fail" class="sub">索引失效</a>
+  <a href="#explain">9 · 执行计划 & 优化</a>
+  <a href="#vacuum">10 · VACUUM & 表膨胀</a>
+  <h2>拓展</h2>
+  <a href="#ext">11 · 视图/函数/触发器/WAL/分区</a>
+  <a href="#cheat">高频面试速记</a>
+</nav>
+
+<main>
+<h1>🐘 PostgreSQL 知识体系笔记</h1>
+<p class="lead">学习为骨 + 面试为肉：沿「安装 → 类型 → DDL → 关系 → DML → 事务 → 锁 → 索引 → 优化 → 运维」主线，每章末尾带 <b>❓ 折叠面试问答</b>。<span class="tag new">新增</span> 标记相对入门大纲扩充、面试区分度最高的内容。</p>
+
+<div class="toc-top">
+  <b>阅读主线：</b>先看 <a href="#arch">进程架构</a> 建立全局图 → 基础三章（<a href="#types">类型</a>/<a href="#ddl">DDL</a>/<a href="#relation">关系</a>）快速过 → 重点啃「<b><a href="#trx">事务·MVCC</a> → <a href="#lock">锁</a> → <a href="#index">索引</a> → <a href="#explain">EXPLAIN</a> → <a href="#vacuum">VACUUM</a></b>」这条原理链，PG 面试的区分度全在这里。带 ❓ 的折叠块可展开自测。
+</div>
+
+<!-- ============ 0 架构 ============ -->
+<section id="arch">
+<h2 class="sec">0 · PostgreSQL 是什么 & 进程架构</h2>
+<p>PostgreSQL 是一个开源的<b>对象-关系型数据库（ORDBMS）</b>，以严格遵循 SQL 标准、功能强大（丰富的数据类型、索引类型、窗口函数、CTE、扩展生态）著称，被称为"最先进的开源数据库"。</p>
+
+<h3>进程模型：多进程，不是多线程 <span class="tag pg">PG 特色</span></h3>
+<p>与 MySQL 每连接一个<b>线程</b>不同，PostgreSQL 每个客户端连接由 <code>postmaster</code>（主进程）<b>fork 出一个独立的后端进程（backend process）</b>来服务。进程隔离性好、稳定（一个连接崩溃不影响别人），但每连接开销较大——所以生产环境几乎总要搭 <b>连接池（PgBouncer）</b>。</p>
+<div class="diagram">                    ┌─────────────┐
+   客户端连接  ──────▶│  postmaster │  监听端口、fork 子进程、崩溃恢复
+                    └──────┬──────┘
+        ┌──────────────────┼──────────────────┐
+   ┌────▼────┐        ┌────▼────┐         ┌────▼─────────┐
+   │backend 1│        │backend 2│  ...    │ 后台辅助进程  │
+   │(会话进程)│        │(会话进程)│         ├──────────────┤
+   └────┬────┘        └────┬────┘         │ WAL Writer   │ 刷 WAL
+        │                  │              │ Bgwriter     │ 刷脏页
+        └────────┬─────────┘              │ Checkpointer │ 检查点
+                 ▼                        │ Autovacuum   │ 自动清理死元组
+     ┌───────────────────────┐           │ Stats/Archiver ...        │
+     │ Shared Buffers (共享内存)│◀────────┘
+     │  数据页缓存 · WAL 缓冲   │
+     └───────────┬───────────┘
+                 ▼   刷盘
+     ┌───────────────────────┐
+     │ 磁盘：数据文件 · WAL 日志 │
+     └───────────────────────┘</div>
+<table>
+<tr><th>组件</th><th>作用</th></tr>
+<tr><td><b>postmaster</b></td><td>主进程，监听连接、fork backend、管理后台进程、崩溃恢复</td></tr>
+<tr><td><b>backend 进程</b></td><td>每个连接一个，执行该会话的所有 SQL</td></tr>
+<tr><td><b>Shared Buffers</b></td><td>共享内存里的数据页缓存（类似 MySQL 的 Buffer Pool），默认较小，生产要调大</td></tr>
+<tr><td><b>WAL Writer</b></td><td>把 WAL（预写日志）缓冲刷到磁盘</td></tr>
+<tr><td><b>Bgwriter / Checkpointer</b></td><td>把内存中的脏页写回磁盘 / 定期做检查点</td></tr>
+<tr><td><b>Autovacuum</b></td><td>⭐后台自动回收 MVCC 产生的死元组（见 <a href="#vacuum">第 10 章</a>）</td></tr>
+</table>
+
+<details class="q"><summary>PostgreSQL 和 MySQL 最大的架构区别？</summary>
+<div class="a">① <b>进程 vs 线程</b>：PG 每连接一个进程，MySQL 每连接一个线程；② PG 是"单一存储引擎"深度优化，MySQL 是插件式引擎（InnoDB/MyISAM）；③ <b>MVCC 实现不同</b>：PG 把旧版本行直接留在数据表里、靠 VACUUM 回收；InnoDB 旧版本放 undo log。这点衍生出 PG 特有的"表膨胀"和 VACUUM 运维。</div>
+</details>
+</section>
+
+<!-- ============ 1 安装 ============ -->
+<section id="install">
+<h2 class="sec">1 · 安装 & psql 常用操作</h2>
+<pre><code><span class="cmt"># macOS</span>
+brew install postgresql@16
+brew services start postgresql@16
+
+<span class="cmt"># 连接（默认库名/用户名 = 当前系统用户）</span>
+psql postgres
+psql -h localhost -p 5432 -U myuser -d mydb</code></pre>
+
+<h4>psql 元命令（反斜杠命令，最常用）</h4>
+<table>
+<tr><th>命令</th><th>作用</th><th>命令</th><th>作用</th></tr>
+<tr><td><code>\l</code></td><td>列出所有数据库</td><td><code>\d 表名</code></td><td>查看表结构</td></tr>
+<tr><td><code>\c 库名</code></td><td>切换数据库</td><td><code>\dt</code></td><td>列出所有表</td></tr>
+<tr><td><code>\du</code></td><td>列出用户/角色</td><td><code>\di</code></td><td>列出索引</td></tr>
+<tr><td><code>\dn</code></td><td>列出 schema</td><td><code>\df</code></td><td>列出函数</td></tr>
+<tr><td><code>\x</code></td><td>切换竖排显示（宽表好用）</td><td><code>\timing</code></td><td>显示 SQL 耗时</td></tr>
+<tr><td><code>\e</code></td><td>用编辑器写 SQL</td><td><code>\q</code></td><td>退出</td></tr>
+</table>
+<div class="info box"><b>概念澄清：</b>PG 里层级是 <b>实例（cluster） → 数据库（database） → 模式（schema，默认 <code>public</code>） → 表</b>。跨数据库不能直接 join（要用 dblink/FDW），但同一库内跨 schema 可以。这点和 MySQL"database 约等于 schema"的扁平结构不同。</div>
+</section>
+
+<!-- ============ 2 数据类型 ============ -->
+<section id="types">
+<h2 class="sec">2 · 数据类型 <span class="tag new">新增</span></h2>
+
+<h3>常用类型速览</h3>
+<table>
+<tr><th>分类</th><th>类型</th><th>说明 / 选型建议</th></tr>
+<tr><td rowspan="2"><b>整数</b></td><td><code>smallint</code> / <code>integer</code> / <code>bigint</code></td><td>2/4/8 字节。主键计数量大用 bigint</td></tr>
+<tr><td><code>serial</code> / <code>bigserial</code></td><td>自增（底层是 int + 序列 sequence）</td></tr>
+<tr><td rowspan="2"><b>小数</b></td><td><code>numeric(p,s)</code> / <code>decimal</code></td><td>⭐<b>精确</b>数值，金额必用（不丢精度）</td></tr>
+<tr><td><code>real</code> / <code>double precision</code></td><td>浮点，有精度误差，别用来算钱</td></tr>
+<tr><td rowspan="2"><b>字符</b></td><td><code>varchar(n)</code> / <code>text</code></td><td>⭐PG 里 <code>text</code> 无长度上限且<b>无性能损失</b>，一般直接用 text</td></tr>
+<tr><td><code>char(n)</code></td><td>定长补空格，几乎不用</td></tr>
+<tr><td rowspan="3"><b>时间</b></td><td><code>date</code> / <code>time</code></td><td>日期 / 时间</td></tr>
+<tr><td><code>timestamp</code></td><td>不带时区</td></tr>
+<tr><td><code>timestamptz</code></td><td>⭐<b>带时区</b>，内部存 UTC，读时按会话时区转。跨时区业务首选</td></tr>
+<tr><td rowspan="4"><b>特色</b></td><td><code>boolean</code></td><td>true/false</td></tr>
+<tr><td><code>uuid</code></td><td>分布式主键常用（<code>gen_random_uuid()</code>）</td></tr>
+<tr><td><code>int[]</code> / <code>text[]</code></td><td>⭐<b>数组类型</b>，原生支持，可建 GIN 索引</td></tr>
+<tr><td><code>json</code> / <code>jsonb</code></td><td>⭐见下方对比</td></tr>
+</table>
+
+<h4>自增：serial vs IDENTITY <span class="tag pg">选型</span></h4>
+<pre><code><span class="cmt">-- 旧写法（能用，但序列权限/所有权管理有坑）</span>
+id serial PRIMARY KEY
+<span class="cmt">-- 推荐：SQL 标准写法（PG 10+）</span>
+id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY</code></pre>
+
+<div id="types-json"></div>
+<h3>JSONB vs JSON ⭐面试高频</h3>
+<table>
+<tr><th></th><th><code>json</code></th><th><code>jsonb</code>（推荐）</th></tr>
+<tr><td>存储</td><td>原样存文本</td><td>解析成<b>二进制</b>结构</td></tr>
+<tr><td>写入</td><td>快（不解析）</td><td>略慢（要解析）</td></tr>
+<tr><td>查询/取字段</td><td>慢（每次重新解析）</td><td>⭐<b>快</b></td></tr>
+<tr><td>是否保留空格/键顺序/重复键</td><td>保留</td><td>不保留（去重、重排）</td></tr>
+<tr><td>索引</td><td>不支持 GIN</td><td>⭐<b>支持 GIN 索引</b>，可高效查内部字段</td></tr>
+</table>
+<pre><code><span class="cmt">-- jsonb 操作符</span>
+SELECT data->>'name' FROM t;            <span class="cmt">-- 取字段为 text</span>
+SELECT * FROM t WHERE data @> '{"vip":true}';  <span class="cmt">-- 包含</span>
+CREATE INDEX idx ON t USING GIN (data);        <span class="cmt">-- GIN 索引加速</span></code></pre>
+<div class="tip box"><b>一句话：</b>除非你要原样保存用户提交的 JSON 文本，否则一律用 <b>jsonb</b>。</div>
+
+<details class="q"><summary>什么时候该用 jsonb，什么时候该老老实实拆列？</summary>
+<div class="a">字段<b>结构稳定、需要频繁查询/关联/约束</b>的 → 拆成正式列（享受强类型、约束、索引、统计信息）。字段<b>稀疏、schema 多变、整体读写</b>的（如配置、埋点属性、第三方回包）→ jsonb。别把 jsonb 当成偷懒不建模的借口。</div>
+</details>
+</section>
+
+<!-- ============ 3 DDL ============ -->
+<section id="ddl">
+<h2 class="sec">3 · DDL & 约束</h2>
+<pre><code><span class="kw">CREATE TABLE</span> users (
+    id        bigint <span class="kw">GENERATED ALWAYS AS IDENTITY PRIMARY KEY</span>,
+    email     text        <span class="kw">NOT NULL UNIQUE</span>,
+    age       int         <span class="kw">CHECK</span> (age >= 0),
+    status    text        <span class="kw">DEFAULT</span> 'active',
+    full_name text <span class="kw">GENERATED ALWAYS AS</span> (first || ' ' || last) <span class="kw">STORED</span>, <span class="cmt">-- 生成列</span>
+    created_at timestamptz <span class="kw">DEFAULT</span> now()
+);
+
+<span class="kw">ALTER TABLE</span> users ADD COLUMN phone text;          <span class="cmt">-- 加列</span>
+<span class="kw">ALTER TABLE</span> users ALTER COLUMN age SET NOT NULL;   <span class="cmt">-- 改约束</span>
+<span class="kw">ALTER TABLE</span> users RENAME COLUMN phone TO mobile;   <span class="cmt">-- 改名</span>
+<span class="kw">DROP TABLE</span> users;</code></pre>
+
+<h4>约束一览</h4>
+<table>
+<tr><th>约束</th><th>作用</th></tr>
+<tr><td><code>PRIMARY KEY</code></td><td>主键 = 唯一 + 非空，一表一个，自动建唯一索引</td></tr>
+<tr><td><code>UNIQUE</code></td><td>唯一（允许多个 NULL，因为 NULL≠NULL）</td></tr>
+<tr><td><code>NOT NULL</code></td><td>非空</td></tr>
+<tr><td><code>CHECK</code></td><td>自定义条件校验，如 <code>CHECK (price > 0)</code></td></tr>
+<tr><td><code>DEFAULT</code></td><td>默认值</td></tr>
+<tr><td><code>FOREIGN KEY</code></td><td>外键，见 <a href="#relation">下一章</a></td></tr>
+</table>
+<div class="warn box"><b>DDL 也在事务里！</b> PG 的 DDL（CREATE/ALTER/DROP）是<b>事务性的</b>，可以 <code>BEGIN ... ALTER ... ROLLBACK</code>——这是相对 MySQL（DDL 隐式提交）的一大优点，迁移脚本失败能整体回滚。</div>
+
+<details class="q"><summary>给大表加一列会锁表很久吗？</summary>
+<div class="a">加一个<b>带非易变默认值</b>的列，PG 11+ 只改元数据、<b>不重写全表</b>，很快。但加列时若默认值是易变函数、或 <code>ALTER COLUMN ... TYPE</code> 改类型，会重写整表并持有 <code>ACCESS EXCLUSIVE</code> 锁，大表上很危险，要用灰度手法（加列→回填→加约束 <code>NOT VALID</code> 再 <code>VALIDATE</code>）。</div>
+</details>
+</section>
+
+<!-- ============ 4 表间关系 ============ -->
+<section id="relation">
+<h2 class="sec">4 · 表间关系</h2>
+<table>
+<tr><th>关系</th><th>实现</th><th>例子</th></tr>
+<tr><td><b>一对一 1:1</b></td><td>从表主键同时是外键（或唯一外键）</td><td>用户 - 用户详情</td></tr>
+<tr><td><b>一对多 1:N</b></td><td>"多"的一方存外键</td><td>用户 - 订单</td></tr>
+<tr><td><b>多对多 M:N</b></td><td>中间表存两个外键</td><td>学生 - 课程（选课表）</td></tr>
+</table>
+<pre><code><span class="cmt">-- 一对多：订单表引用用户</span>
+<span class="kw">CREATE TABLE</span> orders (
+    id       bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id  bigint <span class="kw">REFERENCES</span> users(id) <span class="kw">ON DELETE CASCADE</span>,
+    amount   numeric(10,2)
+);</code></pre>
+
+<h4>外键的级联动作 ON DELETE / ON UPDATE</h4>
+<table>
+<tr><th>动作</th><th>父行被删/改时</th></tr>
+<tr><td><code>CASCADE</code></td><td>子行跟着删/改</td></tr>
+<tr><td><code>SET NULL</code></td><td>子行外键置 NULL</td></tr>
+<tr><td><code>RESTRICT</code> / <code>NO ACTION</code></td><td>有子行则禁止删（默认）</td></tr>
+</table>
+<div class="info box"><b>范式速记：</b>1NF 列不可再分 → 2NF 消除对主键的部分依赖 → 3NF 消除传递依赖。实战常<b>适度反范式</b>（冗余字段换查询性能），但要清楚代价是维护一致性。</div>
+</section>
+
+<!-- ============ 5 DML ============ -->
+<section id="dml">
+<h2 class="sec">5 · DML & 查询进阶 <span class="tag new">扩充</span></h2>
+
+<h3>基础增删改 + PG 特色</h3>
+<pre><code><span class="kw">INSERT INTO</span> users(email) VALUES('a@x.com') <span class="kw">RETURNING</span> id;  <span class="cmt">-- ⭐插入后直接返回</span>
+
+<span class="cmt">-- ⭐UPSERT：存在则更新，不存在则插入</span>
+<span class="kw">INSERT INTO</span> users(email, status) VALUES('a@x.com','vip')
+<span class="kw">ON CONFLICT</span> (email) <span class="kw">DO UPDATE SET</span> status = EXCLUDED.status;
+
+<span class="kw">UPDATE</span> orders SET amount = amount*0.9 WHERE user_id = 1 <span class="kw">RETURNING</span> *;
+<span class="kw">DELETE FROM</span> orders WHERE amount = 0;</code></pre>
+
+<h3>JOIN 四种类型</h3>
+<div class="diagram">INNER JOIN   两表都匹配的行           A ∩ B
+LEFT  JOIN   左表全保留，右无则 NULL   A（含不匹配）
+RIGHT JOIN   右表全保留               B（含不匹配）
+FULL  JOIN   两边都保留               A ∪ B
+CROSS JOIN   笛卡尔积（无 ON）         A × B</div>
+
+<h3>聚合：GROUP BY / HAVING</h3>
+<pre><code><span class="kw">SELECT</span> user_id, count(*), sum(amount)
+<span class="kw">FROM</span> orders
+<span class="kw">GROUP BY</span> user_id
+<span class="kw">HAVING</span> sum(amount) > 1000;   <span class="cmt">-- HAVING 过滤分组后的结果（WHERE 过滤分组前的行）</span></code></pre>
+
+<div id="dml-window"></div>
+<h3>窗口函数 ⭐PG 王牌，面试高频</h3>
+<p>普通聚合会把多行"压成一行"；<b>窗口函数在保留每一行的同时</b>，对一个"窗口"内的行做计算。语法核心是 <code>OVER (PARTITION BY ... ORDER BY ...)</code>。</p>
+<pre><code><span class="cmt">-- 每个用户内，按金额排名（不压行）</span>
+<span class="kw">SELECT</span> user_id, amount,
+       row_number() <span class="kw">OVER</span> (PARTITION BY user_id ORDER BY amount DESC) AS rn,
+       rank()       <span class="kw">OVER</span> (PARTITION BY user_id ORDER BY amount DESC) AS rk,
+       sum(amount)  <span class="kw">OVER</span> (PARTITION BY user_id) AS user_total
+<span class="kw">FROM</span> orders;</code></pre>
+<table>
+<tr><th>函数</th><th>作用</th></tr>
+<tr><td><code>row_number()</code></td><td>行号，连续不重复（1,2,3,4）</td></tr>
+<tr><td><code>rank()</code></td><td>排名，并列跳号（1,1,3）</td></tr>
+<tr><td><code>dense_rank()</code></td><td>排名，并列不跳号（1,1,2）</td></tr>
+<tr><td><code>lag()</code>/<code>lead()</code></td><td>取前一行/后一行的值（算环比、差值）</td></tr>
+</table>
+<div class="tip box"><b>经典题："取每个分组里最新/最大的一条"</b> → <code>row_number() OVER(PARTITION BY 分组 ORDER BY 时间 DESC)</code> 然后外层 <code>WHERE rn = 1</code>。</div>
+
+<h3>CTE：WITH 公共表表达式 + 递归</h3>
+<pre><code><span class="cmt">-- 普通 CTE：给子查询命名，提升可读性</span>
+<span class="kw">WITH</span> big_orders AS (
+    SELECT user_id, sum(amount) t FROM orders GROUP BY user_id HAVING sum(amount)>1000
+)
+SELECT u.email, b.t FROM users u JOIN big_orders b ON u.id=b.user_id;
+
+<span class="cmt">-- ⭐递归 CTE：查组织架构 / 树形结构 / 无限级分类</span>
+<span class="kw">WITH RECURSIVE</span> sub AS (
+    SELECT id, name, parent_id FROM dept WHERE id = 1     <span class="cmt">-- 锚点</span>
+    UNION ALL
+    SELECT d.id, d.name, d.parent_id
+    FROM dept d JOIN sub ON d.parent_id = sub.id          <span class="cmt">-- 递归</span>
+)
+SELECT * FROM sub;</code></pre>
+
+<details class="q"><summary>WHERE、GROUP BY、HAVING、窗口函数、ORDER BY 的执行顺序？</summary>
+<div class="a"><code>FROM/JOIN</code> → <code>WHERE</code>（行过滤）→ <code>GROUP BY</code> → <code>HAVING</code>（组过滤）→ <b>窗口函数</b> → <code>SELECT</code> → <code>DISTINCT</code> → <code>ORDER BY</code> → <code>LIMIT</code>。所以窗口函数<b>不能直接写在 WHERE 里</b>（那时还没算），要套一层子查询/CTE 再过滤。</div>
+</details>
+</section>
+
+<!-- ============ 6 事务 MVCC ============ -->
+<section id="trx">
+<h2 class="sec">6 · 事务 & MVCC & 隔离级别 <span class="tag new">重点扩充</span></h2>
+
+<h3>ACID & 基本用法</h3>
+<div class="pill-row">
+  <span class="pill"><b>A 原子性</b> 全成功或全失败（靠 undo/回滚）</span>
+  <span class="pill"><b>C 一致性</b> 约束不被破坏（结果目标）</span>
+  <span class="pill"><b>I 隔离性</b> 并发事务互不干扰（靠 MVCC+锁）</span>
+  <span class="pill"><b>D 持久性</b> 提交后不丢（靠 WAL）</span>
+</div>
+<pre><code><span class="kw">BEGIN</span>;
+  UPDATE account SET bal = bal-100 WHERE id=1;
+  <span class="kw">SAVEPOINT</span> s1;                 <span class="cmt">-- 保存点</span>
+  UPDATE account SET bal = bal+100 WHERE id=2;
+  <span class="kw">ROLLBACK TO</span> s1;              <span class="cmt">-- 回滚到保存点（部分回滚）</span>
+<span class="kw">COMMIT</span>;</code></pre>
+
+<div id="mvcc"></div>
+<h3>MVCC：多版本并发控制 ⭐PG 核心，必考</h3>
+<p>目标：<b>读不阻塞写，写不阻塞读</b>。原理：每行数据带两个隐藏系统列——</p>
+<table>
+<tr><th>隐藏列</th><th>含义</th></tr>
+<tr><td><code>xmin</code></td><td>创建（插入/更新产生）这行版本的事务 ID</td></tr>
+<tr><td><code>xmax</code></td><td>删除/更新使这行版本失效的事务 ID（还有效时为 0）</td></tr>
+</table>
+<p><b>更新 = 把旧行标记 xmax + 插入一条新版本行</b>。旧版本不立刻删除，仍物理留在表里，供还需要它的老事务读取。每个事务开始时拿一个<b>快照（snapshot）</b>，靠比较 xmin/xmax 和快照判断"这一版本我能不能看见"。</p>
+<div class="diagram">同一行 id=1 的多个版本（更新两次后）：
+
+  版本V1  xmin=100 xmax=105  bal=1000   ← 已被事务105改掉（旧）
+  版本V2  xmin=105 xmax=108  bal=900    ← 又被事务108改掉（旧）
+  版本V3  xmin=108 xmax=0    bal=800    ← 当前有效版本
+
+事务 T（快照只看得到已提交的<108）→ 看到 V2；新事务 → 看到 V3
+死掉的 V1/V2 = "死元组(dead tuple)"，等 VACUUM 回收</div>
+<div class="warn box"><b>PG 的 MVCC 代价 → 表膨胀：</b>旧版本堆在表里，更新/删除频繁的表会越来越大，必须靠 <a href="#vacuum">VACUUM</a> 回收空间。这是 PG 和 InnoDB（旧版本放独立 undo log）最本质的区别，也是 PG 运维的核心话题。</div>
+
+<div id="isolation"></div>
+<h3>四种隔离级别 & 并发问题</h3>
+<table>
+<tr><th>隔离级别</th><th>脏读</th><th>不可重复读</th><th>幻读</th><th>序列化异常</th></tr>
+<tr><td>Read Uncommitted</td><td>PG 中❌不会*</td><td>可能</td><td>可能</td><td>可能</td></tr>
+<tr><td><b>Read Committed</b>（默认）</td><td>❌</td><td>可能</td><td>可能</td><td>可能</td></tr>
+<tr><td><b>Repeatable Read</b></td><td>❌</td><td>❌</td><td>❌*</td><td>可能</td></tr>
+<tr><td><b>Serializable</b></td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+</table>
+<p class="kbd">* PG 特色：① PG 没有真正的"读未提交"，写了也当 Read Committed 用，所以脏读永不发生。② PG 的 Repeatable Read 用快照隔离，<b>连幻读也一起挡掉了</b>（比 SQL 标准要求的更强）。</p>
+<ul>
+<li><b>脏读</b>：读到别人未提交的数据</li>
+<li><b>不可重复读</b>：同一行两次读值不同（别人改了并提交）</li>
+<li><b>幻读</b>：同一查询两次返回的行数不同（别人插了新行）</li>
+<li><b>序列化异常</b>：多个事务并发的结果，无法对应任何一种串行执行顺序</li>
+</ul>
+<pre><code><span class="kw">BEGIN ISOLATION LEVEL</span> REPEATABLE READ;  <span class="cmt">-- 设置隔离级别</span></code></pre>
+<div class="info box"><b>Serializable 怎么实现的？</b> PG 用 <b>SSI（可串行化快照隔离）</b>：不是加读锁，而是监控事务间的读写依赖，一旦发现可能破坏可串行性的"危险环"，就让其中一个事务报错回滚（<code>could not serialize access</code>）。所以用 Serializable 的应用必须<b>准备好重试</b>。</div>
+
+<details class="q"><summary>Read Committed 下同一事务两次查询结果可能不同，为什么？</summary>
+<div class="a">因为 Read Committed 下<b>每条语句</b>都拿一个新快照（看到语句开始那刻已提交的数据）。期间别的事务提交了改动，第二条语句就看得见 → 不可重复读/幻读。要整个事务内视图一致，用 Repeatable Read（事务级快照，只在事务开始时取一次）。</div>
+</details>
+<details class="q"><summary>更新同一行时，两个事务会怎样？</summary>
+<div class="a">写写冲突要靠<b>行锁</b>：先改的事务持有行锁，后者阻塞等待。等前者提交后：Read Committed 下后者会基于最新值重新执行（不报错）；Repeatable Read/Serializable 下后者会报 <code>could not serialize access due to concurrent update</code> 需重试。</div>
+</details>
+</section>
+
+<!-- ============ 7 锁 ============ -->
+<section id="lock">
+<h2 class="sec">7 · 锁 <span class="tag new">新增</span></h2>
+<p>MVCC 解决了大多数<b>读写</b>并发（读不加锁），但<b>写写</b>并发仍要靠锁。</p>
+
+<h3>行级锁（显式加）</h3>
+<table>
+<tr><th>语法</th><th>含义</th><th>场景</th></tr>
+<tr><td><code>FOR UPDATE</code></td><td>排他行锁，别人不能改/加同类锁</td><td>先查后改，防并发覆盖</td></tr>
+<tr><td><code>FOR SHARE</code></td><td>共享行锁，别人可读不可改</td><td>保证读到的行事务内不被改</td></tr>
+<tr><td><code>FOR UPDATE SKIP LOCKED</code></td><td>跳过已被锁的行</td><td>⭐任务队列抢单，不阻塞</td></tr>
+<tr><td><code>FOR UPDATE NOWAIT</code></td><td>锁不到立即报错</td><td>不想等</td></tr>
+</table>
+<pre><code><span class="cmt">-- 悲观锁：库存扣减经典写法</span>
+<span class="kw">BEGIN</span>;
+  SELECT stock FROM product WHERE id=1 <span class="kw">FOR UPDATE</span>;  <span class="cmt">-- 锁住这行</span>
+  UPDATE product SET stock=stock-1 WHERE id=1;
+<span class="kw">COMMIT</span>;</code></pre>
+
+<h3>表级锁 & 死锁</h3>
+<p>DDL、VACUUM FULL 等会加表锁（最强是 <code>ACCESS EXCLUSIVE</code>，连读都挡）。<b>死锁</b>：A 持锁1 等锁2，B 持锁2 等锁1。PG 有死锁检测，会自动选一个事务回滚报 <code>deadlock detected</code>。</p>
+<div class="tip box"><b>防死锁：</b>① 让所有事务<b>按固定顺序</b>访问资源；② 事务尽量短小；③ 减少交互式长事务。</div>
+
+<h4>乐观锁 vs 悲观锁</h4>
+<table>
+<tr><th></th><th>悲观锁</th><th>乐观锁</th></tr>
+<tr><td>思路</td><td>先加锁再操作（<code>FOR UPDATE</code>）</td><td>不加锁，提交时用版本号/CAS 校验</td></tr>
+<tr><td>实现</td><td>数据库行锁</td><td><code>UPDATE ... SET v=v+1 WHERE id=? AND v=?</code>，看影响行数</td></tr>
+<tr><td>适用</td><td>写冲突多</td><td>写冲突少（冲突了就重试）</td></tr>
+</table>
+</section>
+
+<!-- ============ 8 索引 ============ -->
+<section id="index">
+<h2 class="sec">8 · 索引 <span class="tag new">扩充</span></h2>
+<p>PG 默认索引是 <b>B-tree</b>，但它提供的索引类型远比常规数据库丰富——这是面试区分度所在。</p>
+
+<div id="index-type"></div>
+<h3>六种索引类型 ⭐PG 特色</h3>
+<table>
+<tr><th>类型</th><th>适合</th><th>典型场景</th></tr>
+<tr><td><b>B-tree</b>（默认）</td><td><code>=</code> <code>&lt;</code> <code>&gt;</code> <code>BETWEEN</code> 排序</td><td>绝大多数场景、主键、范围查询</td></tr>
+<tr><td><b>Hash</b></td><td>只等值 <code>=</code></td><td>等值查询（PG 10+ 才支持崩溃安全，实践中 B-tree 已够用，少用）</td></tr>
+<tr><td><b>GIN</b></td><td>一个字段含<b>多个值</b>时的包含查询</td><td>⭐<b>jsonb</b>、<b>数组</b>、<b>全文检索</b></td></tr>
+<tr><td><b>GiST</b></td><td>几何/范围/相似度</td><td>地理位置（PostGIS）、范围类型重叠</td></tr>
+<tr><td><b>SP-GiST</b></td><td>非平衡树结构</td><td>IP 前缀、四叉树等特殊结构</td></tr>
+<tr><td><b>BRIN</b></td><td>物理有序的超大表</td><td>⭐时序/日志表（只存块范围，索引极小）</td></tr>
+</table>
+
+<h3>索引变体</h3>
+<pre><code><span class="cmt">-- 复合索引（遵守最左前缀）</span>
+CREATE INDEX ON orders (user_id, created_at);
+<span class="cmt">-- 唯一索引</span>
+CREATE UNIQUE INDEX ON users (email);
+<span class="cmt">-- ⭐部分索引：只给满足条件的行建，索引更小</span>
+CREATE INDEX ON orders (user_id) WHERE status = 'active';
+<span class="cmt">-- ⭐表达式索引：对函数结果建索引</span>
+CREATE INDEX ON users (lower(email));
+<span class="cmt">-- ⭐覆盖索引：INCLUDE 把额外列塞进索引，实现 Index Only Scan</span>
+CREATE INDEX ON orders (user_id) INCLUDE (amount);
+<span class="cmt">-- ⭐不锁表建索引（生产必用，但更慢）</span>
+CREATE INDEX <span class="kw">CONCURRENTLY</span> ON orders (user_id);</code></pre>
+
+<div id="index-fail"></div>
+<h3>索引失效常见场景 ⭐面试必问</h3>
+<ul>
+<li>对索引列<b>用函数/运算</b>：<code>WHERE lower(name)=...</code>（除非建了表达式索引）</li>
+<li>复合索引<b>不满足最左前缀</b>：索引 (a,b)，只查 b 用不上</li>
+<li><code>LIKE '%xx'</code> 以通配符开头（<code>'xx%'</code> 可以走）</li>
+<li>类型隐式转换：列是 text 却用数字比</li>
+<li>低区分度列（如性别）+ 大量匹配行 → 优化器算了算不如全表扫，主动放弃索引（这是<b>正确</b>决策，不是失效）</li>
+<li><code>OR</code> 条件某一侧无索引 → 可能全表扫（可用 <code>UNION</code> 或 BitmapOr 改写）</li>
+</ul>
+
+<details class="q"><summary>什么是回表？PG 里怎么理解？</summary>
+<div class="a">二级索引叶子只存索引列 + 行位置（PG 里是 <code>ctid</code>，物理位置）。查到后要拿 ctid 回堆表（heap）取整行，这就是回表。用<b>覆盖索引（INCLUDE / Index Only Scan）</b>可避免回表。注意：PG 的 Index Only Scan 还要查 <b>visibility map</b> 确认这页所有行都可见，否则仍要回表——所以刚大批更新过、没 VACUUM 的表，Index Only Scan 会退化。</div>
+</details>
+<details class="q"><summary>建索引的代价是什么？</summary>
+<div class="a">① 占额外磁盘；② <b>拖慢写入</b>（每次增删改都要维护索引）；③ PG 里更新还可能因索引导致无法走 HOT 优化（见 VACUUM 章），加剧膨胀。所以索引不是越多越好，按查询需要建。</div>
+</details>
+</section>
+
+<!-- ============ 9 EXPLAIN ============ -->
+<section id="explain">
+<h2 class="sec">9 · 执行计划 EXPLAIN & 优化 <span class="tag new">新增</span></h2>
+<pre><code>EXPLAIN            SELECT ...   <span class="cmt">-- 只看计划（估算，不执行）</span>
+EXPLAIN <span class="kw">ANALYZE</span>    SELECT ...   <span class="cmt">-- ⭐真正执行并给出实际耗时/行数</span>
+EXPLAIN (ANALYZE, BUFFERS) ...  <span class="cmt">-- 还看缓存命中/磁盘读</span></code></pre>
+
+<h3>怎么读计划</h3>
+<pre><code>Seq Scan on orders  (cost=0.00..18.50 <span class="cmt">rows=850 width=32</span>)
+                          │        │        └ 每行字节
+                          │        └ 估算返回行数
+      启动成本 ───────────┘   └───── 总成本（任意单位，越小越好）</code></pre>
+<p><b>看 EXPLAIN ANALYZE 时，重点对比"估算 rows" vs "实际 rows"</b>：差得离谱说明统计信息过时，<code>ANALYZE 表名</code> 更新统计后计划往往就对了。</p>
+
+<h4>常见节点</h4>
+<table>
+<tr><th>扫描方式</th><th>含义</th></tr>
+<tr><td><b>Seq Scan</b></td><td>全表扫描（小表 or 要读大部分行时反而更优）</td></tr>
+<tr><td><b>Index Scan</b></td><td>走索引 + 回表取行</td></tr>
+<tr><td><b>Index Only Scan</b></td><td>⭐只读索引不回表（覆盖索引）</td></tr>
+<tr><td><b>Bitmap Index/Heap Scan</b></td><td>命中行较多时，先攒位图再批量回表，减少随机 IO</td></tr>
+</table>
+<table>
+<tr><th>Join 方式</th><th>适合</th></tr>
+<tr><td><b>Nested Loop</b></td><td>一边行数很少</td></tr>
+<tr><td><b>Hash Join</b></td><td>大表等值连接，无序</td></tr>
+<tr><td><b>Merge Join</b></td><td>两边都已按连接键有序</td></tr>
+</table>
+
+<div class="tip box"><b>优化排查清单：</b>① <code>EXPLAIN ANALYZE</code> 找最慢节点；② 估算/实际行数偏差大 → <code>ANALYZE</code>；③ 该走索引却 Seq Scan → 查索引是否失效、区分度、统计信息；④ 装 <code>pg_stat_statements</code> 扩展找出全库最耗时的 SQL。</div>
+
+<details class="q"><summary>为什么有索引优化器还选全表扫描？</summary>
+<div class="a">优化器基于<b>成本</b>决策：当查询要返回表中<b>很大比例</b>的行时，走索引意味着大量随机 IO + 回表，反而比顺序全表扫更慢。所以此时选 Seq Scan 是<b>正确</b>的。若你确信统计信息过时导致误判，先 <code>ANALYZE</code>。</div>
+</details>
+</section>
+
+<!-- ============ 10 VACUUM ============ -->
+<section id="vacuum">
+<h2 class="sec">10 · VACUUM & 表膨胀 <span class="tag new">新增 · PG 独有必考</span></h2>
+<p>承接 <a href="#mvcc">MVCC</a>：更新/删除会留下<b>死元组（dead tuple）</b>，它们占着空间却没人再读。VACUUM 就是回收它们的清道夫。</p>
+
+<table>
+<tr><th>命令</th><th>做什么</th><th>是否锁表</th></tr>
+<tr><td><code>VACUUM</code></td><td>标记死元组空间可复用（空间还给表自己，不还给操作系统）</td><td>❌ 不阻塞读写</td></tr>
+<tr><td><code>VACUUM FULL</code></td><td>重写整表、把空间真正还给 OS</td><td>⭐<b>ACCESS EXCLUSIVE 全表锁</b>，生产慎用</td></tr>
+<tr><td><code>ANALYZE</code></td><td>更新统计信息（给优化器用）</td><td>❌</td></tr>
+<tr><td><b>autovacuum</b></td><td>后台进程，自动触发上面的 VACUUM+ANALYZE</td><td>❌</td></tr>
+</table>
+
+<h3>三个必须知道的概念</h3>
+<h4>① 表膨胀（Bloat）</h4>
+<p>死元组没及时回收 → 表和索引物理体积远大于实际数据 → 扫描变慢、缓存效率下降。高频更新表要保证 autovacuum 跟得上，必要时调低触发阈值。</p>
+
+<h4>② 事务 ID 回卷（Transaction ID Wraparound）⭐经典事故题</h4>
+<p>PG 事务 ID 是 32 位（约 42 亿），会用完并"回卷"。MVCC 靠比较事务 ID 判断可见性，一旦回卷，老数据可能突然"看不见"→ 灾难。VACUUM 会把足够老的行 <b>freeze（冻结）</b> 成"对所有事务永远可见"，从而防止回卷。<b>如果 autovacuum 长期没跑，PG 会强制警告甚至停库保护。</b></p>
+
+<h4>③ HOT 更新（Heap-Only Tuple）</h4>
+<p>优化：如果更新<b>没有改到任何索引列</b>，且同一页有空间，新版本就放同页且<b>不更新索引</b>，减少索引膨胀。这也是"别建无用索引"的又一理由——索引越多越难触发 HOT。</p>
+
+<div class="danger box"><b>面试要点：</b>被问"PG 有什么运维坑" → 答 <b>MVCC 导致表膨胀 + 事务 ID 回卷，都要靠 VACUUM/autovacuum 治理</b>。这是 PG 区别于其他库最有辨识度的答案。</div>
+
+<details class="q"><summary>删了很多行，为什么表文件大小没变小？</summary>
+<div class="a">普通 <code>VACUUM</code> 只把空间标记为"可复用"留给这张表后续插入，<b>不把磁盘还给操作系统</b>。要真正缩小文件得用 <code>VACUUM FULL</code>（会锁表重写）或 <code>pg_repack</code>（在线重组，不长时间锁表，生产推荐）。</div>
+</details>
+</section>
+
+<!-- ============ 11 拓展 ============ -->
+<section id="ext">
+<h2 class="sec">11 · 拓展知识</h2>
+
+<h3>视图 & 物化视图</h3>
+<table>
+<tr><th></th><th>视图 VIEW</th><th>物化视图 MATERIALIZED VIEW</th></tr>
+<tr><td>本质</td><td>存的是一段查询，每次查实时执行</td><td>把结果<b>物理存下来</b></td></tr>
+<tr><td>数据新鲜度</td><td>永远最新</td><td>要 <code>REFRESH</code> 才更新</td></tr>
+<tr><td>性能</td><td>取决于底层查询</td><td>⭐快（预计算），适合重报表</td></tr>
+</table>
+
+<h3>函数 / 存储过程 / 触发器</h3>
+<ul>
+<li><b>函数（PL/pgSQL）</b>：把逻辑封装在库内，<code>CREATE FUNCTION ... RETURNS ...</code></li>
+<li><b>存储过程</b>（PG 11+ <code>CREATE PROCEDURE</code>）：可在内部管理事务（COMMIT/ROLLBACK），函数不行</li>
+<li><b>触发器</b>：在 INSERT/UPDATE/DELETE 前后自动执行函数，如自动维护 <code>updated_at</code>、审计日志</li>
+</ul>
+
+<h3>WAL（预写日志）</h3>
+<p>Write-Ahead Log：<b>改数据前先把变更写 WAL 并落盘</b>，再改内存页（脏页稍后异步刷）。作用：① <b>持久性/崩溃恢复</b>（宕机后重放 WAL）；② <b>流复制</b>的数据源；③ 时间点恢复（PITR）。类比 MySQL 的 redo log。</p>
+
+<h3>表分区（Partitioning）</h3>
+<p>把大表按范围/列表/哈希拆成子表，查询时只扫相关分区（分区裁剪），也方便按分区归档删除。</p>
+<pre><code>CREATE TABLE logs (id bigint, ts timestamptz) <span class="kw">PARTITION BY RANGE</span> (ts);
+CREATE TABLE logs_2026 PARTITION OF logs FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');</code></pre>
+
+<h3>备份 & 高可用</h3>
+<ul>
+<li><code>pg_dump</code> / <code>pg_restore</code>：逻辑备份（导出 SQL），适合单库迁移</li>
+<li><code>pg_basebackup</code>：物理备份，配合 WAL 归档做 PITR</li>
+<li><b>流复制（Streaming Replication）</b>：主库把 WAL 实时传给备库，实现读写分离 + 故障切换（主备同步/异步可选）</li>
+<li><b>扩展（Extension）</b>：<code>CREATE EXTENSION</code> 装 PostGIS（地理）、pg_stat_statements（慢查询）、pgvector（向量检索）等</li>
+</ul>
+</section>
+
+<!-- ============ 速记 ============ -->
+<section id="cheat">
+<h2 class="sec">高频面试速记 🎯</h2>
+<div class="box info">
+<ul>
+<li><b>PG vs 常规库最大特色</b>：多进程模型、MVCC 旧版本留在表里（→ 表膨胀 → 靠 VACUUM）、索引类型丰富（GIN/GiST/BRIN）、DDL 事务化、窗口函数/CTE 强。</li>
+<li><b>MVCC</b>：每行带 xmin/xmax，更新=旧行标记+插新行，靠快照判可见性；读不阻塞写。</li>
+<li><b>隔离级别</b>：默认 Read Committed；PG 无真正读未提交（无脏读）；Repeatable Read 用快照连幻读一起挡；Serializable 用 SSI，要准备重试。</li>
+<li><b>VACUUM</b>：回收死元组防膨胀 + freeze 防事务 ID 回卷；VACUUM FULL 锁表慎用，在线用 pg_repack。</li>
+<li><b>索引</b>：默认 B-tree；jsonb/数组/全文用 GIN；超大时序表用 BRIN；覆盖索引 INCLUDE → Index Only Scan；生产建索引用 CONCURRENTLY。</li>
+<li><b>索引失效</b>：函数运算列、非最左前缀、前导 %、类型转换、低区分度。</li>
+<li><b>EXPLAIN ANALYZE</b>：比估算 vs 实际行数；行数偏差大先 ANALYZE；关注 Seq/Index/Bitmap Scan 和 Nested Loop/Hash/Merge Join。</li>
+<li><b>取每组最新一条</b>：<code>row_number() OVER(PARTITION BY .. ORDER BY .. DESC)</code> + 外层 <code>WHERE rn=1</code>。</li>
+<li><b>UPSERT</b>：<code>INSERT ... ON CONFLICT ... DO UPDATE</code>；<b>抢单队列</b>：<code>FOR UPDATE SKIP LOCKED</code>。</li>
+<li><b>金额</b>用 <code>numeric</code> 不用 float；时间跨时区用 <code>timestamptz</code>；字符串直接用 <code>text</code>。</li>
+</ul>
+</div>
+</section>
+
+<footer>
+🐘 PostgreSQL 知识体系笔记 · note-garden · 学习为骨 + 面试为肉，持续生长 🌿
+</footer>
+</main>
+</div>
+</body>
+</html>

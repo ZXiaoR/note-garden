@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Go 知识体系笔记</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2028; --panel2:#222b36; --text:#d7dde5; --muted:#8b97a6;
+    --accent:#4aa8ff; --accent2:#38c172; --warn:#ffb454; --danger:#ff6b6b; --purple:#c792ea;
+    --border:#2c3742; --code-bg:#11161c; --go:#00add8;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;}
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+
+  /* layout */
+  .wrap{display:flex;max-width:1400px;margin:0 auto;}
+  nav{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;width:270px;
+    padding:24px 16px;border-right:1px solid var(--border);background:var(--bg);font-size:13.5px;flex-shrink:0;}
+  nav h2{font-size:14px;color:var(--go);margin:18px 0 8px;letter-spacing:.5px;}
+  nav a{display:block;color:var(--muted);padding:3px 8px;border-radius:6px;margin:1px 0;}
+  nav a:hover{background:var(--panel);color:var(--text);text-decoration:none;}
+  nav .sub{padding-left:18px;font-size:12.5px;}
+  main{flex:1;min-width:0;padding:36px 44px 120px;}
+
+  h1{font-size:30px;margin:0 0 6px;background:linear-gradient(90deg,#00add8,#4aa8ff);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
+  .lead{color:var(--muted);margin:0 0 28px;font-size:15px;}
+  section{margin-bottom:52px;scroll-margin-top:20px;}
+  h2.sec{font-size:24px;border-left:5px solid var(--go);padding-left:14px;margin:44px 0 20px;}
+  h3{font-size:19px;color:#eaf0f6;margin:32px 0 12px;border-bottom:1px solid var(--border);padding-bottom:6px;}
+  h4{font-size:16px;color:var(--accent);margin:22px 0 8px;}
+  p{margin:10px 0;}
+  ul,ol{padding-left:24px;}
+  li{margin:5px 0;}
+  code{background:var(--code-bg);padding:2px 6px;border-radius:4px;font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:13px;color:var(--purple);}
+  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;line-height:1.6;color:#c8d3de;}
+  pre code{background:none;padding:0;color:inherit;}
+
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13.5px;}
+  th,td{border:1px solid var(--border);padding:9px 12px;text-align:left;vertical-align:top;}
+  th{background:var(--panel2);color:#eaf0f6;font-weight:600;}
+  tr:nth-child(even) td{background:rgba(255,255,255,.015);}
+  table.rowh th{white-space:nowrap;width:1%;}
+
+  .box{border-radius:10px;padding:14px 18px;margin:16px 0;border-left:4px solid;}
+  .warn{background:rgba(255,180,84,.08);border-color:var(--warn);}
+  .warn b{color:var(--warn);}
+  .danger{background:rgba(255,107,107,.08);border-color:var(--danger);}
+  .danger b{color:var(--danger);}
+  .tip{background:rgba(56,193,114,.08);border-color:var(--accent2);}
+  .tip b{color:var(--accent2);}
+  .info{background:rgba(74,168,255,.08);border-color:var(--accent);}
+  .info b{color:var(--accent);}
+
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:20px;margin-left:6px;vertical-align:middle;
+    background:var(--panel2);color:var(--muted);border:1px solid var(--border);}
+  .tag.co{color:#00add8;border-color:#155c6b;}
+  .tag.hi{color:#ff6b6b;border-color:#6b2b2b;}
+
+  .diagram{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:18px;margin:16px 0;
+    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;white-space:pre;overflow-x:auto;color:#a9c7e8;}
+
+  /* HTML 结构化流程图 */
+  .hd{margin:16px 0;background:var(--code-bg);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+  .hd .lane{display:flex;gap:16px;flex-wrap:wrap;align-items:center;}
+  .hd .grp2{flex:1;min-width:200px;border:1px solid rgba(74,168,255,.28);border-radius:10px;padding:12px 14px;
+    background:rgba(74,168,255,.06);}
+  .hd .grp2.g-green{border-color:rgba(56,193,114,.3);background:rgba(56,193,114,.07);}
+  .hd .grp2.g-blue{border-color:rgba(74,168,255,.3);background:rgba(74,168,255,.08);}
+  .hd .grp2.g-cyan{border-color:rgba(0,173,216,.35);background:rgba(0,173,216,.08);}
+  .hd .grp2 > .cap{font-weight:600;color:var(--accent);font-size:13px;margin-bottom:8px;text-align:center;
+    padding-bottom:6px;border-bottom:1px dashed var(--border);}
+  .hd .grp2.g-green > .cap{color:#38c172;}
+  .hd .grp2.g-cyan > .cap{color:var(--go);}
+  .hd .node{border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin:7px 0;background:var(--panel2);
+    font-size:13px;line-height:1.5;}
+  .hd .node .em{color:#eaf0f6;font-weight:600;}
+  .hd .node .sub{color:var(--muted);font-size:12px;}
+  .hd .node.accent{border-color:var(--accent);}
+  .hd .arrow-d{text-align:center;color:var(--muted);font-size:13px;line-height:1.2;margin:3px 0;}
+  .hd .arrow-r{color:var(--purple);font-weight:700;white-space:nowrap;font-size:12.5px;text-align:center;padding:0 2px;}
+  .hd .note{color:var(--muted);font-size:12px;text-align:center;margin-top:6px;}
+
+  /* 三色标记小色块 */
+  .dot{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:middle;margin:0 3px;border:1px solid #000;}
+  .dot.w{background:#e8edf2;} .dot.g{background:#9aa7b4;} .dot.b{background:#161b22;border-color:#3a4652;}
+
+  .q{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px 18px;margin:14px 0;}
+  .q summary{cursor:pointer;font-weight:600;color:var(--warn);padding:8px 0;list-style:none;}
+  .q summary::before{content:"❓ ";}
+  .q[open] summary{color:var(--accent);}
+  .q .a{padding:4px 0 12px;border-top:1px dashed var(--border);margin-top:4px;}
+
+  .split{display:flex;gap:20px;align-items:flex-start;margin:16px 0;flex-wrap:wrap;}
+  .split > .col{flex:1;min-width:300px;}
+
+  .toc-top{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 24px;margin-bottom:32px;}
+  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
+  .kbd{font-size:12px;color:var(--muted);}
+  footer{color:var(--muted);font-size:13px;border-top:1px solid var(--border);padding-top:20px;margin-top:60px;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#2c3742;border-radius:6px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h2>一、基础语法</h2>
+  <a href="#basic">0 · 类型 / 零值 / 值传递</a>
+  <a href="#syntax" class="sub">语法速览（从零起步）</a>
+  <a href="#slice" class="sub">slice 底层与扩容</a>
+  <a href="#map" class="sub">map 底层</a>
+  <a href="#defer" class="sub">defer / panic / recover</a>
+  <a href="#interface" class="sub">interface / 类型断言</a>
+  <a href="#error" class="sub">error 处理</a>
+  <a href="#pkg" class="sub">包管理 / Go Modules</a>
+  <h2>二、并发：为什么要协程</h2>
+  <a href="#why-go">1 · 为什么引入协程</a>
+  <a href="#goroutine" class="sub">goroutine 是什么</a>
+  <h2>三、GMP 调度</h2>
+  <a href="#gmp">2 · GMP 模型</a>
+  <a href="#schedule" class="sub">调度流程 / work stealing</a>
+  <a href="#preempt" class="sub">抢占 / sysmon</a>
+  <h2>四、channel</h2>
+  <a href="#channel">3 · channel 底层</a>
+  <a href="#select" class="sub">select</a>
+  <a href="#chan-trap" class="sub">常见坑与模式</a>
+  <h2>五、锁与同步</h2>
+  <a href="#mutex">4 · Mutex / RWMutex</a>
+  <a href="#atomic" class="sub">atomic / CAS</a>
+  <a href="#sync" class="sub">WaitGroup / Once / sync.Map</a>
+  <h2>六、GC</h2>
+  <a href="#gc">5 · 三色标记 + 写屏障</a>
+  <a href="#gc-trigger" class="sub">触发时机 / STW</a>
+  <a href="#escape" class="sub">逃逸分析</a>
+  <h2>七、工程化与进阶</h2>
+  <a href="#context">6 · context 上下文</a>
+  <a href="#generics">7 · 泛型 Generics</a>
+  <a href="#race">8 · 数据竞争 / 内存模型</a>
+  <a href="#concurrency-patterns">9 · 并发模式与坑</a>
+  <a href="#testing">10 · 测试</a>
+  <a href="#advanced">11 · 性能优化与进阶</a>
+  <h2>附</h2>
+  <a href="#cheat">高频面试速记</a>
+</nav>
+
+<main>
+<h1>Go 知识体系笔记</h1>
+<p class="lead">按「基础语法 → 为什么要协程 → GMP 怎么调度 → 协程之间怎么通信(channel) → 怎么同步(锁) → 内存怎么回收(GC)」一条主线组织，后半段补上 context/泛型/数据竞争/测试/性能等工程化话题。<span class="tag co">并发</span> 与 <span class="tag hi">高频</span> 标签用于定位知识点。</p>
+
+<div class="toc-top">
+  <b>阅读主线（问题驱动，每一步都在回答上一步冒出的新问题）：</b>
+  <ol style="margin:10px 0 2px">
+    <li><b>语言长什么样？</b> 类型系统、slice/map、defer、interface、error —— 先把地基打牢。<span class="kbd">（<a href="#basic">§0 基础语法</a>）</span></li>
+    <li><b>并发为什么用协程而不是线程？</b> 线程太重、切换太贵，Go 用用户态的 goroutine + M:N 调度。<span class="kbd">（<a href="#why-go">§1 为什么引入协程</a>）</span></li>
+    <li><b>成千上万的 goroutine 谁来调度？</b> GMP 模型：G 排队、P 提供资源、M 真正执行。<span class="kbd">（<a href="#gmp">§2 GMP</a>）</span></li>
+    <li><b>协程之间怎么协作？</b> 提倡用 channel 通信；共享内存场景才上锁。<span class="kbd">（<a href="#channel">§3 channel</a> · <a href="#mutex">§4 锁</a>）</span></li>
+    <li><b>没有手动 free，内存谁回收？</b> 并发三色标记 + 混合写屏障，STW 做到亚毫秒。<span class="kbd">（<a href="#gc">§5 GC</a>）</span></li>
+    <li><b>工程上还要会什么？</b> 取消/超时靠 context，泛型写通用代码，数据竞争与内存模型，测试与性能优化。<span class="kbd">（<a href="#context">§6 context</a> · <a href="#generics">§7 泛型</a> · <a href="#race">§8 数据竞争</a> · <a href="#testing">§10 测试</a> · <a href="#advanced">§11 性能</a>）</span></li>
+  </ol>
+  <span class="kbd">💡 带 ❓ 的折叠块是高频面试问答，可展开自测；标<span style="color:var(--danger)"> 红框 </span>的是易错/高频陷阱。</span>
+</div>
+
+<!-- ============ 0 基础语法 ============ -->
+<section id="basic">
+<h2 class="sec">0 · 基础语法：类型 / 零值 / 值传递</h2>
+<p>Go 的设计哲学是<b>「少即是多」</b>：只有 25 个关键字，没有继承、没有异常（泛型也是 1.18 才补上，见 <a href="#generics">§7</a>），刻意做减法。几条贯穿全篇的基本认知：</p>
+<ul>
+  <li><b>静态强类型 + 编译型</b>：编译成单个静态二进制，不依赖运行时环境，部署就是丢一个文件。</li>
+  <li><b>零值可用</b>：变量声明后即有确定零值（数值 <code>0</code>、字符串 <code>""</code>、bool <code>false</code>、指针/slice/map/chan/interface/func 为 <code>nil</code>），不存在"未初始化的随机值"。</li>
+  <li><b>一切都是值传递</b>：函数传参永远是拷贝。只不过 slice/map/chan 内部是"指向底层结构的指针+元数据"，拷贝的是这层"表头"，所以看起来像引用传递。</li>
+</ul>
+
+<h3 id="syntax">语法速览（从零起步）</h3>
+
+<h4>变量与常量</h4>
+<pre><code>var a int = 10          // 完整声明
+var b = 10              // 省略类型，自动推导
+c := 10                 // 短变量声明（只能在函数内用），最常用
+var d, e = 1, "hi"      // 批量声明，可不同类型
+var (                   // 分组声明
+    name string = "go"
+    age  int    = 15
+)
+
+const Pi = 3.14         // 常量，编译期确定，不可改
+// iota：常量组里的自增计数器，从 0 开始，每行 +1 —— 枚举神器
+const (
+    Sun = iota          // 0
+    Mon                 // 1（沿用上一行表达式 iota）
+    Tue                 // 2
+)</code></pre>
+<div class="warn box"><b>易错：</b>① <code>:=</code> 只能在函数内用，且左边至少有一个<b>新变量</b>。② 声明了的局部变量<b>必须使用</b>，未使用会<b>编译报错</b>（import 同理），这是 Go 强制的代码整洁。用 <code>_</code>（空白标识符）丢弃不想要的值。</div>
+
+<h4>基本类型</h4>
+<table>
+<tr><th>类别</th><th>类型</th></tr>
+<tr><td>整数</td><td><code>int/int8/16/32/64</code>、<code>uint...</code>（<code>int</code> 随平台 32/64 位）</td></tr>
+<tr><td>浮点</td><td><code>float32 / float64</code>（默认用 float64）</td></tr>
+<tr><td>布尔</td><td><code>bool</code>（<code>true/false</code>，<b>不能</b>和整数互转）</td></tr>
+<tr><td>字符</td><td><code>byte</code>（=uint8，一个字节）、<code>rune</code>（=int32，一个 Unicode 码点）</td></tr>
+<tr><td>字符串</td><td><code>string</code>：<b>只读字节序列、不可变</b>，底层是 {指针,len}</td></tr>
+</table>
+<div class="info box"><b>字符串与遍历：</b>string 按字节存 UTF-8。<code>len(s)</code> 是<b>字节数</b>不是字符数；直接 <code>s[i]</code> 取到的是<b>byte</b>。要按"字符"遍历得用 <code>for i, r := range s</code>（<code>r</code> 是 rune），或转 <code>[]rune</code>。拼接大量字符串用 <code>strings.Builder</code>，别用 <code>+=</code>（每次都重新分配）。</div>
+
+<h4>流程控制：没有 while，只有 for</h4>
+<pre><code>// if —— 条件不加括号，可带初始化语句（err 只在 if 作用域内）
+if v, err := doSomething(); err != nil {
+    return err
+} else {
+    use(v)
+}
+
+// for 的三种形态（Go 唯一的循环关键字）
+for i := 0; i < 10; i++ { }     // 经典三段式
+for sum < 100 { }               // 当 while 用
+for { break }                   // 死循环
+for i, v := range slice { }     // range 遍历 slice/map/chan/string
+
+// switch —— 默认自动 break，不用写；要贯穿下一个 case 用 fallthrough
+switch day {
+case Sun, Sat:          // 一个 case 可多值
+    fmt.Println("周末")
+default:
+    fmt.Println("工作日")
+}
+switch {                // 不写表达式 = switch true，当 if-else 链用
+case age < 18: ...
+case age < 60: ...
+}</code></pre>
+
+<h4>函数：多返回值 + 一等公民</h4>
+<pre><code>// 多返回值：Go 的招牌，错误处理就靠它
+func divide(a, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("除数为零")
+    }
+    return a / b, nil
+}
+
+func sum(nums ...int) int { }   // 可变参数，nums 是 []int
+f := func(x int) int { return x * 2 }  // 匿名函数赋给变量
+// 闭包：捕获并记住外层变量（注意捕获的是变量本身、不是快照）</code></pre>
+
+<h4>指针：有指针，但没有指针运算</h4>
+<pre><code>x := 10
+p := &x        // & 取地址，p 是 *int
+*p = 20        // * 解引用，x 现在是 20</code></pre>
+<p>Go 保留指针（用于"想改动原值"或避免大结构体拷贝），但<b>不允许指针算术</b>（不能 <code>p++</code> 移动），也有 GC 兜底，因此比 C 安全得多。nil 指针解引用会 panic。</p>
+
+<h4>struct 与方法：用组合代替继承</h4>
+<pre><code>type User struct {
+    Name string
+    Age  int
+}
+
+// 方法 = 带接收者的函数。值接收者 vs 指针接收者：
+func (u User)  Hello()      { }  // 值接收者：拿到的是副本，改不了原值
+func (u *User) Grow()       { u.Age++ }  // 指针接收者：能改原值
+
+// 组合（嵌入）代替继承：把一个类型"嵌进"另一个，自动获得其字段和方法
+type Admin struct {
+    User            // 匿名嵌入，Admin 直接能用 u.Name / u.Hello()
+    Level int
+}</code></pre>
+<div class="tip box"><b>接收者怎么选？</b>要<b>修改</b>字段、或结构体<b>较大</b>避免拷贝 → 用<b>指针接收者</b>；小结构体只读可用值接收者。<b>经验法则：同一类型的方法集保持一致，要么都用指针接收者</b>（最常见），避免混用。</div>
+
+<h4>可见性：靠首字母大小写</h4>
+<p>Go 没有 <code>public/private</code> 关键字。标识符（变量/函数/类型/字段）<b>首字母大写 = 导出（包外可见，相当于 public）</b>，<b>小写 = 私有（仅包内可见）</b>。简单直接。</p>
+
+<div class="danger box"><b>值传递 vs "看起来像引用"：</b>传 slice 进函数，改元素能生效（共用底层数组），但在函数内 <code>append</code> 触发扩容后，函数外的 slice <b>看不到新元素</b>（表头是拷贝，扩容后指向了新数组）。要改动可见，得返回新 slice 或传 <code>*[]T</code>。</div>
+
+<pre><code>func modify(s []int) {
+    s[0] = 100      // ✅ 外部可见，共用底层数组
+    s = append(s, 4) // ⚠️ 若扩容，外部不可见
+}</code></pre>
+
+<h4>make vs new</h4>
+<table class="rowh">
+<tr><th><code>new(T)</code></th><td>分配一块 T 的零值内存，返回 <code>*T</code>。任意类型都能用。</td></tr>
+<tr><th><code>make(T,...)</code></th><td>只用于 <b>slice / map / chan</b> 这三种。做的是"初始化内部结构"（分配底层数组、hash 桶、环形缓冲），返回 <b>T 本身</b>而非指针。</td></tr>
+</table>
+
+<h3 id="slice">slice 底层与扩容 <span class="tag hi">高频</span></h3>
+<p>slice 是个"胖指针"，运行时结构就三个字段：</p>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-cyan"><div class="cap">slice 表头 (24 字节, 64 位)</div>
+      <div class="node"><span class="em">array</span> <span class="sub">→ 指向底层数组的指针</span></div>
+      <div class="node"><span class="em">len</span> <span class="sub">当前长度（可访问元素数）</span></div>
+      <div class="node"><span class="em">cap</span> <span class="sub">容量（底层数组从起点到末尾的长度）</span></div>
+    </div>
+  </div>
+</div>
+<p><b>扩容规则</b>（append 且 cap 不够时）：分配更大的新数组、把旧数据拷过去、返回指向新数组的 slice。增长策略（1.18 后更平滑）：</p>
+<ul>
+  <li>期望容量 &gt; 2×旧容量：直接用期望容量。</li>
+  <li>旧容量 &lt; 256：翻倍（×2）。</li>
+  <li>旧容量 ≥ 256：每次约 ×1.25 平滑增长，逼近 1.25 倍而非直接翻倍，避免大 slice 浪费内存。</li>
+  <li>最后还会按元素大小做<b>内存对齐</b>，实际 cap 往往比算出来的略大。</li>
+</ul>
+<div class="warn box"><b>切片共享陷阱：</b><code>b := a[1:3]</code> 与 <code>a</code> 共用底层数组，改 <code>b</code> 会影响 <code>a</code>。想彻底独立要 <code>copy</code> 或用三索引切片 <code>a[1:3:3]</code> 限制 cap，让下次 append 必然重新分配。</div>
+
+<h3 id="map">map 底层</h3>
+<p>Go 的 map 是<b>哈希表</b>，核心结构 <code>hmap</code> + 桶数组 <code>bmap</code>：</p>
+<ul>
+  <li>每个桶（bucket）存 <b>8 个键值对</b>，超了就挂 <b>溢出桶</b>（链地址法的变体）。</li>
+  <li>桶内先存 8 个 <code>tophash</code>（hash 高 8 位），查找时先比 tophash 快速筛掉不匹配的，再比完整 key。</li>
+  <li>key/value 分开连续存放（<code>k0k1..k7 v0v1..v7</code>），省内存对齐的空隙。</li>
+  <li><b>渐进式扩容</b>：负载因子 &gt; 6.5 触发翻倍扩容（容量不够），溢出桶太多触发等量扩容（整理碎片）。扩容不是一次搬完，而是每次读写<b>顺带迁移</b>一两个桶（evacuate），摊平停顿。</li>
+</ul>
+<div class="danger box"><b>三个高频坑：</b>① map <b>无序</b>，range 顺序每次随机（Go 故意加随机种子防止依赖顺序）。② map <b>非并发安全</b>，并发读写直接 <code>fatal error: concurrent map read and map write</code>（连 recover 都救不了），要加锁或用 <code>sync.Map</code>。③ 不能对 map 的 value 取地址（<code>&m[k]</code> 编译报错），因为扩容会搬迁地址。</div>
+
+<h3 id="defer">defer / panic / recover</h3>
+<ul>
+  <li><b>defer</b>：注册一个延迟调用，函数返回前<b>按后进先出（LIFO）</b>执行，常用于关闭资源、解锁。1.14 起用"开放编码"（open-coded defer）优化，绝大多数场景几乎零开销。</li>
+  <li><b>参数即时求值</b>：<code>defer f(x)</code> 中的 <code>x</code> 在 defer 语句执行时就<b>拷贝快照</b>，不是等到真正调用时才取。</li>
+  <li><b>与命名返回值</b>：defer 里能修改<b>命名返回值</b>（return 先赋值给返回变量 → 再执行 defer → 才真正返回）。</li>
+  <li><b>panic/recover</b>：panic 逐层向上展开并执行沿途 defer；只有在 <b>defer 函数内</b>调用 <code>recover()</code> 才能捕获、恢复正常流程。这是 Go 的"异常"机制，但官方主张只用于真正不可恢复的场景，普通错误走 error。</li>
+</ul>
+<pre><code>func f() (result int) {   // 命名返回值
+    defer func() { result++ }()  // 能改到返回值
+    return 10             // 实际返回 11
+}</code></pre>
+
+<h3 id="interface">interface / 类型断言</h3>
+<p>接口是 Go 多态与解耦的核心，<b>隐式实现</b>——只要一个类型实现了接口的全部方法，就自动满足该接口，无需 <code>implements</code> 声明。底层有两种结构：</p>
+<table>
+<tr><th>结构</th><th>用于</th><th>字段</th></tr>
+<tr><td><code>iface</code></td><td>带方法的接口</td><td><code>tab</code>（itab：接口类型+动态类型+方法表）+ <code>data</code>（指向实际数据）</td></tr>
+<tr><td><code>eface</code></td><td>空接口 <code>interface{}</code> / <code>any</code></td><td><code>_type</code>（动态类型信息）+ <code>data</code></td></tr>
+</table>
+<div class="danger box"><b>nil 接口大坑：</b>一个接口值 <b>类型和数据都为 nil</b> 才等于 nil。把一个"值为 nil 的具体类型指针"赋给接口，接口的 <b>type 字段非空</b>，此时 <code>iface != nil</code>！经典 bug：函数返回 <code>error</code> 接口，实际返回了 <code>var p *MyErr = nil</code>，调用方 <code>if err != nil</code> 判断竟为 true。</div>
+<pre><code>var p *MyErr = nil
+var err error = p       // err 的 type=*MyErr, data=nil
+fmt.Println(err == nil) // false ！</code></pre>
+
+<h3 id="error">error 处理</h3>
+<p>Go 没有 try/catch，错误就是<b>普通的值</b>（<code>error</code> 是只有 <code>Error() string</code> 一个方法的接口），靠 <code>if err != nil</code> 显式处理。</p>
+<ul>
+  <li><b>error vs panic</b>：可预期的失败（文件不存在、网络超时）用 error 返回；不可恢复的程序 bug（数组越界、空指针）才 panic。</li>
+  <li><b>包装与解包（1.13+）</b>：<code>fmt.Errorf("...: %w", err)</code> 包装保留链路；<code>errors.Is</code> 判断是否是某个哨兵错误，<code>errors.As</code> 提取特定类型错误。</li>
+</ul>
+
+<h3 id="pkg">包（package）与模块管理</h3>
+
+<h4>包 package：代码组织的基本单位</h4>
+<ul>
+  <li>每个 <code>.go</code> 文件开头必须声明所属包 <code>package xxx</code>；<b>同一目录下的所有文件必须属于同一个包</b>。</li>
+  <li>可执行程序的入口包必须是 <code>package main</code>，且含一个 <code>func main()</code>；库包用别的名字。</li>
+  <li><code>import</code> 引入其它包，用"<b>包名.标识符</b>"访问（如 <code>fmt.Println</code>），只能访问<b>首字母大写</b>的导出成员。</li>
+  <li><code>func init()</code>：包加载时<b>自动执行</b>（在 main 之前），每个包可有多个，用于初始化。导入顺序：被依赖的包先初始化。</li>
+</ul>
+<pre><code>import (
+    "fmt"                         // 标准库
+    "github.com/gin-gonic/gin"    // 第三方，用完整模块路径
+    m "math/rand"                 // 起别名，之后用 m.Intn()
+    _ "github.com/go-sql-driver/mysql" // 匿名导入：只为触发其 init()（注册驱动），不直接用
+)</code></pre>
+
+<div class="danger box"><b>初学最大困惑：<code>package</code> 后面的名字 ≠ 导入路径！</b>这两个是<b>不同的东西</b>，默认长得一样只是因为大家守约定：
+<table style="margin-top:8px">
+<tr><th>概念</th><th>是什么</th><th>例子</th></tr>
+<tr><td><b>包名</b>（package name）</td><td>文件首行 <code>package xxx</code> 的 <code>xxx</code>，是<b>调用时的前缀</b></td><td><code>package rand</code> → <code>rand.Intn()</code></td></tr>
+<tr><td><b>导入路径</b>（import path）</td><td><code>import "..."</code> 的字符串，用来<b>定位包在哪</b>（= 模块路径 + 目录）</td><td><code>"math/rand"</code></td></tr>
+<tr><td><b>目录名</b></td><td>包所在文件夹名，约定与包名相同（但不强制）</td><td><code>rand/</code></td></tr>
+</table>
+口诀：<b>import 的是"去哪找"（路径），代码里写的是"它叫啥"（包名）</b>。规则：① 同一目录所有文件包名必须相同（<b>一个目录 = 一个包</b>，包名按目录定，不按文件）；② 你 import 路径，但引用时用<b>包名</b>做前缀。
+<div style="margin-top:8px">露馅的经典例子——路径最后一段 ≠ 包名：</div>
+<pre style="margin-top:6px"><code>import "gopkg.in/yaml.v2"   // 路径最后一段是 yaml.v2
+yaml.Marshal(...)           // 但包名是 yaml，所以前缀用 yaml 而非 yaml.v2 ！</code></pre>
+遇到对不上时，显式起别名最稳：<code>import yaml "gopkg.in/yaml.v2"</code>。IDE 自动加别名，就是帮你消除这种"路径段 ≠ 包名"的歧义。</div>
+
+<h4>从 GOPATH 到 Go Modules（演进）</h4>
+<table>
+<tr><th>阶段</th><th>机制与痛点</th></tr>
+<tr><td><b>GOPATH 时代</b>（1.11 前）</td><td>所有代码必须放在 <code>$GOPATH/src</code> 固定目录下，import 路径=相对 GOPATH 的路径。<b>痛点</b>：项目不能随便放、<b>无版本管理</b>（所有项目共用一份依赖、无法锁版本）、依赖地狱。</td></tr>
+<tr><td><b>Go Modules</b>（1.11 引入，1.16 起默认）</td><td>官方依赖管理方案，彻底摆脱 GOPATH 束缚。项目可放<b>任意目录</b>，用 <code>go.mod</code> 声明模块与依赖版本，支持<b>语义化版本</b>和可复现构建。<b>现在的标准做法。</b></td></tr>
+</table>
+
+<h4>go.mod 与 go.sum</h4>
+<pre><code># go.mod —— 模块的"身份证 + 依赖清单"
+module github.com/me/myapp   // 模块路径（也是别人 import 你的前缀）
+go 1.22                      // 要求的 Go 版本
+require (                    // 直接依赖及其版本
+    github.com/gin-gonic/gin v1.9.1
+    golang.org/x/text v0.14.0 // indirect（间接依赖）
+)</code></pre>
+<table class="rowh">
+<tr><th>go.mod</th><td>声明模块路径、Go 版本、<b>依赖及版本号</b>。人可读、可手改（但一般靠命令维护）。</td></tr>
+<tr><th>go.sum</th><td>记录每个依赖的<b>哈希校验值</b>，保证每次下载的依赖<b>内容一致、未被篡改</b>（供应链安全）。<b>两个文件都要提交到 git。</b></td></tr>
+</table>
+<div class="info box"><b>语义化版本（SemVer）：</b><code>v主版本.次版本.修订号</code>，如 <code>v1.9.1</code>。主版本升级（v2+）视为<b>不兼容</b>，Go 要求把 <code>/v2</code> 加进模块路径（如 <code>.../myapp/v2</code>）——这叫"语义化导入版本"。没打 tag 的提交会生成<b>伪版本号</b>如 <code>v0.0.0-20240101000000-abcdef123456</code>。</div>
+
+<h4>常用命令</h4>
+<table>
+<tr><th>命令</th><th>作用</th></tr>
+<tr><td><code>go mod init &lt;模块路径&gt;</code></td><td>初始化模块，生成 go.mod</td></tr>
+<tr><td><code>go mod tidy</code></td><td><b>最常用</b>：扫描代码，自动补齐缺的依赖、删掉没用到的，整理 go.mod/go.sum</td></tr>
+<tr><td><code>go get pkg@v1.2.3</code></td><td>添加/升级某依赖到指定版本（<code>@latest</code> / <code>@v1.2.3</code> / <code>@commit</code>）</td></tr>
+<tr><td><code>go mod download</code></td><td>把依赖下载到本地缓存（不改 go.mod）</td></tr>
+<tr><td><code>go mod vendor</code></td><td>把依赖复制到项目内 <code>vendor/</code> 目录，实现离线/锁定构建</td></tr>
+<tr><td><code>go build / go run / go test</code></td><td>构建 / 运行 / 测试，会按 go.mod 自动拉依赖</td></tr>
+</table>
+
+<h4>关键环境变量</h4>
+<table class="rowh">
+<tr><th>GOPROXY</th><td>模块代理。国内常设 <code>https://goproxy.cn,direct</code> 加速下载（<code>direct</code> 表示代理没有就直连源站）。</td></tr>
+<tr><th>GOMODCACHE</th><td>下载的依赖缓存目录（默认 <code>$GOPATH/pkg/mod</code>），多项目共享、只读。</td></tr>
+<tr><th>GOPRIVATE</th><td>标记私有仓库（公司内部库），跳过公共代理和校验，走私有拉取。</td></tr>
+<tr><th>GOSUMDB</th><td>校验和数据库，核对依赖哈希防篡改；私有库用 GONOSUMDB/GOPRIVATE 豁免。</td></tr>
+</table>
+
+<h4>实战：从零搭一个多包项目并本地调用</h4>
+<p>光看概念容易懵，走一遍一个小项目的完整流程就通了。假设做一个 <code>myapp</code>：</p>
+
+<div class="diagram">myapp/                         ← 项目根目录（放哪都行，不必在 GOPATH）
+├── go.mod                     ← module github.com/me/myapp
+├── main.go                    ← package main（程序入口）
+├── internal/                  ← 私有代码，只有本模块能 import
+│   └── greet/
+│       └── greet.go           ← package greet
+└── pkg/
+    └── mathx/
+        └── mathx.go           ← package mathx（可被外部模块复用）</div>
+
+<p><b>第 1 步：初始化模块。</b>在 <code>myapp/</code> 目录下执行，模块路径建议用仓库地址（也是别人/自己 import 的前缀）：</p>
+<pre><code>cd myapp
+go mod init github.com/me/myapp   # 生成 go.mod</code></pre>
+
+<p><b>第 2 步：写两个子包。</b>注意每个文件第一行的 <code>package</code> 名 = 它所在的目录名（约定），导出的函数<b>首字母大写</b>：</p>
+<pre><code>// 文件：pkg/mathx/mathx.go
+package mathx                     // 包名 = 目录名 mathx
+
+func Add(a, b int) int { return a + b }   // 大写 = 导出，包外可调
+func mul(a, b int) int { return a * b }   // 小写 = 私有，仅包内可用</code></pre>
+<pre><code>// 文件：internal/greet/greet.go
+package greet
+
+import "fmt"
+
+func Hello(name string) string {
+    return fmt.Sprintf("你好, %s!", name)
+}</code></pre>
+
+<p><b>第 3 步：在 main.go 里导入并调用。</b>关键：<b>import 用「模块路径 + 子目录」的完整路径</b>，调用时用<b>包名</b>做前缀：</p>
+<pre><code>// 文件：main.go
+package main
+
+import (
+    "fmt"
+
+    "github.com/me/myapp/internal/greet"  // = 模块路径 + 目录
+    "github.com/me/myapp/pkg/mathx"
+)
+
+func main() {
+    fmt.Println(greet.Hello("Go"))  // 用「包名.函数」调用，不是路径
+    fmt.Println(mathx.Add(3, 4))    // → 7
+}</code></pre>
+
+<p><b>第 4 步：运行 / 构建。</b></p>
+<pre><code>go run .          # 在根目录编译并运行整个 main 包（推荐）
+go run main.go    # 也行，但多文件时要把它们都列上，不如 go run .
+go build          # 生成可执行文件 myapp（Windows 为 myapp.exe），./myapp 运行
+go mod tidy       # 若 import 了第三方库，它会自动下载并写进 go.mod/go.sum</code></pre>
+
+<div class="info box"><b>两个高频约定目录：</b>
+<ul style="margin:6px 0 0">
+<li><b><code>internal/</code> 是编译器级别的私有目录</b>：只有<b>以 internal 父目录为根</b>的代码才能 import 它（这里即 myapp 自己）。别的模块想 import <code>github.com/me/myapp/internal/greet</code> 会<b>编译报错</b>。用来封装不想对外暴露的实现。</li>
+<li><b><code>pkg/</code> 是惯例</b>（非强制语法）：放<b>可被外部复用</b>的公共库代码。小项目其实可以不要这层，直接把包放根目录下。</li>
+</ul></div>
+<div class="warn box"><b>本地还没发布的模块怎么互相引用？</b>比如你本地有两个模块想联调、依赖的库还没推到远程：在 go.mod 里加 <code>replace</code> 指向本地路径——<code>replace github.com/me/libx =&gt; ../libx</code>，Go 就会用本地目录而非去网上拉。调试私有/未发布依赖的常用手段。</div>
+
+<details class="q"><summary>go.mod 和 go.sum 有什么区别？都要提交吗？</summary><div class="a">go.mod 是依赖清单（有哪些依赖、什么版本）；go.sum 是这些依赖的哈希校验值（保证内容一致、防篡改）。<b>两者都必须提交到版本控制</b>，这样别人 clone 后能复现一模一样的构建。</div></details>
+<details class="q"><summary>go get 和 go mod tidy 区别？</summary><div class="a"><code>go get</code> 主动添加或升级<b>指定</b>的依赖版本；<code>go mod tidy</code> 则是根据<b>当前代码实际 import</b> 来对账——补上缺的、删掉多余的，让 go.mod/go.sum 和代码一致。日常提交前习惯跑一次 tidy。</div></details>
+<details class="q"><summary>项目里依赖了同一个库的两个不兼容大版本怎么办？</summary><div class="a">靠<b>语义化导入版本</b>：v2+ 的模块路径末尾带 <code>/v2</code>、<code>/v3</code>，所以 <code>foo</code> 和 <code>foo/v2</code> 在 Go 看来是<b>两个不同的包</b>，能在同一项目共存、各自独立版本。Go Modules 的"最小版本选择(MVS)"算法再为每个模块选定一个具体版本。</div></details>
+</section>
+
+<!-- ============ 1 为什么协程 ============ -->
+<section id="why-go">
+<h2 class="sec">1 · 为什么引入协程（goroutine）</h2>
+<p>并发不是 Go 独有，但 Go 把它做成了<b>语言级一等公民</b>（<code>go func()</code> 一个关键字就起一个协程）。要理解为什么，得先看传统<b>线程</b>的痛点。</p>
+
+<h4>线程模型的三个痛</h4>
+<table>
+<tr><th>痛点</th><th>线程（内核级）</th><th>goroutine（用户级）</th></tr>
+<tr><td><b>栈内存</b></td><td>固定且大，通常 <b>1~8 MB</b>。开十万个线程就要几百 GB，直接爆内存。</td><td>初始栈仅 <b>2 KB</b>，按需<b>动态伸缩</b>（连续栈，最大 1GB）。开百万协程也就几 GB。</td></tr>
+<tr><td><b>切换成本</b></td><td>由内核调度，切换要<b>陷入内核态</b>、保存/恢复大量寄存器与页表，约 <b>1~2 μs</b>。</td><td>Go runtime 在<b>用户态</b>调度，只存少量寄存器（PC/SP 等），约 <b>几十 ns</b>，快一个数量级。</td></tr>
+<tr><td><b>创建/销毁</b></td><td>系统调用，重。</td><td>runtime 管理，创建就是分配个小结构体，轻。</td></tr>
+</table>
+
+<div class="hd">
+  <div class="cap" style="color:var(--go);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">核心思想：M:N 调度 —— 把 M 个协程复用到 N 个线程上</div>
+  <div class="lane">
+    <div class="grp2 g-cyan"><div class="cap">协程 G（用户态，成千上万）</div><div class="note">go func() 一句就创建<br>栈 2KB 起步，切换几十 ns</div></div>
+    <div class="arrow-r">复用到 ▶</div>
+    <div class="grp2 g-blue"><div class="cap">线程 M（内核态，个位数~几十）</div><div class="note">数量约等于 CPU 核数<br>由 runtime 分配 G 上去跑</div></div>
+  </div>
+  <div class="note" style="margin-top:8px">1:1（一协程一线程）太重，N:1（全挤一个线程）无法用多核；Go 选 <b>M:N</b>，兼得<b>轻量</b>与<b>并行</b></div>
+</div>
+
+<h4>更关键的一点：阻塞不再浪费线程</h4>
+<p>传统模型里线程做阻塞 IO（读网络/磁盘）会被内核挂起，白占一个线程。Go runtime 把网络 IO 统一交给 <b>netpoller（epoll/kqueue）</b>：当 goroutine 读一个还没数据的连接时，它被<b>挂起并让出线程</b>，线程立刻去跑别的 goroutine；数据就绪后该 goroutine 再被唤醒。于是<b>少量线程就能扛住海量并发连接</b>——这正是 Go 写高并发服务器得心应手的根本原因。</p>
+
+<h3 id="goroutine">goroutine 到底是什么</h3>
+<p>一个 goroutine 在 runtime 里就是一个 <code>g</code> 结构体，保存了它的<b>栈、程序计数器 PC、栈指针 SP、状态</b>等执行上下文。它<b>不是</b>操作系统线程，OS 根本不知道它的存在——对内核而言只看到那几个 M 线程。</p>
+<div class="info box"><b>协程 vs 线程一句话：</b>线程是<b>内核</b>调度的、抢占式、重；协程是<b>用户态 runtime</b> 调度的、轻量、切换廉价。goroutine 是"跑在线程之上、由 Go 自己调度的执行单元"。</div>
+<div class="warn box"><b>常见追问：</b>①「goroutine 泄漏」——启动了却因 channel 永久阻塞等原因永远不退出，g 结构和栈一直占着内存，用 <code>context</code> 或关闭 channel 让它有退出路径。② <code>main</code> 函数返回则整个程序退出，不等其它 goroutine，要用 <code>sync.WaitGroup</code> 等待。</div>
+</section>
+
+<!-- ============ 2 GMP ============ -->
+<section id="gmp">
+<h2 class="sec">2 · GMP 调度模型 <span class="tag hi">高频</span></h2>
+<p>M:N 调度落地，就是 GMP。理解这三个字母各自的职责，是理解 Go 并发的钥匙。</p>
+<table class="rowh">
+<tr><th>G</th><td><b>Goroutine</b>。要被执行的任务，含栈和上下文。数量可成千上万。</td></tr>
+<tr><th>M</th><td><b>Machine</b>，即<b>系统线程</b>（内核线程）。真正干活的载体，G 最终要绑在某个 M 上、由某个 CPU 核执行。</td></tr>
+<tr><th>P</th><td><b>Processor</b>，逻辑处理器/调度上下文。是 G 和 M 之间的<b>中介与资源</b>：M 必须<b>先拿到一个 P</b> 才能执行 G。P 的数量 = <code>GOMAXPROCS</code>（默认=CPU 核数），它<b>决定了真正并行的 goroutine 数上限</b>。</td></tr>
+</table>
+
+<div class="info box"><b>为什么要有 P？</b>早期 Go（1.1 前）只有 G-M，靠一把全局锁保护全局队列，多线程抢队列锁竞争严重、扩展性差。1.1 引入 P，给<b>每个 P 一个本地运行队列</b>，M 从自己 P 的本地队列取 G，绝大多数时候<b>无锁</b>，这才让调度真正可扩展。P 还持有 mcache 等资源（内存分配无锁）。</div>
+
+<div class="hd">
+  <div class="cap" style="color:var(--go);font-weight:600;font-size:13px;text-align:center;margin-bottom:8px">GMP 全景</div>
+  <div class="lane">
+    <div class="grp2 g-cyan"><div class="cap">P0（本地队列 LRQ，容量 256）</div>
+      <div class="node accent">M0 <span class="sub">绑定 P0，正在执行 G</span></div>
+      <div class="node">G · G · G · G <span class="sub">← 待运行，无锁存取</span></div>
+    </div>
+    <div class="grp2 g-cyan"><div class="cap">P1（本地队列）</div>
+      <div class="node accent">M1 <span class="sub">绑定 P1</span></div>
+      <div class="node">G · G <span class="sub">← 少了？去偷别人的</span></div>
+    </div>
+  </div>
+  <div class="arrow-d">▲ 本地队列空时，从全局队列取 / 向其它 P "偷"一半</div>
+  <div class="lane">
+    <div class="grp2 g-blue" style="flex:1"><div class="cap">全局运行队列 GRQ（有锁，兜底）</div>
+      <div class="node">G · G · G · G · G <span class="sub">新建 G 过多、本地队列满时溢出到这里</span></div>
+    </div>
+  </div>
+  <div class="note" style="margin-top:8px">数量关系：P 固定 = GOMAXPROCS；M 按需增减（有上限默认 10000）；G 无上限</div>
+</div>
+
+<h3 id="schedule">调度流程 & work stealing</h3>
+<p>一次典型的"找 G 来跑"（M 绑着 P 的调度循环 <code>schedule()</code>）：</p>
+<ol>
+  <li>为了公平，每调度 61 次会<b>先瞄一眼全局队列</b>取一个 G（防止全局队列里的 G 饿死）。</li>
+  <li>否则优先从<b>本地队列 LRQ</b> 取队头 G（无锁，最快）。</li>
+  <li>本地空了 → 去<b>全局队列 GRQ</b> 取一批（加锁）。</li>
+  <li>全局也空 → 检查 <b>netpoller</b> 有没有 IO 就绪的 G。</li>
+  <li>还没有 → <b>work stealing 工作窃取</b>：随机挑一个别的 P，从它本地队列<b>偷走一半</b> G 过来。</li>
+  <li>实在偷不到 → M 与 P 解绑，M 进入休眠（park），P 变空闲。</li>
+</ol>
+<div class="tip box"><b>新建 G 放哪？</b><code>go func()</code> 创建的新 G 优先放到<b>当前 P 的本地队列</b>（还有个 runnext 槽存"下一个最优先跑的"，利于父子 goroutine 数据局部性）；本地满了（256）就把一半移到全局队列。</div>
+
+<h4>G 发生阻塞时，M 和 P 怎么走？ <span class="tag co">并发</span></h4>
+<table>
+<tr><th>阻塞类型</th><th>处理</th></tr>
+<tr><td><b>channel / mutex / sleep</b>（用户态阻塞）</td><td>G 被打包成 sudog 挂到等待队列，状态转为 waiting，<b>M 不阻塞</b>，直接解绑该 G 去跑下一个。事件就绪后 G 重新入队。<b>纯用户态切换，不涉及内核。</b></td></tr>
+<tr><td><b>系统调用（如读文件）</b></td><td>M 会随 G 陷入内核而阻塞。此时 runtime 让 <b>P 与该 M 解绑（handoff）</b>，P 带着本地队列去找/新建另一个 M 继续跑，<b>不浪费 P 的算力</b>。syscall 返回后，原 M 尝试重新获取一个 P；拿不到就把 G 放全局队列、自己休眠。</td></tr>
+<tr><td><b>网络 IO</b></td><td>交给 <b>netpoller</b>，G 挂起让出 M，就绪后由 poller 唤醒。这就是"少量线程扛海量连接"。</td></tr>
+</table>
+
+<h3 id="preempt">抢占式调度 & sysmon</h3>
+<p>如果一个 goroutine 死循环不让出，别的 G 会不会饿死？早期确实会。演进：</p>
+<ul>
+  <li><b>协作式抢占（1.14 前）</b>：只在<b>函数调用</b>时检查栈标志决定是否让出。缺陷：<code>for {}</code> 这种<b>没有函数调用的死循环</b>永远无法被抢占，能卡死整个调度（甚至卡住 GC）。</li>
+  <li><b>异步抢占（1.14 起）</b>：基于<b>信号</b>。监控线程 sysmon 发现某个 G 运行超过 <b>10ms</b>，就给它所在的 M 发一个 <code>SIGURG</code> 信号，M 的信号处理程序让该 G 让出。这样即使死循环也能被抢占。</li>
+</ul>
+<div class="info box"><b>sysmon 是什么？</b>一个<b>不绑定 P、独立运行</b>的后台监控线程，周期性（自适应，最快 20μs、最慢 10ms）巡查：① 抢占运行过久的 G；② 把陷入 syscall 太久的 P 从 M 上抢回（retake）；③ 触发强制 GC（超过 2 分钟没 GC）；④ 处理 netpoll 到期事件。相当于调度器的"巡警"。</div>
+
+<details class="q"><summary>GOMAXPROCS 设成多少合适？调大能提速吗？</summary><div class="a">默认=CPU 逻辑核数，通常就是最优。它是<b>并行度上限</b>（同时能跑 G 的 P 数），不是线程数上限。CPU 密集型设成核数即可，调更大只会徒增调度/切换开销；IO 密集型因为 M 会在 syscall 时增多，P 数一般也不用手动加。容器里注意：Go 早期不感知 cgroup 配额，可能读到宿主机核数导致 P 过多，用 <code>automaxprocs</code> 或手动设置。</div></details>
+<details class="q"><summary>一个 goroutine 能跑在不同的线程(M)上吗？</summary><div class="a">能。G 没有和 M 绑定，被阻塞/抢占后重新调度时可能落到另一个 M 上执行。例外是用 <code>runtime.LockOSThread</code> 把 G 锁死在某个 M（如调用要求线程本地状态的 C 库、OpenGL）。</div></details>
+</section>
+
+<!-- ============ 3 channel ============ -->
+<section id="channel">
+<h2 class="sec">3 · channel <span class="tag co">并发</span></h2>
+<p>Go 的并发哲学：<b>「不要用共享内存来通信，而要用通信来共享内存」</b>。channel 就是这句话的载体——协程之间传数据的<b>类型安全管道</b>，天生并发安全。</p>
+
+<h4>底层结构 hchan</h4>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-cyan"><div class="cap">hchan</div>
+      <div class="node"><span class="em">buf</span> <span class="sub">环形缓冲区（仅带缓冲 channel 有）</span></div>
+      <div class="node"><span class="em">sendx / recvx</span> <span class="sub">环形缓冲的写/读下标</span></div>
+      <div class="node"><span class="em">qcount / dataqsiz</span> <span class="sub">当前元素数 / 缓冲容量</span></div>
+      <div class="node"><span class="em">sendq / recvq</span> <span class="sub">因阻塞而等待的发送/接收 goroutine 队列（sudog 链表）</span></div>
+      <div class="node"><span class="em">lock</span> <span class="sub">一把互斥锁，保证所有操作并发安全</span></div>
+    </div>
+  </div>
+</div>
+
+<h4>无缓冲 vs 有缓冲</h4>
+<table>
+<tr><th></th><th>无缓冲 <code>make(chan T)</code></th><th>有缓冲 <code>make(chan T, n)</code></th></tr>
+<tr><td><b>语义</b></td><td><b>同步</b>：发送方阻塞直到有接收方，双方在此刻"碰面"完成一次<b>直接交接（handoff）</b>，值从发送方栈直接拷到接收方栈。</td><td><b>异步</b>：缓冲没满就能发（值进 buf），没空就能收，不必等对方。缓冲满/空时才阻塞。</td></tr>
+<tr><td><b>用途</b></td><td>强同步、信号通知、保证"你收到了我才继续"。</td><td>解耦生产/消费速度、做队列削峰。</td></tr>
+</table>
+
+<h4>收发的四种关键行为</h4>
+<table>
+<tr><th>操作</th><th>行为</th></tr>
+<tr><td>向 <b>nil</b> channel 收/发</td><td><b>永久阻塞</b>（常配合 select 动态屏蔽某个 case）</td></tr>
+<tr><td>向<b>已关闭</b> channel <b>发送</b></td><td><b>panic</b>：send on closed channel</td></tr>
+<tr><td>从<b>已关闭</b> channel <b>接收</b></td><td>取完缓冲里剩余值后，返回<b>零值</b>，<code>v, ok := &lt;-ch</code> 的 <code>ok=false</code></td></tr>
+<tr><td><b>关闭</b>已关闭 / nil channel</td><td><b>panic</b></td></tr>
+</table>
+<div class="danger box"><b>关闭原则：</b>永远由<b>发送方</b>关闭 channel，绝不由接收方关，也不重复关。多个发送方时不要各自关，用 <code>sync.Once</code> 或额外的 done channel 协调。判断是否关闭要用 <code>v, ok := &lt;-ch</code> 的 ok，不要靠零值猜。</div>
+
+<h3 id="select">select</h3>
+<p><code>select</code> 同时等待多个 channel 操作，哪个<b>先就绪就执行哪个</b>：</p>
+<ul>
+  <li>多个 case 同时就绪：<b>伪随机</b>挑一个执行（防止饿死，避免总偏向写在前面的）。</li>
+  <li>都没就绪且有 <code>default</code>：立刻执行 default（<b>非阻塞</b>收发常用这招）。</li>
+  <li>都没就绪且无 default：<b>阻塞</b>，直到某个 case 就绪。</li>
+  <li>空的 <code>select{}</code>：永久阻塞当前 goroutine。</li>
+</ul>
+<pre><code>select {
+case msg := &lt;-ch:      // 谁先来收谁
+    handle(msg)
+case &lt;-time.After(3 * time.Second):  // 超时控制的经典写法
+    return errTimeout
+case &lt;-ctx.Done():     // 优雅取消
+    return ctx.Err()
+default:               // 非阻塞：上面都没就绪就走这
+    doOther()
+}</code></pre>
+
+<h3 id="chan-trap">常见坑与模式</h3>
+<ul>
+  <li><b>关闭广播</b>：关闭一个 channel 会唤醒<b>所有</b>在其上等待的接收者，是天然的"一对多通知"，<code>ctx.Done()</code> 就是这么实现取消的。</li>
+  <li><b>for-range channel</b>：<code>for v := range ch</code> 会一直收直到 channel 被关闭并取空，是消费者的标准写法。</li>
+  <li><b>用容量为 1 的 channel 当锁 / 信号量</b>；用 channel 收敛多个 worker 的结果（fan-in / fan-out）。</li>
+  <li><b>死锁</b>：所有 goroutine 都在等对方，runtime 检测到 <code>fatal error: all goroutines are asleep - deadlock!</code>。最常见是无缓冲 channel 在同一个 goroutine 里自发自收。</li>
+</ul>
+<details class="q"><summary>channel 和锁（Mutex）分别什么时候用？</summary><div class="a">传递数据所有权、协调多个 goroutine 的执行流、发信号/超时/取消 → 用 <b>channel</b>；单纯保护一小段共享状态（计数器、map、缓存字段）、追求极致性能 → 用 <b>Mutex/atomic</b>。一句话：channel 管"通信与编排"，锁管"临界区互斥"。不要为了用 channel 而用 channel。</div></details>
+</section>
+
+<!-- ============ 4 锁 ============ -->
+<section id="mutex">
+<h2 class="sec">4 · 锁与同步</h2>
+<p>共享内存还是免不了要用（性能、简单）。Go 的 <code>sync</code> 包提供锁与同步原语。</p>
+
+<h3>sync.Mutex</h3>
+<p>互斥锁，同一时刻只有一个 goroutine 能持有。底层不是简单的 OS 锁，而是<b>自旋 + 信号量</b>的混合体，核心是一个 <code>state</code> 字段（位标记：是否加锁 / 是否有等待者 / 是否饥饿 / 唤醒标记）+ 一个信号量 <code>sema</code>（阻塞时排队用）。</p>
+<h4>正常模式 vs 饥饿模式（1.9 起）</h4>
+<table>
+<tr><th>正常模式</th><td>等待者按 FIFO 排队，但新来的 goroutine 会先<b>自旋抢锁</b>（正在 CPU 上、不睡眠），常能直接抢到，吞吐高。缺点：排队的老等待者可能被反复插队"饿着"。</td></tr>
+<tr><th>饥饿模式</th><td>当队头等待者<b>等待超过 1ms</b>，切换到饥饿模式：锁<b>直接移交</b>给队头，新来的不自旋、不抢，老实排队尾。保证公平、防饿死。等待队列清空或等待时间 &lt;1ms 时切回正常模式。</td></tr>
+</table>
+<div class="info box"><b>自旋的意义：</b>临界区通常很短，与其让线程睡眠（陷入内核、上下文切换，成本高），不如空转几十个 CPU 周期等锁释放，往往更划算。但 Go 只在满足条件（多核、自旋次数不多、有 P 可用等）时才自旋，避免空转浪费。</div>
+<div class="danger box"><b>易错点：</b>① Mutex <b>不可重入</b>（同一 goroutine 重复 Lock 会死锁）。② Mutex 是值类型，<b>不能拷贝</b>（拷贝后是两把锁），所以要用指针传递、且 <code>go vet</code> 会检查。③ 解锁最好配 <code>defer mu.Unlock()</code> 防止提前 return 忘了解锁。</div>
+
+<h3>sync.RWMutex</h3>
+<p>读写锁：<b>读读共享，读写/写写互斥</b>。多个读可同时持有，写独占。适合<b>读多写少</b>。注意写锁会<b>阻塞后续读锁</b>以防写者饿死；读极多写极少的场景收益才明显，否则不如直接用 Mutex。</p>
+
+<h3 id="atomic">atomic / CAS</h3>
+<p><code>sync/atomic</code> 提供<b>原子操作</b>（Add/Load/Store/Swap/CompareAndSwap），由 <b>CPU 指令</b>保证，无需加锁，比 Mutex 更轻。核心是 <b>CAS（Compare-And-Swap）</b>：<code>比较内存值是否等于期望值，相等才写入新值</code>，是无锁编程的基石（Mutex 内部、很多 lock-free 结构都靠它）。</p>
+<div class="warn box"><b>CAS 的 ABA 问题：</b>值从 A→B→A 变回来，CAS 以为"没变过"。解决靠加<b>版本号/标记</b>。另外 CAS 失败要循环重试（自旋），高竞争下会空转，未必比锁快——原子操作适合<b>单个变量</b>的简单更新（计数器、标志位），复杂临界区还得用锁。</div>
+
+<h3 id="sync">WaitGroup / Once / Cond / sync.Map</h3>
+<table class="rowh">
+<tr><th>WaitGroup</th><td>等一组 goroutine 全部完成。<code>Add(n)</code> 加计数、每个 goroutine 结束 <code>Done()</code>、主协程 <code>Wait()</code> 阻塞到归零。<b>Add 要在 go 之前调用</b>，别在子 goroutine 里 Add。</td></tr>
+<tr><th>Once</th><td><code>once.Do(f)</code> 保证 f <b>全局只执行一次</b>（单例、懒加载配置），内部用双检 + atomic + Mutex，并发安全。</td></tr>
+<tr><th>Cond</th><td>条件变量，<code>Wait/Signal/Broadcast</code>，用于"等待某条件成立再继续"。用得少，多数场景 channel 更清晰。</td></tr>
+<tr><th>sync.Map</th><td>并发安全的 map，专为<b>读多写少 / key 集合稳定</b>优化：内部 <b>read（无锁，atomic 读）+ dirty（加锁）双 map</b>，读命中 read 就完全无锁。不适合频繁写。普通场景仍推荐 <code>map + RWMutex</code>。</td></tr>
+</table>
+<details class="q"><summary>为什么并发读写普通 map 会直接崩，而不是脏数据？</summary><div class="a">Go runtime 在 map 里内置了并发检测标志（hashWriting），检测到读写冲突时<b>主动 fatal</b>，是"快速失败"设计——宁可当场崩、也不让你带着难以复现的数据竞争 bug 上线。这也是为什么它<b>无法被 recover 捕获</b>。排查用 <code>go run -race</code> 竞态检测器。</div></details>
+</section>
+
+<!-- ============ 5 GC ============ -->
+<section id="gc">
+<h2 class="sec">5 · 垃圾回收 GC <span class="tag hi">高频</span></h2>
+<p>Go 是自动内存管理，用 <b>并发的三色标记-清除（Tri-color Mark &amp; Sweep）+ 混合写屏障</b>，目标是<b>极短 STW</b>（Stop The World，通常&lt;1ms，甚至几十 μs），而不是最高吞吐。没有分代、没有整理压缩（non-moving）。</p>
+
+<h4>三色标记法</h4>
+<div class="hd">
+  <div class="lane">
+    <div class="grp2 g-cyan"><div class="cap"><span class="dot w"></span>白色</div><div class="note">未被扫描 / 未被引用<br>标记结束仍是白 → <b>被回收</b></div></div>
+    <div class="grp2 g-cyan"><div class="cap"><span class="dot g"></span>灰色</div><div class="note">自己已被标记存活<br>但<b>引用的对象还没扫完</b>（待处理队列）</div></div>
+    <div class="grp2 g-cyan"><div class="cap"><span class="dot b"></span>黑色</div><div class="note">自己和引用的对象<br><b>都已扫描完</b>，确定存活</div></div>
+  </div>
+</div>
+<p><b>流程</b>：① 初始全白。② 从根对象（栈、全局变量、寄存器）出发，把可达对象染灰入队。③ 从队列取灰对象，把它引用的白对象染灰，自己转黑。④ 重复直到灰队列空。⑤ 剩下的<b>白色对象即垃圾</b>，清除。</p>
+
+<h4>为什么需要写屏障？</h4>
+<div class="danger box">GC 是<b>并发</b>的（和用户程序 goroutine 同时跑，即"三色不变性"可能被破坏）。如果标记途中，用户代码把一个<b>黑对象</b>指向一个<b>白对象</b>，同时断开了原本指向该白对象的灰对象引用，这个白对象会被<b>漏标</b>而误删——这就是并发标记的核心难题。</div>
+<p><b>写屏障（Write Barrier）</b>就是给"指针赋值"这个操作挂一个钩子，在并发标记期间维持不变性。Go 1.8 起用<b>混合写屏障（Hybrid = Dijkstra 插入屏障 + Yuasa 删除屏障）</b>：</p>
+<ul>
+  <li>把<b>被覆盖的旧引用对象</b>标灰（删除屏障，防漏标）；</li>
+  <li>把<b>新写入的引用对象</b>标灰（插入屏障）；</li>
+  <li>好处：<b>栈上对象无需插入屏障、GC 结束前无需再 STW 重新扫描栈</b>，把 STW 从旧版的可能几十 ms 压到了<b>亚毫秒级</b>。</li>
+</ul>
+
+<h3 id="gc-trigger">GC 触发时机 & STW</h3>
+<table>
+<tr><th>触发</th><th>说明</th></tr>
+<tr><td><b>堆内存增长（主）</b></td><td>由 <code>GOGC</code>（默认 100）控制：当堆大小达到"<b>上次 GC 后存活堆 ×(1+GOGC/100)</b>"即翻倍时触发。GOGC 调大 → GC 更少但占内存多；调小 → 更频繁但省内存。1.19 起还有 <code>GOMEMLIMIT</code> 软内存上限。</td></tr>
+<tr><td><b>定时兜底</b></td><td>sysmon 检测到超过 <b>2 分钟</b>没 GC，强制触发一次。</td></tr>
+<tr><td><b>手动</b></td><td><code>runtime.GC()</code> 阻塞式立即回收（一般只在测试/特殊场景用）。</td></tr>
+</table>
+<p>现代 Go 的 GC 周期里 STW 只发生在<b>两个极短的点</b>：开始时的 <b>Mark Setup</b>（开启写屏障、扫描根的准备）和标记结束的 <b>Mark Termination</b>。中间的<b>标记</b>和之后的<b>清除</b>都与用户程序<b>并发</b>进行。</p>
+<div class="info box"><b>Mark Assist（标记辅助）：</b>若用户程序在 GC 期间分配内存太快、快过后台标记速度，会让<b>分配内存的那个 goroutine 自己也去帮忙做一部分标记工作</b>，形成"谁分配快谁帮忙"的负反馈，防止堆在 GC 完成前失控膨胀。</div>
+
+<h3 id="escape">逃逸分析</h3>
+<p>并非所有对象都进堆——<b>编译期</b>的逃逸分析决定一个变量分配在<b>栈</b>还是<b>堆</b>。栈上分配随函数返回自动回收、<b>零 GC 压力</b>；只有"逃逸"出函数作用域的才进堆。</p>
+<ul>
+  <li><b>会逃逸</b>：函数返回了局部变量的<b>指针</b>；变量被塞进 interface（如 <code>fmt.Println</code> 的 <code>...any</code>）；闭包捕获并在外部使用；对象太大或大小编译期不确定（大 slice）。</li>
+  <li><b>不逃逸</b>：纯局部使用、生命周期不超出函数，就留栈上。</li>
+</ul>
+<p>用 <code>go build -gcflags="-m"</code> 可以看每个变量"escapes to heap"还是留栈。<b>减少逃逸 = 减少堆分配 = 减轻 GC</b>，是 Go 性能优化的常规抓手（配合 <code>sync.Pool</code> 复用对象）。</p>
+<details class="q"><summary>Go 的 GC 为什么不用分代 / 不做压缩整理？</summary><div class="a">分代假设"新对象容易死"，但 Go 靠<b>逃逸分析把大量短命对象留在了栈上</b>（根本不进堆、随栈回收），进堆的对象分代收益就没那么大，加上分代会让写屏障更复杂。不压缩（non-moving）是为了实现简单、避免移动对象时的额外 STW 和指针修正；代价是可能有内存碎片，靠 tcmalloc 式的多级 size-class 分配器（mcache/mcentral/mheap）来缓解。整体取舍都指向同一个目标：<b>低延迟</b>。</div></details>
+<details class="q"><summary>怎么排查 GC / 内存问题？</summary><div class="a">① <code>GODEBUG=gctrace=1</code> 打印每轮 GC 的耗时、堆大小、STW 时长；② <code>pprof</code>（heap/allocs profile）看谁在疯狂分配；③ <code>-gcflags=-m</code> 看逃逸；④ 优化手段：减少逃逸、复用对象（<code>sync.Pool</code>）、预分配 slice/map 容量、调 GOGC/GOMEMLIMIT。</div></details>
+</section>
+
+<!-- ============ 6 context ============ -->
+<section id="context">
+<h2 class="sec">6 · context 上下文 <span class="tag co">并发</span></h2>
+<p>起了一堆 goroutine，怎么<b>统一取消它们、设超时、传请求级数据</b>？答案是 <code>context</code>。它是 Go 服务端代码的"半壁江山"——几乎所有涉及 IO/RPC 的函数第一个参数都是 <code>ctx context.Context</code>。</p>
+
+<h4>解决什么问题</h4>
+<p>典型场景：一个 HTTP 请求进来，后台 fan-out 出多个 goroutine 去查 DB、调下游。如果客户端断开 / 超时了，这些 goroutine 应该<b>尽快停下来别白干活</b>。context 就是把"取消信号"<b>沿调用链一路传下去</b>的载体。</p>
+
+<h4>四个构造函数</h4>
+<table>
+<tr><th>函数</th><th>用途</th></tr>
+<tr><td><code>context.Background()</code></td><td>根 context，空的，一般在 main / 请求入口创建</td></tr>
+<tr><td><code>WithCancel(parent)</code></td><td>返回可<b>手动取消</b>的 ctx + <code>cancel()</code> 函数</td></tr>
+<tr><td><code>WithTimeout(parent, d)</code></td><td><b>超时自动取消</b>（d 时间后）</td></tr>
+<tr><td><code>WithDeadline(parent, t)</code></td><td>到<b>指定时刻</b>自动取消</td></tr>
+<tr><td><code>WithValue(parent, k, v)</code></td><td>携带请求级<b>键值数据</b>（如 traceID），不要用来传函数可选参数；<b>key 要用自定义类型</b>（如 <code>type ctxKey int</code>）而非裸 string，避免不同包的 key 碰撞</td></tr>
+</table>
+
+<pre><code>func handle(ctx context.Context) error {
+    // 派生一个 2 秒超时的子 ctx
+    ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+    defer cancel()   // ★ 必须调 cancel，否则计时器/资源泄漏
+
+    ch := make(chan result, 1)
+    go func() { ch &lt;- queryDB(ctx) }()  // ctx 继续往下传
+
+    select {
+    case r := &lt;-ch:
+        return r.err
+    case &lt;-ctx.Done():          // 超时或被上游取消，Done() 这个 channel 被关闭
+        return ctx.Err()        // context deadline exceeded / context canceled
+    }
+}</code></pre>
+
+<div class="info box"><b>原理：</b><code>ctx.Done()</code> 返回一个 channel，取消时它被 <b>close</b>（关闭 channel 会唤醒所有接收者，天然"一对多广播"）。子 context <b>监听父 context</b>，父取消则所有后代级联取消，形成一棵取消传播树。</div>
+
+<div class="danger box"><b>用法铁律：</b>① context 只<b>沿函数参数逐层传递</b>，永远<b>别存进结构体字段</b>；② <code>WithCancel/Timeout/Deadline</code> 返回的 <code>cancel</code> 函数<b>必须调用</b>（通常 <code>defer cancel()</code>），否则泄漏；③ <code>WithValue</code> 只传<b>请求域的元数据</b>（traceID、用户身份），别拿它当函数传参的偷懒手段；④ ctx 作为函数<b>第一个参数</b>，命名 <code>ctx</code>，这是全社区约定。</div>
+
+<details class="q"><summary>context 取消是怎么"通知"到底层 goroutine 的？</summary><div class="a">靠 <code>ctx.Done()</code> 返回的 channel 被 close。goroutine 在 select 里监听它，一旦关闭就走取消分支退出。标准库的网络/DB 操作内部也会监听 ctx，取消时主动中断阻塞调用。它<b>不强制</b>杀死 goroutine——只是发信号，goroutine 要自己<b>配合检查</b>并退出。</div></details>
+</section>
+
+<!-- ============ 7 泛型 ============ -->
+<section id="generics">
+<h2 class="sec">7 · 泛型 Generics（1.18）</h2>
+<p>1.18 之前 Go 没有泛型，写通用容器/算法只能靠 <code>interface{}</code>+ 类型断言（丢失类型安全、有装箱开销）或代码生成。1.18 正式引入<b>类型参数</b>，补上了这块长期短板。</p>
+
+<pre><code>// T 是类型参数，any 是约束（表示任意类型）
+func Map[T, U any](s []T, f func(T) U) []U {
+    r := make([]U, len(s))
+    for i, v := range s {
+        r[i] = f(v)
+    }
+    return r
+}
+
+// 用约束限定 T 必须支持 &lt; 比较
+type Ordered interface { ~int | ~float64 | ~string }  // | 是类型集合，~ 表示底层类型
+func Max[T Ordered](a, b T) T {
+    if a > b { return a }
+    return b
+}
+
+// 调用处（在某个函数内）：
+Max(3, 5)            // 类型自动推导为 int → 5
+Max("a", "b")        // string → "b"</code></pre>
+
+<table class="rowh">
+<tr><th>类型参数</th><td><code>[T any]</code>：函数/类型可接受的"类型占位符"，编译期实例化成具体类型</td></tr>
+<tr><th>约束 constraint</th><td>本质是个 <b>interface</b>，规定类型参数必须满足什么（有哪些方法、属于哪些类型集合）</td></tr>
+<tr><td><code>any</code></td><td><code>interface{}</code> 的别名（1.18 起），表示任意类型</td></tr>
+<tr><td><code>comparable</code></td><td>内置约束，表示支持 <code>==</code>/<code>!=</code>（可做 map key）</td></tr>
+<tr><td><code>~int</code></td><td>"底层类型是 int"，能匹配 <code>type MyInt int</code> 这种自定义类型</td></tr>
+</table>
+<div class="warn box"><b>什么时候用泛型？</b>容器（List/Set/Tree）、通用工具函数（Map/Filter/Reduce）、数值算法——这些"逻辑相同、只是类型不同"的场景。<b>不要滥用</b>：业务逻辑优先用接口（行为抽象）；泛型是"类型抽象"，能显著减少重复代码时才上。Go 的理念仍是能简单就别泛型。</div>
+</section>
+
+<!-- ============ 8 数据竞争 ============ -->
+<section id="race">
+<h2 class="sec">8 · 数据竞争与内存模型 <span class="tag hi">高频</span></h2>
+<p>并发 bug 最隐蔽的一类就是<b>数据竞争（data race）</b>：两个以上 goroutine <b>并发访问同一内存、至少一个是写、且没有同步</b>。结果是未定义的——可能读到半个值、可能永远读到旧值、可能直接崩。</p>
+
+<pre><code>var count int
+for i := 0; i < 1000; i++ {
+    go func() { count++ }()   // ❌ 1000 个 goroutine 无同步地写 count
+}
+// count++ 其实是「读→加→写」三步，并发下互相覆盖，结果远小于 1000</code></pre>
+
+<h4>怎么发现：-race 竞态检测器</h4>
+<p>Go 自带<b>竞态检测器</b>，编译时加 <code>-race</code>，运行时会监控内存访问，发现竞争就打印"WARNING: DATA RACE"+ 双方调用栈。<b>强烈建议在测试/CI 里常开</b>：</p>
+<pre><code>go run -race main.go
+go test -race ./...</code></pre>
+<div class="warn box">检测器只能发现<b>实际发生过</b>的竞争（依赖当次运行的调度），不能证明"一定没有竞争"；且有性能开销（内存 5~10 倍、速度 2~20 倍），所以<b>只在测试用，别上生产</b>。</div>
+
+<h4>Go 内存模型 & happens-before</h4>
+<p>为什么"不加锁直接读另一个 goroutine 写的变量"不可靠？因为编译器和 CPU 会<b>重排指令</b>、各 CPU 核有<b>自己的缓存</b>。Go 内存模型用 <b>happens-before</b> 规则定义"什么情况下一个 goroutine 的写，保证对另一个 goroutine 可见"。建立 happens-before 的手段就是那些<b>同步原语</b>：</p>
+<ul>
+  <li>channel：一次<b>发送</b> happens-before 对应的<b>接收完成</b>；channel 的 <b>close</b> happens-before 收到零值。</li>
+  <li>Mutex：<code>Unlock</code> happens-before 下一次 <code>Lock</code>。</li>
+  <li>一次 <code>go</code> 语句 happens-before 被启动的 goroutine 开始执行；<code>WaitGroup.Wait</code> 返回 happens-after 所有 <code>Done</code>。</li>
+</ul>
+<div class="info box"><b>一句话：</b>要想"我在 A goroutine 写的，B goroutine 能正确看到"，就必须用 channel / 锁 / atomic 建立同步关系。<b>共享可变状态 + 无同步 = 未定义行为</b>，别靠"应该没事"的侥幸。修复上面的例子：加 <code>sync.Mutex</code> 或用 <code>atomic.AddInt64</code>。</div>
+</section>
+
+<!-- ============ 9 并发模式与坑 ============ -->
+<section id="concurrency-patterns">
+<h2 class="sec">9 · 常见并发模式与坑 <span class="tag co">并发</span></h2>
+
+<h4>坑 ①：for-range 循环变量捕获（1.22 是分水岭）</h4>
+<div class="danger box">Go 1.22 <b>之前</b>，<code>for</code> 循环的循环变量在每次迭代<b>复用同一个地址</b>。在循环里 <code>go func(){ use(v) }()</code> 闭包捕获的是<b>变量本身</b>，等 goroutine 真正执行时，循环早跑完了，大家读到的都是<b>最后一个值</b>——这是 Go 最著名的坑之一。</div>
+<pre><code>for _, v := range []int{1, 2, 3} {
+    go func() { fmt.Println(v) }()   // 1.22 前：很可能全打印 3 3 3
+}
+
+// 1.22 前的修复：每轮拷一份
+for _, v := range s {
+    v := v                    // 遮蔽出一个新变量（老经典写法）
+    go func() { fmt.Println(v) }()
+}
+// 或把 v 作为参数传进去： go func(v int){ ... }(v)</code></pre>
+<div class="tip box"><b>Go 1.22 起</b>：循环变量改为<b>每轮迭代一个新实例</b>，这个坑被语言层面修掉了，上面的原始写法现在也正确。但面试常考、且老代码/老版本仍在，<b>必须知道来龙去脉</b>。</div>
+
+<h4>坑 ②：goroutine 泄漏</h4>
+<p>goroutine 启动了却<b>永远无法退出</b>（阻塞在没人收的 channel、没人关的 channel、或漏传 ctx），它的栈和内存一直占着，累积起来就是内存泄漏。<b>原则：启动一个 goroutine，就要想清楚它在什么条件下退出</b>——用 ctx 取消、关闭 channel、或 WaitGroup 收尾，给它一条确定的退出路径。</p>
+
+<h4>模式：WaitGroup + channel 收敛结果（fan-out / fan-in）</h4>
+<pre><code>var wg sync.WaitGroup
+results := make(chan int, len(jobs))
+for _, j := range jobs {
+    wg.Add(1)
+    go func(j Job) {
+        defer wg.Done()
+        results &lt;- process(j)
+    }(j)
+}
+go func() { wg.Wait(); close(results) }()  // 全干完才关结果 channel
+for r := range results { total += r }       // range 到 channel 关闭自然结束</code></pre>
+
+<h4>利器：golang.org/x/sync 里的两个高频库</h4>
+<table class="rowh">
+<tr><th>errgroup</th><td>WaitGroup 的增强：并发跑一组任务，<b>任一个返回 error 就取消其余</b>（配合 ctx），并收集第一个错误。写并发调用比裸 WaitGroup 优雅太多。</td></tr>
+<tr><td><code>errgroup.WithContext(ctx)</code></td><td>返回的 group，<code>g.Go(fn)</code> 提交任务，<code>g.Wait()</code> 等全部完成或首个出错。</td></tr>
+<tr><th>singleflight</th><td>解决<b>缓存击穿/重复请求</b>：同一个 key 同时有 N 个请求，只<b>真正执行一次</b>，其余等待并共享同一结果。缓存失效瞬间防止打爆 DB 的神器。</td></tr>
+</table>
+</section>
+
+<!-- ============ 10 测试 ============ -->
+<section id="testing">
+<h2 class="sec">10 · 测试</h2>
+<p>Go 把测试做进了工具链和语言文化：测试文件以 <code>_test.go</code> 结尾、与被测代码<b>同目录同包</b>，函数签名固定，<code>go test</code> 直接跑。无需第三方框架。</p>
+
+<h4>单元测试 + 表驱动（table-driven，Go 最推崇的写法）</h4>
+<pre><code>// 文件：mathx_test.go
+func TestAdd(t *testing.T) {
+    cases := []struct {        // 一张"输入→期望"表
+        name    string
+        a, b, want int
+    }{
+        {"正数", 1, 2, 3},
+        {"含负数", -1, 1, 0},
+        {"零", 0, 0, 0},
+    }
+    for _, c := range cases {
+        t.Run(c.name, func(t *testing.T) {   // 子测试，独立报告、可单独跑
+            if got := Add(c.a, c.b); got != c.want {
+                t.Errorf("Add(%d,%d)=%d, want %d", c.a, c.b, got, c.want)
+            }
+        })
+    }
+}</code></pre>
+
+<h4>基准测试 Benchmark</h4>
+<pre><code>func BenchmarkAdd(b *testing.B) {
+    for i := 0; i < b.N; i++ {   // b.N 由框架自动调整到统计稳定
+        Add(1, 2)
+    }
+}
+// go test -bench=. -benchmem   ← 跑基准，-benchmem 还报每次操作的内存分配</code></pre>
+
+<table>
+<tr><th>命令</th><th>作用</th></tr>
+<tr><td><code>go test ./...</code></td><td>跑当前模块所有测试</td></tr>
+<tr><td><code>go test -run TestAdd</code></td><td>只跑匹配名字的测试</td></tr>
+<tr><td><code>go test -race ./...</code></td><td>带竞态检测跑（强烈建议 CI 开）</td></tr>
+<tr><td><code>go test -cover</code></td><td>输出覆盖率</td></tr>
+<tr><td><code>go test -bench=. -benchmem</code></td><td>跑基准测试 + 内存分配统计</td></tr>
+</table>
+<div class="info box"><b>其它：</b><code>Example</code> 函数（<code>func ExampleXxx()</code>）既是文档又是测试；<code>TestMain</code> 做测试的全局准备/清理；<code>t.Parallel()</code> 让子测试并行。标准库 <code>testing</code> 够用，断言想简洁可配 <code>testify</code>。</div>
+</section>
+
+<!-- ============ 11 性能与进阶 ============ -->
+<section id="advanced">
+<h2 class="sec">11 · 性能优化与进阶杂项</h2>
+
+<h4>struct 内存对齐（经典优化题）</h4>
+<p>结构体字段的<b>排列顺序会影响它占多少内存</b>。CPU 按字长对齐访问，编译器会在字段间插入<b>填充字节（padding）</b>凑对齐。<b>把字段按大小从大到小（或相近类型聚在一起）排列</b>，能减少 padding：</p>
+<pre><code>type Bad struct {   // 占 24 字节
+    a bool    // 1 字节 + 7 填充
+    b int64   // 8
+    c bool    // 1 字节 + 7 填充
+}
+type Good struct {  // 占 16 字节（省 1/3）
+    b int64   // 8
+    a bool    // 1
+    c bool    // 1 + 6 填充
+}</code></pre>
+<p class="kbd">用 <code>unsafe.Sizeof()</code> 能看实际大小。高频创建的小结构体、或海量元素的 slice，调字段顺序收益明显。</p>
+
+<h4>sync.Pool：对象复用，减轻 GC</h4>
+<p>频繁 new 再丢弃的临时对象（如 buffer、临时结构体）会给 GC 很大压力。<code>sync.Pool</code> 是<b>临时对象缓存池</b>：<code>Get</code> 拿一个（没有就调 <code>New</code> 造），用完 <code>Put</code> 放回复用。</p>
+<pre><code>var bufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+b := bufPool.Get().(*bytes.Buffer)
+b.Reset()
+defer bufPool.Put(b)
+// ... 用 b 拼接</code></pre>
+<div class="warn box"><b>注意：</b>Pool 里的对象<b>随时可能被 GC 清掉</b>（每轮 GC 会清理），所以<b>只能放"可重建、无状态"的临时对象</b>，不能当连接池/长期缓存用。取出来记得 <code>Reset</code> 清残留。</div>
+
+<h4>反射 reflect（三定律）</h4>
+<p>反射让程序在<b>运行时</b>检查类型、读写字段、调方法，是 JSON 序列化、ORM、依赖注入的底层。核心 <code>reflect.Type</code>（类型信息）+ <code>reflect.Value</code>（值）。Rob Pike 的三定律：</p>
+<ol>
+  <li>从<b>接口值</b>可以反射出 <code>reflect.Value</code>（<code>reflect.ValueOf(x)</code>）。</li>
+  <li>从 <code>reflect.Value</code> 可以还原回接口值（<code>.Interface()</code>）。</li>
+  <li>要想通过反射<b>修改</b>一个值，这个 Value 必须是<b>可寻址（settable）</b>的——即传进来的是<b>指针</b>。</li>
+</ol>
+<div class="danger box">反射<b>慢、且绕过编译期类型检查</b>（错误推迟到运行时 panic），能不用就不用。框架底层用它是为了通用性，业务代码里出现大量反射往往是设计信号。</div>
+
+<h4>unsafe / cgo（了解即可）</h4>
+<ul>
+  <li><b>unsafe.Pointer</b>：绕过类型系统做指针转换（如 <code>[]byte</code> ↔ <code>string</code> 零拷贝），能提速但<b>极危险</b>、破坏内存安全、不受兼容性保证，仅在极致优化且清楚后果时用。</li>
+  <li><b>cgo</b>：在 Go 里调 C 代码（<code>import "C"</code>）。代价：编译变慢、跨语言调用有开销、丧失跨平台交叉编译的便利、goroutine 调度受影响。能用纯 Go 就别引 cgo。</li>
+</ul>
+</section>
+
+<!-- ============ 速记 ============ -->
+<section id="cheat">
+<h2 class="sec">附 · 高频面试速记</h2>
+<details class="q"><summary>为什么 Go 要引入协程？它比线程好在哪？</summary><div class="a">线程栈大（MB级）、内核态切换贵（μs级）、数量受限；goroutine 栈 2KB 起、用户态切换（几十 ns）、可开百万。runtime 用 M:N 把海量协程复用到少量线程，且阻塞 IO 交给 netpoller 不占线程，天生适合高并发。</div></details>
+<details class="q"><summary>讲讲 GMP。P 为什么存在？</summary><div class="a">G=任务、M=系统线程、P=逻辑处理器/调度上下文（数=GOMAXPROCS）。M 必须持有 P 才能跑 G。P 给每个处理器一个本地队列，取 G 基本无锁，解决了早期 G-M 全局锁竞争，让调度可扩展；还带 mcache 做无锁内存分配。</div></details>
+<details class="q"><summary>goroutine 阻塞在 syscall 时，P 会怎样？</summary><div class="a">P 与阻塞的 M 解绑（handoff），带着本地队列去找/建另一个 M 继续跑，不浪费算力；syscall 返回后原 M 再尝试抢 P，抢不到就把 G 丢全局队列、自己休眠。channel/网络 IO 这类是纯用户态阻塞，M 根本不阻塞。</div></details>
+<details class="q"><summary>Go 怎么防止一个死循环 goroutine 霸占 CPU？</summary><div class="a">1.14 起异步抢占：sysmon 发现 G 跑超 10ms，给其 M 发 SIGURG 信号强制让出。此前是协作式，只在函数调用点检查，纯死循环抢不了。</div></details>
+<details class="q"><summary>无缓冲和有缓冲 channel 区别？向已关闭 channel 收发会怎样？</summary><div class="a">无缓冲=同步交接，收发双方必须同时就绪；有缓冲=异步，满/空才阻塞。发送已关闭 channel → panic；接收已关闭 channel → 取完剩余值后返回零值且 ok=false；重复关闭/关 nil → panic。由发送方负责关闭。</div></details>
+<details class="q"><summary>Mutex 的正常模式和饥饿模式？</summary><div class="a">正常模式新 goroutine 可自旋抢锁、吞吐高但可能饿死老等待者；某等待者等超 1ms 转饥饿模式，锁直接移交队头、新来的老实排队，保证公平；队列清空后切回。</div></details>
+<details class="q"><summary>channel 和 Mutex 怎么选？</summary><div class="a">传递数据/编排流程/信号取消超时用 channel（通信共享内存）；保护一小段共享状态、追求性能用 Mutex/atomic。别为用 channel 而 channel。</div></details>
+<details class="q"><summary>Go 的 GC 原理？STW 为什么这么短？</summary><div class="a">并发三色标记-清除 + 混合写屏障（1.8）。标记和清除都与用户程序并发，STW 只在 Mark Setup 和 Mark Termination 两个极短点。混合写屏障让栈无需重扫、GC 尾部不再长 STW，压到亚毫秒。</div></details>
+<details class="q"><summary>三色标记为什么需要写屏障？</summary><div class="a">并发标记时用户代码可能把黑对象指向白对象、又断开原引用，导致白对象漏标被误删。写屏障在指针赋值时把相关对象重新染灰，维持不变性。Go 用 Dijkstra 插入+Yuasa 删除的混合写屏障。</div></details>
+<details class="q"><summary>逃逸分析是什么？和 GC 有什么关系？</summary><div class="a">编译期判断变量分配在栈还是堆：不逃出函数就留栈、随返回自动回收、零 GC 压力；返回指针/进 interface/被闭包捕获等会逃逸到堆。减少逃逸即减少堆分配、减轻 GC，是常规优化手段。</div></details>
+<details class="q"><summary>slice 作参数，函数内 append 为什么外面看不到？</summary><div class="a">slice 传的是{指针,len,cap}表头的拷贝。改元素共用底层数组所以可见；append 触发扩容后表头指向新数组、但那是函数内的副本，外部表头仍指旧数组，故不可见。要返回新 slice。</div></details>
+<details class="q"><summary>接口值什么时候等于 nil？那个经典坑？</summary><div class="a">接口 type 和 data 都为 nil 才 ==nil。把值为 nil 的具体指针赋给接口，type 非空，接口就 !=nil。常见于返回 error 时返回了 nil 的 *MyErr，调用方 err!=nil 误判为真。</div></details>
+<details class="q"><summary>context 是干嘛的？用法铁律？</summary><div class="a">沿调用链传递取消信号、超时和请求级数据。Done() 返回的 channel 被 close 即广播取消。铁律：作第一个参数传递不存结构体、cancel 必须调用(defer)、WithValue 只放请求元数据。</div></details>
+<details class="q"><summary>什么是数据竞争？怎么发现和修复？</summary><div class="a">多 goroutine 并发访问同一内存、至少一个写、无同步，结果未定义。用 go test/run -race 检测；修复靠 channel/Mutex/atomic 建立 happens-before。</div></details>
+<details class="q"><summary>for 循环里起 goroutine 打印循环变量，为什么全是最后一个值？</summary><div class="a">1.22 前循环变量每轮复用同一地址，闭包捕获的是变量本身，等 goroutine 执行时循环已结束。修复：循环内 v:=v 拷贝或作参数传入。1.22 起改为每轮新变量，已修掉。</div></details>
+<details class="q"><summary>sync.Pool 用来干嘛？有什么注意点？</summary><div class="a">复用临时对象、减轻 GC。对象随时可能被 GC 清掉，只能放可重建的无状态临时对象（如 buffer），取出要 Reset，别当连接池/长期缓存。</div></details>
+<details class="q"><summary>struct 字段顺序为什么影响内存占用？</summary><div class="a">内存对齐：编译器按字长补 padding。字段从大到小排列可减少填充，用 unsafe.Sizeof 验证。</div></details>
+<details class="q"><summary>泛型什么时候用？any/comparable/~ 是什么？</summary><div class="a">逻辑相同只是类型不同的容器/工具函数/数值算法用泛型。any=interface{}别名；comparable=可用==做map key；~int=底层类型为int。业务逻辑优先用接口。</div></details>
+</section>
+
+<footer>
+Go 知识体系笔记 · 系统学习版。<br>
+主线：基础语法(含包管理) → 为什么引入协程 → GMP 调度 → channel → 锁与同步 → GC → context/泛型/数据竞争/测试/性能。
+<br><a href="../index.html">← 回到 note-garden</a>
+</footer>
+</main>
+</div>
+</body>
+</html>
