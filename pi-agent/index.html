@@ -105,6 +105,39 @@
       color: #b45309;
       border-color: #f59e0b;
     }
+    /* Role Variants on Graph Nodes: Core vs Config vs Extension */
+    .station-node.role-config:not(.active) {
+      border-color: #93c5fd;
+      background: #f8fafc;
+    }
+    .station-node.role-ext:not(.active) {
+      border-style: dashed;
+      border-color: #c4b5fd;
+      background: #faf5ff;
+    }
+    .role-pill {
+      font-size: 9.5px;
+      line-height: 1.2;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .role-pill.core {
+      background: #f5f5f4;
+      color: #57534e;
+      border: 1px solid #d6d3d1;
+    }
+    .role-pill.config {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+    .role-pill.ext {
+      background: #f3e8ff;
+      color: #6d28d9;
+      border: 1px solid #ddd6fe;
+    }
     /* Animated active SVG edge */
     @keyframes dashFlow {
       to {
@@ -217,18 +250,25 @@
 
       <!-- LEFT: Interactive Node-and-Edge Relationship Diagram (5 cols) -->
       <div class="lg:col-span-5 card p-4">
-        <div class="flex items-center justify-between mb-3 px-1">
-          <div>
+        <div class="flex flex-col gap-1.5 mb-3 px-1">
+          <div class="flex items-center justify-between">
             <h2 class="text-xs font-bold text-stone-800">12 个机制关系图（教学视图）</h2>
-            <p class="text-[11px] text-stone-400">连线表示讲解关联，并非固定执行顺序；橙色表示当前选中节点</p>
+            <div class="flex items-center gap-2 text-[11px]">
+              <span class="flex items-center gap-1 text-amber-800 font-semibold">
+                <span class="w-2.5 h-2.5 rounded-sm bg-amber-200 border-2 border-amber-500 inline-block"></span>当前站
+              </span>
+              <span class="flex items-center gap-1 text-stone-500">
+                <span class="w-3 h-0.5 bg-amber-500 inline-block"></span>关联流向
+              </span>
+            </div>
           </div>
-          <div class="flex items-center gap-2 text-[11px]">
-            <span class="flex items-center gap-1 text-amber-800 font-semibold">
-              <span class="w-2.5 h-2.5 rounded-sm bg-amber-200 border-2 border-amber-500 inline-block"></span>当前站
-            </span>
-            <span class="flex items-center gap-1 text-stone-500">
-              <span class="w-3 h-0.5 bg-amber-500 inline-block"></span>关联流向
-            </span>
+          <div class="flex flex-wrap items-center justify-between gap-1 text-[11px] text-stone-400">
+            <span>连线表示讲解关联，并非固定执行顺序</span>
+            <div class="flex items-center gap-1.5">
+              <span class="role-pill core">核心机制</span>
+              <span class="role-pill config">按配置生效</span>
+              <span class="role-pill ext">可选扩展/钩子</span>
+            </div>
           </div>
         </div>
 
@@ -245,27 +285,36 @@
             </div>
             <!-- Row 1: Station 1 -> Station 2 -->
             <div class="grid grid-cols-2 gap-4">
-              <div onclick="goToStep(0)" id="st-node-0" class="station-node">
+              <div onclick="goToStep(0)" id="st-node-0" class="station-node role-core">
                 <div class="station-num">1</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">按下回车·双层循环</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">按下回车·双层循环</div>
+                    <span class="role-pill core">核心</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">runAgentLoop()</div>
                 </div>
               </div>
-              <div onclick="goToStep(1)" id="st-node-1" class="station-node">
+              <div onclick="goToStep(1)" id="st-node-1" class="station-node role-core">
                 <div class="station-num">2</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">树状会话历史</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">树状会话历史</div>
+                    <span class="role-pill core">核心</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">session.jsonl 树</div>
                 </div>
               </div>
             </div>
             <!-- Row 2: Station 3 (Long-term memory & Skills) -->
             <div class="flex justify-center">
-              <div onclick="goToStep(2)" id="st-node-2" class="station-node w-4/5">
+              <div onclick="goToStep(2)" id="st-node-2" class="station-node role-core w-4/5">
                 <div class="station-num">3</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">项目指令 AGENTS.md 与技能目录</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">项目指令 AGENTS.md 与技能目录</div>
+                    <span class="role-pill core">核心</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">buildSystemPromptSections()</div>
                 </div>
               </div>
@@ -279,17 +328,23 @@
               <span class="font-mono text-[10px]">MCP &amp; KV Cache</span>
             </div>
             <div class="grid grid-cols-2 gap-4">
-              <div onclick="goToStep(3)" id="st-node-3" class="station-node">
+              <div onclick="goToStep(3)" id="st-node-3" class="station-node role-config">
                 <div class="station-num">4</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">MCP 按需暴露（有开销）</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">MCP 按需暴露</div>
+                    <span class="role-pill config">按配置</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">exposure: "codemode"</div>
                 </div>
               </div>
-              <div onclick="goToStep(4)" id="st-node-4" class="station-node">
+              <div onclick="goToStep(4)" id="st-node-4" class="station-node role-core">
                 <div class="station-num">5</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">中途加工具贴队尾</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">中途加工具贴队尾</div>
+                    <span class="role-pill core">核心</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">declareToolChanges()</div>
                 </div>
               </div>
@@ -304,27 +359,36 @@
             </div>
             <!-- Row 1: Station 6 (Router & CacheWarmer Hub) -->
             <div class="flex justify-center">
-              <div onclick="goToStep(5)" id="st-node-5" class="station-node w-4/5">
+              <div onclick="goToStep(5)" id="st-node-5" class="station-node role-ext w-4/5">
                 <div class="station-num">6</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">模型请求 / 可选路由 / 条件保活</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">模型请求 / 可选路由 / 条件保活</div>
+                    <span class="role-pill ext">可选扩展</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">jev-router &amp; CacheWarmer</div>
                 </div>
               </div>
             </div>
             <!-- Row 2: Gate 1 (Station 7) -> Gate 2 (Station 8) -->
             <div class="grid grid-cols-2 gap-4">
-              <div onclick="goToStep(6)" id="st-node-6" class="station-node">
+              <div onclick="goToStep(6)" id="st-node-6" class="station-node role-core">
                 <div class="station-num">7</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">截断响应检查</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">截断响应检查</div>
+                    <span class="role-pill core">核心</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">stopReason=="length"</div>
                 </div>
               </div>
-              <div onclick="goToStep(7)" id="st-node-7" class="station-node">
+              <div onclick="goToStep(7)" id="st-node-7" class="station-node role-ext">
                 <div class="station-num">8</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">参数校验 / 可选审批</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">参数校验 / 可选审批</div>
+                    <span class="role-pill ext">核心+扩展</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">beforeToolCall 串行</div>
                 </div>
               </div>
@@ -339,34 +403,46 @@
             </div>
             <!-- Row 1: Parallel Fan-out from Station 8 -> Station 9 (Left) & Station 10 (Right) -->
             <div class="grid grid-cols-2 gap-4">
-              <div onclick="goToStep(8)" id="st-node-8" class="station-node">
+              <div onclick="goToStep(8)" id="st-node-8" class="station-node role-config">
                 <div class="station-num">9</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">codemode VM 与宿主桥接</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">codemode VM 与宿主桥接</div>
+                    <span class="role-pill config">按配置</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">过滤 Issue / runToolCall</div>
                 </div>
               </div>
-              <div onclick="goToStep(9)" id="st-node-9" class="station-node">
+              <div onclick="goToStep(9)" id="st-node-9" class="station-node role-core">
                 <div class="station-num">10</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">进程内队列与日志分流</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">进程内队列与日志分流</div>
+                    <span class="role-pill core">核心</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">mutationQueue &amp; bash</div>
                 </div>
               </div>
             </div>
             <!-- Row 2: Loop-backs -> Station 11 (Steering) & Station 12 (Compaction) -->
             <div class="grid grid-cols-2 gap-4">
-              <div onclick="goToStep(10)" id="st-node-10" class="station-node">
+              <div onclick="goToStep(10)" id="st-node-10" class="station-node role-core">
                 <div class="station-num">11</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">检查点读取补充指令</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">检查点读取补充指令</div>
+                    <span class="role-pill core">核心</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">↺ 新要求进入下一轮</div>
                 </div>
               </div>
-              <div onclick="goToStep(11)" id="st-node-11" class="station-node">
+              <div onclick="goToStep(11)" id="st-node-11" class="station-node role-core">
                 <div class="station-num">12</div>
-                <div class="min-w-0">
-                  <div class="text-xs font-bold text-stone-900 truncate">按 Token 水位压缩</div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-1">
+                    <div class="text-xs font-bold text-stone-900 truncate">按 Token 水位压缩</div>
+                    <span class="role-pill core">核心</span>
+                  </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">↺ 压完写回第 2 站记账本</div>
                 </div>
               </div>
@@ -475,13 +551,14 @@
     const stations = [
   {
     "phaseId": "P1",
+    "roleType": "core",
     "title": "第 1 站：按下回车后，Agent 怎样一轮轮处理任务？",
-    "story": "你按下回车后，Pi 会反复做三件事：把任务交给模型、按模型请求调用工具、把工具结果交回模型。源码用两层循环，分别处理“眼前这件事还要不要继续”和“这件事做完后，是否还有排队的新任务”。",
-    "pain": "比如它正在修登录报错，你补一句“先别删日志”：这是运行中追加的指令（源码称 Steering），会在后续检查点加入当前任务。若你排队说“修完再写使用文档”，则属于后续追问（Follow-up），等当前任务准备结束后再处理。这里的检查点，可以理解为当前步骤处理完、准备继续的时刻，不是立刻强行停止正在运行的命令。",
-    "relationText": "输入 → ① 会话循环；②③ 为会话与请求提供上下文；⑪ 返回下一轮",
-    "moduleTag": "核心机制 · Agent 循环",
-    "dataBefore": "你先说：“修复登录报错。”\n工作中补充：“先别删日志。”\n另一个排队需求：“修完再写使用文档。”",
-    "dataAfter": "① 当前任务：模型与工具反复往返，继续处理登录报错。\n② 运行中追加指令：在检查点加入“先别删日志”，影响后续操作。\n③ 排队的后续任务：当前任务准备结束后，再处理写文档的需求。",
+    "story": "你输入「查 Issue、修 login.ts、删日志」并按下回车后，Pi 会反复做三件事：把上下文交给模型、按模型请求调用工具、把工具结果交回模型。源码用内外两层 while 循环，分别处理“当前这件事还要不要继续调工具”和“这件事做完后，还有没有排队的新任务”。",
+    "pain": "比如它正在修 login.ts，你突然补一句“先别删日志”：这是运行中追加的指令（Steering），会在当前回合的检查点塞进下一轮上下文。若你排队说“修完再写份文档”，则属于后续追问（Follow-up），等内层循环跑完再由外层循环接手。注意：检查点是回合交接处，不会强行杀死正在运行的命令。",
+    "relationText": "输入 → ① 双层循环调度；②③ 组装会话与系统提示词；⑪ 检查点注入新指令进入下一轮",
+    "moduleTag": "核心机制 · Agent 双层循环",
+    "dataBefore": "// 1. 初始任务进入循环\npendingMessages = [\n  { role: \"user\", content: \"查 Issue、修 login.ts、删日志\" }\n]\n// 2. 运行中途你又敲入两句话：\nsteeringQueue: [\"先别删 /tmp/logs\"]\nfollowUpQueue: [\"修好后补一份排查说明\"]",
+    "dataAfter": "// 内层 while (hasMoreToolCalls || pendingMessages.length > 0)\nTurn 1: 调工具查 Issue -> 修 login.ts\n  ↳ 检查点 getSteeringMessages() 取出 [\"先别删 /tmp/logs\"]\nTurn 2: 带着新指令继续当前任务（跳过删日志）\n\n// 外层 while (true) 等内层结束后：\ngetFollowUpMessages() 取出 [\"修好后补一份排查说明\"] 开启下一段",
     "file": "packages/agent/src/agent-loop.ts",
     "lineRange": "本地源码原文 · L187–L226",
     "startLine": 187,
@@ -493,7 +570,7 @@
       220,
       223
     ],
-    "takeaway": "先看两处 while：外层管理“做完后还有什么”，内层管理“当前这件事如何继续”。Steering 就是任务进行时追加的指令；Follow-up 是排队等当前任务结束后的追问。",
+    "takeaway": "阅读重点：先看两处 while——外层管理“当前任务做完后还有什么追问（Follow-up）”，内层管理“当前任务如何一轮轮调工具与接收中途补充指令（Steering）”。",
     "code": [
       "  // Outer loop: continues when queued follow-up messages arrive after agent would stop",
       "  while (true) {",
@@ -545,13 +622,14 @@
   },
   {
     "phaseId": "P1",
-    "title": "第 2 站：为什么聊天历史用 JSONL 保存成树？",
-    "story": "SessionManager 用 JSONL 持久化会话条目。条目通过 id 与 parentId 关联，沿当前叶子回溯可得到选中的历史分支；这与运行时使用消息数组并不矛盾。",
-    "pain": "分支结构便于回到之前的对话节点，尝试另一条思路，同时保留旧分支。这里只切换会话历史，不会自动撤销之前对文件、终端或外部服务产生的操作。",
-    "relationText": "② 当前会话分支 → 请求上下文；⑫ 压缩条目也写回会话",
-    "moduleTag": "核心机制 · 会话持久化与分支",
-    "dataBefore": "示例：同一段历史 A → B → C。\n想从 B 再试另一种解法。",
-    "dataAfter": "保留 A → B → C，同时追加分支 B → D。\n沿 D 的 parentId 回溯，构造当前分支历史。\n文件恢复需要另外处理。",
+    "roleType": "core",
+    "title": "第 2 站：修 Bug 走弯路了，为什么聊天记录要用 JSONL 存成树？",
+    "story": "假设修 login.ts 时第一次改错了方向，你想退回“刚查完 Issue”那一步换种改法。SessionManager 把每条消息按行追加到 session.jsonl，每条都带有 id 和 parentId。只要选定当前叶子节点（leafId）往上回溯 parentId，就能还原出当前分支的完整对话。",
+    "pain": "如果只存一条扁平数组，回退就得删掉旧记录；存成 parentId 树后，旧的尝试分支原封不动留在文件里，新思路直接从中间节点分叉追加。注意边界：切换会话分支只切换“聊天记忆”，之前已经写到磁盘的代码改动不会自动 git revert。",
+    "relationText": "② 沿 leafId 回溯出当前分支消息数组 → 请求上下文；⑫ 压缩摘要也作为节点写回会话树",
+    "moduleTag": "核心机制 · 会话持久化与分支树",
+    "dataBefore": "// session.jsonl 磁盘追加记录（含两次不同尝试）\n{\"id\":\"e1\", \"parentId\":null, \"text\":\"查登录 Issue\"}\n{\"id\":\"e2\", \"parentId\":\"e1\", \"text\":\"定位到 token 过期\"}\n{\"id\":\"e3\", \"parentId\":\"e2\", \"text\":\"方案A：改中间件(失败)\"}\n{\"id\":\"e4\", \"parentId\":\"e2\", \"text\":\"方案B：直接修 login.ts\"}",
+    "dataAfter": "// 调用 buildSessionPath(entries, leafId = \"e4\")\n// 沿 e4 -> e2 -> e1 回溯并 reverse()：\n[\n  { id: \"e1\", text: \"查登录 Issue\" },\n  { id: \"e2\", text: \"定位到 token 过期\" },\n  { id: \"e4\", text: \"方案B：直接修 login.ts\" }\n] // e3 留在磁盘备查，但不进入当前分支上下文",
     "file": "packages/coding-agent/src/core/session-manager.ts",
     "lineRange": "本地源码原文 · L390–L417",
     "startLine": 390,
@@ -562,7 +640,7 @@
       412,
       414
     ],
-    "takeaway": "阅读重点：沿 parentId 回溯并反转，得到当前分支。磁盘树状记录与运行时消息数组承担不同职责。",
+    "takeaway": "阅读重点：磁盘上用 parentId 记录分叉树，运行时通过 buildSessionPath 沿当前叶子回溯并反转（reverse），变成发给模型的线性消息数组。",
     "code": [
       "function buildSessionPath(",
       "  entries: SessionEntry[],",
@@ -602,13 +680,14 @@
   },
   {
     "phaseId": "P1",
-    "title": "第 3 站：项目说明和 Skills 怎样进入上下文？",
-    "story": "构建系统提示词时，会纳入加载好的项目上下文和技能目录。AGENTS.md 是项目指令文件，不是会自动学习的长期记忆；Skills 可以先呈现名称、简介与位置，按需读取正文。",
-    "pain": "把所有技能全文预先塞入上下文，会增加请求体积。目录式呈现让模型先知道有哪些技能，需要时再读取；实际是否加载、如何读取，受资源与可用工具配置影响。",
-    "relationText": "② 会话历史 + ③ 项目与技能上下文 → 模型请求",
+    "roleType": "core",
+    "title": "第 3 站：项目规范 AGENTS.md 与技能包，怎样装进系统提示词？",
+    "story": "为了让 Agent 遵守本仓库规矩（比如“禁止用 any”“测试怎么跑”），构建系统提示词时会把项目指令文件（AGENTS.md）装进去。而面对几十个专用技能（Skills），Pi 不会把所有技能的长篇说明书一股脑塞进提示词，而是先生成一份包含名称、简介和文件路径的 `<skills>` 目录。",
+    "pain": "如果把 20 个技能的正文全塞进 System Prompt，每次发请求都要白白携带大段无关说明。改成“目录索引 + 需要时再用读取工具看正文”，既让模型知道有哪些锦囊可用，又省下了宝贵的上下文空间。注意：AGENTS.md 是人工维护的项目规则，不是模型会自动改写的记忆库。",
+    "relationText": "② 当前分支历史 + ③ 分章节组装的 SystemPromptSections → 汇入模型请求",
     "moduleTag": "核心机制 · 项目上下文与技能目录",
-    "dataBefore": "教学假设：20 个技能，每份说明 3000 字。\n项目另有 AGENTS.md 指令。",
-    "dataAfter": "按章节构建系统提示词。\n纳入项目上下文；在满足条件时加入技能目录。\n20 × 3000 是说明成本问题的例子，不是性能测量。",
+    "dataBefore": "// 本地资源状态：\n1. 项目规则：/repo/AGENTS.md (编码与测试规范)\n2. 技能文件夹：20 个 SKILL.md（每个数千字正文）\n3. 可用读取工具：skillFileReadTool = \"read\"",
+    "dataAfter": "// buildSystemPromptSections() 组装出的章节结构：\nsections = {\n  preamble: \"You are a coding agent...\",\n  context: \"<context>\\n[AGENTS.md 内容]\\n</context>\",\n  cwd: \"<cwd>\\n/Users/dev/project\\n</cwd>\",\n  skills: \"<skills>\\n- auth-debug: 登录鉴权排查 (/path/SKILL.md)\\n  (需要时调用 read 读取对应路径)\\n</skills>\"\n}",
     "file": "packages/coding-agent/src/core/system-prompt.ts",
     "lineRange": "本地源码原文 · L178–L190",
     "startLine": 178,
@@ -619,7 +698,7 @@
       188,
       189
     ],
-    "takeaway": "阅读重点：当前本地版本使用 buildSystemPromptSections 等函数；原导读中的 updateSystemPromptSection 不在此版本该文件中。",
+    "takeaway": "阅读重点：当存在可用读取工具且配置了技能时，formatSkillsForPrompt 只把技能格式化为目录装入 <skills> 标签，各章节按名称独立封装。",
     "code": [
       "  if (skillFileReadTool && skills.length > 0) {",
       "    const skillsPrompt = formatSkillsForPrompt(skills, skillFileReadTool).trim();",
@@ -644,13 +723,14 @@
   },
   {
     "phaseId": "P2",
-    "title": "第 4 站：MCP 工具很多，怎样避免一次声明全部 Schema？",
-    "story": "接入 MCP 后，工具可以选择 direct、deferred、codemode、hidden 等暴露方式。此版本 getMcpToolExposure 在没有覆盖配置时返回 codemode；这只是暴露规则，连接和执行还依赖相应组件。",
-    "pain": "codemode 不把每个 MCP 工具都作为直接工具声明给主模型，脚本可通过工具发现按需调用。但仍有命名空间说明、查找和调用成本，不能称为“0 Token”或“0 成本”。",
-    "relationText": "③ 请求准备 → ④ 按配置连接与暴露工具 → ⑤ 工具变更声明",
-    "moduleTag": "按配置生效 · MCP 工具暴露",
-    "dataBefore": "教学假设：GitHub MCP 提供 80 个工具。\n如果全部直接声明，需要携带许多工具定义。",
-    "dataAfter": "direct：直接声明。\ndeferred：搜索加载后直接调用。\ncodemode：脚本发现并调用。\nhidden：不可达。实际 Token 开销需测量。",
+    "roleType": "config",
+    "title": "第 4 站：挂上 GitHub MCP 查 Issue，怎样避免一次塞入几十个工具定义？",
+    "story": "为了查登录报错的 GitHub Issue，我们接入了 GitHub MCP 服务。一个外部 MCP 往往自带几十个工具（建仓库、发 PR、管评论……）。getMcpToolExposure 支持为工具指定 direct、deferred、codemode、hidden 四种暴露模式，未单独配置时默认走 codemode。",
+    "pain": "如果把几十个 MCP 工具的完整 JSON Schema 全作为顶层工具声明给模型，请求头会非常臃肿。设为 codemode 后，这些工具不直接塞进主模型的顶层 tools 列表，而是让模型写脚本在沙箱内按需查找和调用。注意：按需暴露仍占少量命名空间提示与脚本调用开销，并非绝对“零成本”。",
+    "relationText": "③ 系统提示准备 → ④ 按优先级计算每个 MCP 工具的暴露方式 → ⑤ 工具变更声明",
+    "moduleTag": "按配置生效 · MCP 暴露分级",
+    "dataBefore": "// McpServerConfig 配置示例（GitHub MCP 含多个工具）：\n{\n  exposure: undefined, // 未设服务器级默认值\n  toolExposure: {\n    \"create_issue\": \"direct\",\n    \"admin_*\": \"hidden\"\n  }\n}",
+    "dataAfter": "// getMcpToolExposure(config, toolName) 匹配结果：\n\"create_issue\" -> \"direct\"   // 命中精确配置：直接声明 Schema\n\"admin_delete\" -> \"hidden\"   // 命中通配符：对模型隐藏\n\"list_issues\"  -> \"codemode\" // 回退默认值：由沙箱脚本按需调用",
     "file": "packages/coding-agent/src/core/mcp-servers.ts",
     "lineRange": "本地源码原文 · L246–L256",
     "startLine": 246,
@@ -661,7 +741,7 @@
       251,
       253
     ],
-    "takeaway": "阅读重点：先匹配单工具覆盖与通配规则，再看服务器配置，最后才使用 codemode 默认值。工具数量与节省量均非实测。",
+    "takeaway": "阅读重点：看三层匹配优先级——先查单工具精确覆盖（exact），再查通配符规则（pattern），最后看服务器级 exposure，都没配时默认返回 \"codemode\"。",
     "code": [
       "export function getMcpToolExposure(config: McpServerConfig, toolName: string): McpExposure {",
       "  const overrides = config.toolExposure ?? {};",
@@ -675,7 +755,7 @@
       "",
       "/**"
     ],
-    "scope": "按配置使用",
+    "scope": "按配置生效",
     "focusNotes": [
       "L247–249：优先采用单个工具的精确覆盖配置。",
       "L251：其次匹配通配规则。",
@@ -684,13 +764,14 @@
   },
   {
     "phaseId": "P2",
-    "title": "第 5 站：中途工具发生变化，怎样通知模型？",
-    "story": "本地版本会比较当前工具状态，将新增与移除工具信息合入待发送的 system 消息，必要时插入新的更新消息，再与待处理消息一起进入会话。",
-    "pain": "这种增量表示有助于避免不必要地改写历史，但不能直接保证缓存命中。缓存还取决于模型供应商、序列化方式、模型切换和请求内容；没有统一的“一折”或“十倍”结论。",
-    "relationText": "④ 工具状态变化 → ⑤ 增量声明 → ⑥ 模型请求",
-    "moduleTag": "核心机制 · 增量工具声明",
-    "dataBefore": "示例：对话中途启用了一个工具，或移除了旧工具。",
-    "dataAfter": "比较已有工具状态与当前工具列表。\n产生 toolsAdded / toolsRemoved 更新。\n合入当前待发送消息，后续请求据此获知变化。",
+    "roleType": "core",
+    "title": "第 5 站：对话中途新开了工具，为什么不直接回头改写历史开头？",
+    "story": "假设聊到第 3 轮，你刚启用了一个新工具（或者卸载了旧工具）。declareToolChanges 不会回头去篡改第 1 轮的历史消息，而是对比“历史已声明工具”与“当前最新工具集”，算出新增（toolsAdded）和移除（toolsRemoved），作为一条贴在队尾的 system 消息发给当前回合。",
+    "pain": "大模型推理服务的前缀缓存（Prompt Cache）非常怕改动历史前缀：一旦改写开头的工具定义，整段历史缓存就可能失效重算。把工具变化做成队尾增量消息，能尽量保持历史前缀稳定（实际是否命中缓存还取决于供应商协议与是否切换模型）。",
+    "relationText": "④ 工具集发生增减 → ⑤ declareToolChanges 生成队尾增量声明 → ⑥ 发送模型请求",
+    "moduleTag": "核心机制 · 队尾增量工具声明",
+    "dataBefore": "// 历史已声明工具：[\"read\", \"edit\", \"bash\"]\n// 本轮最新工具集：[\"read\", \"edit\", \"bash\", \"github_issue\"]\n// 待发消息队列：\npendingMessages = [\n  { role: \"user\", content: \"顺便查下 #42 号 Issue\" }\n]",
+    "dataAfter": "// declareToolChanges() 算出差异并插入 system 消息：\n[\n  {\n    role: \"system\",\n    content: \"\",\n    toolsAdded: [{ name: \"github_issue\", ... }],\n    toolsRemoved: []\n  },\n  { role: \"user\", content: \"顺便查下 #42 号 Issue\" }\n] // 历史消息列表前缀一字未改",
     "file": "packages/agent/src/agent-loop.ts",
     "lineRange": "本地源码原文 · L342–L375",
     "startLine": 342,
@@ -704,7 +785,7 @@
       368,
       371
     ],
-    "takeaway": "阅读重点：当前实现处理 ToolStateChanges；这里展示真实的 declareToolChanges 节选，不再使用旧版伪连续行号。",
+    "takeaway": "阅读重点：getToolStateChanges 对比出 toolsAdded / toolsRemoved 后，若待发队列里已有 system 消息则原地合并，否则新建一条带工具差异的 system 消息插到本轮队列中。",
     "code": [
       "function declareToolChanges(context: AgentContext, pendingMessages: AgentMessage[]): AgentMessage[] {",
       "  let systemIndex = -1;",
@@ -750,13 +831,14 @@
   },
   {
     "phaseId": "P3",
-    "title": "第 6 站：可选模型路由，和有条件的缓存保活",
-    "story": "普通请求使用配置好的模型。若显式加载 jev-router 示例扩展并选择 jev/auto，分类器才参与规划模型选择。CacheWarmer 是另一套机制：是否保活还要看设置、模型缓存信息与请求兼容性。",
-    "pain": "本地路由示例中，complex 概率 ≥ 0.5 时选 Sol，否则选 Terra；首次成功 edit/write 后，下一请求转到 Luna 做实现，而非等代码写完才切换。缓存保活也不是每个请求必经的同步步骤。",
-    "relationText": "上下文 → 配置模型 / 可选路由 → ⑦ 响应检查；缓存保活是独立的定时条件逻辑",
-    "moduleTag": "示例扩展 + 条件机制 · 不属于固定必经站",
-    "dataBefore": "启用路由示例需要扩展配置、TypeSafe 凭据和相应模型登录。\n教学假设：分类器 complex 概率为 0.82。",
-    "dataAfter": "规划：0.82 ≥ 0.5 → Sol。\n首次成功 edit/write 后：后续请求 → Luna。\n缓存保活独立评估：模型支持的 TTL、设置与兼容性满足时，再计算期望节省；本地门槛为 $0.05。",
+    "roleType": "ext",
+    "title": "第 6 站：发请求给模型时，怎样挂载自定义路由扩展与缓存保活？",
+    "story": "上下文准备好了，默认直接发给你选定的模型。如果你显式加载了 jev-router 示例扩展并选中虚拟模型 jev/auto，它会先用轻量分类器给任务打分：复杂设计派给大模型（Sol），普通问题派给标准模型（Terra），首次成功改完代码后再切到快模型（Luna）。另一套独立机制 CacheWarmer 则在后台按条件评估是否发保活请求。",
+    "pain": "这一站展示了 Pi 的扩展能力边界：模型路由并不是写死在内核里的黑盒，而是通过 registerVirtualModel 挂载的插件示例；同样，CacheWarmer 也不是每次请求同步必跑，只有模型支持缓存 TTL、开启配置且预期省下的钱超过门槛（$0.05）时才触发。",
+    "relationText": "上下文 → 默认模型或 registerVirtualModel 路由扩展 → ⑦ 响应截断检查（CacheWarmer 独立后台定时运行）",
+    "moduleTag": "可选扩展示例 + 条件保活",
+    "dataBefore": "// 场景：显式启用 jev-router 扩展，选择模型 \"jev/auto\"\nrequest.messages = [\"查 GitHub 登录报错，修好 login.ts...\"]\n// 分类器 jev-latest 对 prompt 复杂度打分：\nanswers.complexity = {\n  type: \"choice\",\n  probabilities: { standard: 0.18, complex: 0.82 }\n}",
+    "dataAfter": "// 1. 规划阶段路由判定：\nprobabilities.complex (0.82) >= 0.5  ==> 选定 \"Sol\" 模型\n\n// 2. 当本轮首次成功执行 edit / write 工具后：\nstate.phase 切换为执行阶段 ==> 下一轮请求切至 \"Luna\"\n\n// 3. CacheWarmer（独立后台）：期望节省 >= $0.05 才发保活",
     "file": "packages/coding-agent/examples/extensions/jev-router.ts",
     "lineRange": "本地源码原文 · L62–L96",
     "startLine": 62,
@@ -768,7 +850,7 @@
       87,
       91
     ],
-    "takeaway": "阅读重点：这里展示 examples/extensions/jev-router.ts 的真实节选。CacheWarmer 另见 core/cache-warmer.ts；TTL 来自模型元数据，不统一固定为 5 分钟。",
+    "takeaway": "阅读重点：通过 pi.registerVirtualModel 可以把自己的路由策略注册成虚拟模型（如 jev/auto）。CacheWarmer 实现另见 core/cache-warmer.ts。",
     "code": [
       "async function choosePlanningModel(request: JevRequest, ctx: ExtensionContext): Promise<string> {",
       "  // Keep a planning model the session already uses, so switching to jev/auto costs no cache miss.",
@@ -806,7 +888,7 @@
       "    thinkingLevels: [\"low\", \"medium\", \"high\", \"xhigh\"],",
       "    // Shared by all three models; shown before the first response."
     ],
-    "scope": "可选示例扩展 / 条件机制",
+    "scope": "可选扩展示例 / 条件机制",
     "focusNotes": [
       "L67–69：寻找分类器；不存在时回退 Terra，否则发起分类。",
       "L86–87：检查分类结果；complex 概率 ≥ 0.5 时选 Sol。",
@@ -815,13 +897,14 @@
   },
   {
     "phaseId": "P3",
-    "title": "第 7 站：模型输出被截断，为什么暂不执行工具？",
-    "story": "当模型响应以 stopReason === \"length\" 结束，工具参数可能不完整。当前循环会拒绝执行这条响应中的工具调用，将错误结果回传给模型，要求重新给出完整参数。",
-    "pain": "流式 JSON 的尽力解析不代表参数语义完整。截断检查可以降低把残缺参数拿去执行的风险，但并不保证完整生成的参数就是正确、安全或已授权的。",
-    "relationText": "⑥ 模型响应 → ⑦ 截断检查 → ⑧ 参数与执行前钩子",
-    "moduleTag": "核心机制 · 截断响应检查",
-    "dataBefore": "示例：write 的内容生成到一半，模型触及输出 Token 上限。",
-    "dataAfter": "不执行该响应中的工具调用。\n生成工具错误结果，要求模型重发完整参数。\n完整参数仍须经过校验与执行策略。",
+    "roleType": "core",
+    "title": "第 7 站：模型写 login.ts 半路被截断，为什么必须整批拒单？",
+    "story": "模型开始输出工具调用，准备修改 login.ts。但如果改动很大，模型撞上了最大输出 Token 上限（stopReason === \"length\"），流式 JSON 解析器可能会勉强闭合出一个“语法合法、但代码只写了一半”的残缺参数。Pi 发现 stopReason 是 length 时，会直接拦截整批工具调用。",
+    "pain": "如果不拦这一道，残缺的 write/edit 参数一旦落盘，login.ts 就会被腰斩成语法错误文件。failToolCallsFromTruncatedMessage 根本不调工具，而是直接构造 isError: true 的工具报错塞回给模型：“你的输出触及上限可能被截断，请重新发送完整参数”。",
+    "relationText": "⑥ 模型返回 AssistantMessage → ⑦ 检查 stopReason === \"length\" → 未截断才进入 ⑧ 参数校验",
+    "moduleTag": "核心机制 · 截断响应拦截防线",
+    "dataBefore": "// 模型触及输出上限，流式解析留下的半截调用：\nassistantMessage = {\n  stopReason: \"length\",\n  toolCalls: [{\n    id: \"call_1\",\n    name: \"write\",\n    arguments: {\n      path: \"src/login.ts\",\n      content: \"export async function login(u) {\\n  const tok =\" // 截断!\n    }\n  }]\n}",
+    "dataAfter": "// failToolCallsFromTruncatedMessage() 拒绝执行并返回：\n{\n  role: \"toolResult\",\n  toolCallId: \"call_1\",\n  toolName: \"write\",\n  isError: true,\n  content: [{\n    type: \"text\",\n    text: \"Tool call \\\"write\\\" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.\"\n  }]\n}",
     "file": "packages/agent/src/agent-loop.ts",
     "lineRange": "本地源码原文 · L488–L517",
     "startLine": 488,
@@ -835,7 +918,7 @@
       510,
       512
     ],
-    "takeaway": "阅读重点：工具参数可能被截断时整批返回错误，而不是尝试用残缺参数修改文件。",
+    "takeaway": "阅读重点：只要响应因 length 结束，所有附带的 toolCalls 一律不进执行器，直接包装成 isError: true 的 ToolResultMessage 退回模型。",
     "code": [
       "async function failToolCallsFromTruncatedMessage(",
       "  toolCalls: AgentToolCall[],",
@@ -877,13 +960,14 @@
   },
   {
     "phaseId": "P3",
-    "title": "第 8 站：参数校验与审批，各由谁负责？",
-    "story": "工具调用先解析、准备和校验参数；如果配置了 beforeToolCall，再由该钩子决定是否阻止执行。危险命令的弹窗示例来自 permission-gate 扩展，不是核心钩子自动生成的通用审批机制。",
-    "pain": "只有加载并实际启用相应策略，危险命令才会按它的规则受控。permission-gate 示例主要靠命令正则匹配，不能视作完整安全沙箱；参数也并非任何类型错误都能自动修复。",
-    "relationText": "⑦ → ⑧ 校验与钩子 → ⑨/⑩ 已获准的调用；并行不意味着有依赖的操作适合同时执行",
-    "moduleTag": "核心校验 + 可选审批扩展",
-    "dataBefore": "示例：模型请求 bash 执行删除日志。\n已加载 permission-gate 时，命令匹配其危险模式。",
-    "dataAfter": "核心：参数准备 → Schema 校验 → 可选 beforeToolCall。\n扩展示例：有 UI 时询问；拒绝则返回 blocked。\n无 UI 时该示例默认阻止匹配命令。\n嵌套工具调用也应通过对应钩子路径。",
+    "roleType": "ext",
+    "title": "第 8 站：到了删日志 rm -rf /tmp/logs，参数校验与审批钩子怎么配合？",
+    "story": "响应没截断，接下来轮到 prepareToolCall 把关。核心层先做两件事：寻找工具、并用 Schema 校验参数类型（validateToolArguments）。随后检查是否配置了 beforeToolCall 钩子——如果挂载了 permission-gate 等审批扩展，就会在这里弹窗询问你是否允许执行 rm -rf。",
+    "pain": "这里特意拆开了“内核机制”与“策略插件”：参数 Schema 校验和 beforeToolCall 钩子槽位是核心必经的；而具体拦哪些命令、弹什么确认框，则由你加载的扩展决定（例如 permission-gate 示例用正则匹配 rm -rf，你点拒绝就返回 { block: true } 拦下命令）。",
+    "relationText": "⑦ 未截断调用 → ⑧ 核心 Schema 校验 + 可选 beforeToolCall 钩子 → 通过后才分发给 ⑨/⑩ 执行",
+    "moduleTag": "核心校验 + 可选审批钩子",
+    "dataBefore": "// 待准备的工具调用：\ntoolCall = {\n  name: \"bash\",\n  arguments: { command: \"rm -rf /tmp/logs\" }\n}\n// 1. validateToolArguments(tool, toolCall) -> 校验通过\n// 2. 触发 config.beforeToolCall() -> 用户在弹窗点击「拒绝」",
+    "dataAfter": "// beforeToolCall 钩子返回：\nbeforeResult = { block: true, reason: \"Blocked by user\" }\n\n// prepareToolCall 立即短路返回 ImmediateToolCallOutcome：\n{\n  kind: \"immediate\",\n  isError: true,\n  result: createErrorToolResult(\"Blocked by user\")\n} // bash 工具的 execute() 根本不会被调用",
     "file": "packages/agent/src/agent-loop.ts",
     "lineRange": "本地源码原文 · L718–L782",
     "startLine": 718,
@@ -900,7 +984,7 @@
       774,
       775
     ],
-    "takeaway": "阅读重点：if (config.beforeToolCall) 表示钩子是可选的。弹窗 UI 与命令匹配另见 examples/extensions/permission-gate.ts。",
+    "takeaway": "阅读重点：L736–737 是内核自带的参数准备与 Schema 校验；L738 的 if (config.beforeToolCall) 把拦截权交给外部扩展，返回 block: true 即可阻止执行。",
     "code": [
       "async function prepareToolCall(",
       "  currentContext: AgentContext,",
@@ -968,7 +1052,7 @@
       "    return {",
       "      kind: \"immediate\","
     ],
-    "scope": "核心 + 可选审批策略",
+    "scope": "核心校验 + 可选审批钩子",
     "focusNotes": [
       "L736–737：先准备参数，再进行 Schema 校验。",
       "L738–739：只有配置了 beforeToolCall 才调用该钩子。",
@@ -977,13 +1061,14 @@
   },
   {
     "phaseId": "P4",
-    "title": "第 9 站：codemode 脚本怎样运行，又怎样调用宿主工具？",
-    "story": "codemode 使用 QuickJS / WebAssembly 执行 JavaScript，通过受控桥接请求宿主工具。脚本运行环境与宿主工具权限是两层边界：脚本不直接拿到宿主对象，不代表工具无法访问文件或网络。",
-    "pain": "工具代理一旦调用具有文件、网络等能力的宿主工具，仍会产生真实操作。内存与执行预算由配置和运行模式决定，不能仅凭 vm.ts 中的变量声明就断言所有模式都固定限制为 256MB。",
-    "relationText": "⑧ → ⑨ VM 与桥接；嵌套调用走宿主工具检查；结果回填下一轮",
-    "moduleTag": "按配置使用 · codemode 脚本执行边界",
-    "dataBefore": "教学示例：脚本获取 Issue 列表，再筛出与 login.ts 有关的项。\n列表条数、120KB 等仅是示例，不是实测。",
-    "dataAfter": "建立 VM → 注入桥接 → 运行脚本 → 请求宿主工具 → 回填结果。\n脚本可只返回筛选结果，减少主模型收到的原始数据。\n不能据此保证零泄漏、零副作用或绝对隔离。",
+    "roleType": "config",
+    "title": "第 9 站：codemode 沙箱怎样跑脚本筛 Issue，又怎样回调宿主工具？",
+    "story": "前面第 4 站提到，GitHub MCP 工具默认按 codemode 暴露。当模型写了一段 JS 脚本去拉取并过滤登录报错 Issue 时，startVm 会启动一个 QuickJS（WebAssembly）虚拟机来跑这段脚本。脚本本身在 Wasm 内存里运行，遇到工具调用时通过受控桥接发消息给宿主，宿主跑完再调用 settle 把结果回填进 VM。",
+    "pain": "这能带来两个好处：一是脚本可以在 VM 里先把几十条无关 Issue 过滤掉，只把跟 login.ts 相关的那 1 条返回给主模型，节省上下文；二是限制了脚本的栈深度与内存上限（memoryLimitBytes）。但要注意边界：一旦脚本通过桥接调用了具有读写或网络权限的宿主工具，该工具本身的操作依然会真实发生。",
+    "relationText": "⑧ 放行脚本调用 → ⑨ QuickJS Wasm VM 执行 → 桥接调用宿主工具（仍经第 8 站钩子检查） → 结果进入 ⑪",
+    "moduleTag": "按配置生效 · QuickJS 沙箱与宿主桥接",
+    "dataBefore": "// 模型在 codemode 下生成的筛选脚本：\nconst list = await tools.github.list_issues({ state: \"open\" });\nreturn list\n  .filter(i => i.title.includes(\"login\") || i.body.includes(\"login.ts\"))\n  .map(i => ({ number: i.number, title: i.title }));",
+    "dataAfter": "// QuickJS VM 与宿主交互过程：\n1. QuickJS.create({ wasm, memoryLimit: data.memoryLimitBytes, maxStackSize })\n2. VM 发起桥接请求 -> 宿主执行 list_issues（返回 50 条原始数据）\n3. 宿主通过 apply() -> vm.callFunction(settle, ...) 回填进 VM\n4. 脚本在 VM 内 filter 后，仅向主模型上下文返回匹配的那 1 条 Issue",
     "file": "packages/codemode/src/runtime/vm.ts",
     "lineRange": "本地源码原文 · L160–L194",
     "startLine": 160,
@@ -999,7 +1084,7 @@
       192,
       194
     ],
-    "takeaway": "阅读重点：VM 的 memoryLimit 接收配置值。沙箱内代码、宿主桥接和工具权限需要分别分析。",
+    "takeaway": "阅读重点：QuickJS.create 用配置的 memoryLimitBytes 和 maxStackSize 约束脚本运行环境；宿主的异步工具结果通过 apply() 里的 settle 回调注入 VM。",
     "code": [
       "export async function startVm(options: StartVmOptions): Promise<VmSession> {",
       "  const { data, post } = options;",
@@ -1037,7 +1122,7 @@
       "        api,",
       "        vm.newNumber(message.id),"
     ],
-    "scope": "按配置使用",
+    "scope": "按配置生效",
     "focusNotes": [
       "L170–172：创建 QuickJS VM，并传入配置的 Wasm 与内存上限。",
       "L175–177：传入栈限制、中断处理器及 WASI 配置。",
@@ -1046,13 +1131,14 @@
   },
   {
     "phaseId": "P4",
-    "title": "第 10 站：并发修改与大段日志，怎么减少冲突和上下文负担？",
-    "story": "同一进程中，经 withFileMutationQueue 包装的文件修改，会按文件路径排队；不同文件仍可并行。bash 则区分给模型的文本、程序化返回数据和完整输出位置。",
-    "pain": "这是进程内队列，不是操作系统文件锁：外部编辑器、其他进程或未走该队列的操作不受它保护。日志截断可以控制上下文体积，但可能隐藏关键信息，需要时仍须读取完整日志。",
-    "relationText": "⑧ → ⑩ 文件/命令工具 → 结果回填；是否并发还取决于调用之间的依赖",
-    "moduleTag": "核心工具机制 · 进程内修改队列与输出限制",
-    "dataBefore": "教学示例：同一进程有两个 edit 操作指向同一文件。\n测试日志超过当前工具输出限额。",
-    "dataAfter": "同文件：按队列依次执行；不同文件：允许并行。\n此版本模型文本默认取尾部，受 2000 行 / 50KiB 两项限制。\n程序化输出有独立上限；超限时可通过完整日志路径继续读取。",
+    "roleType": "core",
+    "title": "第 10 站：同时改 login.ts 会不会撞车？跑测试打出几万行日志怎么办？",
+    "story": "找到了 Issue 原因后，模型开始调用 edit 修改 login.ts 并用 bash 跑测试。如果同一轮里模型发起了两次对 login.ts 的修改，withFileMutationQueue 会按规范化后的文件绝对路径把它们排成 Promise 串行链，改完第一个再改第二个；而改不同文件（如 login.ts 和 login.test.ts）则互不阻塞。同时，bash 工具会对超长测试输出做尾部截断（默认保留末尾 2000 行 / 50KiB），并把完整日志路径告诉模型。",
+    "pain": "如果不按文件排队，两个并发 edit 同时读旧内容、各自替换再写回，后写回的就会覆盖先写回的改动。注意边界：fileMutationQueues 是当前 Node 进程内的内存 Map，只能防本进程内的并发工具冲突，挡不住你在外部 IDE 同时手动保存文件。",
+    "relationText": "⑧ 获准的工具调用 → ⑩ 同文件串行排队 / bash 输出限流 → 执行完毕进入 ⑪ 回合检查点",
+    "moduleTag": "核心机制 · 进程内文件队列与输出截断",
+    "dataBefore": "// 同一轮并发发起 3 个工具调用：\n1. edit(\"src/login.ts\", 修空指针)\n2. edit(\"src/login.ts\", 补日志输出)  // 同文件冲突！\n3. edit(\"test/login.test.ts\", 加单测) // 不同文件\n4. bash(\"npm test\") -> 产生 8000 行堆栈输出",
+    "dataAfter": "// fileMutationQueues Map 状态（按文件真实路径排队）：\n\"/repo/src/login.ts\":      edit#1 ──await──> edit#2 (严格串行)\n\"/repo/test/login.test.ts\": edit#3 (立即并行执行)\n\n// bash 输出分流结果：\n给模型上下文：末尾 2000 行 / 50KiB + \"[完整输出已存至 /tmp/pi-bash-xxx.log]\"",
     "file": "packages/coding-agent/src/core/tools/file-mutation-queue.ts",
     "lineRange": "本地源码原文 · L32–L63",
     "startLine": 32,
@@ -1067,7 +1153,7 @@
       57,
       58
     ],
-    "takeaway": "阅读重点：Map 与 Promise 实现进程内串行队列，不是跨进程锁。日志分流另见 tools/bash.ts 和 tools/truncate.ts。",
+    "takeaway": "阅读重点：fileMutationQueues 用文件路径 key 维护一条 Promise 链（currentQueue.then(() => nextQueue)），确保同文件操作先 await currentQueue，执行完再在 finally 里 releaseNext()。",
     "code": [
       "export async function withFileMutationQueue<T>(filePath: string, fn: () => Promise<T>): Promise<T> {",
       "  const registration = registrationQueue.then(async () => {",
@@ -1109,13 +1195,14 @@
   },
   {
     "phaseId": "P4",
-    "title": "第 11 站：你中途补一句话，Agent 什么时候会收到？",
-    "story": "你可以在任务进行时补一句“后面别跑集成测试”。这类补充指令在源码中叫 Steering：先排队，再在循环的检查点取出，让下一轮模型请求知道你的新要求。",
-    "pain": "它改变的是后续操作方向，不等同于立即取消正在运行的命令，也不会撤销已经完成的修改。另一个概念 Follow-up 是“做完这件事以后再处理”的排队追问；Abort 则是取消信号，是否停止取决于工具对取消的处理。",
-    "relationText": "当前回合结束 → ⑪ 读取补充指令 → ① 下一轮；不是强制回滚",
-    "moduleTag": "核心机制 · 读取运行中追加的指令",
-    "dataBefore": "示例：工具还在运行时，你输入“后面不要再跑集成测试”。",
-    "dataAfter": "补充指令排队 → 循环在检查点读取 → 下一轮纳入上下文。\n正在运行的操作是否被取消，要另看取消信号与工具实现。",
+    "roleType": "core",
+    "title": "第 11 站：工具跑完的间隙，你补的那句“别删日志”怎样插队生效？",
+    "story": "当第 10 站的 edit 和 bash 跑完一轮后，内层循环到达回合末检查点（L304）。此时调用 getSteeringMessages()，把你刚才在工具运行期间敲入的“先别删 /tmp/logs”取出来放进 pendingMessages，让内层 while 循环继续下一轮，模型立刻看到你的新要求并放弃删日志。",
+    "pain": "很多初学者分不清 Steering（补充指令）、Follow-up（后续追问）和 Abort（强制中断）：Steering 是在回合检查点插队纠偏，等当前步骤收尾后生效；Follow-up 是在内层循环彻底退出后（L311）才接手的新任务；只有按快捷键触发 AbortSignal 才是立即向正在运行的工具发取消信号。",
+    "relationText": "⑨/⑩ 本轮工具执行完毕 → ⑪ 检查点先取 Steering（继续内层），没有且无工具调用时再取 Follow-up（继续外层） → ↺ 回到 ①",
+    "moduleTag": "核心机制 · 回合检查点与指令分流",
+    "dataBefore": "// 本轮工具刚刚执行完毕（hasMoreToolCalls = false）\n// 情况 A：你在运行期间输入了 Steering（补充纠偏）\ngetSteeringMessages() -> [{ role: \"user\", content: \"先别删日志\" }]\n\n// 情况 B：无 Steering，但你排队了 Follow-up（后续任务）\ngetFollowUpMessages() -> [{ role: \"user\", content: \"再写份排查总结\" }]",
+    "dataAfter": "// 情况 A 走 L304（内层循环不退出）：\npendingMessages = [{ role: \"user\", content: \"先别删日志\" }]\n==> 直接进入下一轮内层 while，模型调整后续动作\n\n// 情况 B 走 L311（内层已退出，外层循环接手）：\npendingMessages = followUpMessages; continue;\n==> 开启全新一轮内层循环处理后续追问",
     "file": "packages/agent/src/agent-loop.ts",
     "lineRange": "本地源码原文 · L304–L325",
     "startLine": 304,
@@ -1129,7 +1216,7 @@
       320,
       322
     ],
-    "takeaway": "getSteeringMessages 的意思是“取出任务进行时追加的指令”。取消息与停止进程是两件事；这段代码展示的是何时把新要求交给下一轮。",
+    "takeaway": "阅读重点：对比 L304（内层循环末尾取 Steering）与 L311（内层循环退出后取 Follow-up）的位置差异，就能一眼看懂为什么 Steering 能中途纠偏而 Follow-up 会等任务做完。",
     "code": [
       "      pendingMessages = (await config.getSteeringMessages?.()) || [];",
       "      if (hasMoreToolCalls || pendingMessages.length > 0) {",
@@ -1163,13 +1250,14 @@
   },
   {
     "phaseId": "P4",
-    "title": "第 12 站：上下文接近容量时，怎样摘要并继续？",
-    "story": "自动压缩根据上下文 Token 用量、模型上下文窗口和预留额度判断，不按固定对话轮数触发。处理时可保留近期原文、摘要更早历史，并记录相关文件信息。",
-    "pain": "摘要是有损转换，不能保证记住所有细节。保留近期内容、维护有效消息边界、累计文件记录，都是降低信息损失与协议错误的措施，不等于无限记忆。",
-    "relationText": "请求准备/容量检查 → ⑫ 必要时压缩 → ② 会话投影；不是每轮最后必跑的串行步骤",
-    "moduleTag": "核心机制 · 按 Token 水位压缩",
-    "dataBefore": "教学示例：上下文窗口 200000 Tokens，预留 16384；\n当前估算用量 186000，已越过触发水位。\n“50 轮”只是场景数字，与触发条件无直接绑定。",
-    "dataAfter": "启用压缩且用量 > 窗口 - 预留额度 → 进入压缩流程。\n近期保留额度是 token 数，不是汉字数或固定轮数。\n摘要与文件记录写回会话；实际压缩率需测量。",
+    "roleType": "core",
+    "title": "第 12 站：查完 Issue 改完代码上下文快满了，怎样按水位自动瘦身？",
+    "story": "经过多轮查 Issue、读代码、跑测试，会话累计的 Token 越来越接近模型的上下文窗口上限。shouldCompact 并不按“聊了多少轮”拍脑袋触发，而是精确比较：当 contextTokens > contextWindow - reserveTokens 时，才触发自动压缩——把早期对话总结成摘要并记录读改过的文件列表，同时保留最近一段原文（默认 keepRecentTokens = 20000）。",
+    "pain": "如果不留出 reserveTokens（预留给模型下一轮输出的空间），下一次请求就会直接因为超出窗口上限而报错崩溃。压缩生成的摘要条目会作为新节点写回第 2 站的 session.jsonl 树中。注意：摘要是归纳税减，虽然附带了修改文件清单与近期原文，但早期细节仍是有损的。",
+    "relationText": "容量检查越过水位线 → ⑫ 保留近期 Token + 摘要早期历史 → ↺ 作为 compaction 节点写回 ② 会话树",
+    "moduleTag": "核心机制 · Token 水位线自动压缩",
+    "dataBefore": "// 当前会话水位参数：\ncontextWindow  = 200_000 // 模型总窗口\nreserveTokens  =  16_384 // 预留输出安全垫\n触发阈值       = 183_616 (contextWindow - reserveTokens)\n\n// 本轮估算用量：\ncontextTokens  = 186_400 (> 183_616，越过水位线！)",
+    "dataAfter": "// shouldCompact() 返回 true，执行压缩并写回会话树：\n[\n  { type: \"compaction\", summary: \"已定位 #42 登录 Issue 并修复 src/login.ts...\", readFiles: [...], modifiedFiles: [\"src/login.ts\"] },\n  ...最近约 20,000 Tokens 的原始对话消息（保持近期上下文连贯）\n]",
     "file": "packages/coding-agent/src/core/compaction/compaction.ts",
     "lineRange": "本地源码原文 · L267–L270",
     "startLine": 267,
@@ -1177,7 +1265,7 @@
       268,
       269
     ],
-    "takeaway": "阅读重点：shouldCompact 的判断是 Token 用量；此版本默认 keepRecentTokens 为 20000，可配置，不能称为无损压缩。",
+    "takeaway": "阅读重点：shouldCompact 的触发公式非常干净——启用压缩且 contextTokens > contextWindow - settings.reserveTokens。压缩后近期原文保留量由 keepRecentTokens（默认 20000）控制。",
     "code": [
       "export function shouldCompact(contextTokens: number, contextWindow: number, settings: CompactionSettings): boolean {",
       "  if (!settings.enabled) return false;",
@@ -1346,7 +1434,14 @@
 
       // Top step controller & plain-language explanation
       document.getElementById("step-counter").textContent = `${curStepIdx + 1} / ${total}`;
-      document.getElementById("step-phase-badge").textContent = `${st.scope} · ${phaseTitles[st.phaseId] || st.phaseId}`;
+      const phaseBadgeEl = document.getElementById("step-phase-badge");
+      phaseBadgeEl.textContent = `${st.scope} · ${phaseTitles[st.phaseId] || st.phaseId}`;
+      phaseBadgeEl.className =
+        st.roleType === "config"
+          ? "px-2 py-0.5 text-xs font-semibold rounded bg-blue-50 text-blue-800 border border-blue-200"
+          : st.roleType === "ext"
+            ? "px-2 py-0.5 text-xs font-semibold rounded bg-purple-50 text-purple-800 border border-purple-200"
+            : "px-2 py-0.5 text-xs font-semibold rounded bg-amber-100 text-amber-900 border border-amber-300";
       document.getElementById("step-title").textContent = st.title;
       document.getElementById("step-story").textContent = st.story;
       document.getElementById("step-pain").textContent = st.pain;
@@ -1364,7 +1459,14 @@
         .join("");
 
       // Concrete Before -> After Data Packet
-      document.getElementById("module-tag").textContent = st.moduleTag;
+      const modTagEl = document.getElementById("module-tag");
+      modTagEl.textContent = st.moduleTag;
+      modTagEl.className =
+        st.roleType === "config"
+          ? "font-mono text-[11px] text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded"
+          : st.roleType === "ext"
+            ? "font-mono text-[11px] text-purple-800 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded"
+            : "font-mono text-[11px] text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded";
       document.getElementById("data-before").textContent = st.dataBefore;
       document.getElementById("data-after").textContent = st.dataAfter;
 
