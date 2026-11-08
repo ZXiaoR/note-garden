@@ -3,23 +3,43 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>从按下回车到处理 Bug：Pi 的 12 个机制与源码导读</title>
-  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <title>从仓库地图到单步调试：Pi 的 12 个机制与源码导读</title>
+  <meta name="description" content="沿查 Issue、修 login.ts、删日志的一条故事线，单步理解 Pi 的会话树、工具队列和 Token 压缩，打开固定版本 GitHub 源码自己读。" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:title" content="Pi 源码导读：仓库地图 + 12 个机制 + 单步调试" />
+  <meta property="og:description" content="从看懂机制到自己读源码：会话树回溯、同文件队列、Token 水位与本地断点实验。" />
+  <meta property="og:url" content="https://zxiaor.github.io/note-garden/pi-agent/" />
+  <meta name="twitter:card" content="summary" />
+  <style id="base-styles">
+    /* 页面基础样式已内联，无需构建或联网加载。 */
+*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.container{width:100%}@media (min-width:640px){.container{max-width:640px}}@media (min-width:768px){.container{max-width:768px}}@media (min-width:1024px){.container{max-width:1024px}}@media (min-width:1280px){.container{max-width:1280px}}@media (min-width:1536px){.container{max-width:1536px}}.pointer-events-none{pointer-events:none}.visible{visibility:visible}.absolute{position:absolute}.relative{position:relative}.sticky{position:sticky}.inset-0{inset:0}.bottom-16{bottom:4rem}.top-0{top:0}.my-3{margin-top:.75rem;margin-bottom:.75rem}.mb-2{margin-bottom:.5rem}.mt-1{margin-top:.25rem}.mt-2{margin-top:.5rem}.mt-3{margin-top:.75rem}.mt-4{margin-top:1rem}.block{display:block}.flex{display:flex}.grid{display:grid}.\!hidden{display:none!important}.hidden{display:none}.h-4{height:1rem}.h-full{height:100%}.w-4\/5{width:80%}.w-full{width:100%}.min-w-0{min-width:0}.flex-1{flex:1 1 0%}.flex-shrink{flex-shrink:1}.shrink-0{flex-shrink:0}.transform{transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-pointer{cursor:pointer}.resize{resize:both}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.items-stretch{align-items:stretch}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-1{gap:.25rem}.gap-1\.5{gap:.375rem}.gap-10{gap:2.5rem}.gap-2{gap:.5rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}.space-y-3\.5>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.875rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.875rem*var(--tw-space-y-reverse))}.space-y-4>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem*var(--tw-space-y-reverse))}.space-y-5>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1.25rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1.25rem*var(--tw-space-y-reverse))}.overflow-hidden{overflow:hidden}.overflow-x-auto{overflow-x:auto}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.whitespace-pre-line{white-space:pre-line}.rounded{border-radius:.25rem}.rounded-lg{border-radius:.5rem}.rounded-xl{border-radius:.75rem}.border{border-width:1px}.border-l-2{border-left-width:2px}.border-amber-200{--tw-border-opacity:1;border-color:rgb(253 230 138/var(--tw-border-opacity,1))}.border-stone-200{--tw-border-opacity:1;border-color:rgb(231 229 228/var(--tw-border-opacity,1))}.border-stone-700{--tw-border-opacity:1;border-color:rgb(68 64 60/var(--tw-border-opacity,1))}.bg-amber-400{--tw-bg-opacity:1;background-color:rgb(251 191 36/var(--tw-bg-opacity,1))}.bg-amber-50{--tw-bg-opacity:1;background-color:rgb(255 251 235/var(--tw-bg-opacity,1))}.bg-amber-500{--tw-bg-opacity:1;background-color:rgb(245 158 11/var(--tw-bg-opacity,1))}.bg-stone-200{--tw-bg-opacity:1;background-color:rgb(231 229 228/var(--tw-bg-opacity,1))}.bg-stone-800{--tw-bg-opacity:1;background-color:rgb(41 37 36/var(--tw-bg-opacity,1))}.bg-stone-900{--tw-bg-opacity:1;background-color:rgb(28 25 23/var(--tw-bg-opacity,1))}.bg-stone-950{--tw-bg-opacity:1;background-color:rgb(12 10 9/var(--tw-bg-opacity,1))}.bg-stone-950\/15{background-color:rgba(12,10,9,.15)}.p-2\.5{padding:.625rem}.p-3{padding:.75rem}.p-4{padding:1rem}.p-5{padding:1.25rem}.px-1\.5{padding-left:.375rem;padding-right:.375rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-3{padding-left:.75rem;padding-right:.75rem}.px-3\.5{padding-left:.875rem;padding-right:.875rem}.px-4{padding-left:1rem;padding-right:1rem}.py-0\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.py-4{padding-top:1rem;padding-bottom:1rem}.text-center{text-align:center}.font-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace}.text-\[10\.5px\]{font-size:10.5px}.text-\[10px\]{font-size:10px}.text-lg{font-size:1.125rem;line-height:1.75rem}.text-sm{font-size:.875rem;line-height:1.25rem}.text-xl{font-size:1.25rem;line-height:1.75rem}.text-xs{font-size:.75rem;line-height:1rem}.font-bold{font-weight:700}.font-medium{font-weight:500}.font-semibold{font-weight:600}.leading-relaxed{line-height:1.625}.text-amber-400{--tw-text-opacity:1;color:rgb(251 191 36/var(--tw-text-opacity,1))}.text-amber-800{--tw-text-opacity:1;color:rgb(146 64 14/var(--tw-text-opacity,1))}.text-amber-900{--tw-text-opacity:1;color:rgb(120 53 15/var(--tw-text-opacity,1))}.text-amber-950{--tw-text-opacity:1;color:rgb(69 26 3/var(--tw-text-opacity,1))}.text-stone-100{--tw-text-opacity:1;color:rgb(245 245 244/var(--tw-text-opacity,1))}.text-stone-200{--tw-text-opacity:1;color:rgb(231 229 228/var(--tw-text-opacity,1))}.text-stone-400{--tw-text-opacity:1;color:rgb(168 162 158/var(--tw-text-opacity,1))}.text-stone-500{--tw-text-opacity:1;color:rgb(120 113 108/var(--tw-text-opacity,1))}.text-stone-600{--tw-text-opacity:1;color:rgb(87 83 78/var(--tw-text-opacity,1))}.text-stone-900{--tw-text-opacity:1;color:rgb(28 25 23/var(--tw-text-opacity,1))}.text-stone-950{--tw-text-opacity:1;color:rgb(12 10 9/var(--tw-text-opacity,1))}.underline{text-decoration-line:underline}.shadow-sm{--tw-shadow:0 1px 2px 0 rgba(0,0,0,.05);--tw-shadow-colored:0 1px 2px 0 var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,-webkit-backdrop-filter;transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter;transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter,-webkit-backdrop-filter;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.hover\:bg-stone-700:hover{--tw-bg-opacity:1;background-color:rgb(68 64 60/var(--tw-bg-opacity,1))}.hover\:underline:hover{text-decoration-line:underline}@media (min-width:640px){.sm\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.sm\:flex-row{flex-direction:row}.sm\:items-center{align-items:center}.sm\:justify-end{justify-content:flex-end}.sm\:p-5{padding:1.25rem}.sm\:p-6{padding:1.5rem}.sm\:text-2xl{font-size:1.5rem;line-height:2rem}.sm\:text-sm{font-size:.875rem;line-height:1.25rem}}
+  </style>
   <style>
-    body {
-      background-color: #f8f7f4;
-      color: #1c1917;
-      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    }
-    code, pre, .font-mono {
-      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
-    .card {
-      background: #ffffff;
-      border: 1px solid #e7e5e4;
-      border-radius: 14px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-    }
+    body { background:#f8f7f4; color:#1c1917; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+    code,pre,.font-mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    .card { background:white; border:1px solid #e7e5e4; border-radius:14px; }
+    .card.bg-stone-900 { background:#1c1917; }
+    button,a { touch-action:manipulation; }
+    button:focus-visible,a:focus-visible,summary:focus-visible { outline:3px solid #d97706; outline-offset:3px; }
+    button:disabled { opacity:.45; cursor:default; }
+    .nav-item { display:block; width:100%; padding:10px 12px; border-radius:9px; text-align:left; font-size:12px; border:1px solid transparent; margin:3px 0; }
+    .nav-item:hover { background:#fafaf9; }
+    .nav-item[aria-current="step"] { background:#fffbeb; border-color:#fbbf24; color:#92400e; font-weight:700; }
+    .code-line { display:flex; padding:1px 12px; font-size:12px; line-height:1.8; white-space:pre; min-width:max-content; border-left:3px solid transparent; }
+    .code-line.hl { background:#fffbeb; }
+    .code-line.active-line { background:#fef08a; border-left-color:#d97706; }
+    .line-num { width:45px; flex-shrink:0; text-align:right; padding-right:14px; color:#78716c; }
+    .line-num:hover { color:#b45309; text-decoration:underline; }
+    .kw { color:#9333ea; } .str { color:#15803d; } .cm { color:#78716c; font-style:italic; }
+    #code-container { position:relative; max-height:480px; overflow:auto; padding:12px 0; }
+    .source-link { color:#92400e; text-decoration:underline; text-underline-offset:3px; overflow-wrap:anywhere; }
+    .reading-note { display:block; padding:4px 0; text-align:left; line-height:1.8; }
+    .reading-note:hover { text-decoration:underline; }
+    .data-text { white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; line-height:1.8; }
+    .map-link { display:block; padding:12px; border:1px solid #e7e5e4; border-radius:10px; font-size:12px; }
+    .map-link:hover { border-color:#f59e0b; }
+    .map-link code { display:block; margin-top:6px; font-size:11px; color:#78716c; overflow-wrap:anywhere; }
     /* Graph Canvas & Phase Zones */
     .graph-zone {
       background: rgba(250, 250, 249, 0.85);
@@ -148,131 +168,330 @@
        stroke-dasharray: 5 3;
       animation: dashFlow 0.7s linear infinite;
     }
-    /* Code Viewer Line Styles */
-    .scope-note { white-space: pre-line; }
-    #step-story, #step-pain { white-space: pre-line; }
-    .code-line {
-      display: flex;
-      padding: 1px 14px;
-      font-size: 12.5px;
-      line-height: 1.65;
-      white-space: pre;
+    #graph-canvas { min-width:0; }
+    .station-node { min-width:0; }
+    .station-node.deemphasized:not(.active):not(.neighbor) { opacity:.55; }
+    .station-node:focus-visible { outline:3px solid #d97706; outline-offset:3px; }
+    .graph-help { font-size:11px; color:#78716c; line-height:1.8; }
+    .graph-layout { display:grid; grid-template-columns:minmax(0,5fr) minmax(0,7fr); gap:16px; align-items:start; }
+    .graph-panel { position:sticky; top:16px; min-width:0; padding:16px; }
+    @media(max-width:1023px) { .graph-layout { grid-template-columns:minmax(0,1fr); } .graph-panel { position:static; } }
+    @media(max-width:639px) { .graph-panel { padding:12px 8px; } #graph-canvas { padding-left:8px; padding-right:8px; } .graph-zone { padding:10px 8px; } .station-node { padding:8px 6px; gap:5px; } .zone-label { flex-wrap:wrap; gap:2px; } .role-pill { font-size:9px; padding:1px 3px; } .station-node .text-xs { white-space:normal; overflow:visible; text-overflow:clip; line-height:1.5; } .station-node .font-mono { display:none; } }
+
+    .arch-diagram { font-size:12px; line-height:1.7; }
+    .arch-diagram h3 { font-size:14px; font-weight:700; }
+    .arch-diagram h4 { font-weight:700; font-size:12px; }
+    .arch-diagram p { color:#57534e; margin-top:5px; }
+    .arch-layer { padding:16px; border:1px solid #d6d3d1; border-radius:12px; background:#fafaf9; min-width:0; }
+    .arch-heading { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:10px; }
+    .arch-level { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:7px; background:#292524; color:white; font:700 12px ui-monospace,monospace; flex-shrink:0; }
+    .arch-package { font:11px ui-monospace,monospace; color:#78716c; overflow-wrap:anywhere; }
+    .arch-source { display:block; font:10.5px/1.7 ui-monospace,monospace; color:#92400e; text-decoration:underline; text-underline-offset:3px; overflow-wrap:anywhere; margin-top:7px; }
+    .arch-flow { display:flex; align-items:center; justify-content:center; gap:8px; color:#78716c; font-size:11px; padding:10px 4px; text-align:center; }
+    .arch-arrow { font-size:21px; line-height:1; color:#d97706; }
+    .arch-application { padding:16px; border:2px solid #93c5fd; background:#f4f8ff; border-radius:14px; }
+    .arch-three { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+    .arch-cell { padding:12px; border:1px solid #dbe3ee; border-radius:9px; background:white; min-width:0; }
+    .arch-type { display:inline-block; border:1px solid #d6d3d1; border-radius:5px; background:white; font:10.5px/1.6 ui-monospace,monospace; color:#57534e; padding:2px 5px; margin-top:8px; text-decoration:underline; }
+    .arch-core { padding:14px; border:2px solid #fbbf24; border-radius:10px; background:#fffbeb; }
+    .arch-model-row { display:grid; grid-template-columns:minmax(0,1fr) 38px minmax(0,1fr); align-items:center; gap:5px; }
+    .arch-exchange { font-size:22px; color:#b45309; text-align:center; }
+    .arch-model { border:1px dashed #a8a29e; padding:10px; border-radius:8px; background:white; }
+    .arch-core-actions { margin-top:12px; padding:10px; border-top:1px solid #fde68a; }
+    .arch-two { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .arch-optional { border:1px dashed #a78bfa; background:#faf5ff; }
+    .arch-host { margin-top:10px; padding:8px; border-radius:7px; background:white; border:1px solid #e9d5ff; }
+    .arch-return { border:1px solid #fcd34d; border-left:4px solid #d97706; border-radius:8px; background:#fffbeb; padding:10px 12px; margin-top:12px; }
+    .arch-resources { padding:12px; border:1px dashed #a8a29e; border-radius:9px; text-align:center; background:#f5f5f4; }
+    @media(max-width:639px) { .arch-three,.arch-two { grid-template-columns:minmax(0,1fr); } .arch-application,.arch-layer { padding:12px; } .arch-core { padding:10px; } .arch-model-row { grid-template-columns:minmax(0,1fr); } .arch-exchange { line-height:1.2; } .arch-exchange::before { content:'请求 ↓ · 回复 ↑'; font-size:11px; } .arch-exchange > span { display:none; } }
+
+    /* Give the explanation, source and debugger their own rows. */
+    .page-shell { max-width:1680px; margin:0 auto; }
+    .page-shell > * + * { margin-top:24px; }
+    .graph-layout { display:grid; grid-template-columns:440px minmax(0,1fr); gap:28px; align-items:start; }
+    .graph-panel .zone-label > span:last-child { display:none; }
+    .graph-panel { position:sticky; top:16px; padding:20px 12px; margin-bottom:0; max-height:none; overflow:visible; }
+    #overview-current { font-size:12px; color:#78716c; margin-bottom:12px; }
+    #station-detail { display:flex; flex-direction:column; gap:24px; }
+    #station-detail > * { margin-top:0; }
+    #station-detail > .card:not(#source-workbench) { padding:24px; }
+    #step-story { max-width:88ch; line-height:1.9; }
+    #repository-map { padding:32px; }
+    .arch-diagram { font-size:13px; line-height:1.9; }
+    .arch-layer,.arch-application { padding:24px; }
+    .arch-heading { gap:10px; margin-bottom:16px; }
+    .arch-diagram h3 { font-size:16px; }
+    .arch-diagram h4 { font-size:14px; }
+    .arch-three,.arch-two { gap:16px; }
+    .arch-cell,.arch-core { padding:20px; }
+    .arch-model { padding:16px; }
+    .arch-flow { padding:20px 8px; gap:12px; font-size:12px; }
+    .arch-core-actions { margin-top:20px; padding-top:18px; }
+    .arch-return { margin-top:20px; padding:16px; }
+    .arch-diagram.hide-paths .arch-source { display:none; }
+    .architecture-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; }
+    .quiet-button { border:1px solid #d6d3d1; border-radius:8px; padding:8px 12px; background:white; font-size:12px; white-space:nowrap; }
+    .quiet-button:hover { background:#fafaf9; border-color:#a8a29e; }
+    .workbench-guide { padding:18px 24px; border-bottom:1px solid #fde68a; background:#fffdf5; }
+    .workbench-guide p { line-height:1.9; }
+    .line-hints { margin-top:10px; font-size:12px; color:#78716c; }
+    .line-hints summary { cursor:pointer; }
+    .line-hints > div { padding-top:8px; }
+    .debug-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:14px 24px; border-bottom:1px solid #e7e5e4; }
+    #debug-progress { margin-left:6px; color:#78716c; font:12px ui-monospace,monospace; }
+    .wrap-control { display:flex; align-items:center; gap:7px; font-size:12px; color:#57534e; margin-left:auto; cursor:pointer; }
+    .wrap-control input { accent-color:#d97706; }
+    #code-container { max-height:440px; max-height:min(46vh,440px); padding:16px 0; background:white; }
+    .code-line { font-size:13px; line-height:1.85; padding:2px 20px; }
+    #source-workbench.code-wrap .code-line { white-space:pre-wrap; min-width:0; }
+    #source-workbench.code-wrap .code-line > span:last-child { min-width:0; flex:1; overflow-wrap:anywhere; }
+    .debug-state { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:24px; padding:20px 24px; border-top:1px solid #e7e5e4; background:#fafaf9; }
+    .debug-state h4 { font-size:12px; font-weight:600; color:#57534e; margin-bottom:10px; }
+    #debug-caption { font-size:13px; line-height:1.8; color:#57534e; }
+    .debug-state-note { margin-top:12px; color:#a8a29e; font-size:11px; }
+    #debug-variables { margin:0; max-height:240px; overflow:auto; border:1px solid #e7e5e4; background:white; border-radius:8px; padding:14px; font-size:12px; }
+    #code-dialog { width:calc(100vw - 48px); max-width:1600px; max-height:calc(100dvh - 48px); padding:0; border:0; border-radius:14px; background:#f8f7f4; overflow:auto; }
+    #code-dialog::backdrop { background:rgba(28,25,23,.5); }
+    #code-dialog #source-workbench { border:0; }
+    #code-dialog #code-container { max-height:48dvh; }
+    body.reading-dialog-open { overflow:hidden; }
+    @media(max-width:1199px) { .graph-layout { grid-template-columns:minmax(0,1fr); gap:24px; } .graph-panel { position:static; max-height:none; overflow:visible; } #mechanism-overview > div { max-width:860px; margin-left:auto; margin-right:auto; } }
+    @media(min-width:1200px) { .graph-panel .station-node .text-xs { white-space:normal; overflow:visible; line-height:1.5; } .graph-panel .station-node .font-mono { font-size:9px; } }
+    @media(max-width:639px) {
+      #repository-map,#station-detail > .card:not(#source-workbench) { padding:20px 16px; }
+      .arch-layer,.arch-application { padding:16px; } .arch-cell,.arch-core,.arch-model { padding:14px; }
+      .arch-diagram h3 { font-size:14px; } .arch-diagram h4 { font-size:13px; }
+      .arch-flow { padding:16px 4px; }
+      .workbench-guide { padding:16px; }
+      .debug-toolbar { padding:12px 16px; }
+      .debug-state { grid-template-columns:minmax(0,1fr); padding:16px; gap:18px; }
+      .code-line { padding-left:8px; padding-right:12px; font-size:12px; }
+      #code-dialog { width:calc(100vw - 16px); max-height:calc(100dvh - 16px); }
+      .wrap-control { margin-left:0; } #code-container { max-height:360px; }
     }
-    .code-line.hl {
-      background-color: #fff0b3;
-      border-left: 3px solid #d97706;
-      padding-left: 11px;
-    }
-    .code-line.hl .line-num { color: #92400e; font-weight: 700; }
-    .code-line.hl > span:last-child { font-weight: 500; }
-    #code-focus-notes { white-space: pre-line; line-height: 1.9; }
-    .line-num {
-      width: 38px;
-      flex-shrink: 0;
-      color: #a8a29e;
-      text-align: right;
-      padding-right: 14px;
-      user-select: none;
-    }
-    .kw { color: #9333ea; font-weight: 500; }
-    .str { color: #16a34a; }
-    .cm { color: #78716c; font-style: italic; }
-    .seg-pill {
-      height: 6px;
-      border-radius: 999px;
-      transition: all 0.2s ease;
-      cursor: pointer;
-    }
+
+    /* Station 0: compact architecture regions, with all sources still visible. */
+    #repository-map { padding:24px; }
+    #repository-map > * + * { margin-top:16px; }
+    .architecture-header { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px 16px; }
+    .architecture-intro { grid-column:1 / -1; color:#78716c; font-size:12px; line-height:1.7; }
+    #repository-map .arch-diagram { font-size:13px; line-height:1.7; }
+    #repository-map .arch-layer,#repository-map .arch-application { padding:16px; }
+    #repository-map .arch-heading { margin-bottom:10px; gap:8px; }
+    #repository-map .arch-three,#repository-map .arch-two { gap:12px; align-items:start; }
+    #repository-map .arch-cell,#repository-map .arch-core,#repository-map .arch-model { padding:14px; }
+    #repository-map .arch-model-row { align-items:start; }
+    #repository-map .arch-exchange { align-self:center; }
+    #repository-map .arch-flow { padding:10px 4px; gap:8px; font-size:11px; }
+    #repository-map .arch-source { margin-top:5px; }
+    #repository-map .arch-core-actions { padding:10px 0 0; margin-top:12px; }
+    #repository-map .arch-core-actions .arch-source,#repository-map .arch-return .arch-source { display:inline-block; margin-right:12px; }
+    #repository-map .arch-return { margin-top:12px; padding:12px; }
+    #repository-map .arch-resources { padding:10px 12px; }
+    .architecture-start { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:16px; align-items:start; }
+    .architecture-start details { min-width:0; }
+    .architecture-start pre { padding:12px; }
+    .architecture-exercise { padding:16px; border:1px solid #fde68a; border-radius:12px; background:#fffbeb; font-size:12px; line-height:1.8; }
+    .architecture-exercise ol { margin:10px 0 14px; padding-left:18px; list-style:decimal; }
+    .architecture-exercise li + li { margin-top:8px; }
+    @media(max-width:767px) { .architecture-start { grid-template-columns:minmax(0,1fr); } }
+    @media(max-width:639px) { .arch-tool-column { display:contents; } #repository-map .arch-two > .arch-optional { order:1; } #repository-map .arch-two .arch-return { order:2; margin-top:0; } #repository-map { padding:16px; } .architecture-header { grid-template-columns:minmax(0,1fr); gap:10px; } .architecture-header .quiet-button { justify-self:start; } .architecture-intro { grid-column:auto; } #repository-map .arch-layer,#repository-map .arch-application { padding:12px; } #repository-map .arch-cell,#repository-map .arch-core,#repository-map .arch-model { padding:12px; } }
+
+    /* Stations 1–12: one explanation per mechanism, compact source annotations. */
+    #station-detail { gap:14px; }
+    #station-detail > .card:not(#source-workbench) { padding:16px; }
+    .station-navigation { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+    .station-navigation .quiet-button { padding:5px 10px; }
+    #step-phase-badge { margin-left:auto; }
+    #step-story { margin-top:8px; max-width:none; line-height:1.75; }
+    .station-boundary { display:flex; gap:8px; margin-top:10px; padding-top:10px; border-top:1px solid #f0eeeb; font-size:12px; color:#78716c; line-height:1.7; }
+    .packet-input,.packet-output { padding:10px 12px; border:1px solid #e7e5e4; border-radius:8px; min-width:0; background:#fafaf9; }
+    .packet-output { background:#fffdf5; border-color:#fde68a; }
+    .station-packets h3 { font-size:11px; color:#78716c; margin-bottom:5px; font-weight:600; }
+    .station-packets pre { line-height:1.65; }
+    .workbench-guide { display:grid; grid-template-columns:60px minmax(0,1fr); gap:8px; padding:10px 16px; align-items:baseline; }
+    #code-focus-notes { display:flex; flex-wrap:wrap; gap:4px 16px; }
+    .workbench-guide .focus-note { line-height:1.7; }
+    .debug-toolbar { padding:10px 16px; gap:8px; }
+    #code-container { padding:10px 0; }
+    .code-line { padding-top:1px; padding-bottom:1px; line-height:1.75; }
+    .debug-state { padding:12px 16px; gap:16px; align-items:start; }
+    .debug-state h4 { margin-bottom:6px; }
+    #debug-caption { font-size:12px; line-height:1.7; }
+    #debug-variables { padding:10px 12px; }
+    #try-it { margin-top:8px; line-height:1.75; }
+    @media(max-width:639px) { #station-detail > .card:not(#source-workbench) { padding:14px; } .workbench-guide { grid-template-columns:minmax(0,1fr); gap:5px; } .debug-toolbar,.debug-state { padding-left:14px; padding-right:14px; } }
+    #map-nav { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; margin:12px 0 16px; border:1px solid #d6d3d1; border-radius:10px; background:#f5f5f4; color:#292524; font-size:13px; font-weight:600; cursor:pointer; box-shadow:0 1px 2px rgba(28,25,23,.05); }
+    #map-nav:hover { background:#fffbeb; border-color:#d97706; color:#92400e; }
+    #map-nav:active { background:#fef3c7; }
+    #map-nav[aria-current="step"] { background:#fffbeb; border-color:#f59e0b; color:#92400e; box-shadow:inset 3px 0 #f59e0b; }
+    .map-nav-action { color:#a16207; font-size:12px; white-space:nowrap; }
+
+    /* Architecture map: compact cards and routed connectors. */
+    #repository-map .architecture-network { position:relative; overflow:hidden; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:88px 24px; padding:10px 8px 72px; border:1px solid #dbe7ff; border-radius:12px; background:#fff; align-items:start; }
+    #architecture-svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; z-index:0; }
+    #architecture-edge-labels { position:absolute; inset:0; pointer-events:none; }
+    .architecture-node { position:relative; z-index:1; border:1.5px solid #d6d3d1; border-radius:10px; padding:12px; background:#fff; min-width:0; box-shadow:0 1px 2px rgba(28,25,23,.04); }
+    #repository-map .architecture-node h3 { font-size:13px; font-weight:700; line-height:1.5; }
+    #repository-map .architecture-node .network-package { font:10.5px/1.5 ui-monospace,monospace; color:#78716c; overflow-wrap:anywhere; margin-top:3px; }
+    #repository-map .architecture-node .network-description { font-size:12px; color:#57534e; line-height:1.7; margin-top:6px; }
+    .architecture-node.network-primary { border:2px solid #3265ff; background:#f0f6ff; box-shadow:0 0 0 3px #e0e9ff; }
+    .architecture-node.network-center { grid-column:1 / -1; justify-self:center; width:86%; text-align:center; }
+    .architecture-node.network-optional { border-style:dashed; border-color:#a78bfa; background:#faf7ff; }
+    .network-sources { display:flex; flex-wrap:wrap; gap:2px 12px; margin-top:6px; }
+    #repository-map .network-sources .arch-source { display:inline-block; margin:0; font-size:10.5px; color:#2450c9; }
+    .network-center .network-sources { justify-content:center; }
+    #repository-map .architecture-network.hide-paths .arch-source { display:none; }
+    #repository-map .architecture-node .arch-type { margin-top:6px; font-size:10px; }
+    .network-edge-label { position:absolute; z-index:2; display:flex; align-items:center; gap:5px; padding:3px 8px 3px 4px; border:1.5px solid #3265ff; border-radius:999px; background:#f0f6ff; color:#2148ba; font-size:11px; white-space:nowrap; transform:translate(-50%,-50%); box-shadow:0 2px 5px #dbe5ff; }
+    .network-edge-label b { display:flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:#3265ff; color:white; font:600 11px ui-monospace,monospace; }
+    .network-edge-label.return-label { border-color:#cbd5e1; color:#64748b; background:white; box-shadow:none; padding:3px 7px; font-size:10px; }
+    .network-boundary { font-size:11px; color:#78716c; line-height:1.7; }
+    @media(max-width:639px) { #repository-map .architecture-network { gap:74px 12px; padding:8px 6px 64px; } .architecture-node { padding:10px 8px; } .architecture-node.network-center { width:94%; } #repository-map .architecture-node h3 { font-size:12px; } #repository-map .architecture-node .network-package { font-size:10px; } #repository-map .architecture-node .network-description { font-size:11px; } .network-sources { gap:2px 8px; } .network-edge-label { font-size:10px; padding-right:5px; gap:3px; } .network-edge-label b { width:16px; height:16px; font-size:10px; } }
+    .station-title-row { display:flex; align-items:center; justify-content:space-between; gap:12px 20px; }
+    .station-title-row h2 { min-width:0; flex:1; line-height:1.5; }
+    .station-source { flex:0 1 52%; min-width:0; text-align:right; font-size:11px; line-height:1.6; }
+    .station-source-meta { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px 12px; margin-top:3px; color:#78716c; }
+    .station-source-meta a { text-decoration:underline; text-underline-offset:2px; }
+    @media(max-width:639px) { .station-title-row { flex-direction:column; align-items:stretch; gap:7px; } .station-source { flex:none; text-align:left; } .station-source-meta { justify-content:flex-start; } }
+
+
+    .example-heading { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; margin-bottom:8px; }
+    .example-heading h3 { font-size:13px; font-weight:700; }
+    .example-note { font-size:11px; line-height:1.7; color:#78716c; margin-bottom:10px; }
+    .loop-node { border:1px solid #d6d3d1; border-radius:8px; background:white; padding:9px 11px; font-size:11px; line-height:1.6; min-width:0; }
+    .loop-node strong { display:block; color:#292524; font-size:12px; }
+    .loop-node p { color:#78716c; margin-top:4px; overflow-wrap:anywhere; }
+    .loop-node .source-link { display:inline-block; margin-top:4px; }
+    .loop-arrow { text-align:center; font-size:11px; color:#a16207; padding:5px; }
+    .loop-outer { border:1px solid #93c5fd; border-radius:10px; padding:12px; background:#f5f9ff; }
+    .loop-inner { border:1px solid #fcd34d; border-radius:9px; padding:10px; background:#fffdf5; }
+    .loop-scope { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; margin-bottom:8px; font-size:11px; color:#57534e; }
+    .loop-scope button,.flow-source { font:10.5px/1.7 ui-monospace,monospace; color:#92400e; text-decoration:underline; text-underline-offset:2px; }
+    .loop-branches { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+    .loop-exit { border-style:dashed; background:#fafaf9; }
+    .loop-checks { margin-top:8px; padding:9px 11px; border:1px solid #d6d3d1; border-radius:8px; background:white; font-size:11px; line-height:1.7; }
+    .loop-checks > div { margin-top:4px; color:#57534e; }
+    .loop-checks > div > span { display:inline-block; margin-right:12px; }
+    .loop-end { background:#f5f9ff; }
+    #loop-overview .flow-active { background:#fef3c7; border-color:#d97706; box-shadow:0 0 0 2px #fde68a; }
+    .session-leaf-label { display:flex; align-items:center; gap:8px; font:11px ui-monospace,monospace; color:#57534e; }
+    #session-leaf { font-size:12px; line-height:1.7; font-family:inherit; border:1px solid #d6d3d1; border-radius:6px; padding:5px 8px; background:white; }
+    .session-jsonl { overflow:auto; border:1px solid #e7e5e4; border-radius:8px; background:#fafaf9; padding:6px 0; }
+    .jsonl-row { display:flex; width:100%; min-width:max-content; padding:6px 10px; text-align:left; white-space:pre; font:11px/1.7 ui-monospace,monospace; border-left:3px solid transparent; }
+    .jsonl-row > span { color:#a8a29e; width:24px; flex-shrink:0; }
+    .jsonl-row code { display:block; padding-right:16px; }
+    .jsonl-row:hover { background:#eff6ff; }
+    .path-entry { background:#fffbeb; }
+    .jsonl-row.selected-entry { border-left-color:#3265ff; background:#eff6ff; }
+    .session-inspect-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; margin-top:12px; }
+    .session-subheading { font-size:11px; font-weight:600; margin-bottom:8px; color:#57534e; }
+    .session-tree { text-align:center; font-size:11px; }
+    .session-tree button { border:1px solid #d6d3d1; border-radius:7px; padding:6px 9px; background:#fafaf9; }
+    .session-tree .path-entry { background:#fffbeb; border-color:#fcd34d; }
+    .session-tree .selected-entry { outline:2px solid #93c5fd; outline-offset:1px; }
+    .tree-current::before { content:'▶ '; color:#d97706; }
+    .tree-stem { height:12px; border-left:1px solid #a8a29e; width:0; margin:auto; }
+    .tree-fork { display:flex; justify-content:center; gap:18px; padding-top:15px; position:relative; }
+    .tree-fork::before { content:''; position:absolute; top:7px; left:25%; right:25%; border-top:1px solid #a8a29e; }
+    .tree-fork::after { content:''; position:absolute; top:0; left:50%; height:7px; border-left:1px solid #a8a29e; }
+    .session-path { font-size:11px; margin-top:12px; color:#78716c; }
+    .session-path strong { display:block; color:#92400e; font:12px/1.7 ui-monospace,monospace; margin-top:4px; }
+    #session-entry-detail { max-height:225px; overflow:auto; border:1px solid #e7e5e4; border-radius:8px; padding:10px; background:#fafaf9; }
+    .session-schema-links { display:flex; gap:8px 12px; flex-wrap:wrap; margin:10px 0 0; }
+    @media(max-width:639px){ .loop-branches { grid-template-columns:minmax(0,1fr); } .loop-outer { padding:8px; } .loop-inner { padding:8px; } .session-inspect-grid { grid-template-columns:minmax(0,1fr); } }
+    .network-loop-link { display:block; margin:8px auto 0; color:#2450c9; font-size:11px; text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
+
+    /* Reading sequence: map, question, then source location. */
+    .reading-section-label { display:block; color:#78716c; font-size:11px; font-weight:600; }
+    #map-nav { margin:6px 0 0; }
+    .mechanism-locator { padding-top:12px; border-top:1px solid #e7e5e4; }
+    #overview-current { margin:6px 0 4px; font-size:11px; }
+    .mechanism-locator .graph-help { font-size:10px; margin-bottom:8px; }
+    .loop-net-scroll { overflow:auto; border:1px solid #dbe7ff; border-radius:12px; }
+    .loop-network { position:relative; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); column-gap:16px; row-gap:32px; padding:28px 24px 12px; min-width:720px; align-items:start; overflow:hidden; }
+    #loop-network-svg,#loop-network-labels { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+    #loop-network-svg { z-index:0; }
+    #loop-network-labels { z-index:2; }
+    .loop-net-node { z-index:1; position:relative; min-width:0; padding:10px; border:1.5px solid #d6d3d1; border-radius:9px; background:white; box-shadow:0 1px 2px #1c191708; }
+    .loop-net-node h4 { font-size:12px; line-height:1.5; font-weight:700; }
+    .loop-net-node p { font-size:11px; color:#78716c; line-height:1.65; margin:4px 0; overflow-wrap:anywhere; }
+    .loop-net-primary { border:2px solid #3265ff; background:#f0f6ff; box-shadow:0 0 0 3px #e0e9ff; }
+    .loop-net-exit { border-style:dashed; background:#fafaf9; }
+    #lf-init,#lf-finish { grid-column:1 / 4; }
+    #lf-prepare,#lf-checkpoint { grid-column:4 / 7; }
+    #lf-model,#lf-end { grid-column:1 / -1; width:78%; justify-self:center; text-align:center; }
+    #lf-error,#lf-follow-up { grid-column:1 / 3; }
+    #lf-tools,#lf-continue { grid-column:3 / 5; }
+    #lf-no-tools,#lf-break { grid-column:5 / 7; }
+    .flow-edge-label { position:absolute; display:flex; align-items:center; gap:4px; transform:translate(-50%,-50%); border:1.5px solid #3265ff; border-radius:999px; background:#f0f6ff; color:#2148ba; font-size:10px; white-space:nowrap; padding:2px 6px 2px 3px; box-shadow:0 1px 4px #dbe5ff; }
+    .flow-edge-label b { display:flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; background:#3265ff; color:white; font:600 10px ui-monospace,monospace; }
+    .flow-edge-label.compact { border:0; padding:0; width:18px; height:18px; justify-content:center; }
+    .flow-edge-label.muted { border-color:#cbd5e1; color:#64748b; background:white; box-shadow:none; padding:2px 5px; }
+    .loop-network-note { color:#78716c; font-size:10px; line-height:1.7; margin-top:8px; }
+    #loop-overview .loop-net-node.flow-active { background:#fef3c7; border-color:#d97706; box-shadow:0 0 0 2px #fde68a; }
+    @media(max-width:767px) { .loop-network { min-width:720px; } .loop-network-note::before { content:'流程图可左右滑动。'; } }
+    .reading-entry { margin-bottom:14px; }
+    .station-engineering { display:flex; gap:8px; margin-top:5px; font-size:12px; line-height:1.7; color:#57534e; }
+
+    .loop-network { column-gap:36px; row-gap:32px; padding:36px 24px 10px; align-items:stretch; }
+    .loop-net-node { padding:8px 9px; }
+    .loop-net-node p { margin:4px 0; line-height:1.6; }
+    #lf-init { grid-column:1 / 3; grid-row:1; }
+    #lf-prepare { grid-column:3 / 5; grid-row:1; }
+    #lf-model { grid-column:5 / 7; grid-row:1; width:auto; text-align:left; justify-self:stretch; }
+    #lf-error { grid-column:1 / 3; grid-row:2; }
+    #lf-tools { grid-column:3 / 5; grid-row:2; }
+    #lf-no-tools { grid-column:5 / 7; grid-row:2; }
+    #lf-finish { grid-column:1 / 4; grid-row:3; }
+    #lf-checkpoint { grid-column:4 / 7; grid-row:3; }
+    #lf-follow-up { grid-column:1 / 3; grid-row:4; }
+    #lf-continue { grid-column:3 / 5; grid-row:4; }
+    #lf-break { grid-column:5 / 7; grid-row:4; }
+    #lf-end { grid-column:1 / -1; grid-row:5; width:80%; justify-self:center; display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:5px 12px; padding:8px 10px; }
+    #lf-end p { margin:0; }
+
+    /* Let a tall graph travel with the page, then dock without an inner scroll area. */
+    .graph-panel { overflow-anchor:none; scrollbar-gutter:auto; }
+    .station-node,.station-node.active,.station-node.neighbor { border-width:2px; transform:none; transition:background-color .15s ease,border-color .15s ease,box-shadow .15s ease; }
+    @media(min-width:1200px) { .graph-panel { top:var(--sidebar-top,16px); max-height:none; overflow:visible; } }
+    [hidden] { display:none !important; }
+    @media(max-width:639px) { #station-nav { display:grid; grid-template-columns:1fr 1fr; gap:3px; } .nav-item { height:100%; } #code-container { max-height:360px; } }
+    @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto !important; } }
   </style>
 </head>
-<body class="antialiased py-4 px-4 sm:px-6 lg:px-8">
-
-  <div class="max-w-7xl mx-auto space-y-3.5">
-
-
-    <div class="card px-4 py-3 border-l-4 border-amber-500 text-xs leading-relaxed" style="border-left:4px solid #f59e0b;padding:12px 16px;font-size:12px;line-height:1.8">
-      <strong>阅读范围 · 已核对本地 Pi 版本 62752fd4c37a（2026-11-07）</strong><br>
-      这 12 站是机制导读，不是每次请求都会依次执行的流水线。Jev 路由、危险命令弹窗属于示例扩展；缓存保活、MCP 与 codemode 受配置和运行条件影响。<br>
-      场景中的工具数量、数据大小与概率若写“示例”，均为教学假设。右侧代码为该版本的连续原文节选，中文解释放在代码框外；此页不代表实测结果或安全保证。
-    </div>
-
-    <!-- ==================== STORY CONTEXT HEADER ==================== -->
-    <div class="card px-4 py-3 bg-stone-900 text-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-      <div class="flex items-center gap-2.5 text-xs sm:text-sm">
-        <span class="px-2 py-0.5 rounded bg-amber-500 text-stone-950 font-bold text-xs shrink-0">贯穿故事线</span>
-        <span>教学场景（非运行记录）：<code class="text-amber-300 font-mono">「帮我查 GitHub 上的登录报错 Issue，修好 login.ts，再删掉旧日志 rm -rf /tmp/logs」</code></span>
+<body class="p-3 sm:p-5">
+<div class="page-shell">
+    <!-- ==================== TOP CHAPTER SWITCHER ==================== -->
+    <div class="card p-2.5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 bg-stone-900 text-stone-100">
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="basics.html" class="px-3.5 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium text-xs sm:text-sm flex items-center gap-1.5 transition-colors">
+          <span>🧭 第 1 篇：Agent 基础全景 &amp; 框架对比</span>
+          <span class="text-amber-400 text-xs">（零基础先看这篇）</span>
+        </a>
+        <a href="index.html" class="px-3.5 py-2 rounded-lg bg-amber-500 text-stone-950 font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-sm">
+          <span>🔬 第 2 篇：Pi 的 12 个核心机制与源码导读</span>
+          <span class="px-1.5 py-0.5 rounded bg-stone-950/15 text-[10px]">当前所在</span>
+        </a>
       </div>
-      <span class="text-xs text-stone-400 shrink-0 font-mono">按键盘 ← → 键看关系图连线流转</span>
-    </div>
-
-    <!-- ==================== STEP CONTROLLER & PLAIN-LANGUAGE EXPLANATION ==================== -->
-    <div class="card p-4 sm:p-5">
-      <div class="flex flex-col md:flex-row md:items-start gap-4">
-        <!-- Prev / Next Buttons -->
-        <div class="flex items-center gap-2 shrink-0">
-          <button onclick="prevStep()" class="px-3.5 py-2 rounded-lg border border-stone-300 bg-white hover:bg-stone-50 text-xs font-medium text-stone-700 transition-colors">
-            ◀ 上一站
-          </button>
-          <span id="step-counter" class="font-mono text-xs text-stone-500 w-14 text-center">1 / 12</span>
-          <button onclick="nextStep()" class="px-4 py-2 rounded-lg border-2 border-amber-400 bg-amber-50 hover:bg-amber-100/80 text-xs font-semibold text-stone-900 transition-colors shadow-sm">
-            下一站 ▶
-          </button>
-        </div>
-
-        <!-- Station Story & Beginner Q&A -->
-        <div class="flex-1 min-w-0 space-y-2">
-          <div class="flex flex-wrap items-center gap-2">
-            <span id="step-phase-badge" class="px-2 py-0.5 text-xs font-semibold rounded bg-amber-100 text-amber-900 border border-amber-300"></span>
-            <h1 id="step-title" class="text-base sm:text-lg font-bold text-stone-900"></h1>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-            <div class="p-3 rounded-xl bg-stone-50 border border-stone-200/80 text-xs leading-relaxed">
-              <div class="font-bold text-stone-800 mb-1">📍 这一站发生了什么？（大白话）</div>
-              <div id="step-story" class="text-stone-600"></div>
-            </div>
-            <div class="p-3 rounded-xl bg-amber-50/70 border border-amber-200/90 text-xs leading-relaxed">
-              <div class="font-bold text-amber-950 mb-1">设计解决什么问题？有哪些边界？</div>
-              <div id="step-pain" class="text-amber-900"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 12-Station Segmented Progress Bar -->
-      <div class="mt-3.5 pt-3 border-t border-stone-100 flex items-center gap-1.5" id="progress-segments">
-        <!-- Rendered by JS -->
+      <div class="flex items-center justify-between sm:justify-end gap-3 px-2 text-xs text-stone-400">
+        <a href="../index.html" class="text-amber-400 hover:underline font-medium shrink-0">← 返回知识花园</a>
       </div>
     </div>
 
-    <!-- ==================== MAIN SPLIT VIEW: LEFT RELATIONSHIP GRAPH + RIGHT CODE & DATA ==================== -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
 
-      <!-- LEFT: Interactive Node-and-Edge Relationship Diagram (5 cols) -->
-      <div class="lg:col-span-5 card p-4">
-        <div class="flex flex-col gap-1.5 mb-3 px-1">
-          <div class="flex items-center justify-between">
-            <h2 class="text-xs font-bold text-stone-800">12 个机制关系图（教学视图）</h2>
-            <div class="flex items-center gap-2 text-[11px]">
-              <span class="flex items-center gap-1 text-amber-800 font-semibold">
-                <span class="w-2.5 h-2.5 rounded-sm bg-amber-200 border-2 border-amber-500 inline-block"></span>当前站
-              </span>
-              <span class="flex items-center gap-1 text-stone-500">
-                <span class="w-3 h-0.5 bg-amber-500 inline-block"></span>关联流向
-              </span>
-            </div>
-          </div>
-          <div class="flex flex-wrap items-center justify-between gap-1 text-[11px] text-stone-400">
-            <span>连线表示讲解关联，并非固定执行顺序</span>
-            <div class="flex items-center gap-1.5">
-              <span class="role-pill core">核心机制</span>
-              <span class="role-pill config">按配置生效</span>
-              <span class="role-pill ext">可选扩展/钩子</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Graph Container with SVG Overlay for Directed Edges -->
+  <header class="card p-5 sm:p-6">
+    <p class="text-xs font-mono text-amber-800 mb-2">PI SOURCE WALKTHROUGH · 62752fd4c37a</p>
+    <h1 class="text-xl sm:text-2xl font-bold">带着工程问题，读懂 Pi 源码</h1>
+    <p class="text-sm text-stone-600 mt-3 leading-relaxed">先认清架构，再沿「查 Issue → 修 login.ts → 删日志」逐站看源码；每站说明对应的工程问题。</p>
+    <p class="text-xs text-stone-500 mt-3 leading-relaxed">阅读边界：这 12 站不是固定流水线。路由与审批属于示例扩展；MCP、codemode 和缓存保活按配置及运行条件生效。数据与单步均为教学模拟，不代表真实运行记录。代码固定到同一 commit，点击行号可去 GitHub 原文。</p>
+  </header>
+  <div class="graph-layout">
+    <aside id="mechanism-overview" class="card graph-panel" aria-label="12 站机制链路图">
+      <div class="reading-entry"><span class="reading-section-label">先认结构</span><button class="nav-item" id="map-nav" type="button" onclick="goToStep(-1)" aria-controls="repository-map"><span><span aria-hidden="true">🧭</span> 架构和源码入口</span><span class="map-nav-action" aria-hidden="true">查看 →</span></button></div>
+      <div class="mechanism-locator">
+      <h2 class="text-sm font-bold">定位机制 · 1–12 站链路图</h2><div id="overview-current" class="text-xs text-stone-500">当前站关联</div>
+      <p class="graph-help">黄色为当前站；连线表示机制关联，不是固定执行顺序。</p>
         <div id="graph-canvas" class="relative px-3 py-1 space-y-5">
           <!-- SVG overlay where directed edges & loop-back curves are drawn dynamically -->
           <svg id="graph-svg" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 2;"></svg>
@@ -285,17 +504,17 @@
             </div>
             <!-- Row 1: Station 1 -> Station 2 -->
             <div class="grid grid-cols-2 gap-4">
-              <div onclick="goToStep(0)" id="st-node-0" class="station-node role-core">
+              <div role="button" tabindex="0" onclick="goToStep(0)" id="st-node-0" class="station-node role-core">
                 <div class="station-num">1</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
-                    <div class="text-xs font-bold text-stone-900 truncate">按下回车·双层循环</div>
+                    <div class="text-xs font-bold text-stone-900 truncate">回车 · 双层循环</div>
                     <span class="role-pill core">核心</span>
                   </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">runAgentLoop()</div>
                 </div>
               </div>
-              <div onclick="goToStep(1)" id="st-node-1" class="station-node role-core">
+              <div role="button" tabindex="0" onclick="goToStep(1)" id="st-node-1" class="station-node role-core">
                 <div class="station-num">2</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
@@ -308,11 +527,11 @@
             </div>
             <!-- Row 2: Station 3 (Long-term memory & Skills) -->
             <div class="flex justify-center">
-              <div onclick="goToStep(2)" id="st-node-2" class="station-node role-core w-4/5">
+              <div role="button" tabindex="0" onclick="goToStep(2)" id="st-node-2" class="station-node role-core w-4/5">
                 <div class="station-num">3</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
-                    <div class="text-xs font-bold text-stone-900 truncate">项目指令 AGENTS.md 与技能目录</div>
+                    <div class="text-xs font-bold text-stone-900 truncate">项目指令与 Skills</div>
                     <span class="role-pill core">核心</span>
                   </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">buildSystemPromptSections()</div>
@@ -328,7 +547,7 @@
               <span class="font-mono text-[10px]">MCP &amp; KV Cache</span>
             </div>
             <div class="grid grid-cols-2 gap-4">
-              <div onclick="goToStep(3)" id="st-node-3" class="station-node role-config">
+              <div role="button" tabindex="0" onclick="goToStep(3)" id="st-node-3" class="station-node role-config">
                 <div class="station-num">4</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
@@ -338,11 +557,11 @@
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">exposure: "codemode"</div>
                 </div>
               </div>
-              <div onclick="goToStep(4)" id="st-node-4" class="station-node role-core">
+              <div role="button" tabindex="0" onclick="goToStep(4)" id="st-node-4" class="station-node role-core">
                 <div class="station-num">5</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
-                    <div class="text-xs font-bold text-stone-900 truncate">中途加工具贴队尾</div>
+                    <div class="text-xs font-bold text-stone-900 truncate">工具变更贴队尾</div>
                     <span class="role-pill core">核心</span>
                   </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">declareToolChanges()</div>
@@ -359,11 +578,11 @@
             </div>
             <!-- Row 1: Station 6 (Router & CacheWarmer Hub) -->
             <div class="flex justify-center">
-              <div onclick="goToStep(5)" id="st-node-5" class="station-node role-ext w-4/5">
+              <div role="button" tabindex="0" onclick="goToStep(5)" id="st-node-5" class="station-node role-ext w-4/5">
                 <div class="station-num">6</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
-                    <div class="text-xs font-bold text-stone-900 truncate">模型请求 / 可选路由 / 条件保活</div>
+                    <div class="text-xs font-bold text-stone-900 truncate">模型请求与可选路由</div>
                     <span class="role-pill ext">可选扩展</span>
                   </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">jev-router &amp; CacheWarmer</div>
@@ -372,7 +591,7 @@
             </div>
             <!-- Row 2: Gate 1 (Station 7) -> Gate 2 (Station 8) -->
             <div class="grid grid-cols-2 gap-4">
-              <div onclick="goToStep(6)" id="st-node-6" class="station-node role-core">
+              <div role="button" tabindex="0" onclick="goToStep(6)" id="st-node-6" class="station-node role-core">
                 <div class="station-num">7</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
@@ -382,11 +601,11 @@
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">stopReason=="length"</div>
                 </div>
               </div>
-              <div onclick="goToStep(7)" id="st-node-7" class="station-node role-ext">
+              <div role="button" tabindex="0" onclick="goToStep(7)" id="st-node-7" class="station-node role-ext">
                 <div class="station-num">8</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
-                    <div class="text-xs font-bold text-stone-900 truncate">参数校验 / 可选审批</div>
+                    <div class="text-xs font-bold text-stone-900 truncate">参数校验与可选审批</div>
                     <span class="role-pill ext">核心+扩展</span>
                   </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">beforeToolCall 串行</div>
@@ -403,21 +622,21 @@
             </div>
             <!-- Row 1: Parallel Fan-out from Station 8 -> Station 9 (Left) & Station 10 (Right) -->
             <div class="grid grid-cols-2 gap-4">
-              <div onclick="goToStep(8)" id="st-node-8" class="station-node role-config">
+              <div role="button" tabindex="0" onclick="goToStep(8)" id="st-node-8" class="station-node role-config">
                 <div class="station-num">9</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
-                    <div class="text-xs font-bold text-stone-900 truncate">codemode VM 与宿主桥接</div>
+                    <div class="text-xs font-bold text-stone-900 truncate">codemode 沙箱</div>
                     <span class="role-pill config">按配置</span>
                   </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">过滤 Issue / runToolCall</div>
                 </div>
               </div>
-              <div onclick="goToStep(9)" id="st-node-9" class="station-node role-core">
+              <div role="button" tabindex="0" onclick="goToStep(9)" id="st-node-9" class="station-node role-core">
                 <div class="station-num">10</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
-                    <div class="text-xs font-bold text-stone-900 truncate">进程内队列与日志分流</div>
+                    <div class="text-xs font-bold text-stone-900 truncate">文件队列与日志分流</div>
                     <span class="role-pill core">核心</span>
                   </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">mutationQueue &amp; bash</div>
@@ -426,7 +645,7 @@
             </div>
             <!-- Row 2: Loop-backs -> Station 11 (Steering) & Station 12 (Compaction) -->
             <div class="grid grid-cols-2 gap-4">
-              <div onclick="goToStep(10)" id="st-node-10" class="station-node role-core">
+              <div role="button" tabindex="0" onclick="goToStep(10)" id="st-node-10" class="station-node role-core">
                 <div class="station-num">11</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
@@ -436,11 +655,11 @@
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">↺ 新要求进入下一轮</div>
                 </div>
               </div>
-              <div onclick="goToStep(11)" id="st-node-11" class="station-node role-core">
+              <div role="button" tabindex="0" onclick="goToStep(11)" id="st-node-11" class="station-node role-core">
                 <div class="station-num">12</div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-1">
-                    <div class="text-xs font-bold text-stone-900 truncate">按 Token 水位压缩</div>
+                    <div class="text-xs font-bold text-stone-900 truncate">Token 水位压缩</div>
                     <span class="role-pill core">核心</span>
                   </div>
                   <div class="text-[10.5px] font-mono text-stone-400 truncate">↺ 压完写回第 2 站记账本</div>
@@ -451,127 +670,149 @@
 
         </div>
 
-        <!-- Active Edge Relationship Explanation Bar -->
-        <div class="mt-3 p-2.5 rounded-lg bg-amber-50/80 border border-amber-200 text-xs" style="display:block;padding:10px 12px">
-          <span class="font-bold text-amber-900" style="display:block;margin-bottom:5px">🔗 当前节点上下游关系：</span>
-          <span id="edge-relation-text" class="font-mono text-[11.5px] text-amber-950" style="display:block;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;line-height:1.8;overflow:visible;text-overflow:clip"></span>
-        </div>
+
+      <div class="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs leading-relaxed">
+        <strong class="text-amber-900">当前站的关联</strong>
+        <p id="edge-relation-text" class="text-amber-950 mt-1 whitespace-pre-line" aria-live="polite"></p>
       </div>
-
-      <!-- RIGHT: Real Data Packet Change (Before -> After) + Highlighted Source Code (7 cols) -->
-      <div class="lg:col-span-7 space-y-4 lg:sticky lg:top-4">
-
-        <!-- Concrete Data Packet Transformation (Before -> After) -->
-        <div class="card p-4 bg-stone-50/70">
-          <div class="text-xs font-bold text-stone-700 mb-2 flex items-center justify-between">
-            <span>📦 这一站的数据包长什么样？（进站前 ➔ 出站后对比）</span>
-            <span id="module-tag" class="font-mono text-[11px] text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded"></span>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div class="p-3 rounded-lg bg-white border border-stone-200/90">
-              <div class="text-[11px] font-bold text-stone-400 mb-1">⬅ 进站前的数据 / 状态</div>
-              <pre id="data-before" class="font-mono text-[11.5px] text-stone-700 whitespace-pre-wrap leading-relaxed"></pre>
-            </div>
-            <div class="p-3 rounded-lg bg-amber-50/60 border border-amber-300">
-              <div class="text-[11px] font-bold text-amber-800 mb-1">➡ 出站后的数据 / 结果</div>
-              <pre id="data-after" class="font-mono text-[11.5px] text-stone-900 whitespace-pre-wrap leading-relaxed"></pre>
-            </div>
-          </div>
-        </div>
-
-        <!-- Source Code Viewer Card -->
-        <div class="card flex flex-col overflow-hidden">
-          <!-- File Header -->
-          <div class="px-4 py-2.5 border-b border-stone-200 bg-stone-50 flex items-center justify-between">
-            <div class="flex items-center gap-2 min-w-0">
-              <span class="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0"></span>
-              <span id="code-filepath" class="font-mono text-xs font-semibold text-stone-800 truncate"></span>
-            </div>
-            <span id="code-lines-badge" class="text-xs font-mono text-stone-400 shrink-0"></span>
-          </div>
-
-          <!-- One-Line Code Guide -->
-          <div class="px-4 py-2 bg-amber-50/90 border-b border-amber-200/70 text-xs text-amber-950 font-medium" id="code-takeaway">
-          </div>
-
-          <div id="code-focus-notes" class="px-4 py-3 text-xs border-b border-amber-200 bg-amber-50 text-amber-950" style="padding:10px 16px;background:#fffbeb;color:#78350f;font-size:12px;white-space:pre-line;line-height:1.9"></div>
-          <!-- Highlighted Source Code Lines -->
-          <div id="code-container" class="py-3 overflow-x-auto overflow-y-auto bg-white max-h-[450px]">
-            <!-- Rendered by JS -->
-          </div>
-        </div>
-
+      <p class="graph-help mt-3">← → 切站 · 蓝色为按配置生效 · 紫色虚线为可选扩展</p>
       </div>
-
-    </div>
-
+    </aside>
+    <main class="min-w-0 space-y-4">
+      <section id="repository-map" class="card p-5 sm:p-6 space-y-5" aria-label="架构和源码入口">
+        <header class="architecture-header">
+          <div><p class="text-xs text-amber-800 font-semibold">架构和源码入口</p><h2 class="text-lg font-bold mt-1">Pi 架构总览：会话、内核与工具</h2></div>
+          <button id="arch-sources-toggle" class="quiet-button" aria-pressed="true" onclick="toggleArchitectureSources()">收起源码路径</button>
+          <p class="architecture-intro">沿编号看装配与调用，沿回线看结果返回。点击模块中的源码入口，可直达固定版本。</p>
+        </header>
+        <div class="arch-diagram architecture-network" role="group" aria-label="Pi 架构：CLI 装配和会话上下文输入 Agent 循环；内核调用宿主工具或可选 codemode 沙箱；工具结果回到循环，沙箱调用通过宿主桥接。">
+          <svg id="architecture-svg" aria-hidden="true"></svg>
+          <div id="architecture-edge-labels" aria-hidden="true"></div>
+<div id="arch-entry" class="architecture-node network-primary"><h3>CLI 与会话装配</h3><p class="network-package">packages/coding-agent</p><p class="network-description">接收任务，创建 Agent 与 AgentSession。</p><div class="network-sources"><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/cli.ts#L1" target="_blank" rel="noopener">cli.ts ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/sdk.ts#L403" target="_blank" rel="noopener">sdk.ts · 装配 ↗</a></div></div><div id="arch-context" class="architecture-node network-primary"><h3>上下文与会话记忆</h3><p class="network-package">packages/coding-agent</p><p class="network-description">组装会话分支、AGENTS.md 与 Skills；按条件压缩历史。</p><div class="network-sources"><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/session-manager.ts#L390" target="_blank" rel="noopener">session-manager.ts ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/system-prompt.ts#L178" target="_blank" rel="noopener">system-prompt.ts ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/compaction/compaction.ts#L267" target="_blank" rel="noopener">compaction.ts ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/agent-session.ts#L3162" target="_blank" rel="noopener">agent-session.ts ↗</a></div><a class="arch-type" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/session-manager.ts#L183" target="_blank" rel="noopener">SessionEntry ↗</a></div><div id="arch-loop" class="architecture-node network-primary network-center"><h3>runAgentLoop · Agent 循环内核</h3><p class="network-package">packages/agent</p><p class="network-description">请求模型 ⇄ 接收回复；准备工具调用 → 参数校验 / 可选钩子 → 执行工具 → 结果进入下一轮。</p><div class="network-sources"><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/agent-loop.ts#L111" target="_blank" rel="noopener">循环 ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/agent-loop.ts#L718" target="_blank" rel="noopener">参数准备 ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/agent-loop.ts#L831" target="_blank" rel="noopener">执行工具 ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/agent-loop.ts#L304" target="_blank" rel="noopener">回合检查点 ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/sdk.ts#L403" target="_blank" rel="noopener">streamFn · 模型接入 ↗</a></div><a class="arch-type" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/types.ts#L374" target="_blank" rel="noopener">AgentMessage ↗</a> <a class="arch-type" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/types.ts#L478" target="_blank" rel="noopener">AgentTool ↗</a><button class="network-loop-link" onclick="goToStep(0)">查看完整流程与单步 →</button></div><div id="arch-tools" class="architecture-node "><h3>宿主工具 · 直接执行</h3><p class="network-package">packages/coding-agent</p><p class="network-description">read / edit / write / bash 与 MCP 工具；文件修改排队，长日志截断。</p><div class="network-sources"><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/tools/index.ts" target="_blank" rel="noopener">tools/index.ts ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/mcp-servers.ts#L246" target="_blank" rel="noopener">mcp-servers.ts ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/tools/file-mutation-queue.ts#L32" target="_blank" rel="noopener">file-mutation-queue.ts ↗</a></div></div><div id="arch-sandbox" class="architecture-node network-optional"><h3>codemode · 可选脚本沙箱</h3><p class="network-package">packages/codemode · QuickJS</p><p class="network-description">脚本筛选 Issue、编排工具调用；通过宿主桥接访问已注册工具。</p><div class="network-sources"><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/codemode/src/runtime/vm.ts#L160" target="_blank" rel="noopener">runtime/vm.ts ↗</a><a class="arch-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/extensions/codemode/tool.ts" target="_blank" rel="noopener">codemode/tool.ts ↗</a></div></div>
+        </div>
+        <p class="network-boundary">①② 是装配与上下文输入；③④ 是工具执行的不同路径。codemode 按配置启用，宿主工具的文件与网络操作会真实发生。模型通过注入的 streamFn 接入。</p>
+        <div class="architecture-start">
+        <details class="rounded-xl border border-stone-200 p-4" open>
+          <summary class="text-sm font-bold cursor-pointer">本地启动与调试</summary>
+          <p class="text-xs text-stone-600 my-3 leading-relaxed">准备 Git、Node.js ≥ 22.19 和模型凭据。VS Code 打开「JavaScript Debug Terminal」，在该终端执行：</p>
+          <pre class="data-text bg-stone-950 text-stone-100 p-4 rounded-lg overflow-x-auto">git clone https://github.com/earendil-works/pi.git
+cd pi
+git checkout 62752fd4c37a
+npm ci --ignore-scripts
+./pi-test.sh</pre>
+          <p class="text-xs text-stone-600 mt-3 leading-relaxed">脚本直接运行 TypeScript 源码；需要登录时输入 /login。文件操作请在临时项目中做。</p>
+          <p class="text-xs mt-3"><a class="source-link" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/pi-test.sh">启动脚本原文</a> · <a class="source-link" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/package.json">Node 版本与依赖</a></p>
+        </details>
+        <div class="architecture-exercise">
+          <h3 class="text-sm font-bold">自己试试 · 跟一轮调用</h3>
+          <ol><li><strong>认类型：</strong>在图中找到 SessionEntry、AgentMessage、AgentTool，分别对应会话条目、运行时消息、工具接口。</li><li><strong>打断点：</strong>打开 agent/src/agent-loop.ts，在 L304 断下。</li><li><strong>看状态：</strong>工具运行时补一句「先别删日志」，单步跨过 L304，观察 pendingMessages。</li></ol>
+          <button class="bg-amber-500 text-stone-950 px-4 py-2 rounded-lg text-sm font-semibold" onclick="goToStep(0)">从第 1 站开始读源码 →</button>
+        </div>
+        </div>
+      </section>
+      <section id="station-detail" class="space-y-4" hidden>
+        <div class="card station-intro">
+          <div class="station-navigation"><button onclick="prevStep()" class="quiet-button">◀ 上一站</button><span id="step-counter" class="text-xs text-stone-500"></span><button onclick="nextStep()" class="quiet-button">下一站 ▶</button><span id="step-phase-badge" class="text-xs text-amber-800"></span></div>
+          <div class="station-title-row"><h2 id="step-title" class="text-lg font-bold"></h2><div class="station-source"><a id="source-permalink" class="source-link font-mono" target="_blank" rel="noopener"></a><div class="station-source-meta"><span id="code-lines-badge"></span><a id="source-latest" target="_blank" rel="noopener">查看最新版 ↗</a></div></div></div>
+          <p id="step-story" class="text-sm text-stone-600"></p>
+          <p class="station-boundary"><span class="font-semibold shrink-0">边界</span><span id="step-pain"></span></p>
+          <p class="station-engineering"><span class="font-semibold shrink-0">工程问题</span><span id="step-engineering"></span></p>
+        </div>
+        <div id="station-packets" class="card station-packets">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3"><div class="packet-input"><h3>进站</h3><pre id="data-before" class="data-text"></pre></div><div class="packet-output"><h3>出站</h3><pre id="data-after" class="data-text"></pre></div></div>
+        </div>
+        <section id="loop-overview" class="card detail-example" aria-label="完整 Agent Loop 控制流程" hidden>
+          <div class="example-heading"><h3>完整 Agent Loop：输入到结束</h3><button class="quiet-button" onclick="advanceDebug()">▶ 跟着单步走</button></div>
+          <p class="example-note">单步示例：一次 read 工具调用 → 下一轮文本回复结束。黄色节点与下方源码、变量同步。</p>
+          <div class="loop-net-scroll" tabindex="0" aria-label="Agent Loop 流程图，窄屏可左右滚动"><div id="loop-network" class="loop-network" role="group" aria-label="Agent Loop 完整流程：输入、准备、模型响应、工具分支、结果回填、Steering 内层循环、Follow-up 或显式继续的外层循环、结束。"><svg id="loop-network-svg" aria-hidden="true"></svg><div id="loop-network-labels" aria-hidden="true"></div>
+<div id="lf-init" class="loop-net-node loop-net-primary" data-loop-stage="init"><h4>runAgentLoop · 初始化输入</h4><p>合入输入、发出开始事件，读取首次 Steering。</p><a class="flow-source" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/agent-loop.ts#L111-L133" target="_blank" rel="noopener">入口 L111–133 ↗</a> · <button class="flow-source" onclick="focusLines(185)">L185</button></div><div id="lf-prepare" class="loop-net-node loop-net-primary" data-loop-stage="prepare"><h4>准备本轮上下文</h4><p>按需 prepareNextTurn → 合入消息 → prepareRequest。</p><button class="flow-source" onclick="focusLines(195,248)">L195–248</button></div><div id="lf-model" class="loop-net-node loop-net-primary" data-loop-stage="model"><h4>streamAssistantResponse · 请求模型</h4><p>按 stopReason 与 toolCalls 分派响应。</p><button class="flow-source" onclick="focusLines(251,251)">L251</button></div><div id="lf-error" class="loop-net-node loop-net-exit" data-loop-stage="error"><h4>error / aborted</h4><p>收尾后直接结束。</p><button class="flow-source" onclick="focusLines(254,264)">L254–264</button></div><div id="lf-tools" class="loop-net-node " data-loop-stage="tools"><h4>有 toolCalls</h4><p>截断返错；否则校验执行。terminate 决定工具轮次是否继续。</p><button class="flow-source" onclick="focusLines(268,281)">L268–281</button></div><div id="lf-no-tools" class="loop-net-node " data-loop-stage="no-tools"><h4>没有 toolCalls</h4><p>跳过工具，hasMoreToolCalls=false。</p><button class="flow-source" onclick="focusLines(268,272)">L268–272</button></div><div id="lf-finish" class="loop-net-node " data-loop-stage="finish"><h4>回填结果 · 收尾回合</h4><p>结果回填 → finishTurn / turn_end；end 决定直接结束。</p><button class="flow-source" onclick="focusLines(283,300)">L283–300</button></div><div id="lf-checkpoint" class="loop-net-node loop-net-primary" data-loop-stage="checkpoint"><h4>读取 Steering · 判断内层是否继续</h4><p>取 Steering；有工具或新输入则继续内层，无则退出。</p><button class="flow-source" onclick="focusLines(304,307)">L304–307</button></div><div id="lf-follow-up" class="loop-net-node " data-loop-stage="follow-up"><h4>检查 Follow-up</h4><p>有任务则 ↺ 外层；无则检查显式继续。</p><button class="flow-source" onclick="focusLines(311,316)">L311–316</button></div><div id="lf-continue" class="loop-net-node " data-loop-stage="continue"><h4>检查显式 continue</h4><p>有决定则 ↺ 外层；无则 break。</p><button class="flow-source" onclick="focusLines(320,322)">L320–322</button></div><div id="lf-break" class="loop-net-node " data-loop-stage="break"><h4>break · 退出外层</h4><p>退出外层，发出 agent_end。</p><button class="flow-source" onclick="focusLines(326,326)">L326</button></div><div id="lf-end" class="loop-net-node loop-net-primary" data-loop-stage="end"><h4>agent_end · 返回新增消息</h4><p>返回 newMessages。</p><button class="flow-source" onclick="focusLines(329,329)">L329</button></div>
+          </div></div>
+          <p class="loop-network-note">蓝色回线区分内层继续与外层续接；灰线为分支与退出。<a class="source-link" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/agent-loop.ts#L111-L133" target="_blank" rel="noopener">初始化入口源码 ↗</a></p>
+        </section>
+        <section id="session-example" class="card detail-example" aria-label="session.jsonl 文件与会话树" hidden>
+          <div class="example-heading"><h3>session.jsonl：磁盘记录怎样变成当前分支？</h3><label class="session-leaf-label">当前 leafId <select id="session-leaf" onchange="selectSessionLeaf(this.value)"><option value="e4">e4 · 方案 B</option><option value="e3">e3 · 旧分支 A</option></select></label></div>
+          <p class="example-note">教学文件：每行一个 JSON，首行是会话头；其余条目用 id / parentId 连成树，message 才是消息正文。点击一行或节点查看字段。</p>
+          <div id="session-jsonl" class="session-jsonl" aria-label="JSONL 文件逐行内容"></div>
+          <div class="session-inspect-grid">
+            <div><div class="session-subheading">同一份文件的树形视图</div><div class="session-tree">
+              <div><button data-entry="e1" onclick="inspectSessionEntry('e1')">e1 · 查登录 Issue</button></div><div class="tree-stem" aria-hidden="true"></div>
+              <div><button data-entry="e2" onclick="inspectSessionEntry('e2')">e2 · 定位 token 过期</button></div>
+              <div class="tree-fork"><button data-entry="e3" onclick="inspectSessionEntry('e3')">e3 · 方案 A</button><button data-entry="e4" onclick="inspectSessionEntry('e4')">e4 · 方案 B</button></div>
+            </div><div class="session-path"><span>当前上下文的消息顺序</span><strong id="session-active-path"></strong></div></div>
+            <div class="min-w-0"><div class="session-subheading" id="session-selected-label">条目字段</div><pre id="session-entry-detail" class="data-text"></pre></div>
+          </div>
+          <div class="example-note session-schema-links"><span>黄色为当前分支，蓝框为选中条目；单步时 ▶ 标出 current。</span><a class="source-link" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/session-manager.ts#L43-L67" target="_blank" rel="noopener">字段定义 ↗</a><a class="source-link" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/session-manager.ts#L1215-L1224" target="_blank" rel="noopener">消息写入 ↗</a></div>
+        </section>
+        <section id="source-workbench" class="card overflow-hidden code-wrap" aria-label="源码与单步调试">
+          <div class="workbench-guide"><h3 class="text-xs font-semibold">源码重点</h3><div id="code-focus-notes" class="text-xs text-amber-950"></div></div>
+          <div class="debug-toolbar">
+            <button id="debug-next" class="bg-amber-500 px-4 py-2 rounded-lg text-xs font-bold" onclick="advanceDebug()">▶ 单步</button>
+            <button class="quiet-button" onclick="resetDebug()">重置</button>
+            <span id="debug-progress" aria-live="polite"></span><span class="text-xs text-stone-400">教学模拟</span>
+            <label class="wrap-control"><input id="code-wrap-toggle" type="checkbox" checked onchange="$('source-workbench').classList.toggle('code-wrap',this.checked)">自动换行</label>
+            <button id="reading-toggle" class="quiet-button" onclick="toggleCodeReading()" aria-expanded="false" aria-controls="code-dialog">展开阅读 ↗</button>
+          </div>
+          <div id="code-container" tabindex="0" aria-label="源码节选，黄色高亮表示当前执行位置"></div>
+          <div class="debug-state">
+            <div class="min-w-0"><h4>执行状态</h4><p id="debug-caption" aria-live="polite"></p><div id="token-meter" class="mt-4" hidden><div class="h-4 rounded bg-stone-200 relative overflow-hidden"><div id="token-fill" class="h-full bg-amber-400"></div><div class="absolute top-0 h-full border-l-2 border-stone-700" style="left:91.808%" title="阈值 183,616"></div></div><p id="token-label" class="text-xs mt-2 font-mono"></p><p class="text-xs mt-1 text-stone-500">竖线 = window − reserve = 183,616</p></div></div>
+            <div class="min-w-0"><h4>当前变量</h4><pre id="debug-variables" class="data-text" aria-label="变量面板"></pre></div>
+          </div>
+        </section>
+        <div class="card station-experiment"><div class="flex flex-wrap items-center gap-3"><h3 class="text-xs font-semibold">自己试试</h3><a id="try-link" class="source-link text-xs" target="_blank" rel="noopener">断点源码 ↗</a><button onclick="goToStep(-1)" class="text-xs text-stone-500 underline">调试准备</button></div><p id="try-it" class="text-xs text-stone-600"></p></div>
+      </section>
+    </main>
   </div>
-
-  <script>
-    // =========================================================================
-    // GRAPH EDGES: Defines the exact directed relationships between the 12 stations
-    // =========================================================================
-    const graphEdges = [
-      // Phase 1 internal flow
-      { from: 0, to: 1, type: "h", label: "写入提问" },
-      { from: 1, to: 2, type: "v", label: "读取分支" },
-      // Phase 1 -> Phase 2
-      { from: 2, to: 3, type: "v", label: "挂载MCP" },
-      { from: 3, to: 4, type: "h", label: "按需激活" },
-      // Phase 2 -> Phase 3 (Context converges into Station 6 LLM Router)
-      { from: 3, to: 5, type: "v", label: "汇入上下文" },
-      { from: 4, to: 5, type: "v", label: "追加至队尾" },
-      // Phase 3: LLM -> Gate 1 -> Gate 2
-      { from: 5, to: 6, type: "v", label: "返回ToolCall" },
-      { from: 6, to: 7, type: "h", label: "未截断放行" },
-      // Phase 3 -> Phase 4: Gate 2 fans out in parallel to Station 9 (Sandbox) & Station 10 (Edit/Bash)
-      { from: 7, to: 8, type: "v", label: "放行脚本" },
-      { from: 7, to: 9, type: "v", label: "按调用关系执行" },
-      // Sandbox nested guard check back to Gate 2
-      { from: 8, to: 7, type: "loop-inner", label: "runToolCall守卫" },
-      // Execution -> Steering & Compaction
-      { from: 8, to: 10, type: "v", label: "脚本完成" },
-      { from: 9, to: 10, type: "v", label: "本轮跑完" },
-      { from: 10, to: 11, type: "h", label: "必要时压缩" },
-      // Loop-back edges to top of graph!
-      { from: 10, to: 0, type: "loop-left", label: "↺ 补充指令进入下一轮" },
-      { from: 11, to: 1, type: "loop-right", label: "↺ 压缩写回第2站" }
-    ];
-
-    const phaseTitles = {
-      P1: "阶段 1：消息进站与记忆组装（第 1～3 站）",
-      P2: "阶段 2：挂上 MCP 与动态加工具（第 4～5 站）",
-      P3: "阶段 3：模型请求与执行前检查（第 6～8 站）",
-      P4: "阶段 4：工具执行、补充指令与容量管理（第 9～12 站）"
-    };
-
-    // =========================================================================
-    // 12 STATIONS DATA
-    // =========================================================================
-    const stations = [
+  <footer class="text-xs text-stone-400 text-center py-4">源码快照：62752fd4c37a · 教学模拟与真实调试请区分 · <a class="underline" href="https://github.com/earendil-works/pi/tree/62752fd4c37a">打开 Pi 仓库 ↗</a></footer>
+</div>
+<dialog id="code-dialog" aria-label="展开源码阅读"></dialog>
+<script>
+const SOURCE_COMMIT = "62752fd4c37a";
+const SOURCE_REPO = "https://github.com/earendil-works/pi";
+const stations = [
   {
     "phaseId": "P1",
     "roleType": "core",
-    "title": "第 1 站：按下回车后，Agent 怎样一轮轮处理任务？",
-    "story": "你输入「查 Issue、修 login.ts、删日志」并按下回车后，Pi 会反复做三件事：把上下文交给模型、按模型请求调用工具、把工具结果交回模型。源码用内外两层 while 循环，分别处理“当前这件事还要不要继续调工具”和“这件事做完后，还有没有排队的新任务”。",
-    "pain": "比如它正在修 login.ts，你突然补一句“先别删日志”：这是运行中追加的指令（Steering），会在当前回合的检查点塞进下一轮上下文。若你排队说“修完再写份文档”，则属于后续追问（Follow-up），等内层循环跑完再由外层循环接手。注意：检查点是回合交接处，不会强行杀死正在运行的命令。",
-    "relationText": "输入 → ① 双层循环调度；②③ 组装会话与系统提示词；⑪ 检查点注入新指令进入下一轮",
+    "title": "第 1 站：双层循环",
+    "story": "runAgentLoop 初始化本次输入，再进入 runLoop：请求模型 → 执行工具 → 回填结果。工具调用或 Steering 驱动内层继续，Follow-up 与显式继续决定由外层接手。",
+    "pain": "图中是实际控制分支，不要求每轮都调用工具；prepareNextTurn、prepareRequest、finishTurn 均为可选钩子。",
     "moduleTag": "核心机制 · Agent 双层循环",
-    "dataBefore": "// 1. 初始任务进入循环\npendingMessages = [\n  { role: \"user\", content: \"查 Issue、修 login.ts、删日志\" }\n]\n// 2. 运行中途你又敲入两句话：\nsteeringQueue: [\"先别删 /tmp/logs\"]\nfollowUpQueue: [\"修好后补一份排查说明\"]",
-    "dataAfter": "// 内层 while (hasMoreToolCalls || pendingMessages.length > 0)\nTurn 1: 调工具查 Issue -> 修 login.ts\n  ↳ 检查点 getSteeringMessages() 取出 [\"先别删 /tmp/logs\"]\nTurn 2: 带着新指令继续当前任务（跳过删日志）\n\n// 外层 while (true) 等内层结束后：\ngetFollowUpMessages() 取出 [\"修好后补一份排查说明\"] 开启下一段",
+    "dataBefore": "prompts = [user: \"查 Issue、修 login.ts、删日志\"]\ncontext.messages = 历史消息\ngetSteeringMessages() = []（示例）",
+    "dataAfter": "currentContext.messages = 历史 + 本次输入与回复\nnewMessages = 本次新增消息（含工具结果）\n最终发出 agent_end",
     "file": "packages/agent/src/agent-loop.ts",
-    "lineRange": "本地源码原文 · L187–L226",
-    "startLine": 187,
+    "startLine": 172,
     "hlLines": [
       188,
       192,
       195,
-      214,
       220,
-      223
+      251,
+      268,
+      277,
+      279,
+      284,
+      295,
+      304,
+      311,
+      320,
+      326,
+      329
     ],
-    "takeaway": "阅读重点：先看两处 while——外层管理“当前任务做完后还有什么追问（Follow-up）”，内层管理“当前任务如何一轮轮调工具与接收中途补充指令（Steering）”。",
     "code": [
+      "async function runLoop(",
+      "  initialContext: AgentContext,",
+      "  newMessages: AgentMessage[],",
+      "  initialConfig: AgentLoopConfig,",
+      "  signal: AbortSignal | undefined,",
+      "  emit: AgentEventSink,",
+      "  streamFunction: StreamFn,",
+      "): Promise<void> {",
+      "  let currentContext = initialContext;",
+      "  let config = initialConfig;",
+      "  let lastCompletedTurn: PrepareNextTurnContext | undefined;",
+      "  let explicitContinuation = false;",
+      "  // Check for steering messages at start (user may have typed while waiting)",
+      "  let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];",
+      "",
       "  // Outer loop: continues when queued follow-up messages arrive after agent would stop",
       "  while (true) {",
       "    let hasMoreToolCalls = true;",
@@ -611,27 +852,130 @@
       "        currentContext.messages.push(message);",
       "        newMessages.push(message);",
       "      }",
-      "      pendingMessages = [];"
+      "      pendingMessages = [];",
+      "",
+      "      const requestUpdate = await config.prepareRequest?.(",
+      "        {",
+      "          context: currentContext,",
+      "          model: config.model,",
+      "          thinkingLevel: config.reasoning ?? \"off\",",
+      "        },",
+      "        signal,",
+      "      );",
+      "      if (requestUpdate) {",
+      "        currentContext = requestUpdate.context ?? currentContext;",
+      "        config = {",
+      "          ...config,",
+      "          model: requestUpdate.model ?? config.model,",
+      "          reasoning:",
+      "            requestUpdate.thinkingLevel === undefined",
+      "              ? config.reasoning",
+      "              : requestUpdate.thinkingLevel === \"off\"",
+      "                ? undefined",
+      "                : requestUpdate.thinkingLevel,",
+      "        };",
+      "      }",
+      "",
+      "      // Stream assistant response",
+      "      const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFunction);",
+      "      newMessages.push(message);",
+      "",
+      "      if (message.stopReason === \"error\" || message.stopReason === \"aborted\") {",
+      "        lastCompletedTurn = {",
+      "          message,",
+      "          toolResults: [],",
+      "          context: currentContext,",
+      "          newMessages,",
+      "        };",
+      "        await config.finishTurn?.(lastCompletedTurn, signal);",
+      "        await emit({ type: \"turn_end\", message, toolResults: [] });",
+      "        await emit({ type: \"agent_end\", messages: newMessages });",
+      "        return;",
+      "      }",
+      "",
+      "      // Check for tool calls",
+      "      const toolCalls = message.content.filter((c) => c.type === \"toolCall\");",
+      "",
+      "      const toolResults: ToolResultMessage[] = [];",
+      "      hasMoreToolCalls = false;",
+      "      if (toolCalls.length > 0) {",
+      "        // A \"length\" stop means the output was cut off by the token limit, so",
+      "        // every tool call in the message may carry truncated arguments. Fail",
+      "        // them all instead of executing potentially borked calls.",
+      "        const executedToolBatch =",
+      "          message.stopReason === \"length\"",
+      "            ? await failToolCallsFromTruncatedMessage(toolCalls, emit)",
+      "            : await executeToolCalls(currentContext, message, config, signal, emit);",
+      "        toolResults.push(...executedToolBatch.messages);",
+      "        hasMoreToolCalls = !executedToolBatch.terminate;",
+      "",
+      "        for (const result of toolResults) {",
+      "          currentContext.messages.push(result);",
+      "          newMessages.push(result);",
+      "        }",
+      "      }",
+      "",
+      "      lastCompletedTurn = {",
+      "        message,",
+      "        toolResults,",
+      "        context: currentContext,",
+      "        newMessages,",
+      "      };",
+      "      const decision = await config.finishTurn?.(lastCompletedTurn, signal);",
+      "      await emit({ type: \"turn_end\", message, toolResults });",
+      "",
+      "      if (decision?.action === \"end\") {",
+      "        await emit({ type: \"agent_end\", messages: newMessages });",
+      "        return;",
+      "      }",
+      "",
+      "      explicitContinuation = decision?.action === \"continue\";",
+      "      pendingMessages = (await config.getSteeringMessages?.()) || [];",
+      "      if (hasMoreToolCalls || pendingMessages.length > 0) {",
+      "        explicitContinuation = false;",
+      "      }",
+      "    }",
+      "",
+      "    // Agent would stop here. Check for follow-up messages.",
+      "    const followUpMessages = (await config.getFollowUpMessages?.()) || [];",
+      "    if (followUpMessages.length > 0) {",
+      "      // Set as pending so inner loop processes them",
+      "      explicitContinuation = false;",
+      "      pendingMessages = followUpMessages;",
+      "      continue;",
+      "    }",
+      "",
+      "    // No natural request was selected, so fulfill the continuation decision with one context-only turn.",
+      "    if (explicitContinuation) {",
+      "      explicitContinuation = false;",
+      "      continue;",
+      "    }",
+      "",
+      "    // No more messages, exit",
+      "    break;",
+      "  }",
+      "",
+      "  await emit({ type: \"agent_end\", messages: newMessages });",
+      "}"
     ],
     "scope": "核心机制",
     "focusNotes": [
-      "L188、192：外层管做完后排队的追问，内层管当前任务的继续执行。",
-      "L195、214：准备下一轮时，再检查是否收到运行中追加的指令。",
-      "L220、223：把工具变化和新收到的指令放入本轮上下文。"
-    ]
+      "L188、L192：外层 / 内层循环。",
+      "L251、L279、L284：模型 → 工具 → 结果回填。",
+      "L304、L311、L320–329：继续或结束。"
+    ],
+    "engineeringProblem": "解决多轮模型与工具协作的调度问题，明确任务何时继续、续接或结束。"
   },
   {
     "phaseId": "P1",
     "roleType": "core",
-    "title": "第 2 站：修 Bug 走弯路了，为什么聊天记录要用 JSONL 存成树？",
-    "story": "假设修 login.ts 时第一次改错了方向，你想退回“刚查完 Issue”那一步换种改法。SessionManager 把每条消息按行追加到 session.jsonl，每条都带有 id 和 parentId。只要选定当前叶子节点（leafId）往上回溯 parentId，就能还原出当前分支的完整对话。",
-    "pain": "如果只存一条扁平数组，回退就得删掉旧记录；存成 parentId 树后，旧的尝试分支原封不动留在文件里，新思路直接从中间节点分叉追加。注意边界：切换会话分支只切换“聊天记忆”，之前已经写到磁盘的代码改动不会自动 git revert。",
-    "relationText": "② 沿 leafId 回溯出当前分支消息数组 → 请求上下文；⑫ 压缩摘要也作为节点写回会话树",
+    "title": "第 2 站：会话树与当前分支",
+    "story": "修 login.ts 走错方向时，可以从旧节点分叉。session.jsonl 用 id / parentId 保存树；沿当前叶子回溯，再 reverse()，得到当前分支的消息序列。",
+    "pain": "切换分支只改变会话上下文，不会撤销已写入磁盘的代码。",
     "moduleTag": "核心机制 · 会话持久化与分支树",
-    "dataBefore": "// session.jsonl 磁盘追加记录（含两次不同尝试）\n{\"id\":\"e1\", \"parentId\":null, \"text\":\"查登录 Issue\"}\n{\"id\":\"e2\", \"parentId\":\"e1\", \"text\":\"定位到 token 过期\"}\n{\"id\":\"e3\", \"parentId\":\"e2\", \"text\":\"方案A：改中间件(失败)\"}\n{\"id\":\"e4\", \"parentId\":\"e2\", \"text\":\"方案B：直接修 login.ts\"}",
-    "dataAfter": "// 调用 buildSessionPath(entries, leafId = \"e4\")\n// 沿 e4 -> e2 -> e1 回溯并 reverse()：\n[\n  { id: \"e1\", text: \"查登录 Issue\" },\n  { id: \"e2\", text: \"定位到 token 过期\" },\n  { id: \"e4\", text: \"方案B：直接修 login.ts\" }\n] // e3 留在磁盘备查，但不进入当前分支上下文",
+    "dataBefore": "e1 ← e2 ← e3（失败尝试）\n      └─ e4（当前叶子）\nleafId = \"e4\"",
+    "dataAfter": "回溯：[e4, e2, e1]\n反转：[e1, e2, e4]\ne3 仍在磁盘，不进入当前上下文",
     "file": "packages/coding-agent/src/core/session-manager.ts",
-    "lineRange": "本地源码原文 · L390–L417",
     "startLine": 390,
     "hlLines": [
       403,
@@ -640,7 +984,6 @@
       412,
       414
     ],
-    "takeaway": "阅读重点：磁盘上用 parentId 记录分叉树，运行时通过 buildSessionPath 沿当前叶子回溯并反转（reverse），变成发给模型的线性消息数组。",
     "code": [
       "function buildSessionPath(",
       "  entries: SessionEntry[],",
@@ -668,28 +1011,26 @@
       "  }",
       "  path.reverse();",
       "  return path;",
-      "}",
-      ""
+      "}"
     ],
     "scope": "核心机制",
     "focusNotes": [
-      "L403：未指定叶子时，选择最后一条会话条目。",
-      "L410–412：沿 parentId 逐级回溯，构造当前分支。",
-      "L414：反转为从早到晚的消息顺序。"
-    ]
+      "L403：未指定叶子时取最后一条。",
+      "L410–412：沿 parentId 回溯。",
+      "L414：反转为从早到晚的顺序。"
+    ],
+    "engineeringProblem": "解决会话分支与历史恢复问题，把磁盘完整记录与当前模型上下文分开。"
   },
   {
     "phaseId": "P1",
     "roleType": "core",
-    "title": "第 3 站：项目规范 AGENTS.md 与技能包，怎样装进系统提示词？",
-    "story": "为了让 Agent 遵守本仓库规矩（比如“禁止用 any”“测试怎么跑”），构建系统提示词时会把项目指令文件（AGENTS.md）装进去。而面对几十个专用技能（Skills），Pi 不会把所有技能的长篇说明书一股脑塞进提示词，而是先生成一份包含名称、简介和文件路径的 `<skills>` 目录。",
-    "pain": "如果把 20 个技能的正文全塞进 System Prompt，每次发请求都要白白携带大段无关说明。改成“目录索引 + 需要时再用读取工具看正文”，既让模型知道有哪些锦囊可用，又省下了宝贵的上下文空间。注意：AGENTS.md 是人工维护的项目规则，不是模型会自动改写的记忆库。",
-    "relationText": "② 当前分支历史 + ③ 分章节组装的 SystemPromptSections → 汇入模型请求",
+    "title": "第 3 站：项目指令与技能目录",
+    "story": "AGENTS.md 提供项目规则；Skills 先以名称、简介和路径组成目录，需要时再读取正文，避免每次请求携带全部技能内容。",
+    "pain": "仅在有技能和可用读取工具时生成目录；项目规则需要人工维护。",
     "moduleTag": "核心机制 · 项目上下文与技能目录",
-    "dataBefore": "// 本地资源状态：\n1. 项目规则：/repo/AGENTS.md (编码与测试规范)\n2. 技能文件夹：20 个 SKILL.md（每个数千字正文）\n3. 可用读取工具：skillFileReadTool = \"read\"",
-    "dataAfter": "// buildSystemPromptSections() 组装出的章节结构：\nsections = {\n  preamble: \"You are a coding agent...\",\n  context: \"<context>\\n[AGENTS.md 内容]\\n</context>\",\n  cwd: \"<cwd>\\n/Users/dev/project\\n</cwd>\",\n  skills: \"<skills>\\n- auth-debug: 登录鉴权排查 (/path/SKILL.md)\\n  (需要时调用 read 读取对应路径)\\n</skills>\"\n}",
+    "dataBefore": "项目规则：/repo/AGENTS.md\n技能：20 个 SKILL.md（示例）\nskillFileReadTool = \"read\"",
+    "dataAfter": "context: AGENTS.md 内容\nskills: 名称、简介、文件路径\n正文需要时再用 read 读取",
     "file": "packages/coding-agent/src/core/system-prompt.ts",
-    "lineRange": "本地源码原文 · L178–L190",
     "startLine": 178,
     "hlLines": [
       178,
@@ -698,7 +1039,6 @@
       188,
       189
     ],
-    "takeaway": "阅读重点：当存在可用读取工具且配置了技能时，formatSkillsForPrompt 只把技能格式化为目录装入 <skills> 标签，各章节按名称独立封装。",
     "code": [
       "  if (skillFileReadTool && skills.length > 0) {",
       "    const skillsPrompt = formatSkillsForPrompt(skills, skillFileReadTool).trim();",
@@ -716,23 +1056,22 @@
     ],
     "scope": "核心机制",
     "focusNotes": [
-      "L178：存在可用读取工具和技能时，才生成技能目录。",
-      "L179–180：格式化技能提示，并写入 skills 章节。",
-      "L188–189：各章节按名称封装；项目上下文的构建在本文件前段。"
-    ]
+      "L178：检查技能与读取工具。",
+      "L179–180：生成技能目录。",
+      "L188–189：按标签封装提示词章节。"
+    ],
+    "engineeringProblem": "解决项目规则缺失和技能资料过载问题，兼顾必要约束与按需加载。"
   },
   {
     "phaseId": "P2",
     "roleType": "config",
-    "title": "第 4 站：挂上 GitHub MCP 查 Issue，怎样避免一次塞入几十个工具定义？",
-    "story": "为了查登录报错的 GitHub Issue，我们接入了 GitHub MCP 服务。一个外部 MCP 往往自带几十个工具（建仓库、发 PR、管评论……）。getMcpToolExposure 支持为工具指定 direct、deferred、codemode、hidden 四种暴露模式，未单独配置时默认走 codemode。",
-    "pain": "如果把几十个 MCP 工具的完整 JSON Schema 全作为顶层工具声明给模型，请求头会非常臃肿。设为 codemode 后，这些工具不直接塞进主模型的顶层 tools 列表，而是让模型写脚本在沙箱内按需查找和调用。注意：按需暴露仍占少量命名空间提示与脚本调用开销，并非绝对“零成本”。",
-    "relationText": "③ 系统提示准备 → ④ 按优先级计算每个 MCP 工具的暴露方式 → ⑤ 工具变更声明",
+    "title": "第 4 站：MCP 工具按需暴露",
+    "story": "查 GitHub Issue 时，MCP 工具可按 direct、deferred、codemode、hidden 暴露。配置优先级：单工具精确覆盖 → 通配规则 → 服务器默认值。",
+    "pain": "未指定时默认 codemode；按需暴露仍有命名空间与脚本调用开销。",
     "moduleTag": "按配置生效 · MCP 暴露分级",
-    "dataBefore": "// McpServerConfig 配置示例（GitHub MCP 含多个工具）：\n{\n  exposure: undefined, // 未设服务器级默认值\n  toolExposure: {\n    \"create_issue\": \"direct\",\n    \"admin_*\": \"hidden\"\n  }\n}",
-    "dataAfter": "// getMcpToolExposure(config, toolName) 匹配结果：\n\"create_issue\" -> \"direct\"   // 命中精确配置：直接声明 Schema\n\"admin_delete\" -> \"hidden\"   // 命中通配符：对模型隐藏\n\"list_issues\"  -> \"codemode\" // 回退默认值：由沙箱脚本按需调用",
+    "dataBefore": "toolName = \"list_issues\"\nconfig = { exposure: \"codemode\" }\ntoolExposure = {}",
+    "dataAfter": "exposure = \"codemode\"\n通过脚本查找、调用该 MCP 工具\n不作为顶层 direct 工具暴露",
     "file": "packages/coding-agent/src/core/mcp-servers.ts",
-    "lineRange": "本地源码原文 · L246–L256",
     "startLine": 246,
     "hlLines": [
       247,
@@ -741,7 +1080,6 @@
       251,
       253
     ],
-    "takeaway": "阅读重点：看三层匹配优先级——先查单工具精确覆盖（exact），再查通配符规则（pattern），最后看服务器级 exposure，都没配时默认返回 \"codemode\"。",
     "code": [
       "export function getMcpToolExposure(config: McpServerConfig, toolName: string): McpExposure {",
       "  const overrides = config.toolExposure ?? {};",
@@ -751,29 +1089,26 @@
       "    if (pattern.includes(\"*\") && toolPatternRegExp(pattern).test(toolName)) return exposure;",
       "  }",
       "  return config.exposure ?? \"codemode\";",
-      "}",
-      "",
-      "/**"
+      "}"
     ],
     "scope": "按配置生效",
     "focusNotes": [
-      "L247–249：优先采用单个工具的精确覆盖配置。",
-      "L251：其次匹配通配规则。",
-      "L253：最后使用服务器配置；未配置时才回退到 codemode。"
-    ]
+      "L247–249：精确覆盖。",
+      "L251：通配规则。",
+      "L253：服务器配置，缺省 codemode。"
+    ],
+    "engineeringProblem": "解决 MCP 工具定义膨胀的问题，按配置控制模型实际看到的接口。"
   },
   {
     "phaseId": "P2",
     "roleType": "core",
-    "title": "第 5 站：对话中途新开了工具，为什么不直接回头改写历史开头？",
-    "story": "假设聊到第 3 轮，你刚启用了一个新工具（或者卸载了旧工具）。declareToolChanges 不会回头去篡改第 1 轮的历史消息，而是对比“历史已声明工具”与“当前最新工具集”，算出新增（toolsAdded）和移除（toolsRemoved），作为一条贴在队尾的 system 消息发给当前回合。",
-    "pain": "大模型推理服务的前缀缓存（Prompt Cache）非常怕改动历史前缀：一旦改写开头的工具定义，整段历史缓存就可能失效重算。把工具变化做成队尾增量消息，能尽量保持历史前缀稳定（实际是否命中缓存还取决于供应商协议与是否切换模型）。",
-    "relationText": "④ 工具集发生增减 → ⑤ declareToolChanges 生成队尾增量声明 → ⑥ 发送模型请求",
+    "title": "第 5 站：工具变化增量声明",
+    "story": "中途启用或移除工具时，比较历史声明与当前工具集，把 toolsAdded / toolsRemoved 写入本轮 system 消息，保持已有历史前缀稳定。",
+    "pain": "缓存是否命中仍取决于供应商协议、模型及请求条件。",
     "moduleTag": "核心机制 · 队尾增量工具声明",
-    "dataBefore": "// 历史已声明工具：[\"read\", \"edit\", \"bash\"]\n// 本轮最新工具集：[\"read\", \"edit\", \"bash\", \"github_issue\"]\n// 待发消息队列：\npendingMessages = [\n  { role: \"user\", content: \"顺便查下 #42 号 Issue\" }\n]",
-    "dataAfter": "// declareToolChanges() 算出差异并插入 system 消息：\n[\n  {\n    role: \"system\",\n    content: \"\",\n    toolsAdded: [{ name: \"github_issue\", ... }],\n    toolsRemoved: []\n  },\n  { role: \"user\", content: \"顺便查下 #42 号 Issue\" }\n] // 历史消息列表前缀一字未改",
+    "dataBefore": "历史工具：[read, edit, bash]\n本轮工具：[read, edit, bash, github_issue]",
+    "dataAfter": "system 消息：\n  toolsAdded: [github_issue]\n  toolsRemoved: []\n历史消息前缀保持不变",
     "file": "packages/agent/src/agent-loop.ts",
-    "lineRange": "本地源码原文 · L342–L375",
     "startLine": 342,
     "hlLines": [
       356,
@@ -785,7 +1120,6 @@
       368,
       371
     ],
-    "takeaway": "阅读重点：getToolStateChanges 对比出 toolsAdded / toolsRemoved 后，若待发队列里已有 system 消息则原地合并，否则新建一条带工具差异的 system 消息插到本轮队列中。",
     "code": [
       "function declareToolChanges(context: AgentContext, pendingMessages: AgentMessage[]): AgentMessage[] {",
       "  let systemIndex = -1;",
@@ -819,28 +1153,26 @@
       "  return [...pendingMessages.slice(0, index), update, ...pendingMessages.slice(index)];",
       "}",
       "",
-      "const NO_CHANGES: ToolStateChanges = { toolsAdded: [], toolsRemoved: [] };",
-      ""
+      "const NO_CHANGES: ToolStateChanges = { toolsAdded: [], toolsRemoved: [] };"
     ],
     "scope": "核心机制",
     "focusNotes": [
-      "L356–360：比较已有声明与当前工具列表，判断是否发生变化。",
-      "L365：已有待发 system 消息时，将变化合入它。",
-      "L367–371：无变化则跳过；否则构造更新消息并插入待发列表。"
-    ]
+      "L356–360：计算工具差异。",
+      "L365：合入已有 system 消息。",
+      "L367–371：创建并插入声明消息。"
+    ],
+    "engineeringProblem": "解决动态工具变更破坏稳定请求前缀的问题，为前缀缓存复用保留条件。"
   },
   {
     "phaseId": "P3",
     "roleType": "ext",
-    "title": "第 6 站：发请求给模型时，怎样挂载自定义路由扩展与缓存保活？",
-    "story": "上下文准备好了，默认直接发给你选定的模型。如果你显式加载了 jev-router 示例扩展并选中虚拟模型 jev/auto，它会先用轻量分类器给任务打分：复杂设计派给大模型（Sol），普通问题派给标准模型（Terra），首次成功改完代码后再切到快模型（Luna）。另一套独立机制 CacheWarmer 则在后台按条件评估是否发保活请求。",
-    "pain": "这一站展示了 Pi 的扩展能力边界：模型路由并不是写死在内核里的黑盒，而是通过 registerVirtualModel 挂载的插件示例；同样，CacheWarmer 也不是每次请求同步必跑，只有模型支持缓存 TTL、开启配置且预期省下的钱超过门槛（$0.05）时才触发。",
-    "relationText": "上下文 → 默认模型或 registerVirtualModel 路由扩展 → ⑦ 响应截断检查（CacheWarmer 独立后台定时运行）",
+    "title": "第 6 站：可选模型路由扩展",
+    "story": "加载 jev-router 并选择 jev/auto 后，分类器决定规划模型。Sol / Terra / Luna 是该示例配置的模型标识，不是内核角色。",
+    "pain": "路由需显式启用；CacheWarmer 是独立后台机制，受配置、缓存 TTL 和预期收益约束。",
     "moduleTag": "可选扩展示例 + 条件保活",
-    "dataBefore": "// 场景：显式启用 jev-router 扩展，选择模型 \"jev/auto\"\nrequest.messages = [\"查 GitHub 登录报错，修好 login.ts...\"]\n// 分类器 jev-latest 对 prompt 复杂度打分：\nanswers.complexity = {\n  type: \"choice\",\n  probabilities: { standard: 0.18, complex: 0.82 }\n}",
-    "dataAfter": "// 1. 规划阶段路由判定：\nprobabilities.complex (0.82) >= 0.5  ==> 选定 \"Sol\" 模型\n\n// 2. 当本轮首次成功执行 edit / write 工具后：\nstate.phase 切换为执行阶段 ==> 下一轮请求切至 \"Luna\"\n\n// 3. CacheWarmer（独立后台）：期望节省 >= $0.05 才发保活",
+    "dataBefore": "已加载 jev-router，选择 jev/auto\ncomplex = 0.82（教学假设）",
+    "dataAfter": "规划：complex ≥ 0.5 → Sol\n首次成功 edit / write 后 → Luna\n分类器缺失 → Terra",
     "file": "packages/coding-agent/examples/extensions/jev-router.ts",
-    "lineRange": "本地源码原文 · L62–L96",
     "startLine": 62,
     "hlLines": [
       67,
@@ -850,7 +1182,6 @@
       87,
       91
     ],
-    "takeaway": "阅读重点：通过 pi.registerVirtualModel 可以把自己的路由策略注册成虚拟模型（如 jev/auto）。CacheWarmer 实现另见 core/cache-warmer.ts。",
     "code": [
       "async function choosePlanningModel(request: JevRequest, ctx: ExtensionContext): Promise<string> {",
       "  // Keep a planning model the session already uses, so switching to jev/auto costs no cache miss.",
@@ -885,28 +1216,26 @@
       "    provider: \"jev\",",
       "    id: \"auto\",",
       "    name: \"Auto (Jev)\",",
-      "    thinkingLevels: [\"low\", \"medium\", \"high\", \"xhigh\"],",
-      "    // Shared by all three models; shown before the first response."
+      "    thinkingLevels: [\"low\", \"medium\", \"high\", \"xhigh\"],"
     ],
     "scope": "可选扩展示例 / 条件机制",
     "focusNotes": [
-      "L67–69：寻找分类器；不存在时回退 Terra，否则发起分类。",
-      "L86–87：检查分类结果；complex 概率 ≥ 0.5 时选 Sol。",
-      "L91：这属于注册虚拟模型的示例扩展，不是 Pi 默认路由。"
-    ]
+      "L67–69：查分类器，无则回退 Terra。",
+      "L86–87：complex 概率 ≥ 0.5 时选 Sol。",
+      "L91：注册虚拟模型扩展。"
+    ],
+    "engineeringProblem": "探索模型选择与缓存成本优化的扩展方式，实际收益取决于配置和供应商。"
   },
   {
     "phaseId": "P3",
     "roleType": "core",
-    "title": "第 7 站：模型写 login.ts 半路被截断，为什么必须整批拒单？",
-    "story": "模型开始输出工具调用，准备修改 login.ts。但如果改动很大，模型撞上了最大输出 Token 上限（stopReason === \"length\"），流式 JSON 解析器可能会勉强闭合出一个“语法合法、但代码只写了一半”的残缺参数。Pi 发现 stopReason 是 length 时，会直接拦截整批工具调用。",
-    "pain": "如果不拦这一道，残缺的 write/edit 参数一旦落盘，login.ts 就会被腰斩成语法错误文件。failToolCallsFromTruncatedMessage 根本不调工具，而是直接构造 isError: true 的工具报错塞回给模型：“你的输出触及上限可能被截断，请重新发送完整参数”。",
-    "relationText": "⑥ 模型返回 AssistantMessage → ⑦ 检查 stopReason === \"length\" → 未截断才进入 ⑧ 参数校验",
+    "title": "第 7 站：拒绝截断的工具调用",
+    "story": "修改 login.ts 的响应若因输出上限结束（stopReason=\"length\"），附带的工具参数可能不完整。Pi 为整批工具调用返回错误结果，让模型重新发出完整调用。",
+    "pain": "这些调用不会执行，即使残缺参数仍能解析成合法 JSON。",
     "moduleTag": "核心机制 · 截断响应拦截防线",
-    "dataBefore": "// 模型触及输出上限，流式解析留下的半截调用：\nassistantMessage = {\n  stopReason: \"length\",\n  toolCalls: [{\n    id: \"call_1\",\n    name: \"write\",\n    arguments: {\n      path: \"src/login.ts\",\n      content: \"export async function login(u) {\\n  const tok =\" // 截断!\n    }\n  }]\n}",
-    "dataAfter": "// failToolCallsFromTruncatedMessage() 拒绝执行并返回：\n{\n  role: \"toolResult\",\n  toolCallId: \"call_1\",\n  toolName: \"write\",\n  isError: true,\n  content: [{\n    type: \"text\",\n    text: \"Tool call \\\"write\\\" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.\"\n  }]\n}",
+    "dataBefore": "stopReason = \"length\"\ntoolCall = write(\"src/login.ts\", 半截内容)",
+    "dataAfter": "工具不执行\nisError = true\n返回错误，让模型重发完整参数",
     "file": "packages/agent/src/agent-loop.ts",
-    "lineRange": "本地源码原文 · L488–L517",
     "startLine": 488,
     "hlLines": [
       493,
@@ -918,7 +1247,6 @@
       510,
       512
     ],
-    "takeaway": "阅读重点：只要响应因 length 结束，所有附带的 toolCalls 一律不进执行器，直接包装成 isError: true 的 ToolResultMessage 退回模型。",
     "code": [
       "async function failToolCallsFromTruncatedMessage(",
       "  toolCalls: AgentToolCall[],",
@@ -945,31 +1273,26 @@
       "    messages.push(toolResultMessage);",
       "  }",
       "  return { messages, terminate: false };",
-      "}",
-      "",
-      "/**",
-      " * Execute tool calls from an assistant message.",
-      " */"
+      "}"
     ],
     "scope": "核心机制",
     "focusNotes": [
-      "L493、502–505：对截断响应中的每个工具调用，构造错误结果。",
-      "L508–510：将错误作为工具结果发出并收集，而不是调用工具执行。",
-      "L512：返回这一批错误结果，供上层继续处理。"
-    ]
+      "L493、L502–505：逐个构造错误结果。",
+      "L508–510：发出并收集工具错误。",
+      "L512：返回本批结果。"
+    ],
+    "engineeringProblem": "解决截断响应被误当作完整动作执行的问题，避免残缺参数产生副作用。"
   },
   {
     "phaseId": "P3",
     "roleType": "ext",
-    "title": "第 8 站：到了删日志 rm -rf /tmp/logs，参数校验与审批钩子怎么配合？",
-    "story": "响应没截断，接下来轮到 prepareToolCall 把关。核心层先做两件事：寻找工具、并用 Schema 校验参数类型（validateToolArguments）。随后检查是否配置了 beforeToolCall 钩子——如果挂载了 permission-gate 等审批扩展，就会在这里弹窗询问你是否允许执行 rm -rf。",
-    "pain": "这里特意拆开了“内核机制”与“策略插件”：参数 Schema 校验和 beforeToolCall 钩子槽位是核心必经的；而具体拦哪些命令、弹什么确认框，则由你加载的扩展决定（例如 permission-gate 示例用正则匹配 rm -rf，你点拒绝就返回 { block: true } 拦下命令）。",
-    "relationText": "⑦ 未截断调用 → ⑧ 核心 Schema 校验 + 可选 beforeToolCall 钩子 → 通过后才分发给 ⑨/⑩ 执行",
+    "title": "第 8 站：参数校验与可选审批",
+    "story": "执行删日志等命令前，先查找工具并校验参数，再调用已配置的 beforeToolCall 钩子。钩子返回 block: true 即阻止执行。",
+    "pain": "参数校验属于内核；危险命令识别、审批弹窗及拒绝规则由所加载的扩展决定。",
     "moduleTag": "核心校验 + 可选审批钩子",
-    "dataBefore": "// 待准备的工具调用：\ntoolCall = {\n  name: \"bash\",\n  arguments: { command: \"rm -rf /tmp/logs\" }\n}\n// 1. validateToolArguments(tool, toolCall) -> 校验通过\n// 2. 触发 config.beforeToolCall() -> 用户在弹窗点击「拒绝」",
-    "dataAfter": "// beforeToolCall 钩子返回：\nbeforeResult = { block: true, reason: \"Blocked by user\" }\n\n// prepareToolCall 立即短路返回 ImmediateToolCallOutcome：\n{\n  kind: \"immediate\",\n  isError: true,\n  result: createErrorToolResult(\"Blocked by user\")\n} // bash 工具的 execute() 根本不会被调用",
+    "dataBefore": "tool = \"bash\"\nargs = { command: \"rm -rf /tmp/logs\" }\nbeforeToolCall = 已配置审批扩展",
+    "dataAfter": "参数校验通过 → 等待钩子\n允许：返回 prepared\n拒绝：block: true → 错误结果",
     "file": "packages/agent/src/agent-loop.ts",
-    "lineRange": "本地源码原文 · L718–L782",
     "startLine": 718,
     "hlLines": [
       736,
@@ -984,7 +1307,6 @@
       774,
       775
     ],
-    "takeaway": "阅读重点：L736–737 是内核自带的参数准备与 Schema 校验；L738 的 if (config.beforeToolCall) 把拦截权交给外部扩展，返回 block: true 即可阻止执行。",
     "code": [
       "async function prepareToolCall(",
       "  currentContext: AgentContext,",
@@ -1047,30 +1369,26 @@
       "      toolCall,",
       "      tool,",
       "      args: validatedArgs,",
-      "    };",
-      "  } catch (error) {",
-      "    return {",
-      "      kind: \"immediate\","
+      "    };"
     ],
     "scope": "核心校验 + 可选审批钩子",
     "focusNotes": [
-      "L736–737：先准备参数，再进行 Schema 校验。",
-      "L738–739：只有配置了 beforeToolCall 才调用该钩子。",
-      "L755–763：钩子阻止时立即返回错误；L774–775 为准备通过的分支。"
-    ]
+      "L736–737：参数准备与校验。",
+      "L738–739：调用已配置的钩子。",
+      "L755–763：阻止分支；L774–775：通过分支。"
+    ],
+    "engineeringProblem": "解决参数合法与操作获准混为一谈的问题，把结构校验与执行策略分开。"
   },
   {
     "phaseId": "P4",
     "roleType": "config",
-    "title": "第 9 站：codemode 沙箱怎样跑脚本筛 Issue，又怎样回调宿主工具？",
-    "story": "前面第 4 站提到，GitHub MCP 工具默认按 codemode 暴露。当模型写了一段 JS 脚本去拉取并过滤登录报错 Issue 时，startVm 会启动一个 QuickJS（WebAssembly）虚拟机来跑这段脚本。脚本本身在 Wasm 内存里运行，遇到工具调用时通过受控桥接发消息给宿主，宿主跑完再调用 settle 把结果回填进 VM。",
-    "pain": "这能带来两个好处：一是脚本可以在 VM 里先把几十条无关 Issue 过滤掉，只把跟 login.ts 相关的那 1 条返回给主模型，节省上下文；二是限制了脚本的栈深度与内存上限（memoryLimitBytes）。但要注意边界：一旦脚本通过桥接调用了具有读写或网络权限的宿主工具，该工具本身的操作依然会真实发生。",
-    "relationText": "⑧ 放行脚本调用 → ⑨ QuickJS Wasm VM 执行 → 桥接调用宿主工具（仍经第 8 站钩子检查） → 结果进入 ⑪",
+    "title": "第 9 站：codemode 沙箱与宿主桥接",
+    "story": "模型生成脚本，在 QuickJS VM 内筛选登录 Issue；脚本通过桥接调用宿主工具，结果经 settle 回填到 VM，再返回筛选后的数据。",
+    "pain": "VM 有内存、栈和中断限制；桥接调用的宿主工具仍可能真实读写文件或访问网络。",
     "moduleTag": "按配置生效 · QuickJS 沙箱与宿主桥接",
-    "dataBefore": "// 模型在 codemode 下生成的筛选脚本：\nconst list = await tools.github.list_issues({ state: \"open\" });\nreturn list\n  .filter(i => i.title.includes(\"login\") || i.body.includes(\"login.ts\"))\n  .map(i => ({ number: i.number, title: i.title }));",
-    "dataAfter": "// QuickJS VM 与宿主交互过程：\n1. QuickJS.create({ wasm, memoryLimit: data.memoryLimitBytes, maxStackSize })\n2. VM 发起桥接请求 -> 宿主执行 list_issues（返回 50 条原始数据）\n3. 宿主通过 apply() -> vm.callFunction(settle, ...) 回填进 VM\n4. 脚本在 VM 内 filter 后，仅向主模型上下文返回匹配的那 1 条 Issue",
+    "dataBefore": "脚本调用 tools.github.list_issues()\n筛选 title / body 中的 login.ts",
+    "dataAfter": "VM → 宿主工具 → settle → VM\n返回筛选后的 Issue 列表\n主模型无需接收全部原始结果",
     "file": "packages/codemode/src/runtime/vm.ts",
-    "lineRange": "本地源码原文 · L160–L194",
     "startLine": 160,
     "hlLines": [
       170,
@@ -1084,7 +1402,6 @@
       192,
       194
     ],
-    "takeaway": "阅读重点：QuickJS.create 用配置的 memoryLimitBytes 和 maxStackSize 约束脚本运行环境；宿主的异步工具结果通过 apply() 里的 settle 回调注入 VM。",
     "code": [
       "export async function startVm(options: StartVmOptions): Promise<VmSession> {",
       "  const { data, post } = options;",
@@ -1124,23 +1441,22 @@
     ],
     "scope": "按配置生效",
     "focusNotes": [
-      "L170–172：创建 QuickJS VM，并传入配置的 Wasm 与内存上限。",
-      "L175–177：传入栈限制、中断处理器及 WASI 配置。",
-      "L189–194：宿主收到结果后，向 VM 的 settle 回填；桥接发送逻辑在后续源码中。"
-    ]
+      "L170–172：创建 VM，设置内存上限。",
+      "L175–177：栈、中断与 WASI 配置。",
+      "L189–194：把宿主结果回填 VM。"
+    ],
+    "engineeringProblem": "解决脚本编排与宿主执行边界不清的问题，在 VM 中筛选数据、按接口调用工具。"
   },
   {
     "phaseId": "P4",
     "roleType": "core",
-    "title": "第 10 站：同时改 login.ts 会不会撞车？跑测试打出几万行日志怎么办？",
-    "story": "找到了 Issue 原因后，模型开始调用 edit 修改 login.ts 并用 bash 跑测试。如果同一轮里模型发起了两次对 login.ts 的修改，withFileMutationQueue 会按规范化后的文件绝对路径把它们排成 Promise 串行链，改完第一个再改第二个；而改不同文件（如 login.ts 和 login.test.ts）则互不阻塞。同时，bash 工具会对超长测试输出做尾部截断（默认保留末尾 2000 行 / 50KiB），并把完整日志路径告诉模型。",
-    "pain": "如果不按文件排队，两个并发 edit 同时读旧内容、各自替换再写回，后写回的就会覆盖先写回的改动。注意边界：fileMutationQueues 是当前 Node 进程内的内存 Map，只能防本进程内的并发工具冲突，挡不住你在外部 IDE 同时手动保存文件。",
-    "relationText": "⑧ 获准的工具调用 → ⑩ 同文件串行排队 / bash 输出限流 → 执行完毕进入 ⑪ 回合检查点",
+    "title": "第 10 站：文件修改队列与日志截断",
+    "story": "两次 edit(login.ts) 按规范化路径接成 Promise 链，前一次释放后才执行下一次；修改其他文件可并行。bash 长输出保留尾部，并返回完整日志路径。",
+    "pain": "队列仅协调本 Node 进程内的修改，不能阻止外部编辑器写入；bash 默认保留末尾 2000 行 / 50KiB，以先达到的上限为准。",
     "moduleTag": "核心机制 · 进程内文件队列与输出截断",
-    "dataBefore": "// 同一轮并发发起 3 个工具调用：\n1. edit(\"src/login.ts\", 修空指针)\n2. edit(\"src/login.ts\", 补日志输出)  // 同文件冲突！\n3. edit(\"test/login.test.ts\", 加单测) // 不同文件\n4. bash(\"npm test\") -> 产生 8000 行堆栈输出",
-    "dataAfter": "// fileMutationQueues Map 状态（按文件真实路径排队）：\n\"/repo/src/login.ts\":      edit#1 ──await──> edit#2 (严格串行)\n\"/repo/test/login.test.ts\": edit#3 (立即并行执行)\n\n// bash 输出分流结果：\n给模型上下文：末尾 2000 行 / 50KiB + \"[完整输出已存至 /tmp/pi-bash-xxx.log]\"",
+    "dataBefore": "edit#1 → src/login.ts\nedit#2 → src/login.ts\nedit#3 → test/login.test.ts\nbash → 8000 行测试输出（示例）",
+    "dataAfter": "login.ts：edit#1 → edit#2\nlogin.test.ts：edit#3 可并行\nbash：尾部输出 + 完整日志路径",
     "file": "packages/coding-agent/src/core/tools/file-mutation-queue.ts",
-    "lineRange": "本地源码原文 · L32–L63",
     "startLine": 32,
     "hlLines": [
       34,
@@ -1153,7 +1469,6 @@
       57,
       58
     ],
-    "takeaway": "阅读重点：fileMutationQueues 用文件路径 key 维护一条 Promise 链（currentQueue.then(() => nextQueue)），确保同文件操作先 await currentQueue，执行完再在 finally 里 releaseNext()。",
     "code": [
       "export async function withFileMutationQueue<T>(filePath: string, fn: () => Promise<T>): Promise<T> {",
       "  const registration = registrationQueue.then(async () => {",
@@ -1188,23 +1503,22 @@
     ],
     "scope": "核心机制",
     "focusNotes": [
-      "L34–35：根据文件路径找到当前进程中的修改队列。",
-      "L41–42：把本次修改接到队尾；L52 等待前一个操作完成。",
-      "L54、56–58：执行修改，随后释放队列并清理登记。"
-    ]
+      "L34–35：取得文件队列。",
+      "L41–42：接到队尾；L52：等待前驱。",
+      "L54、L56–58：执行、释放并清理。"
+    ],
+    "engineeringProblem": "解决并发写入相互覆盖和日志挤占上下文的问题，分别约束资源访问与输出规模。"
   },
   {
     "phaseId": "P4",
     "roleType": "core",
-    "title": "第 11 站：工具跑完的间隙，你补的那句“别删日志”怎样插队生效？",
-    "story": "当第 10 站的 edit 和 bash 跑完一轮后，内层循环到达回合末检查点（L304）。此时调用 getSteeringMessages()，把你刚才在工具运行期间敲入的“先别删 /tmp/logs”取出来放进 pendingMessages，让内层 while 循环继续下一轮，模型立刻看到你的新要求并放弃删日志。",
-    "pain": "很多初学者分不清 Steering（补充指令）、Follow-up（后续追问）和 Abort（强制中断）：Steering 是在回合检查点插队纠偏，等当前步骤收尾后生效；Follow-up 是在内层循环彻底退出后（L311）才接手的新任务；只有按快捷键触发 AbortSignal 才是立即向正在运行的工具发取消信号。",
-    "relationText": "⑨/⑩ 本轮工具执行完毕 → ⑪ 检查点先取 Steering（继续内层），没有且无工具调用时再取 Follow-up（继续外层） → ↺ 回到 ①",
+    "title": "第 11 站：补充指令与后续任务",
+    "story": "工具回合结束后，Steering「先别删日志」进入 pendingMessages，让内层循环继续。Follow-up 则在内层循环结束后，由外层循环接手。",
+    "pain": "Steering 在检查点纠偏；AbortSignal 才向运行中的工具发出取消信号，工具是否立即停止取决于其取消处理。",
     "moduleTag": "核心机制 · 回合检查点与指令分流",
-    "dataBefore": "// 本轮工具刚刚执行完毕（hasMoreToolCalls = false）\n// 情况 A：你在运行期间输入了 Steering（补充纠偏）\ngetSteeringMessages() -> [{ role: \"user\", content: \"先别删日志\" }]\n\n// 情况 B：无 Steering，但你排队了 Follow-up（后续任务）\ngetFollowUpMessages() -> [{ role: \"user\", content: \"再写份排查总结\" }]",
-    "dataAfter": "// 情况 A 走 L304（内层循环不退出）：\npendingMessages = [{ role: \"user\", content: \"先别删日志\" }]\n==> 直接进入下一轮内层 while，模型调整后续动作\n\n// 情况 B 走 L311（内层已退出，外层循环接手）：\npendingMessages = followUpMessages; continue;\n==> 开启全新一轮内层循环处理后续追问",
+    "dataBefore": "本轮工具已结束\nSteering：[\"先别删日志\"]\n或 Follow-up：[\"补一份排查总结\"]",
+    "dataAfter": "L304：Steering → pendingMessages\n      内层继续\nL311–316：Follow-up → 新一轮任务",
     "file": "packages/agent/src/agent-loop.ts",
-    "lineRange": "本地源码原文 · L304–L325",
     "startLine": 304,
     "hlLines": [
       304,
@@ -1216,7 +1530,6 @@
       320,
       322
     ],
-    "takeaway": "阅读重点：对比 L304（内层循环末尾取 Steering）与 L311（内层循环退出后取 Follow-up）的位置差异，就能一眼看懂为什么 Steering 能中途纠偏而 Follow-up 会等任务做完。",
     "code": [
       "      pendingMessages = (await config.getSteeringMessages?.()) || [];",
       "      if (hasMoreToolCalls || pendingMessages.length > 0) {",
@@ -1243,29 +1556,27 @@
     ],
     "scope": "核心机制",
     "focusNotes": [
-      "L304–305：读取运行中追加的指令，检查当前任务是否继续。",
-      "L311–316：当前任务准备结束后，再获取排队的后续追问。",
-      "L320–322：若有显式继续决定，则再执行下一轮。"
-    ]
+      "L304–305：读取 Steering，决定是否继续。",
+      "L311–316：读取并处理 Follow-up。",
+      "L320–322：处理显式继续决定。"
+    ],
+    "engineeringProblem": "解决运行中追加要求得不到处理的问题，在回合边界接收新输入并重新决定下一步。"
   },
   {
     "phaseId": "P4",
     "roleType": "core",
-    "title": "第 12 站：查完 Issue 改完代码上下文快满了，怎样按水位自动瘦身？",
-    "story": "经过多轮查 Issue、读代码、跑测试，会话累计的 Token 越来越接近模型的上下文窗口上限。shouldCompact 并不按“聊了多少轮”拍脑袋触发，而是精确比较：当 contextTokens > contextWindow - reserveTokens 时，才触发自动压缩——把早期对话总结成摘要并记录读改过的文件列表，同时保留最近一段原文（默认 keepRecentTokens = 20000）。",
-    "pain": "如果不留出 reserveTokens（预留给模型下一轮输出的空间），下一次请求就会直接因为超出窗口上限而报错崩溃。压缩生成的摘要条目会作为新节点写回第 2 站的 session.jsonl 树中。注意：摘要是归纳税减，虽然附带了修改文件清单与近期原文，但早期细节仍是有损的。",
-    "relationText": "容量检查越过水位线 → ⑫ 保留近期 Token + 摘要早期历史 → ↺ 作为 compaction 节点写回 ② 会话树",
+    "title": "第 12 站：Token 水位与自动压缩",
+    "story": "启用压缩且 contextTokens > contextWindow − reserveTokens 时，触发水位压缩：摘要早期历史、保留近期原文，并把压缩条目写回会话树。",
+    "pain": "摘要有损；keepRecentTokens 默认 20000。等于阈值不触发，未启用时也不触发。",
     "moduleTag": "核心机制 · Token 水位线自动压缩",
-    "dataBefore": "// 当前会话水位参数：\ncontextWindow  = 200_000 // 模型总窗口\nreserveTokens  =  16_384 // 预留输出安全垫\n触发阈值       = 183_616 (contextWindow - reserveTokens)\n\n// 本轮估算用量：\ncontextTokens  = 186_400 (> 183_616，越过水位线！)",
-    "dataAfter": "// shouldCompact() 返回 true，执行压缩并写回会话树：\n[\n  { type: \"compaction\", summary: \"已定位 #42 登录 Issue 并修复 src/login.ts...\", readFiles: [...], modifiedFiles: [\"src/login.ts\"] },\n  ...最近约 20,000 Tokens 的原始对话消息（保持近期上下文连贯）\n]",
+    "dataBefore": "contextWindow = 200_000\nreserveTokens = 16_384\ncontextTokens = 186_400",
+    "dataAfter": "阈值 = 183_616\n186_400 > 183_616 → true\n会话层执行摘要并保留近期原文",
     "file": "packages/coding-agent/src/core/compaction/compaction.ts",
-    "lineRange": "本地源码原文 · L267–L270",
     "startLine": 267,
     "hlLines": [
       268,
       269
     ],
-    "takeaway": "阅读重点：shouldCompact 的触发公式非常干净——启用压缩且 contextTokens > contextWindow - settings.reserveTokens。压缩后近期原文保留量由 keepRecentTokens（默认 20000）控制。",
     "code": [
       "export function shouldCompact(contextTokens: number, contextWindow: number, settings: CompactionSettings): boolean {",
       "  if (!settings.enabled) return false;",
@@ -1274,14 +1585,12 @@
     ],
     "scope": "核心机制",
     "focusNotes": [
-      "L268：没有启用自动压缩时，不触发。",
-      "L269：用量超过“模型窗口 − 预留额度”才触发，与固定轮数无关。"
-    ]
+      "L268：未启用则返回 false。",
+      "L269：严格超过阈值才返回 true。"
+    ],
+    "engineeringProblem": "解决长任务超出上下文预算的问题，为输出预留空间，并压缩早期历史。"
   }
 ];
-
-    let curStepIdx = 0;
-
     function highlightLine(raw) {
       const escape = (value) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const token = /(\/\/.*$|\/\*.*$|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\x60(?:\\.|[^\x60\\])*\x60|\b(?:export|async|function|const|let|var|if|else|for|of|while|return|await|try|catch|finally|new|true|false|undefined|null|switch|case|break|continue|default|interface|type|class|extends|private|readonly)\b)/g;
@@ -1296,237 +1605,464 @@
       }
       return html + escape(raw.slice(cursor));
     }
-
-    // Draw SVG directed edges between the 12 station nodes
-    function drawGraphEdges() {
-      const canvas = document.getElementById("graph-canvas");
-      const svg = document.getElementById("graph-svg");
-      if (!canvas || !svg) return;
-
-      const cRect = canvas.getBoundingClientRect();
-      svg.setAttribute("viewBox", `0 0 ${cRect.width} ${cRect.height}`);
-
-      // Helper to get relative bounding box of a station node
-      function getBox(idx) {
-        const el = document.getElementById(`st-node-${idx}`);
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return {
-          left: r.left - cRect.left,
-          right: r.right - cRect.left,
-          top: r.top - cRect.top,
-          bottom: r.bottom - cRect.top,
-          cx: r.left - cRect.left + r.width / 2,
-          cy: r.top - cRect.top + r.height / 2,
-          w: r.width,
-          h: r.height
-        };
-      }
-
-      let defs = `
-        <defs>
-          <marker id="arrow-muted" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-            <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#cbd5e1" />
-          </marker>
-          <marker id="arrow-active" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 1 L 9 5 L 0 9 z" fill="#f59e0b" />
-          </marker>
-        </defs>
-      `;
-
-      let pathsHtml = "";
-
-      graphEdges.forEach((edge) => {
-        const b1 = getBox(edge.from);
-        const b2 = getBox(edge.to);
-        if (!b1 || !b2) return;
-
-        // An edge is highlighted if it connects to/from the current active station
-        const isActive = edge.from === curStepIdx || edge.to === curStepIdx;
-        const strokeColor = isActive ? "#f59e0b" : "#cbd5e1";
-        const strokeWidth = isActive ? "2.2" : "1.4";
-        const marker = isActive ? "url(#arrow-active)" : "url(#arrow-muted)";
-        const animClass = isActive ? "edge-active-anim" : "";
-
-        let d = "";
-        if (edge.type === "h") {
-          // Horizontal arrow from right of b1 to left of b2
-          const x1 = b1.right + 2;
-          const y1 = b1.cy;
-          const x2 = b2.left - 4;
-          const y2 = b2.cy;
-          d = `M ${x1} ${y1} L ${x2} ${y2}`;
-        } else if (edge.type === "v") {
-          // Vertical/curved arrow from bottom of b1 to top of b2
-          const x1 = b1.cx;
-          const y1 = b1.bottom + 2;
-          const x2 = b2.cx;
-          const y2 = b2.top - 4;
-          const midY = (y1 + y2) / 2;
-          d = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
-        } else if (edge.type === "loop-inner") {
-          // Dashed inner guard check from Station 9 (index 8) back up to Station 8 (index 7)
-          const x1 = b1.cx + 15;
-          const y1 = b1.top - 2;
-          const x2 = b2.cx - 15;
-          const y2 = b2.bottom + 4;
-          const midY = (y1 + y2) / 2;
-          d = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
-        } else if (edge.type === "loop-left") {
-          // Long loop-back curve along the left margin from Station 11 (index 10) up to Station 1 (index 0)
-          const x1 = b1.left;
-          const y1 = b1.cy;
-          const x2 = b2.left;
-          const y2 = b2.cy;
-          const railX = 4;
-          d = `M ${x1} ${y1} C ${railX} ${y1}, ${railX} ${y2}, ${x2 - 3} ${y2}`;
-        } else if (edge.type === "loop-right") {
-          // Long loop-back curve along the right margin from Station 12 (index 11) up to Station 2 (index 1)
-          const x1 = b1.right;
-          const y1 = b1.cy;
-          const x2 = b2.right;
-          const y2 = b2.cy;
-          const railX = cRect.width - 4;
-          d = `M ${x1} ${y1} C ${railX} ${y1}, ${railX} ${y2}, ${x2 + 3} ${y2}`;
-        }
-
-        const isLoop = edge.type.startsWith("loop");
-        const dashAttr = !isActive && isLoop ? `stroke-dasharray="4 3"` : "";
-
-        pathsHtml += `<path d="${d}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" ${dashAttr} class="${animClass}" marker-end="${marker}" />`;
-      });
-
-      svg.innerHTML = defs + pathsHtml;
+const $ = id => document.getElementById(id);
+const sourceUrl = (file, start, end = start) => `${SOURCE_REPO}/blob/${SOURCE_COMMIT}/${file}#L${start}${end !== start ? `-L${end}` : ''}`;
+const escapeHtml = value => String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const labels = ['双层循环骨架','会话树与当前分支','项目指令与 Skills','MCP 按需暴露','动态工具声明','示例模型路由','截断响应检查','参数校验与可选审批','codemode 沙箱','文件队列与日志分流','补充指令与检查点','Token 水位压缩'];
+const experiments = [
+  [
+    192,
+    "输入「读 login.ts 并解释登录逻辑」，观察 hasMoreToolCalls 与 pendingMessages 如何驱动内层循环。"
+  ],
+  [
+    410,
+    "用 /tree 切换旧节点并继续对话。观察 current 和 path；跨过 L414 后，path 应按从早到晚排列。"
+  ],
+  [
+    178,
+    "在临时项目 AGENTS.md 写一条规则后发起任务，查看提示词组装结果及 skills 目录。"
+  ],
+  [
+    246,
+    "为已连接的 MCP 工具分别配置 direct 与 codemode，重载后对比 config 和返回的 exposure。"
+  ],
+  [
+    342,
+    "在两轮之间改变活动工具集合，观察 changes.toolsAdded / toolsRemoved 及待发 system 消息。"
+  ],
+  [
+    67,
+    "加载 jev-router 并选择 jev/auto 后发起任务，查看 jev 与分类结果；分类器缺失时应回退 TERRA。"
+  ],
+  [
+    488,
+    "用测试或较短输出上限触发带 tool calls 的 length 响应，观察错误结果，确认工具未执行。"
+  ],
+  [
+    736,
+    "发起一次工具调用，观察 validatedArgs；若已加载审批扩展，让钩子返回 block，确认工具未执行。"
+  ],
+  [
+    160,
+    "启用 codemode，用已连接的 MCP 查找登录 Issue，观察 startVm 的 options 与宿主工具结果回填。"
+  ],
+  [
+    35,
+    "启用并行工具调用，同时发出两次 edit(login.ts) 和一次 edit(测试文件)，观察 key 与 currentQueue 的等待关系。"
+  ],
+  [
+    304,
+    "工具运行时提交 Steering「先别删日志」，单步跨过 L304，观察 pendingMessages；Follow-up 对照 L311–315。"
+  ],
+  [
+    269,
+    "固定 enabled=true、window=200000、reserveTokens=16384，对比 contextTokens=183616 与 183617：分别返回 false、true。"
+  ]
+];
+// A frame describes the state AFTER the highlighted source line. These are deterministic teaching inputs.
+const frame = (line, caption, vars, tokens) => ({line,caption,vars,tokens});
+const traceFactories = {
+  1: () => {
+    const frames=[frame(403,'选定叶子；其他分支仍保存在同一文件中。',{leafId:sessionLeafId,leaf:sessionLeafId}),frame(408,'创建空 path。',{path:[]}),frame(409,'current 指向叶子。',{current:sessionLeafId,path:[]})];
+    const path=[];let current=sessionLeafId;
+    while(current){
+      frames.push(frame(410,'current 存在，继续回溯。',{current,path:[...path]}));
+      path.push(current);frames.push(frame(411,`把 ${current} 放入 path。`,{current,path:[...path]}));
+      current=sessionRecords.find(record=>record.id===current).parentId;
+      frames.push(frame(412,'沿 parentId 回溯；根节点之后为 undefined。',{current:current??'undefined',path:[...path]}));
     }
-
-    function renderAll() {
-      const st = stations[curStepIdx];
-      const total = stations.length;
-
-      // Update Zone highlights
-      ["P1", "P2", "P3", "P4"].forEach((pid) => {
-        const zEl = document.getElementById(`zone-${pid}`);
-        if (zEl) {
-          zEl.classList.toggle("zone-active", pid === st.phaseId);
-        }
-      });
-
-      // Find directly connected neighbor stations for visual context
-      const neighbors = new Set();
-      graphEdges.forEach((e) => {
-        if (e.from === curStepIdx) neighbors.add(e.to);
-        if (e.to === curStepIdx) neighbors.add(e.from);
-      });
-
-      // Update Station Node classes
-      for (let i = 0; i < total; i++) {
-        const nEl = document.getElementById(`st-node-${i}`);
-        if (!nEl) continue;
-        nEl.classList.remove("active", "neighbor", "visited");
-        if (i === curStepIdx) {
-          nEl.classList.add("active");
-        } else if (neighbors.has(i)) {
-          nEl.classList.add("neighbor");
-        } else if (i < curStepIdx) {
-          nEl.classList.add("visited");
-        }
-      }
-
-      // Top step controller & plain-language explanation
-      document.getElementById("step-counter").textContent = `${curStepIdx + 1} / ${total}`;
-      const phaseBadgeEl = document.getElementById("step-phase-badge");
-      phaseBadgeEl.textContent = `${st.scope} · ${phaseTitles[st.phaseId] || st.phaseId}`;
-      phaseBadgeEl.className =
-        st.roleType === "config"
-          ? "px-2 py-0.5 text-xs font-semibold rounded bg-blue-50 text-blue-800 border border-blue-200"
-          : st.roleType === "ext"
-            ? "px-2 py-0.5 text-xs font-semibold rounded bg-purple-50 text-purple-800 border border-purple-200"
-            : "px-2 py-0.5 text-xs font-semibold rounded bg-amber-100 text-amber-900 border border-amber-300";
-      document.getElementById("step-title").textContent = st.title;
-      document.getElementById("step-story").textContent = st.story;
-      document.getElementById("step-pain").textContent = st.pain;
-      document.getElementById("edge-relation-text").textContent = st.relationText;
-
-      // 12-station progress bar
-      const segContainer = document.getElementById("progress-segments");
-      segContainer.innerHTML = stations
-        .map((item, idx) => {
-          let cls = "bg-stone-200 hover:bg-stone-300";
-          if (idx < curStepIdx) cls = "bg-amber-300";
-          if (idx === curStepIdx) cls = "bg-amber-500";
-          return `<div onclick="goToStep(${idx})" title="${item.title}" class="seg-pill flex-1 ${cls}"></div>`;
-        })
-        .join("");
-
-      // Concrete Before -> After Data Packet
-      const modTagEl = document.getElementById("module-tag");
-      modTagEl.textContent = st.moduleTag;
-      modTagEl.className =
-        st.roleType === "config"
-          ? "font-mono text-[11px] text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded"
-          : st.roleType === "ext"
-            ? "font-mono text-[11px] text-purple-800 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded"
-            : "font-mono text-[11px] text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded";
-      document.getElementById("data-before").textContent = st.dataBefore;
-      document.getElementById("data-after").textContent = st.dataAfter;
-
-      // Code Viewer
-      document.getElementById("code-filepath").textContent = st.file;
-      document.getElementById("code-lines-badge").textContent = `${st.lineRange} · ${st.hlLines.length} 行重点`;
-      document.getElementById("code-takeaway").textContent = st.takeaway;
-      document.getElementById("code-focus-notes").textContent = "先看黄色行（其余代码保留上下文）\n" + st.focusNotes.join("\n");
-
-      const codeBox = document.getElementById("code-container");
-      let firstHlElId = null;
-      codeBox.innerHTML = st.code
-        .map((lineText, idx) => {
-          const lineNo = st.startLine + idx;
-          const isHl = st.hlLines.includes(lineNo);
-          const rowId = `code-row-${lineNo}`;
-          if (isHl && !firstHlElId) firstHlElId = rowId;
-          return `<div id="${rowId}" class="code-line ${isHl ? "hl" : ""}">
-            <span class="line-num font-mono">${lineNo}</span>
-            <span class="font-mono text-stone-800">${highlightLine(lineText)}</span>
-          </div>`;
-        })
-        .join("");
-
-      if (firstHlElId) {
-        const hlEl = document.getElementById(firstHlElId);
-        if (hlEl) {
-          codeBox.scrollTop = Math.max(0, hlEl.offsetTop - codeBox.offsetTop - 65);
-        }
-      } else {
-        codeBox.scrollTop = 0;
-      }
-
-      // Draw SVG lines after layout settles
-      requestAnimationFrame(drawGraphEdges);
+    frames.push(frame(410,'current 为空，退出 while。',{current:'undefined',path:[...path]}));
+    frames.push(frame(414,'反转成从早到晚的顺序。',{current:'undefined',path:[...path].reverse()}));
+    frames.push(frame(415,'返回当前分支的条目；其他条目不删除。',{return:[...path].reverse()}));return frames;
+  },
+  9: () => [
+    frame(34,'edit#1 注册 login.ts 的路径 key；registrationQueue 只串行化登记。',{key:'/repo/src/login.ts',fileMutationQueues:{}}),
+    frame(35,'login.ts 没有前驱，取已解决的 Promise P0。',{currentQueue:'P0 (fulfilled)'}),
+    frame(41,'edit#1 创建 P1 = P0.then(() => N1)，N1 等待 releaseNext。',{chainedQueue:'P1 → N1 (pending)'}),
+    frame(42,'把 P1 登记为 login.ts 的队尾。',{fileMutationQueues:{'login.ts':'P1'}}),
+    frame(52,'edit#1 的 P0 已解决，可以继续执行。',{call:'edit#1',currentQueue:'P0 (fulfilled)'}),
+    frame(54,'edit#1 正在修改 login.ts。',{running:['edit#1'],waiting:[]}),
+    frame(42,'切换到 edit#2 的登记：P2 接在 P1 后面。同一文件共用 key。',{fileMutationQueues:{'login.ts':'P2 = P1.then(() => N2)'},running:['edit#1']}),
+    frame(52,'edit#2 await P1，等 edit#1 释放。',{call:'edit#2',running:['edit#1'],waiting:['edit#2 on P1']}),
+    frame(42,'edit#3 登记另一个 key 的 P3，前驱是已解决的 Promise。',{fileMutationQueues:{'login.ts':'P2','login.test.ts':'P3'}}),
+    frame(54,'edit#3 可与 edit#1 并行修改不同文件。',{running:['edit#1 → login.ts','edit#3 → login.test.ts'],waiting:['edit#2 → login.ts']}),
+    frame(56,'edit#1 完成并释放 N1，P1 随之解决。',{releaseNext:'N1 resolved',fileMutationQueues:{'login.ts':'P2','login.test.ts':'P3'}}),
+    frame(57,'队尾已经是 P2，不等于 edit#1 的 P1，所以不删登记。',{chainedQueue:'P1',mapTail:'P2',delete:false}),
+    frame(54,'edit#2 的 await 已通过，开始第二次修改 login.ts。',{running:['edit#2','edit#3'],waiting:[]}),
+    frame(56,'edit#2 完成，释放 N2。',{releaseNext:'N2 resolved',fileMutationQueues:{'login.ts':'P2','login.test.ts':'P3'}}),
+    frame(58,'P2 仍是该 key 的最后队尾，清理 login.ts 登记。',{fileMutationQueues:{'login.test.ts':'P3'},completed:['edit#1','edit#2']}),
+    frame(58,'edit#3 也完成并清理自己的 key；没有全局文件锁。',{fileMutationQueues:{},completed:['edit#1','edit#2','edit#3']})
+  ],
+  11: () => [
+    frame(268,'enabled=true，继续比较水位。',{enabled:true,contextWindow:200000,reserveTokens:16384},180000),
+    frame(269,'180,000 未超过阈值，不触发。',{contextTokens:180000,threshold:183616,shouldCompact:false},180000),
+    frame(269,'增加用量到恰好等于阈值。公式是 >，仍不触发。',{contextTokens:183616,threshold:183616,shouldCompact:false},183616),
+    frame(269,'再多 1 Token，超过阈值，水位变红。',{contextTokens:183617,threshold:183616,shouldCompact:true},183617),
+    frame(269,'故事中的 186,400 同样返回 true；实际摘要与写回在此函数之外。',{contextTokens:186400,threshold:183616,shouldCompact:true},186400),
+    frame(268,'对照边界：即使越线，enabled=false 时也直接返回 false。',{enabled:false,contextTokens:186400,shouldCompact:false},186400)
+  ],
+  0: () => {
+    const f=(line,stage,caption,vars)=>({...frame(line,caption,vars),flow:stage});
+    return [
+      f(185,'init','输入已由 runAgentLoop 合入上下文；开始读取 Steering。',{pendingMessages:[],explicitContinuation:false}),
+      f(188,'prepare','进入外层任务循环。',{outer:'while (true)'}),
+      f(192,'prepare','首次 hasMoreToolCalls=true，进入内层。',{hasMoreToolCalls:true,pendingMessages:[]}),
+      f(226,'prepare','待处理消息已并入上下文，清空 pendingMessages。',{pendingMessages:[],context:'用户任务与历史'}),
+      f(251,'model','第 1 轮：模型提出 read(login.ts)。',{turn:1,stopReason:'toolUse',toolCalls:['read(src/login.ts)']}),
+      f(268,'tools','从回复 content 提取工具调用。',{toolCalls:['read(src/login.ts)']}),
+      f(279,'tools','响应未截断，准备参数、校验并执行工具。',{tool:'read',executed:true}),
+      f(281,'tools','本次工具未要求终止，允许继续。',{terminate:false,hasMoreToolCalls:true}),
+      f(284,'finish','toolResult 写回 currentContext.messages。',{appended:{role:'toolResult',toolName:'read'},hasMoreToolCalls:true}),
+      f(295,'finish','finishTurn 没有返回结束决定。',{decision:'undefined',turn:1}),
+      f(304,'checkpoint','无 Steering，但还有工具结果待模型处理，内层继续。',{pendingMessages:[],hasMoreToolCalls:true}),
+      f(195,'prepare','已有上一回合，按需准备下一轮上下文。',{lastCompletedTurn:'第 1 轮',prepareNextTurn:'可选钩子'}),
+      f(251,'model','第 2 轮：模型给出文本回复，不再提出工具调用。',{turn:2,stopReason:'stop',toolCalls:[]}),
+      f(271,'no-tools','没有工具调用，hasMoreToolCalls 保持 false。',{hasMoreToolCalls:false,toolResults:[]}),
+      f(295,'finish','完成第 2 轮回合收尾。',{decision:'undefined',turn:2}),
+      f(304,'checkpoint','无工具调用、无 Steering，内层退出。',{hasMoreToolCalls:false,pendingMessages:[]}),
+      f(311,'follow-up','外层检查后续任务，此例队列为空。',{followUpMessages:[]}),
+      f(320,'continue','finishTurn 没有要求显式继续。',{explicitContinuation:false}),
+      f(326,'break','没有待办，退出外层 while。',{loop:'break'}),
+      f(329,'end','发出 agent_end，结束本次运行。',{event:'agent_end',turns:2})
+    ];
+  },
+  2: () => [frame(178,'检查是否有技能读取工具与可用技能。',{projectContextFiles:['AGENTS.md'],skills:['debug-login（示例）']}),frame(189,'按标签包装各个提示词段。',{sections:'项目指令 + 技能清单 + cwd 等（示例）'})],
+  3: () => [frame(246,'用工具名和配置求暴露方式。',{toolName:'list_issues',config:{exposure:'codemode'}}),frame(253,'未单独覆盖时，沿服务器配置选择暴露方式。',{exposure:'codemode（示例）'})],
+  4: () => [frame(342,'比较本轮与已声明的工具集合。',{previous:['read','edit','bash'],current:['read','edit','bash','github_issue']}),frame(367,'为新增工具创建声明消息，历史前缀保持不变。',{toolsAdded:['github_issue'],toolsRemoved:[]})],
+  5: () => [frame(67,'查找示例使用的分类器。',{classifier:'typesafe / jev-latest（示例）'}),frame(68,'找不到分类器时回退 TERRA；此示例假设存在。',{jev:'已找到（示例）'}),frame(87,'按分类结果选择规划模型；此机制仅在加载扩展后运行。',{complexProbability:0.82,selected:'SOL（示例模型标识）'})],
+  6: () => [frame(488,'收到截断消息，准备逐一返回工具错误结果。',{stopReason:'length',toolCalls:['write(login.ts)']}),frame(503,'构造错误结果，截断的参数不交给工具真正执行。',{isError:true,executed:false})],
+  7: () => [frame(736,'先准备工具参数。',{toolCall:{name:'bash',arguments:{command:'rm -rf /tmp/logs'}}}),frame(737,'按工具 schema 校验参数，通过后才继续。',{validatedArgs:{command:'rm -rf /tmp/logs'}}),frame(739,'若配置了钩子，等待其结果；此例为危险命令审批扩展。',{beforeToolCall:'已配置（教学假设）'}),frame(755,'扩展示例返回 block，进入拒绝分支。',{beforeResult:{block:true,reason:'用户未批准删除'}}),frame(756,'构造错误结果；不会执行 bash。',{isError:true,executed:false})],
+  8: () => [frame(160,'按传入 options 启动沙箱会话。',{runtime:'QuickJS',host:'Node.js'}),frame(176,'VM 接入宿主中断处理器；工具桥接在该文件后续代码实现。',{interruptHandler:'options.shouldInterrupt',runtime:'QuickJS'})],
+  10: () => [frame(304,'工具执行结束后取出运行中提交的 Steering。',{hasMoreToolCalls:false,pendingMessages:[{role:'user',content:'先别删日志'}]}),frame(305,'pendingMessages 非空，内层循环继续。',{pendingMessages:['先别删日志'],next:'内层 while'}),frame(311,'另一个对照场景：没有 Steering，内层已结束后才取 Follow-up。',{pendingMessages:[],followUpMessages:['再写份排查总结']}),frame(315,'后续任务放进 pendingMessages。',{pendingMessages:['再写份排查总结']}),frame(316,'continue 外层循环，开始处理后续任务。',{next:'外层 while → 新一轮内层 while'})]
+};
+const visitedStations=new Set();
+let curStepIdx=-1, traceIndex=-1, frames=[];
+function visibleSteps(){return [-1,...stations.map((_,index)=>index)];}
+    const graphEdges = [
+      // Phase 1 internal flow
+      { from: 0, to: 1, type: "h", label: "写入提问" },
+      { from: 1, to: 2, type: "v", label: "读取分支" },
+      // Phase 1 -> Phase 2
+      { from: 2, to: 3, type: "v", label: "挂载MCP" },
+      { from: 3, to: 4, type: "h", label: "按需激活" },
+      // Phase 2 -> Phase 3 (Context converges into Station 6 LLM Router)
+      { from: 3, to: 5, type: "v", label: "汇入上下文" },
+      { from: 4, to: 5, type: "v", label: "追加至队尾" },
+      // Phase 3: LLM -> Gate 1 -> Gate 2
+      { from: 5, to: 6, type: "v", label: "返回ToolCall" },
+      { from: 6, to: 7, type: "h", label: "未截断放行" },
+      // Phase 3 -> Phase 4: Gate 2 fans out in parallel to Station 9 (Sandbox) & Station 10 (Edit/Bash)
+      { from: 7, to: 8, type: "v", label: "放行脚本" },
+      { from: 7, to: 9, type: "v", label: "按调用关系执行" },
+      // Sandbox nested guard check back to Gate 2
+      { from: 8, to: 7, type: "loop-inner", label: "runToolCall守卫" },
+      // Execution -> Steering & Compaction
+      { from: 8, to: 10, type: "v", label: "脚本完成" },
+      { from: 9, to: 10, type: "v", label: "本轮跑完" },
+      { from: 10, to: 11, type: "h", label: "必要时压缩" },
+      // Loop-back edges to top of graph!
+      { from: 10, to: 0, type: "loop-left", label: "↺ 补充指令进入下一轮" },
+      { from: 11, to: 1, type: "loop-right", label: "↺ 压缩写回第2站" }
+    ];
+function diagramRenderer(svg,prefix){
+  const viewport=svg.getBoundingClientRect();
+  if(!viewport.width||!viewport.height)return null;
+  const width=viewport.width,height=viewport.height;
+  svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+  const colors={blue:'#3265ff',gray:'#aab7c9',violet:'#a78bfa',amber:'#f59e0b',muted:'#cbd5e1'},parts=[];
+  function box(id){const r=$(id).getBoundingClientRect();return {x:r.left-viewport.left,y:r.top-viewport.top,w:r.width,h:r.height};}
+  function port(id,side,t=.5){const r=typeof id==='string'?box(id):id;return side==='top'?{x:r.x+r.w*t,y:r.y,nx:0,ny:-1}:side==='bottom'?{x:r.x+r.w*t,y:r.y+r.h,nx:0,ny:1}:side==='left'?{x:r.x,y:r.y+r.h*t,nx:-1,ny:0}:{x:r.x+r.w,y:r.y+r.h*t,nx:1,ny:0};}
+  function edge(rawA,rawB,{color='gray',dash=false,route=null,className=''}={}){
+    const opposing=rawA.nx===-rawB.nx&&rawA.ny===-rawB.ny;
+    const gap=opposing?(rawA.nx?(rawB.x-rawA.x)*rawA.nx:(rawB.y-rawA.y)*rawA.ny):Infinity;
+    const short=gap>0&&gap<28,clear=short?Math.max(2,(gap-10)/2):6;
+    const a={...rawA,x:rawA.x+rawA.nx*clear,y:rawA.y+rawA.ny*clear};
+    const b={...rawB,x:rawB.x+rawB.nx*clear,y:rawB.y+rawB.ny*clear};
+    const stem=short?Math.min(9,Math.max(4,gap-clear*2-1)):9;
+    const tail={...b,x:b.x+b.nx*stem,y:b.y+b.ny*stem};
+    const span=rawA.nx?Math.abs(tail.x-a.x):Math.abs(tail.y-a.y),bend=Math.max(1,Math.min(52,span/2));
+    const d=route?route(a,tail):`M ${a.x} ${a.y} C ${a.x+a.nx*bend} ${a.y+a.ny*bend}, ${tail.x+tail.nx*bend} ${tail.y+tail.ny*bend}, ${tail.x} ${tail.y}`;
+    const stroke=colors[color],weight=color==='blue'||color==='amber'?2:1.4;
+    parts.push(`<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${weight}" ${dash?'stroke-dasharray="6 4"':''} ${className?`class="${className}"`:''} stroke-linecap="round"/>`);
+    parts.push(`<line x1="${tail.x}" y1="${tail.y}" x2="${b.x}" y2="${b.y}" stroke="${stroke}" stroke-width="${weight}" marker-end="url(#${prefix}-${color})"/>`);
+    return {a,b,tail};
+  }
+  function render(){svg.innerHTML=`<defs>${Object.entries(colors).map(([name,color])=>`<marker id="${prefix}-${name}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M 1 1 L 9 5 L 1 9 z" fill="${color}" stroke="none"/></marker>`).join('')}</defs>`+parts.join('');}
+  return {width,height,box,port,edge,render};
+}
+function placeDiagramLabels(svg,container,cardSelector){
+  const viewport=svg.getBoundingClientRect(),matrix=svg.getScreenCTM();
+  if(!matrix)return;
+  const cards=[...document.querySelectorAll(cardSelector)].map(e=>e.getBoundingClientRect()),arrows=[];
+  for(const line of svg.querySelectorAll(':scope > line')){
+    const a=new DOMPoint(+line.getAttribute('x1'),+line.getAttribute('y1')).matrixTransform(matrix),b=new DOMPoint(+line.getAttribute('x2'),+line.getAttribute('y2')).matrixTransform(matrix);
+    const horizontal=Math.abs(b.x-a.x)>.1,x=horizontal?b.x-Math.sign(b.x-a.x)*8:b.x,y=horizontal?b.y:b.y-Math.sign(b.y-a.y)*8;
+    arrows.push({left:Math.min(x,b.x)-(horizontal?0:4),right:Math.max(x,b.x)+(horizontal?0:4),top:Math.min(y,b.y)-(horizontal?4:0),bottom:Math.max(y,b.y)+(horizontal?4:0)});
+  }
+  const placed=[],overlap=(a,b,pad=2)=>a.left<b.right+pad&&a.right>b.left-pad&&a.top<b.bottom+pad&&a.bottom>b.top-pad;
+  const offsets=[[0,0],[-16,0],[16,0],[-32,0],[32,0],[-48,0],[48,0],[0,-4],[0,4],[0,-14],[0,14],[-64,0],[64,0]];
+  for(const label of container.children){
+    const x=parseFloat(label.style.left),y=parseFloat(label.style.top);
+    for(const [dx,dy] of offsets){
+      label.style.left=`${x+dx}px`;label.style.top=`${y+dy}px`;
+      const r=label.getBoundingClientRect();
+      if(r.left<viewport.left||r.right>viewport.right||r.top<viewport.top||r.bottom>viewport.bottom)continue;
+      if([...cards,...arrows,...placed].some(other=>overlap(r,other)))continue;
+      break;
     }
-
-    function goToStep(idx) {
-      curStepIdx = idx;
-      renderAll();
-    }
-
-    function nextStep() {
-      curStepIdx = (curStepIdx + 1) % stations.length;
-      renderAll();
-    }
-
-    function prevStep() {
-      curStepIdx = (curStepIdx - 1 + stations.length) % stations.length;
-      renderAll();
-    }
-
-    window.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowRight") nextStep();
-      if (e.key === "ArrowLeft") prevStep();
-    });
-
-    window.addEventListener("resize", drawGraphEdges);
-
-    renderAll();
-  </script>
+    placed.push(label.getBoundingClientRect());
+  }
+}
+function drawGraphEdges(){
+  const d=diagramRenderer($('graph-svg'),'stations-arrow');if(!d)return;
+  graphEdges.forEach(e=>{
+    const from=`st-node-${e.from}`,to=`st-node-${e.to}`,active=e.from===curStepIdx||e.to===curStepIdx;
+    let a,b,route=null;
+    if(e.type==='h'){a=d.port(from,'right');b=d.port(to,'left');}
+    else if(e.type==='loop-inner'){a=d.port(from,'top',.6);b=d.port(to,'bottom',.4);}
+    else if(e.type==='loop-left'||e.type==='loop-right'){
+      const side=e.type==='loop-left'?'left':'right',rail=side==='left'?3:d.width-3;
+      a=d.port(from,side);b=d.port(to,side);
+      route=(start,end)=>`M ${start.x} ${start.y} C ${rail} ${start.y}, ${rail} ${end.y}, ${end.x} ${end.y}`;
+    }else{a=d.port(from,'bottom');b=d.port(to,'top');}
+    d.edge(a,b,{color:active?'amber':'muted',dash:active||e.type.startsWith('loop'),route,className:active?'edge-active-anim':''});
+  });d.render();
+}
+const stationRelations = ["输入 → ① 双层循环调度；②③ 组装会话与系统提示词；⑪ 检查点注入新指令进入下一轮", "② 沿 leafId 回溯出当前分支消息数组 → 请求上下文；⑫ 压缩摘要也作为节点写回会话树", "② 当前分支历史 + ③ 分章节组装的 SystemPromptSections → 汇入模型请求", "③ 系统提示准备 → ④ 按优先级计算每个 MCP 工具的暴露方式 → ⑤ 工具变更声明", "④ 工具集发生增减 → ⑤ declareToolChanges 生成队尾增量声明 → ⑥ 发送模型请求", "上下文 → 默认模型或 registerVirtualModel 路由扩展 → ⑦ 响应截断检查（CacheWarmer 独立后台定时运行）", "⑥ 模型返回 AssistantMessage → ⑦ 检查 stopReason === \"length\" → 未截断才进入 ⑧ 参数校验", "⑦ 未截断调用 → ⑧ 核心 Schema 校验 + 可选 beforeToolCall 钩子 → 通过后才分发给 ⑨/⑩ 执行", "⑧ 放行脚本调用 → ⑨ QuickJS Wasm VM 执行 → 桥接调用宿主工具（仍经第 8 站钩子检查） → 结果进入 ⑪", "⑧ 获准的工具调用 → ⑩ 同文件串行排队 / bash 输出限流 → 执行完毕进入 ⑪ 回合检查点", "⑨/⑩ 本轮工具执行完毕 → ⑪ 检查点先取 Steering（继续内层），没有且无工具调用时再取 Follow-up（继续外层） → ↺ 回到 ①", "容量检查越过水位线 → ⑫ 保留近期 Token + 摘要早期历史 → ↺ 作为 compaction 节点写回 ② 会话树"];
+function renderNavigation() {
+  $('overview-current').textContent=curStepIdx===-1?'当前：架构和源码入口':`当前：第 ${curStepIdx+1} 站 · ${labels[curStepIdx]}`;
+  const neighbors = new Set();
+  graphEdges.forEach(edge => {
+    if(edge.from===curStepIdx)neighbors.add(edge.to);
+    if(edge.to===curStepIdx)neighbors.add(edge.from);
+  });
+  stations.forEach((st,i)=>{
+    const node=$(`st-node-${i}`);
+    node.classList.toggle('active',i===curStepIdx);
+    node.classList.toggle('neighbor',neighbors.has(i));
+    node.classList.toggle('visited',visitedStations.has(i) && i!==curStepIdx && !neighbors.has(i));
+    node.setAttribute('aria-current',i===curStepIdx?'step':'false');
+    node.setAttribute('aria-label',st.title);
+    node.title=st.title;
+  });
+  ['P1','P2','P3','P4'].forEach(phase=>$( `zone-${phase}`).classList.toggle('zone-active',stations[curStepIdx]?.phaseId===phase));
+  $('edge-relation-text').textContent=stationRelations[curStepIdx]??'先从架构和源码入口认识仓库；点击图中第 1 站，开始沿查 Issue、修 login.ts、删日志的故事线阅读。';
+  $('map-nav').setAttribute('aria-current',curStepIdx===-1?'step':'false');
+  requestAnimationFrame(drawGraphEdges);
+}
+function renderCode(st) {
+  let rows='';
+  for(let idx=0;idx<st.code.length;idx++) {
+    const line=st.startLine+idx;
+    // Preserve exact original numbers inside foldable abort blocks.
+    if(curStepIdx===7 && [748,767].includes(line)) rows+='<details class="abort-fold"><summary class="text-xs text-stone-500 px-4 py-2 cursor-pointer">// …abort 检查…（展开原文）</summary>';
+    rows+=`<div class="code-line ${st.hlLines.includes(line)?'hl':''}" id="code-row-${line}"><a class="line-num" href="${sourceUrl(st.file,line)}" target="_blank" rel="noopener" aria-label="GitHub 原文第 ${line} 行">${line}</a><span>${highlightLine(st.code[idx])}</span></div>`;
+    if(curStepIdx===7 && [754,773].includes(line)) rows+='</details>';
+  }
+  $('code-container').innerHTML=rows;
+  $('code-container').scrollTop=0;
+}
+function focusLines(start,end=start) {
+  document.querySelectorAll('.active-line').forEach(el=>el.classList.remove('active-line'));
+  for(let line=start;line<=end;line++) {
+    const row=$(`code-row-${line}`); if(!row)continue;
+    const details=row.closest('details'); if(details)details.open=true;
+    row.classList.add('active-line');
+  }
+  const row=$(`code-row-${start}`);
+  if(row)$('code-container').scrollTop=Math.max(0,row.offsetTop-55);
+}
+const sessionHeader = {"type": "session", "version": 3, "id": "00000000-0000-4000-8000-000000000001", "timestamp": "2026-11-07T08:00:00.000Z", "cwd": "/repo"};
+const sessionRecords = [{"type": "message", "id": "e1", "parentId": null, "timestamp": "2026-11-07T08:00:01.000Z", "message": {"role": "user", "content": "查登录 Issue，修 login.ts，再删旧日志。", "timestamp": 1794038401000}}, {"type": "message", "id": "e2", "parentId": "e1", "timestamp": "2026-11-07T08:00:02.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "登录失败与 token 过期有关，准备修改 login.ts。"}], "api": "openai-responses", "provider": "example", "model": "example-model", "usage": {"input": 100, "output": 20, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 120, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}, "stopReason": "stop", "timestamp": 1794038402000}}, {"type": "message", "id": "e3", "parentId": "e2", "timestamp": "2026-11-07T08:00:03.000Z", "message": {"role": "user", "content": "尝试方案 A：修改中间件。", "timestamp": 1794038403000}}, {"type": "message", "id": "e4", "parentId": "e2", "timestamp": "2026-11-07T08:00:04.000Z", "message": {"role": "user", "content": "改用方案 B：直接修 login.ts。", "timestamp": 1794038404000}}];
+let sessionLeafId='e4', sessionSelectedId='e4';
+function sessionPath(){const ids=[];let id=sessionLeafId;while(id){ids.unshift(id);id=sessionRecords.find(record=>record.id===id).parentId;}return ids;}
+function renderSessionExplorer(current){
+  const ids=sessionPath();
+  $('session-jsonl').innerHTML=[sessionHeader,...sessionRecords].map((record,i)=>`<button class="jsonl-row ${ids.includes(record.id)?'path-entry':''} ${sessionSelectedId===record.id?'selected-entry':''}" onclick="inspectSessionEntry('${record.id}')" aria-label="查看第 ${i+1} 行 ${record.type} ${record.id}" aria-pressed="${sessionSelectedId===record.id}"><span>${i+1}</span><code>${escapeHtml(JSON.stringify(record))}</code></button>`).join('');
+  document.querySelectorAll('.session-tree [data-entry]').forEach(node=>{
+    node.classList.toggle('path-entry',ids.includes(node.dataset.entry));node.classList.toggle('selected-entry',node.dataset.entry===sessionSelectedId);
+    node.classList.toggle('tree-current',node.dataset.entry===current);node.setAttribute('aria-pressed',String(node.dataset.entry===sessionSelectedId));
+  });
+  const selected=[sessionHeader,...sessionRecords].find(record=>record.id===sessionSelectedId);
+  $('session-selected-label').textContent=selected.type==='session'?'首行 · 会话头':`${selected.id} · parentId = ${selected.parentId??'null'} · ${selected.message.role}`;
+  $('session-entry-detail').textContent=JSON.stringify(selected,null,2);
+  $('session-active-path').textContent=ids.join(' → ');
+}
+function inspectSessionEntry(id){sessionSelectedId=id;renderSessionExplorer(frames[traceIndex]?.vars.current);}
+function selectSessionLeaf(id){if(!['e3','e4'].includes(id))return;sessionLeafId=id;sessionSelectedId=id;frames=traceFactories[1]();traceIndex=-1;renderDebug();}
+function renderMechanismExample(current){
+  if(curStepIdx===0){document.querySelectorAll('[data-loop-stage]').forEach(node=>node.classList.toggle('flow-active',node.dataset.loopStage===current?.flow));requestAnimationFrame(drawLoopNetwork);}
+  if(curStepIdx===1){if(sessionRecords.some(record=>record.id===current?.vars.current))sessionSelectedId=current.vars.current;renderSessionExplorer(current?.vars.current);}
+}
+function renderDebug() {
+  const current=frames[traceIndex];
+  renderMechanismExample(current);
+  $('debug-progress').textContent=`${traceIndex+1} / ${frames.length} 步`;
+  $('debug-next').disabled=traceIndex===frames.length-1;
+  $('debug-next').textContent=traceIndex===frames.length-1?'✓ 完成':'▶ 单步';
+  $('debug-caption').textContent=current?.caption || '单步执行，观察高亮行与变量变化。';
+  $('debug-variables').textContent=current?JSON.stringify(current.vars,null,2):'// 尚未执行';
+  const tokens=current?.tokens;
+  $('token-meter').hidden=curStepIdx!==11;
+  if(curStepIdx===11) {
+    $('token-fill').style.width=`${(tokens??0)/200000*100}%`;
+    $('token-fill').style.background=(tokens??0)>183616?'#ef4444':'#fbbf24';
+    $('token-label').textContent=tokens===undefined?'contextTokens = 等待单步':`${tokens.toLocaleString()} / 200,000${tokens>183616?' · 越线':' · 未越线'}`;
+  }
+  if(current)focusLines(current.line);
+  else document.querySelectorAll('.active-line').forEach(el=>el.classList.remove('active-line'));
+}
+function advanceDebug() { if(traceIndex<frames.length-1){traceIndex++;renderDebug();} }
+function resetDebug() {traceIndex=-1;renderDebug();}
+function renderAll() {
+  renderNavigation();
+  $('repository-map').hidden=curStepIdx!==-1;
+  $('station-detail').hidden=curStepIdx<0;
+  if(curStepIdx===-1){requestAnimationFrame(drawArchitectureEdges);return;}
+  $('loop-overview').hidden=curStepIdx!==0;
+  $('session-example').hidden=curStepIdx!==1;
+  $('station-packets').hidden=curStepIdx===1;
+  const st=stations[curStepIdx], end=st.startLine+st.code.length-1;
+  $('step-counter').textContent=`${curStepIdx+1} / 12`;
+  const prevButton=document.querySelector('.station-navigation button[onclick="prevStep()"]');
+  prevButton.textContent=curStepIdx===0?'◀ 架构入口':'◀ 上一站';
+  const nextButton=document.querySelector('.station-navigation button[onclick="nextStep()"]');
+  nextButton.disabled=curStepIdx===stations.length-1;
+  nextButton.textContent=nextButton.disabled?'已到最后一站':'下一站 ▶';
+  $('step-phase-badge').textContent=st.scope;
+  for(const [id,key] of [['step-title','title'],['step-story','story'],['step-pain','pain'],['step-engineering','engineeringProblem'],['data-before','dataBefore'],['data-after','dataAfter']])$(id).textContent=st[key];
+  $('source-permalink').textContent=st.file+' ↗';
+  $('source-permalink').href=sourceUrl(st.file,st.startLine,end);
+  $('source-latest').href=`${SOURCE_REPO}/blob/main/${st.file}`;
+  $('code-lines-badge').textContent=`L${st.startLine}–L${end}`;
+  $('code-focus-notes').innerHTML=st.focusNotes.map(note=>'<p class="focus-note">'+escapeHtml(note).replace(/L(\d+)(?:[–-](\d+))?/g,(match,start,end)=>`<button class="underline font-mono" onclick="focusLines(${Number(start)},${Number(end??start)})">${match}</button>` )+'</p>').join('');
+  renderCode(st);
+  $('try-it').textContent=`在 L${experiments[curStepIdx][0]} 打断点。${experiments[curStepIdx][1]}`;
+  $('try-link').href=sourceUrl(st.file,experiments[curStepIdx][0]);
+  frames=traceFactories[curStepIdx]();traceIndex=-1;renderDebug();
+}
+function goToStep(idx,writeUrl=true) {
+  if(!Number.isInteger(idx)||idx < -1||idx>=stations.length)return;
+  curStepIdx=idx;
+  if(idx>=0)visitedStations.add(idx);
+  if(writeUrl){
+    const url=new URL(location.href);
+    url.searchParams.set('step',String(idx+1));
+    url.searchParams.delete('question');
+    history.replaceState(null,'',url);
+  }
+  renderAll();
+}
+function nextStep() {
+  const steps=visibleSteps(), index=steps.indexOf(curStepIdx);goToStep(steps[Math.min(index+1,steps.length-1)]);
+}
+function prevStep() {
+  const steps=visibleSteps(), index=steps.indexOf(curStepIdx);goToStep(steps[Math.max(index-1,0)]);
+}
+function drawLoopNetwork(){
+  const d=diagramRenderer($('loop-network-svg'),'loop-arrow');if(!d)return;
+  const labels=[],p=(id,side,t=.5)=>d.port(`lf-${id}`,side,t);
+  function label(x,y,num,text='',muted=false){labels.push(`<span class="flow-edge-label ${!text&&!muted?'compact':''} ${muted?'muted':''}" style="left:${x}px;top:${y}px">${num?`<b>${num}</b>`:''}${text}</span>`);}
+  function link(a,b,num,text='',blue=false){const e=d.edge(a,b,{color:blue?'blue':'gray',dash:blue});if(num||text)label((e.a.x+e.b.x)/2,(e.a.y+e.b.y)/2-(a.nx&&b.nx?18:0),num,text,!num);}
+  link(p('init','right'),p('prepare','left'),1,'',true);
+  link(p('prepare','right'),p('model','left'),2,'',true);
+  link(p('model','bottom',.1),p('error','top'),null,'异常');
+  link(p('model','bottom',.5),p('tools','top'),3,'工具调用',true);
+  link(p('model','bottom',.9),p('no-tools','top'),null,'无调用');
+  link(p('tools','bottom',.4),p('finish','top',.4),4,'结果回填',true);
+  link(p('no-tools','bottom',.4),p('finish','top',.8));
+  link(p('finish','right'),p('checkpoint','left'),5);
+  link(p('checkpoint','bottom'),p('follow-up','top'),6,'内层退出');
+  link(p('follow-up','right'),p('continue','left'),null,'无');
+  link(p('continue','right'),p('break','left'),null,'无');
+  link(p('break','bottom'),p('end','top',.8),7,'结束');
+  // Return rails stay outside cards and enter distinct top ports of prepare.
+  d.edge(p('checkpoint','right'),p('prepare','top',.72),{color:'blue',dash:true,route:(a,b)=>`M ${a.x} ${a.y} H ${d.width-5} V 12 H ${b.x} V ${b.y}`});
+  label(d.width*.8,12,'↺','内层继续');
+  const cont=d.box('lf-continue'),follow=d.box('lf-follow-up'),returnY=Math.max(cont.y+cont.h,follow.y+follow.h)+12;
+  d.edge(p('follow-up','left'),p('prepare','top',.28),{color:'blue',dash:true,route:(a,b)=>`M ${a.x} ${a.y} H 5 V 12 H ${b.x} V ${b.y}`});
+  d.edge(p('continue','bottom'),p('prepare','top',.28),{color:'blue',dash:true,route:(a,b)=>`M ${a.x} ${a.y} V ${returnY} H 5 V 12 H ${b.x} V ${b.y}`});
+  label(d.width*.2,12,'↺','外层续接');
+  for(const id of ['error','finish'])d.edge(p(id,'left'),p('end','left'),{color:'gray',route:(a,b)=>`M ${a.x} ${a.y} H 16 V ${b.y} H ${b.x}`});
+  d.render();$('loop-network-labels').innerHTML=labels.join('');
+  placeDiagramLabels($('loop-network-svg'),$('loop-network-labels'),'#loop-network .loop-net-node');
+}
+function drawArchitectureEdges(){
+  const d=diagramRenderer($('architecture-svg'),'architecture-arrow');if(!d)return;
+  const labels=[];
+  function connect(from,fromSide,fromT,to,toSide,toT,number,text,primary=false,returning=false){
+    const {a,b}=d.edge(d.port(from,fromSide,fromT),d.port(to,toSide,toT),{color:primary?'blue':'gray',dash:primary});
+    labels.push(`<span class="network-edge-label ${returning?'return-label':''}" style="left:${(a.x+b.x)/2}px;top:${(a.y+b.y)/2}px">${number?`<b>${number}</b>`:''}${text}</span>`);
+  }
+  connect('arch-entry','bottom',.5,'arch-loop','top',.35,1,'会话装配',true);
+  connect('arch-context','bottom',.5,'arch-loop','top',.68,2,'上下文输入',true);
+  connect('arch-loop','bottom',.23,'arch-tools','top',.34,3,'工具调用');
+  connect('arch-tools','top',.75,'arch-loop','bottom',.48,null,'结果回传',false,true);
+  connect('arch-loop','bottom',.77,'arch-sandbox','top',.55,4,'可选脚本');
+  const vm=d.box('arch-sandbox'),tools=d.box('arch-tools'),rail=Math.max(vm.y+vm.h,tools.y+tools.h)+38;
+  d.edge(d.port(vm,'bottom',.55),d.port(tools,'bottom',.5),{color:'violet',dash:true,route:(a,b)=>`M ${a.x} ${a.y} V ${rail-7} Q ${a.x} ${rail} ${a.x-7} ${rail} H ${b.x+7} Q ${b.x} ${rail} ${b.x} ${rail-7} V ${b.y}`});
+  labels.push(`<span class="network-edge-label" style="left:${(vm.x+vm.w*.55+tools.x+tools.w*.5)/2}px;top:${rail}px"><b>5</b>宿主桥接</span>`);
+  d.render();$('architecture-edge-labels').innerHTML=labels.join('');
+  placeDiagramLabels($('architecture-svg'),$('architecture-edge-labels'),'.architecture-network .architecture-node');
+}
+function toggleArchitectureSources() {
+  const diagram=document.querySelector('.arch-diagram');
+  const hidden=diagram.classList.toggle('hide-paths');
+  $('arch-sources-toggle').textContent=hidden?'显示源码路径':'收起源码路径';
+  $('arch-sources-toggle').setAttribute('aria-pressed',String(!hidden));
+  requestAnimationFrame(drawArchitectureEdges);
+}
+let sourcePlaceholder=null;
+function toggleCodeReading() {
+  const dialog=$('code-dialog');
+  if(dialog.open){dialog.close();return;}
+  sourcePlaceholder=document.createComment('source-workbench location');
+  $('source-workbench').before(sourcePlaceholder);
+  dialog.append($('source-workbench'));
+  $('reading-toggle').textContent='收起阅读 ×';
+  $('reading-toggle').setAttribute('aria-expanded','true');
+  document.body.classList.add('reading-dialog-open');
+  dialog.showModal();
+  $('reading-toggle').focus();
+}
+$('code-dialog').addEventListener('close',()=>{
+  sourcePlaceholder.replaceWith($('source-workbench'));
+  sourcePlaceholder=null;
+  $('reading-toggle').textContent='展开阅读 ↗';
+  $('reading-toggle').setAttribute('aria-expanded','false');
+  document.body.classList.remove('reading-dialog-open');
+  $('reading-toggle').focus({preventScroll:true});
+});
+function updateSidebarViewport(){
+  const footer=document.querySelector('.page-shell > footer'),panel=$('mechanism-overview');
+  if(!footer||!panel)return;
+  const footerStyle=getComputedStyle(footer),bodyStyle=getComputedStyle(document.body);
+  const reserved=footer.getBoundingClientRect().height+(parseFloat(footerStyle.marginTop)||0)+(parseFloat(bodyStyle.paddingBottom)||0);
+  const dockTop=Math.min(16,window.innerHeight-panel.getBoundingClientRect().height-reserved-4);
+  document.documentElement.style.setProperty('--sidebar-top',`${Math.floor(dockTop)}px`);
+}
+function readStepFromUrl(){
+  const params=new URLSearchParams(location.search), raw=params.get('step'), legacy=params.get('question');
+  if(raw!==null){const n=Number(raw);goToStep(Number.isInteger(n)&&n>=0&&n<=12?n-1:-1,false);return;}
+  // Keep previously shared question links working, without exposing a second reading mode.
+  if(/^[1-6]$/.test(legacy??'')){goToStep([0,1,2,3,6,9][Number(legacy)-1],false);return;}
+  if(legacy==='extension'){goToStep(5,false);return;}
+  goToStep(-1,false);
+}
+window.addEventListener('popstate',readStepFromUrl);
+window.addEventListener('resize',()=>{updateSidebarViewport();requestAnimationFrame(drawGraphEdges);requestAnimationFrame(drawArchitectureEdges);requestAnimationFrame(drawLoopNetwork);});
+new ResizeObserver(()=>requestAnimationFrame(drawGraphEdges)).observe($('graph-canvas'));
+$('graph-canvas').addEventListener('transitionend',()=>requestAnimationFrame(drawGraphEdges));
+new ResizeObserver(()=>requestAnimationFrame(drawArchitectureEdges)).observe(document.querySelector('.architecture-network'));
+new ResizeObserver(()=>requestAnimationFrame(drawLoopNetwork)).observe($('loop-network'));
+$('graph-canvas').addEventListener('keydown',event=>{
+  const node=event.target.closest('.station-node');
+  if(node && (event.key==='Enter'||event.key===' ')){event.preventDefault();node.click();}
+});
+new ResizeObserver(updateSidebarViewport).observe(document.querySelector('.page-shell > footer'));
+new ResizeObserver(updateSidebarViewport).observe($('mechanism-overview'));
+updateSidebarViewport();
+readStepFromUrl();
+</script>
 </body>
 </html>

@@ -4,7 +4,7 @@
 
 每个专题以 `<专题>/index.html` 为唯一入口，使用静态 HTML，无需构建。内容包含图解、对比、交互例子与源码导读。
 
-大部分页面可直接双击打开；Pi 导读通过远程脚本加载 Tailwind 样式，完整样式显示需要联网。
+页面可直接双击打开。Pi 导读两篇页面的 CSS 与交互脚本均内联在 HTML 中，可离线阅读与单步模拟。
 
 ## 📚 专题目录
 
@@ -16,7 +16,7 @@
 | [🐹 Go](go/index.html) | ✅ 已完成 | 基础语法(slice/map/defer/interface) · 包管理(Go Modules/项目实战) · 为什么引入协程 · GMP 调度 · channel · 锁与同步 · GC(三色标记/写屏障/逃逸分析) · context/泛型/数据竞争/测试/性能优化 |
 | [🖥️ 操作系统](os/index.html) | ✅ 已完成 | 用户态/内核态 · 系统调用/中断 · 进程线程/上下文切换 · fork/COW · 存储层次(L1/L2/L3/内存/磁盘) · 虚拟内存(分页/多级页表/TLB/缺页置换) · IPC · 并发同步/死锁 · CPU 调度(CFS) · 文件系统/inode/fd · Page Cache/刷盘 · I/O 模型/epoll/Reactor/零拷贝 · 性能排查(load/top/vmstat)（侧重 Linux） |
 | [📨 消息队列](mq/index.html) | ✅ 已完成 | 为什么用(解耦/异步/削峰) · 队列/发布订阅模型 · Topic/分区/Offset/消费者组 · 三大主流对比 · 不丢/不重(幂等)/有序/堆积/延迟/事务消息/死信 · 推拉模型 · Kafka 为什么快(顺序写/页缓存/零拷贝) · 存储结构 · ISR/HW/LEO 副本 · Rebalance · RocketMQ CommitLog · RabbitMQ 路由 |
-| [🤖 Coding Agent (pi)](pi-agent/index.html) | ✅ 已完成 | 12 个机制关系图与真实源码高亮 · 会话分支 · 项目指令与 Skills · MCP 工具暴露 · 可选模型路由与审批扩展 · codemode · 运行中补充指令 · 按 Token 水位压缩 |
+| [🤖 Coding Agent (pi)](pi-agent/index.html) | ✅ 已完成 | 架构和源码入口 · 12 站机制链路图与源码永久链接 · 单步与变量面板 · 会话分支 · 项目指令与 Skills · MCP 工具暴露 · 可选模型路由与审批扩展 · codemode · 运行中补充指令 · 按 Token 水位压缩 |
 | [🌐 浏览器](browser/index.html) | 🚧 建设中 | 渲染流程 · 事件循环 · 跨域 · 缓存 · 性能优化 |
 
 ## 🖥️ 在线阅读
@@ -57,3 +57,9 @@ note-garden/
 ---
 
 🌿 由 MySQL 开始，慢慢种。
+
+## Pi 源码导读维护
+
+`pi-agent/` 只保留 `index.html` 和 `basics.html` 两篇文章。源码导读 `index.html` 的样式、数据和交互全部内联，直接双击打开；修改 HTML 即可，无需安装依赖、构建或打包。
+
+源码链接固定到 Pi commit `62752fd4c37a`，最新版另有入口。更新讲解版本时，对照仓库原文核对代码节选和行号。页面单步为教学模拟，真实变量请按「架构和源码入口」里的步骤在本地调试。

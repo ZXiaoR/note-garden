@@ -1,0 +1,1603 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent 是什么？从基础循环到 Harness 工程实现</title>
+  <style id="base-styles">
+    /* 页面基础样式已内联，无需构建或联网加载。 */
+*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.container{width:100%}@media (min-width:640px){.container{max-width:640px}}@media (min-width:768px){.container{max-width:768px}}@media (min-width:1024px){.container{max-width:1024px}}@media (min-width:1280px){.container{max-width:1280px}}@media (min-width:1536px){.container{max-width:1536px}}.pointer-events-none{pointer-events:none}.visible{visibility:visible}.absolute{position:absolute}.relative{position:relative}.sticky{position:sticky}.inset-0{inset:0}.bottom-16{bottom:4rem}.top-0{top:0}.my-3{margin-top:.75rem;margin-bottom:.75rem}.mb-2{margin-bottom:.5rem}.mt-1{margin-top:.25rem}.mt-2{margin-top:.5rem}.mt-3{margin-top:.75rem}.mt-4{margin-top:1rem}.block{display:block}.flex{display:flex}.grid{display:grid}.\!hidden{display:none!important}.hidden{display:none}.h-4{height:1rem}.h-full{height:100%}.w-4\/5{width:80%}.w-full{width:100%}.min-w-0{min-width:0}.flex-1{flex:1 1 0%}.flex-shrink{flex-shrink:1}.shrink-0{flex-shrink:0}.transform{transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-pointer{cursor:pointer}.resize{resize:both}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.items-stretch{align-items:stretch}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-1{gap:.25rem}.gap-1\.5{gap:.375rem}.gap-10{gap:2.5rem}.gap-2{gap:.5rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}.space-y-3\.5>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.875rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.875rem*var(--tw-space-y-reverse))}.space-y-4>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem*var(--tw-space-y-reverse))}.space-y-5>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1.25rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1.25rem*var(--tw-space-y-reverse))}.overflow-hidden{overflow:hidden}.overflow-x-auto{overflow-x:auto}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.whitespace-pre-line{white-space:pre-line}.rounded{border-radius:.25rem}.rounded-lg{border-radius:.5rem}.rounded-xl{border-radius:.75rem}.border{border-width:1px}.border-l-2{border-left-width:2px}.border-amber-200{--tw-border-opacity:1;border-color:rgb(253 230 138/var(--tw-border-opacity,1))}.border-stone-200{--tw-border-opacity:1;border-color:rgb(231 229 228/var(--tw-border-opacity,1))}.border-stone-700{--tw-border-opacity:1;border-color:rgb(68 64 60/var(--tw-border-opacity,1))}.bg-amber-400{--tw-bg-opacity:1;background-color:rgb(251 191 36/var(--tw-bg-opacity,1))}.bg-amber-50{--tw-bg-opacity:1;background-color:rgb(255 251 235/var(--tw-bg-opacity,1))}.bg-amber-500{--tw-bg-opacity:1;background-color:rgb(245 158 11/var(--tw-bg-opacity,1))}.bg-stone-200{--tw-bg-opacity:1;background-color:rgb(231 229 228/var(--tw-bg-opacity,1))}.bg-stone-800{--tw-bg-opacity:1;background-color:rgb(41 37 36/var(--tw-bg-opacity,1))}.bg-stone-900{--tw-bg-opacity:1;background-color:rgb(28 25 23/var(--tw-bg-opacity,1))}.bg-stone-950{--tw-bg-opacity:1;background-color:rgb(12 10 9/var(--tw-bg-opacity,1))}.bg-stone-950\/15{background-color:rgba(12,10,9,.15)}.p-2\.5{padding:.625rem}.p-3{padding:.75rem}.p-4{padding:1rem}.p-5{padding:1.25rem}.px-1\.5{padding-left:.375rem;padding-right:.375rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-3{padding-left:.75rem;padding-right:.75rem}.px-3\.5{padding-left:.875rem;padding-right:.875rem}.px-4{padding-left:1rem;padding-right:1rem}.py-0\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.py-4{padding-top:1rem;padding-bottom:1rem}.text-center{text-align:center}.font-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace}.text-\[10\.5px\]{font-size:10.5px}.text-\[10px\]{font-size:10px}.text-lg{font-size:1.125rem;line-height:1.75rem}.text-sm{font-size:.875rem;line-height:1.25rem}.text-xl{font-size:1.25rem;line-height:1.75rem}.text-xs{font-size:.75rem;line-height:1rem}.font-bold{font-weight:700}.font-medium{font-weight:500}.font-semibold{font-weight:600}.leading-relaxed{line-height:1.625}.text-amber-400{--tw-text-opacity:1;color:rgb(251 191 36/var(--tw-text-opacity,1))}.text-amber-800{--tw-text-opacity:1;color:rgb(146 64 14/var(--tw-text-opacity,1))}.text-amber-900{--tw-text-opacity:1;color:rgb(120 53 15/var(--tw-text-opacity,1))}.text-amber-950{--tw-text-opacity:1;color:rgb(69 26 3/var(--tw-text-opacity,1))}.text-stone-100{--tw-text-opacity:1;color:rgb(245 245 244/var(--tw-text-opacity,1))}.text-stone-200{--tw-text-opacity:1;color:rgb(231 229 228/var(--tw-text-opacity,1))}.text-stone-400{--tw-text-opacity:1;color:rgb(168 162 158/var(--tw-text-opacity,1))}.text-stone-500{--tw-text-opacity:1;color:rgb(120 113 108/var(--tw-text-opacity,1))}.text-stone-600{--tw-text-opacity:1;color:rgb(87 83 78/var(--tw-text-opacity,1))}.text-stone-900{--tw-text-opacity:1;color:rgb(28 25 23/var(--tw-text-opacity,1))}.text-stone-950{--tw-text-opacity:1;color:rgb(12 10 9/var(--tw-bg-opacity,1))}.underline{text-decoration-line:underline}.shadow-sm{--tw-shadow:0 1px 2px 0 rgba(0,0,0,.05);--tw-shadow-colored:0 1px 2px 0 var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,-webkit-backdrop-filter;transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter;transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter,-webkit-backdrop-filter;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.hover\:bg-stone-700:hover{--tw-bg-opacity:1;background-color:rgb(68 64 60/var(--tw-bg-opacity,1))}.hover\:underline:hover{text-decoration-line:underline}@media (min-width:640px){.sm\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.sm\:flex-row{flex-direction:row}.sm\:items-center{align-items:center}.sm\:justify-end{justify-content:flex-end}.sm\:p-5{padding:1.25rem}.sm\:p-6{padding:1.5rem}.sm\:text-2xl{font-size:1.5rem;line-height:2rem}.sm\:text-sm{font-size:.875rem;line-height:1.25rem}}.antialiased{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}.mx-auto{margin-left:auto;margin-right:auto}.mt-0\.5{margin-top:.125rem}.mb-2\.5{margin-bottom:.625rem}.inline-block{display:inline-block}.w-3\/4{width:75%}.max-w-7xl{max-width:80rem}.border-collapse{border-collapse:collapse}.grid-cols-12{grid-template-columns:repeat(12,minmax(0,1fr))}.col-span-5{grid-column:span 5/span 5}.col-span-7{grid-column:span 7/span 7}.self-start{align-self:flex-start}.gap-5{gap:1.25rem}.gap-6{gap:1.5rem}.gap-8{gap:2rem}.space-y-2>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.5rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.5rem*var(--tw-space-y-reverse))}.space-y-3>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.75rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.75rem*var(--tw-space-y-reverse))}.divide-y>:not([hidden])~:not([hidden]){--tw-divide-y-reverse:0;border-top-width:calc(1px*(1 - var(--tw-divide-y-reverse)));border-bottom-width:calc(1px*var(--tw-divide-y-reverse))}.divide-stone-200>:not([hidden])~:not([hidden]){--tw-divide-opacity:1;border-color:rgb(231 229 228/var(--tw-divide-opacity,1))}.rounded-md{border-radius:.375rem}.border-2{border-width:2px}.border-b{border-bottom-width:1px}.border-t-4{border-top-width:4px}.border-amber-300{--tw-border-opacity:1;border-color:rgb(252 211 77/var(--tw-border-opacity,1))}.border-amber-400{--tw-border-opacity:1;border-color:rgb(251 191 36/var(--tw-border-opacity,1))}.border-amber-500{--tw-border-opacity:1;border-color:rgb(245 158 11/var(--tw-border-opacity,1))}.border-blue-200{--tw-border-opacity:1;border-color:rgb(191 219 254/var(--tw-border-opacity,1))}.border-blue-300{--tw-border-opacity:1;border-color:rgb(147 197 253/var(--tw-border-opacity,1))}.border-blue-400{--tw-border-opacity:1;border-color:rgb(96 165 250/var(--tw-border-opacity,1))}.border-emerald-300{--tw-border-opacity:1;border-color:rgb(110 231 183/var(--tw-border-opacity,1))}.border-emerald-400{--tw-border-opacity:1;border-color:rgb(52 211 153/var(--tw-border-opacity,1))}.border-stone-300{--tw-border-opacity:1;border-color:rgb(214 211 209/var(--tw-border-opacity,1))}.bg-amber-400\/30{background-color:rgba(251,191,36,.3)}.bg-amber-50\/60{background-color:rgba(255,251,235,.6)}.bg-blue-50{--tw-bg-opacity:1;background-color:rgb(239 246 255/var(--tw-bg-opacity,1))}.bg-blue-50\/40{background-color:rgba(239,246,255,.4)}.bg-blue-100{--tw-bg-opacity:1;background-color:rgb(219 234 254/var(--tw-bg-opacity,1))}.bg-blue-600{--tw-bg-opacity:1;background-color:rgb(37 99 235/var(--tw-bg-opacity,1))}.bg-blue-950{--tw-bg-opacity:1;background-color:rgb(23 37 84/var(--tw-bg-opacity,1))}.bg-emerald-50\/40{background-color:rgba(236,253,245,.4)}.bg-emerald-100{--tw-bg-opacity:1;background-color:rgb(209 250 229/var(--tw-bg-opacity,1))}.bg-emerald-600{--tw-bg-opacity:1;background-color:rgb(5 150 105/var(--tw-bg-opacity,1))}.bg-emerald-950{--tw-bg-opacity:1;background-color:rgb(2 44 34/var(--tw-bg-opacity,1))}.bg-stone-50{--tw-bg-opacity:1;background-color:rgb(250 250 249/var(--tw-bg-opacity,1))}.bg-stone-100{--tw-bg-opacity:1;background-color:rgb(245 245 244/var(--tw-bg-opacity,1))}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.px-1{padding-left:.25rem;padding-right:.25rem}.px-2\.5{padding-left:.625rem;padding-right:.625rem}.pb-2{padding-bottom:.5rem}.pb-3{padding-bottom:.75rem}.pl-12{padding-left:3rem}.pr-4{padding-right:1rem}.pt-1{padding-top:.25rem}.text-left{text-align:left}.align-top{vertical-align:top}.text-\[9\.5px\]{font-size:9.5px}.text-\[11px\]{font-size:11px}.text-base{font-size:1rem;line-height:1.5rem}.text-amber-300{--tw-text-opacity:1;color:rgb(252 211 77/var(--tw-text-opacity,1))}.text-blue-100{--tw-text-opacity:1;color:rgb(219 234 254/var(--tw-text-opacity,1))}.text-blue-800{--tw-text-opacity:1;color:rgb(30 64 175/var(--tw-text-opacity,1))}.text-blue-900{--tw-text-opacity:1;color:rgb(30 58 138/var(--tw-text-opacity,1))}.text-emerald-100{--tw-text-opacity:1;color:rgb(209 250 229/var(--tw-text-opacity,1))}.text-emerald-800{--tw-text-opacity:1;color:rgb(6 95 70/var(--tw-text-opacity,1))}.text-emerald-900{--tw-text-opacity:1;color:rgb(6 78 59/var(--tw-text-opacity,1))}.text-stone-700{--tw-text-opacity:1;color:rgb(68 64 60/var(--tw-text-opacity,1))}.text-stone-800{--tw-text-opacity:1;color:rgb(41 37 36/var(--tw-text-opacity,1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255/var(--tw-text-opacity,1))}.hover\:bg-amber-400\/50:hover{background-color:rgba(251,191,36,.5)}.hover\:bg-amber-50:hover{--tw-bg-opacity:1;background-color:rgb(255 251 235/var(--tw-bg-opacity,1))}.hover\:bg-blue-50:hover{--tw-bg-opacity:1;background-color:rgb(239 246 255/var(--tw-bg-opacity,1))}.hover\:bg-emerald-50:hover{--tw-bg-opacity:1;background-color:rgb(236 253 245/var(--tw-bg-opacity,1))}.hover\:bg-stone-50:hover{--tw-bg-opacity:1;background-color:rgb(250 250 249/var(--tw-bg-opacity,1))}@media (min-width:640px){.sm\:px-6{padding-left:1.5rem;padding-right:1.5rem}.sm\:text-lg{font-size:1.125rem;line-height:1.75rem}}@media (min-width:768px){.md\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.md\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}}@media (min-width:1024px){.lg\:flex-row{flex-direction:row}.lg\:items-center{align-items:center}.lg\:px-8{padding-left:2rem;padding-right:2rem}}
+  </style>
+  <style>
+    body {
+      background-color: #f8f7f4;
+      color: #1c1917;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    code, pre, .font-mono {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    :where(.card) {
+      background: #ffffff;
+      border: 1px solid #e7e5e4;
+      border-radius: 14px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+    }
+    .node-card {
+      background: #ffffff;
+      border: 1.5px solid #d6d3d1;
+      border-radius: 12px;
+      padding: 12px 14px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      user-select: none;
+      position: relative;
+    }
+    .node-card:hover {
+      border-color: #d97706;
+      background: #fffbeb;
+      transform: translateY(-1px);
+    }
+    .node-card.active {
+      background: #fef3c7;
+      border: 2px solid #f59e0b;
+      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.16);
+      transform: translateY(-1px);
+    }
+    .node-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f5f5f4;
+      color: #57534e;
+      border: 1px solid #d6d3d1;
+      flex-shrink: 0;
+    }
+    .node-card.active .node-num {
+      background: #f59e0b;
+      color: #ffffff;
+      border-color: #d97706;
+    }
+    .sim-box {
+      border: 1.5px solid #e7e5e4;
+      border-radius: 12px;
+      padding: 12px;
+      transition: all 0.25s ease;
+      background: #fafaf9;
+    }
+    .sim-box.sim-active {
+      border-color: #f59e0b;
+      background: #fffbeb;
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+    }
+    html { scroll-behavior: smooth; }
+    section, #engineering { scroll-margin-top: 18px; }
+    .grid > *, .flex > * { min-width: 0; }
+    h1, h2, h3, p, a, .fw-pill { overflow-wrap: anywhere; }
+    h1, h2, h3 { line-height: 1.5; }
+    pre { overflow-wrap: anywhere; word-break: break-word; }
+    button { max-width: 100%; text-align: left; line-height: 1.6; }
+    .node-card { border-width: 2px; }
+    .node-card > div:first-child { align-items: flex-start; }
+    .node-card > div:first-child > span:last-child { line-height: 1.7; }
+    .f-node { line-height: 1.65; }
+    .f-node .flex { flex-wrap: wrap; gap: 6px; }
+    .reading-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+    .reading-nav a { display: block; padding: 9px 12px; border: 1px solid #d6d3d1; border-radius: 8px; background: #fff; color: #57534e; font-size: 12px; line-height: 1.7; }
+    .reading-nav a:hover { border-color: #d97706; color: #92400e; }
+    .project-facts { display: grid; grid-template-columns: 4em minmax(0, 1fr); gap: 8px 12px; color: #57534e; }
+    .project-facts dt { font-weight: 700; color: #292524; }
+    .sim-heading { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; font-weight: 700; line-height: 1.6; }
+    .sim-number { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #44403c; color: #fff; font-size: 12px; font-weight: 700; line-height: 1; font-family: ui-sans-serif, system-ui, sans-serif; }
+    .sim-active .sim-number { background: #fbbf24; color: #1c1917; }
+    .sim-trace-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .sim-trace-heading .sim-number { background: #fbbf24; color: #1c1917; }
+    .fw-pill {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+    td, th { overflow-wrap: anywhere; }
+    .engineering-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; align-items: start; }
+    .engineering-scenarios { display: grid; gap: 6px; }
+    .engineering-scenario.node-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; border: 1px solid transparent; border-radius: 9px; box-shadow: none; background: #fafaf9; color: #57534e; font-size: 13px; font-weight: 600; text-align: left; line-height: 1.6; transform: none; }
+    .engineering-scenario.node-card.active { border-color: #fbbf24; background: #fffbeb; color: #1c1917; box-shadow: none; transform: none; }
+    .engineering-scenario.node-card:hover { border-color: #fbbf24; transform: none; }
+    .engineering-scenario:focus-visible { outline: 2px solid #d97706; outline-offset: 2px; }
+    .engineering-scenario .node-num { width: 22px; height: 22px; font-size: 11px; }
+    .engineering-scenario.active .node-num { background: #fbbf24; border-color: #fbbf24; color: #1c1917; }
+    .scenario-chevron { margin-left: auto; color: #a8a29e; font-size: 22px; flex-shrink: 0; }
+    .engineering-scenario.active .scenario-chevron { color: #b45309; }
+    .engineering-detail { border-left: 1px solid #e7e5e4; padding-left: 24px; }
+    .engineering-chain { display: grid; gap: 0; }
+    .engineering-stage { position: relative; padding: 0 0 20px 26px; border-left: 2px solid #e7e5e4; margin-left: 5px; }
+    .engineering-stage::before { content: ""; position: absolute; left: -6px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: #d6d3d1; border: 2px solid #fff; box-sizing: content-box; }
+    .engineering-stage:last-child { padding-bottom: 0; border-left-color: transparent; }
+    .engineering-stage:last-child::before { background: #fbbf24; }
+    .engineering-stage h4 { font-size: 13px; font-weight: 700; color: #57534e; margin: 0 0 6px; }
+    .engineering-stage p { font-size: 14px; line-height: 1.85; color: #44403c; margin: 0; }
+    .engineering-stage:last-child h4 { color: #92400e; }
+    .engineering-stage p + .solution-steps { margin-top: 10px; }
+    .solution-steps { display: grid; gap: 10px; margin: 0; padding-left: 20px; list-style: decimal; }
+    .solution-steps li { padding-left: 3px; color: #57534e; font-size: 14px; line-height: 1.8; }
+    .solution-steps li::marker { color: #a8a29e; font-weight: 600; }
+    .solution-steps strong { color: #44403c; font-weight: 600; margin-right: 8px; }
+    .solution-steps span { color: #57534e; }
+    .engineering-question { margin-top: 22px; padding-top: 16px; border-top: 1px dashed #d6d3d1; }
+    @media (max-width: 900px) {
+      .engineering-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+      .engineering-scenarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .engineering-detail { border-left: 0; border-top: 1px solid #e7e5e4; padding: 20px 0 0; }
+    }
+    @media (max-width: 479px) {
+      .engineering-scenarios { grid-template-columns: minmax(0, 1fr); }
+    }
+    @keyframes dashFlow {
+      to {
+        stroke-dashoffset: -32;
+      }
+    }
+    .edge-flow-anim {
+      stroke-dasharray: 10 6;
+      animation: dashFlow 1s linear infinite;
+    }
+    .f-node {
+      background: #ffffff;
+      border: 2px solid #d6d3d1;
+      border-radius: 10px;
+      padding: 8px 10px;
+      position: relative;
+      z-index: 3;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    }
+    .f-node.f-active-blue {
+      background: #eff6ff;
+      border: 2px solid #2563eb;
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+    }
+    .f-node.f-active-amber {
+      background: #fef3c7;
+      border: 2px solid #d97706;
+      box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.18);
+    }
+    .f-node.f-active-emerald {
+      background: #ecfdf5;
+      border: 2px solid #059669;
+      box-shadow: 0 0 0 4px rgba(5, 150, 105, 0.16);
+    }
+    .f-node, td, th { overflow-wrap: anywhere; }
+    .flow-viewport { overflow-x: auto; padding: 5px; }
+    .flow-canvas {
+      min-width: 760px;
+      display: flex;
+      flex-direction: column;
+      gap: 112px;
+      position: relative;
+    }
+    .edge-pill {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px 2px 3px;
+      border-radius: 9999px;
+      background: #ffffff;
+      border: 1.5px solid #94a3b8;
+      box-shadow: 0 2px 5px rgba(15, 23, 42, 0.12);
+      max-width: 160px;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .edge-pill .edge-num {
+      width: 20px;
+      height: 20px;
+      border-radius: 9999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      font-weight: 900;
+      line-height: 1;
+      color: #ffffff;
+      background: #334155;
+      flex-shrink: 0;
+    }
+    .edge-pill .edge-txt {
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.3;
+      color: #334155;
+    }
+    .edge-pill.act-blue {
+      background: #eff6ff;
+      border: 2px solid #2563eb;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+    }
+    .edge-pill.act-blue .edge-num {
+      background: #2563eb;
+      color: #ffffff;
+    }
+    .edge-pill.act-blue .edge-txt {
+      color: #1e3a8a;
+    }
+    .edge-pill.act-amber {
+      background: #fffbeb;
+      border: 2px solid #d97706;
+      box-shadow: 0 2px 8px rgba(217, 119, 6, 0.25);
+    }
+    .edge-pill.act-amber .edge-num {
+      background: #d97706;
+      color: #ffffff;
+    }
+    .edge-pill.act-amber .edge-txt {
+      color: #78350f;
+    }
+    .edge-pill.act-emerald {
+      background: #ecfdf5;
+      border: 2px solid #059669;
+      box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+    }
+    .edge-pill.act-emerald .edge-num {
+      background: #059669;
+      color: #ffffff;
+    }
+    .edge-pill.act-emerald .edge-txt {
+      color: #064e3b;
+    }
+    .comparison-grid { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); gap: 12px; align-items: stretch; }
+    .comparison-card { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: 12px; border: 2px solid #e7e5e4; border-radius: 12px; background: #fafaf9; min-width: 0; }
+    .comparison-agent { border-color: #fcd34d; background: #fffbeb; }
+    .comparison-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; min-height: 32px; }
+    .comparison-label { padding: 4px 8px; border-radius: 5px; background: #e7e5e4; color: #292524; font-size: 12px; font-weight: 700; line-height: 1.5; }
+    .comparison-agent .comparison-label { background: #fbbf24; }
+    .comparison-card .flow-viewport { padding: 0; min-width: 0; max-width: 100%; overflow-x: auto; }
+    .plain-llm-diagram { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px; padding: 10px 16px; border: 1px solid #e7e5e4; border-radius: 12px; background: #fff; }
+    .plain-llm-node { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 2px 10px; width: 100%; padding: 7px 8px; border: 1px solid #d6d3d1; border-radius: 8px; text-align: center; }
+    .plain-llm-node strong { color: #44403c; font-size: 12px; }
+    .plain-llm-node span { color: #78716c; font-size: 11px; line-height: 1.6; }
+    .plain-llm-link { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 26px; color: #78716c; font-size: 10px; line-height: 1.5; }
+    .plain-llm-link b { font-size: 20px; line-height: 1; color: #a8a29e; }
+    .comparison-footer { box-sizing: border-box; display: flex; flex-wrap: wrap; align-content: center; align-items: center; min-height: 54px; margin: 0; padding: 7px 8px; border-top: 1px solid #e7e5e4; }
+    .comparison-agent .comparison-footer { border-top-color: #fde68a; }
+    @media (max-width: 1023px) { .comparison-grid { grid-template-columns: minmax(0, 1fr); } }
+    .basic-agent-canvas { position: relative; min-width: 520px; max-width: 600px; margin-inline: auto; border: 1px solid #e7e5e4; border-radius: 12px; background: #fff; }
+    #basic-agent-svg { display: block; width: 100%; height: auto; aspect-ratio: 560 / 240; }
+    .basic-agent-canvas foreignObject { overflow: visible; }
+    .basic-svg-node { box-sizing: border-box; width: 100%; height: 100%; padding: 5px 8px; border: 2px solid #d6d3d1; border-radius: 9px; background: #fff; display: flex; flex-direction: column; justify-content: center; }
+    .basic-agent-canvas .sim-box { border-width: 2px; box-shadow: none; }
+    .basic-agent-canvas .sim-active, .basic-svg-answer.f-active-amber { background: #fffbeb; border-color: #fbbf24; box-shadow: none; }
+    .basic-agent-canvas .sim-heading { margin: 0 0 2px; font-size: 12px; line-height: 20px; white-space: nowrap; }
+    .basic-agent-canvas .sim-number { width: 20px; height: 20px; font-size: 11px; }
+    .basic-agent-canvas p { margin: 0; font-size: 11px; line-height: 16px; color: #57534e; white-space: nowrap; }
+    .basic-agent-canvas .basic-svg-goal { flex-direction: row; align-items: center; gap: 8px; }
+    .basic-agent-canvas .basic-svg-goal .sim-heading { margin: 0; }
+    .basic-svg-answer strong { font-size: 12px; line-height: 20px; }
+    .sim-trace-compact { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 10px; border-top: 1px solid #fde68a; }
+    .sim-trace-compact .sim-trace-heading { margin: 0; gap: 6px; }
+    .sim-trace-compact .sim-number { width: 20px; height: 20px; font-size: 11px; }
+    .demo-sources { border-top: 1px solid #e7e5e4; padding-top: 14px; }
+  </style>
+</head>
+<body class="antialiased py-4 px-4 sm:px-6 lg:px-8">
+
+  <div class="max-w-7xl mx-auto space-y-5">
+
+    <!-- ==================== TOP CHAPTER SWITCHER ==================== -->
+    <div class="card p-2.5 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2 bg-stone-900 text-stone-100">
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="basics.html" class="px-3.5 py-2 rounded-lg bg-amber-500 text-stone-950 font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow-sm">
+          <span>🧭 第 1 篇：Agent 基础全景 &amp; 框架对比</span>
+          <span class="px-1.5 py-0.5 rounded bg-stone-950/15 text-[10px]">当前所在</span>
+        </a>
+        <a href="index.html" class="px-3.5 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium text-xs sm:text-sm flex items-center gap-1.5 transition-colors">
+          <span>🔬 第 2 篇：Pi 的 12 个核心机制与源码导读</span>
+          <span class="text-amber-400 font-mono text-xs">➔</span>
+        </a>
+      </div>
+      <div class="flex items-center justify-between sm:justify-end gap-3 px-2 text-xs text-stone-400">
+        <span>从能执行工具，到读懂工程实现</span>
+        <a href="../index.html" class="text-amber-400 hover:underline font-medium shrink-0">← 返回知识花园</a>
+      </div>
+    </div>
+
+    <nav class="reading-nav" aria-label="本页阅读路线">
+      <a href="#basic-loop">01 · Agent 是什么</a>
+      <a href="#engineering">02 · 从基础能力推导工程问题</a>
+      <a href="#why-harness">03 · 为什么需要工程化</a>
+      <a href="#open-source">04 · 开源方案如何落地</a>
+      <a href="#why-pi">05 · 带着问题读源码</a>
+    </nav>
+
+    <!-- ==================== DIAGRAM 1: LLM vs AGENT + 4-STEP MINI SIMULATOR ==================== -->
+    <div id="basic-loop" class="card p-4 space-y-3">
+      <div class="flex flex-col gap-1 border-b border-stone-200 pb-2">
+        <div>
+          <h2 class="text-base sm:text-lg font-bold text-stone-900">图 1：Agent 是什么？模型、工具与宿主循环怎样配合</h2>
+          <p class="text-xs text-stone-500">在工具型 Agent 中，模型生成文本或工具调用；访问文件、执行命令由宿主完成。</p>
+        </div>
+        <span class="text-xs font-mono px-2.5 py-1 rounded bg-stone-100 text-stone-600 self-start">Agent = 大模型(大脑) + 宿主循环(调度员) + 工具箱(手脚) + 上下文(记事本)</span>
+      </div>
+
+      <!-- The two cards share header, diagram and footer alignment. -->
+      <div class="comparison-grid">
+        <section class="comparison-card comparison-llm" aria-label="仅调用模型 API">
+          <div class="comparison-header">
+            <span class="comparison-label">A. 仅调用模型 API</span>
+            <span class="text-xs text-stone-500">一问一答</span>
+          </div>
+          <div class="plain-llm-diagram">
+            <div class="plain-llm-node"><strong>用户提问</strong><span>“修复 login.ts 的登录报错”</span></div>
+            <div class="plain-llm-link"><span>问题文本</span><b aria-hidden="true">↓</b></div>
+            <div class="plain-llm-node"><strong>模型 API</strong><span>根据已有输入生成回答</span></div>
+            <div class="plain-llm-link"><span>回答文本</span><b aria-hidden="true">↓</b></div>
+            <div class="plain-llm-node"><strong>返回修改建议</strong><span>由用户自己操作文件和运行测试</span></div>
+          </div>
+          <p class="comparison-footer text-xs text-stone-600 leading-relaxed">未接工具时，模型无法直接读取项目、修改文件或执行测试。</p>
+        </section>
+        <section class="comparison-card comparison-agent" aria-label="带工具循环的 Agent">
+          <div class="comparison-header">
+            <span class="comparison-label">B. Agent：模型 + 工具循环</span>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button onclick="prevSim()" class="px-2 py-1 rounded border border-stone-300 bg-white hover:bg-stone-50 text-xs font-medium">◀ 上一步</button>
+              <span id="sim-step-label" class="font-mono text-xs font-bold text-amber-900 px-1">1 / 4</span>
+              <button onclick="nextSim()" class="px-2 py-1 rounded border border-amber-500 bg-amber-400/30 hover:bg-amber-400/50 text-xs font-bold text-stone-900">下一步 ▶</button>
+            </div>
+          </div>
+          <div class="flow-viewport" tabindex="0" role="region" aria-label="基础 Agent 循环图，可横向滚动">
+            <div id="basic-agent-canvas" class="basic-agent-canvas">
+              <svg id="basic-agent-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 240" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="basic-agent-graph-title">
+                <title id="basic-agent-graph-title">用户目标进入宿主，宿主请求模型，模型选择工具或答复；工具结果回填宿主并继续循环。</title>
+                <g id="basic-agent-edges"></g>
+                <foreignObject id="sim-node-0-slot" x="140" y="8" width="280" height="34">
+                  <div xmlns="http://www.w3.org/1999/xhtml" id="sim-node-0" onclick="setSim(0)" class="basic-svg-node basic-svg-goal sim-box cursor-pointer">
+                    <div class="sim-heading"><span class="sim-number">1</span><span>用户目标</span></div><p>修复 login.ts 的登录报错</p>
+                  </div>
+                </foreignObject>
+                <foreignObject id="sim-node-1-slot" x="44" y="88" width="180" height="54">
+                  <div xmlns="http://www.w3.org/1999/xhtml" id="sim-node-1" onclick="setSim(1)" class="basic-svg-node sim-box cursor-pointer">
+                    <div class="sim-heading"><span class="sim-number">2</span><span>宿主组装请求</span></div><p>目标 + 历史 + 工具说明</p>
+                  </div>
+                </foreignObject>
+                <foreignObject id="sim-node-2-slot" x="336" y="88" width="180" height="54">
+                  <div xmlns="http://www.w3.org/1999/xhtml" id="sim-node-2" onclick="setSim(2)" class="basic-svg-node sim-box cursor-pointer">
+                    <div class="sim-heading"><span class="sim-number">3</span><span>模型决策</span></div><p>提出工具调用，或给出答复</p>
+                  </div>
+                </foreignObject>
+                <foreignObject id="sim-node-3-slot" x="44" y="180" width="180" height="50">
+                  <div xmlns="http://www.w3.org/1999/xhtml" id="sim-node-3" onclick="setSim(3)" class="basic-svg-node sim-box cursor-pointer">
+                    <div class="sim-heading"><span class="sim-number">4</span><span>宿主执行工具</span></div><p>read / edit / bash</p>
+                  </div>
+                </foreignObject>
+                <foreignObject id="basic-agent-answer-slot" x="336" y="180" width="180" height="50">
+                  <div xmlns="http://www.w3.org/1999/xhtml" id="basic-agent-answer" class="basic-svg-node basic-svg-answer">
+                    <strong>答复用户</strong><p>无工具调用时，结束本轮</p>
+                  </div>
+                </foreignObject>
+              </svg>
+              <div id="basic-agent-badges" hidden></div>
+            </div>
+          </div>
+          <div class="sim-trace-compact comparison-footer">
+            <div class="sim-trace-heading"><span id="sim-trace-number" class="sim-number"></span><span id="sim-trace-title" class="text-stone-900 font-bold text-xs"></span></div>
+            <p id="sim-trace-body" class="text-xs text-stone-600 leading-relaxed"></p>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ==================== DIAGRAM 2: engineering problems derived from the basic loop ==================== -->
+    <div id="engineering" class="card p-5 sm:p-6 space-y-4">
+      <div class="flex flex-col gap-2 border-b border-stone-200 pb-3">
+        <div>
+          <h2 class="text-base sm:text-lg font-bold text-stone-900">
+            图 2：从基础循环出发，工程机制是怎样一步步补出来的？
+          </h2>
+
+        </div>
+      </div>
+
+      <div class="engineering-layout">
+        <nav class="engineering-scenarios" aria-label="选择工程问题场景">
+          <button type="button" id="arch-node-0" onclick="selectArchNode(0)" class="node-card engineering-scenario active" aria-controls="engineering-detail" aria-pressed="true"><span class="node-num">1</span><span>用户中途改了要求</span><span class="scenario-chevron" aria-hidden="true">›</span></button>
+          <button type="button" id="arch-node-1" onclick="selectArchNode(1)" class="node-card engineering-scenario" aria-controls="engineering-detail" aria-pressed="false"><span class="node-num">2</span><span>任务太长，上下文满了</span><span class="scenario-chevron" aria-hidden="true">›</span></button>
+          <button type="button" id="arch-node-2" onclick="selectArchNode(2)" class="node-card engineering-scenario" aria-controls="engineering-detail" aria-pressed="false"><span class="node-num">3</span><span>换个项目，不知道规矩</span><span class="scenario-chevron" aria-hidden="true">›</span></button>
+          <button type="button" id="arch-node-3" onclick="selectArchNode(3)" class="node-card engineering-scenario" aria-controls="engineering-detail" aria-pressed="false"><span class="node-num">4</span><span>工具变多，请求越来越重</span><span class="scenario-chevron" aria-hidden="true">›</span></button>
+          <button type="button" id="arch-node-4" onclick="selectArchNode(4)" class="node-card engineering-scenario" aria-controls="engineering-detail" aria-pressed="false"><span class="node-num">5</span><span>模型给出的动作不可靠</span><span class="scenario-chevron" aria-hidden="true">›</span></button>
+          <button type="button" id="arch-node-5" onclick="selectArchNode(5)" class="node-card engineering-scenario" aria-controls="engineering-detail" aria-pressed="false"><span class="node-num">6</span><span>并发修改冲突，日志太多</span><span class="scenario-chevron" aria-hidden="true">›</span></button>
+          <button type="button" id="arch-node-6" onclick="selectArchNode(6)" class="node-card engineering-scenario" aria-controls="engineering-detail" aria-pressed="false"><span class="node-num">7</span><span>等待人工协助后，退出再打开</span><span class="scenario-chevron" aria-hidden="true">›</span></button>
+        </nav>
+        <div id="engineering-detail" role="region" aria-label="当前场景的工程机制" class="engineering-detail">
+          <div class="engineering-chain" id="detail-fw-grid"></div>
+          <aside class="engineering-question" aria-labelledby="interview-label">
+            <h4 id="interview-label" class="text-xs font-bold text-stone-600">场景思考 · 如果由你实现</h4>
+            <p id="detail-interview-question" class="text-sm text-stone-700 leading-relaxed mt-2"></p>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <section id="why-harness" class="card p-5 sm:p-6 space-y-4">
+      <div class="space-y-2">
+        <h2 class="text-base sm:text-lg font-bold">这些问题逐步落到代码里，就形成了 Harness 的工程实现</h2>
+        <p class="text-sm text-stone-600 leading-relaxed">最小循环解决“动作怎样执行”。为了让真实任务持续推进，还要按需求补上输入调度、历史保存、上下文管理、工具发现、执行校验、副作用协调与暂停恢复。围绕模型与工具循环组织这些运行机制，就是本页讨论的 Harness。</p>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs leading-relaxed">
+        <article class="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-2"><h3 class="text-sm font-bold">遇到具体问题</h3><p class="text-stone-600">任务中途补充了要求，或者上下文里积累了大量工具输出。先描述触发条件和影响。</p></article>
+        <article class="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-2"><h3 class="text-sm font-bold">增加对应机制</h3><p class="text-stone-600">用队列与检查点接收输入，用预算、摘要或文件外置管理上下文。按场景选择需要的能力。</p></article>
+        <article class="p-4 rounded-xl bg-amber-50 border border-amber-200 space-y-2"><h3 class="text-sm font-bold">读源码验证实现</h3><p class="text-stone-600">队列在哪里消费？摘要何时触发？结果怎样写回？异常时如何处理？把设计名词落实到数据、状态与执行路径。</p></article>
+      </div>
+      <p class="text-sm text-amber-950 leading-relaxed"><strong>所以下面比较开源方案，是为了学习不同的落地方式：</strong>机制如何组合，哪些默认提供，哪些交给扩展，以及各自付出了什么复杂度。简单循环本身也是 Harness 的起点；工程能力应随任务需要增加。</p>
+    </section>
+
+    <aside id="minimal-baseline" class="card p-5 sm:p-6 space-y-3">
+      <h2 class="text-base sm:text-lg font-bold">最小参照：mini-swe-agent</h2>
+      <p class="text-sm text-stone-600 leading-relaxed">它以 Bash 驱动、线性历史和独立执行的 Shell 动作展示一个简洁实现。可以先用它观察“模型提出动作，宿主执行后把结果送回”的闭环。<a class="text-blue-900 underline" href="https://github.com/SWE-agent/mini-swe-agent#readme" target="_blank" rel="noopener">查看官方实现 ↗</a></p>
+      <p class="text-sm text-amber-950 leading-relaxed"><strong>阅读参照：</strong>先看最小循环如何写出来，再带着图 2 的问题，观察其他实现增加了哪些运行机制。</p>
+    </aside>
+
+    <section id="open-source" class="card p-5 sm:p-6 space-y-4">
+      <div class="space-y-2"><h2 class="text-base sm:text-lg font-bold">六个开源方案：这些工程问题分别怎样落地？</h2><p class="text-sm text-stone-600 leading-relaxed">带着图 2 的问题看 Pi、Deep Agents、DSH、OpenCode、Codex 与 OpenHands SDK：它们优先完善哪些机制，用什么结构组合能力？下面先比较设计侧重点，读源码时再追踪具体实现。</p></div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <article class="card p-4 space-y-3 border-t-4 border-amber-400">
+          <div><h3 class="text-base font-bold text-stone-900">Pi</h3><p class="text-sm font-semibold text-amber-900 mt-1">精简核心 + 扩展边界</p></div>
+          <dl class="project-facts text-xs leading-relaxed"><dt>侧重点</dt><dd>关注一次 Coding Agent 会话怎样清晰地运转。</dd><dt>亮点</dt><dd>循环、会话与工具链可沿源码追踪；通过扩展、Skills 和 SDK 适配工作方式。</dd><dt>阅读取舍</dt><dd>适合先学习基础机制；复杂协作流程通常需要自行组合扩展。</dd></dl>
+          <a class="inline-block text-xs text-amber-900 underline" href="https://github.com/earendil-works/pi/blob/62752fd4c37a/README.md" target="_blank" rel="noopener">Pi README（导读版本） ↗</a>
+        </article>
+        <article class="card p-4 space-y-3 border-t-4 border-blue-400">
+          <div><h3 class="text-base font-bold text-stone-900">Deep Agents</h3><p class="text-sm font-semibold text-blue-900 mt-1">长任务能力的默认组合</p></div>
+          <dl class="project-facts text-xs leading-relaxed"><dt>侧重点</dt><dd>关注多步任务中的计划、上下文与子任务委派。</dd><dt>亮点</dt><dd>将规划、文件后端、摘要、长输出卸载和独立上下文的子 Agent 组合起来。</dd><dt>阅读取舍</dt><dd>默认能力丰富；读源码时需要同时理解 LangChain 中间件与 LangGraph 运行时。</dd></dl>
+          <a class="inline-block text-xs text-blue-900 underline" href="https://github.com/langchain-ai/deepagents#readme" target="_blank" rel="noopener">Deep Agents README ↗</a>
+        </article>
+        <article class="card p-4 space-y-3 border-t-4 border-emerald-400">
+          <div><h3 class="text-base font-bold text-stone-900">DeepSeek Harness</h3><p class="text-sm font-semibold text-emerald-900 mt-1">可组合的插件运行底座</p></div>
+          <dl class="project-facts text-xs leading-relaxed"><dt>侧重点</dt><dd>关注运行能力怎样被装配、替换和扩展。</dd><dt>亮点</dt><dd>以 Cordis 插件树组织模型、工具、日志和循环，Profile / Bundle 描述能力组合。</dd><dt>阅读取舍</dt><dd>适合学习可组合架构；阅读时需要先理解插件生命周期和事件接口。</dd></dl>
+          <a class="inline-block text-xs text-emerald-900 underline" href="https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md" target="_blank" rel="noopener">DSH 架构文档 ↗</a>
+        </article>
+        <article class="card p-4 space-y-3 border-t-4 border-blue-400">
+          <div><h3 class="text-base font-bold text-stone-900">OpenCode</h3><p class="text-sm font-semibold text-blue-900 mt-1">产品化的 Coding Agent 体验</p></div>
+          <dl class="project-facts text-xs leading-relaxed"><dt>侧重点</dt><dd>关注开发者在探索、计划和执行之间如何切换。</dd><dt>亮点</dt><dd>Build / Plan 内置 Agent、general 子 Agent，以及终端、桌面和 Web 界面；可对照研究模式与能力边界。</dd><dt>阅读取舍</dt><dd>适合在理解循环后看完整交互产品；UI、会话与 Agent 能力需要分层阅读。</dd></dl>
+          <a class="inline-block text-xs text-blue-900 underline" href="https://github.com/anomalyco/opencode" target="_blank" rel="noopener">OpenCode 官方仓库 ↗</a>
+        </article>
+        <article class="card p-4 space-y-3 border-t-4 border-emerald-400">
+          <div><h3 class="text-base font-bold text-stone-900">Codex Harness</h3><p class="text-sm font-semibold text-emerald-900 mt-1">运行边界 + 应用集成</p></div>
+          <dl class="project-facts text-xs leading-relaxed"><dt>侧重点</dt><dd>关注会话状态、执行事件与应用如何控制 Agent。</dd><dt>亮点</dt><dd>组织跨回合状态、流式执行和配置的沙箱 / 审批策略；app-server 提供会话、事件与审批接口。</dd><dt>阅读取舍</dt><dd>适合研究产品集成与宿主边界；CLI、app-server、SDK 和模型服务需要区分。</dd></dl>
+          <a class="inline-block text-xs text-emerald-900 underline" href="https://developers.openai.com/blog/codex-as-a-platform" target="_blank" rel="noopener">OpenAI 官方架构说明 ↗</a>
+        </article>
+        <article class="card p-4 space-y-3 border-t-4 border-blue-400">
+          <div><h3 class="text-base font-bold text-stone-900">OpenHands SDK</h3><p class="text-sm font-semibold text-blue-900 mt-1">执行环境 + 服务化边界</p></div>
+          <dl class="project-facts text-xs leading-relaxed"><dt>侧重点</dt><dd>关注代码 Agent 怎样在不同工作空间中运行并接入应用。</dd><dt>亮点</dt><dd>以 Agent、Tool、Conversation、Workspace 等对象组织能力；Agent Server 支持本地或临时容器工作空间。</dd><dt>阅读取舍</dt><dd>适合研究执行环境与部署；SDK / Agent Server、界面和自动化调度分别属于不同组件。</dd></dl>
+          <a class="inline-block text-xs text-blue-900 underline" href="https://github.com/OpenHands/software-agent-sdk" target="_blank" rel="noopener">OpenHands SDK 官方仓库 ↗</a>
+        </article>
+      </div>
+      <aside class="p-4 rounded-xl bg-amber-50 border border-amber-300 space-y-2">
+        <h3 class="text-sm font-bold text-amber-950">上层应用案例 · DS SuperAgent</h3>
+        <p class="text-xs text-stone-700 leading-relaxed">基于 DSH 的仓库工作研究原型：接入 GitHub / 可选飞书事件，评估后创建工单，把工作分配给执行会话，再协调追问与交付。下一节展开它如何复用 Harness 的能力。</p>
+        <div class="reading-nav"><a href="#harness-and-superagent">查看 DSH 与 SuperAgent 的分层图 ↓</a><a href="https://github.com/deepseek-ai/dsh-superagent-prototype#readme" target="_blank" rel="noopener">SuperAgent 官方说明 ↗</a></div>
+      </aside>
+      <details class="p-4 rounded-xl bg-stone-50 border border-stone-200">
+        <summary class="text-sm font-bold cursor-pointer">扩展阅读：Gemini CLI 与 Goose</summary>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 text-xs leading-relaxed">
+          <p><a class="font-bold text-blue-900 underline" href="https://github.com/google-gemini/gemini-cli" target="_blank" rel="noopener">Gemini CLI ↗</a>：可补充终端代码操作、MCP 和非交互自动化的对照。阅读时追踪交互输入与脚本输入怎样进入同一个执行系统。</p>
+          <p><a class="font-bold text-emerald-900 underline" href="https://github.com/aaif-goose/goose" target="_blank" rel="noopener">Goose ↗</a>：本地通用 Agent，通过 MCP 扩展工具，提供桌面、CLI 与 API。可用于理解 Harness 如何承接编程之外的工作流。</p>
+        </div>
+      </details>
+      <p class="text-xs text-stone-500 leading-relaxed">核对日期：2026-11-08。功能概述依据各卡片的官方来源；侧重点与阅读取舍为本页归纳。这里只比较运行底座及集成接口，模型与托管服务另属一层。Pi 机制以第 2 篇核对的本地版本为准。</p>
+    </section>
+
+    <!-- DIAGRAM 3: restored SVG node-and-edge diagrams -->
+    <section id="harness-and-superagent" class="card p-5 sm:p-6 space-y-5">
+      <h2 class="text-base sm:text-lg font-bold text-stone-900">图 3：开源方案的运行链路</h2>
+        <!-- ==================== A. DeepAgent SVG Flowchart (6 cols) ==================== -->
+        <div class="p-4 rounded-xl bg-blue-50/40 border-2 border-blue-300 space-y-3.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs font-bold px-2.5 py-0.5 rounded bg-blue-600 text-white">Deep Agents · 长任务与子任务委派</span>
+            <a href="https://github.com/langchain-ai/deepagents" target="_blank" rel="noopener" class="text-[11px] font-mono text-blue-800 hover:underline">github: langchain-ai/deepagents ↗</a>
+          </div>
+
+          <!-- DeepAgent Step Selector Pills -->
+          <div class="flex flex-wrap gap-1.5 text-[11px]" id="da-step-btns">
+            <button onclick="setDaStep(0)" id="da-btn-0" class="px-2.5 py-1 rounded-md font-bold bg-blue-600 text-white transition-colors">计划与历史</button>
+            <button onclick="setDaStep(1)" id="da-btn-1" class="px-2.5 py-1 rounded-md font-medium bg-white text-stone-700 border border-blue-200 hover:bg-blue-50 transition-colors">子任务委派</button>
+            <button onclick="setDaStep(2)" id="da-btn-2" class="px-2.5 py-1 rounded-md font-medium bg-white text-stone-700 border border-blue-200 hover:bg-blue-50 transition-colors">文件与 Skills</button>
+          </div>
+
+          <!-- DeepAgent SVG + HTML Badge Canvas -->
+          <div class="flow-viewport" tabindex="0" role="region" aria-label="可横向滚动的架构图"><div id="da-canvas" class="flow-canvas px-3.5 py-4 rounded-xl bg-white border border-blue-200">
+            <svg id="da-svg" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 2;"></svg>
+            <div id="da-badges" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 10;"></div>
+
+            <!-- Row 1: User Task + Todo/Summarization State -->
+            <div class="grid grid-cols-2 gap-5">
+              <div id="da-node-user" class="f-node">
+                <div class="text-[11px] font-bold text-stone-900">👤 任务与历史输入</div>
+                <div class="text-[10px] text-stone-500">图运行时维护任务状态与会话历史</div>
+              </div>
+              <div id="da-node-todo" class="f-node">
+                <div class="text-[11px] font-bold text-blue-900">📋 TodoList &amp; Summarization</div>
+                <div class="text-[10px] text-stone-500"><code class="font-mono">write_todos</code> 维护计划；长历史通过摘要管理</div>
+              </div>
+            </div>
+
+            <!-- Row 2: Main Orchestrator Agent -->
+            <div class="flex justify-center">
+              <div id="da-node-main" class="f-node w-4/5 text-center">
+                <div class="text-xs font-bold text-stone-900">🎯 create_deep_agent 主循环</div>
+                <div class="text-[10.5px] text-stone-500">通过中间件组合规划、上下文管理与工具能力</div>
+              </div>
+            </div>
+
+            <!-- Row 3: Subagent Isolation (Left) & VFS/Skills (Right) -->
+            <div class="grid grid-cols-2 gap-5">
+              <div id="da-node-sub" class="f-node">
+                <div class="text-[11px] font-bold text-blue-900">🕵️ SubAgentMiddleware</div>
+                <div class="text-[10px] text-stone-500"><code class="font-mono">middleware/subagents.py</code>：通过 <code class="font-mono">task</code> 委派子任务，在独立上下文中处理后回传结果</div>
+              </div>
+              <div id="da-node-vfs" class="f-node">
+                <div class="text-[11px] font-bold text-blue-900">🗂️ Filesystem &amp; SkillsMiddleware</div>
+                <div class="text-[10px] text-stone-500">文件后端承接中间产物和长输出；Skills 按需加载</div>
+              </div>
+            </div>
+          </div>
+          </div>
+
+          <!-- DeepAgent Active Route Explanation -->
+          <div id="da-route-desc" class="p-2.5 rounded-lg bg-blue-950 text-blue-100 font-mono text-[11px] leading-relaxed"></div>
+        </div>
+
+        <!-- ==================== B. DSH (DeepSeek Harness) Kernel SVG Flowchart (6 cols) ==================== -->
+        <div class="p-4 rounded-xl bg-emerald-50/40 border-2 border-emerald-400 space-y-3.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs font-bold px-2.5 py-0.5 rounded bg-emerald-600 text-white">DeepSeek Harness · 插件运行底座</span>
+            <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noopener" class="text-[11px] font-mono text-emerald-900 hover:underline">github: deepseek-ai/deepseek-harness ↗</a>
+          </div>
+
+          <!-- DSH Kernel Step Selector Pills -->
+          <div class="flex flex-wrap gap-1.5 text-[11px]" id="harness-step-btns">
+            <button onclick="setHarnessStep(0)" id="harness-btn-0" class="px-2.5 py-1 rounded-md font-bold bg-emerald-600 text-white transition-colors">插件装配</button>
+            <button onclick="setHarnessStep(1)" id="harness-btn-1" class="px-2.5 py-1 rounded-md font-medium bg-white text-stone-700 border border-emerald-300 hover:bg-emerald-50 transition-colors">会话与模型请求</button>
+            <button onclick="setHarnessStep(2)" id="harness-btn-2" class="px-2.5 py-1 rounded-md font-medium bg-white text-stone-700 border border-emerald-300 hover:bg-emerald-50 transition-colors">工具与上下文</button>
+          </div>
+
+          <!-- DSH Kernel SVG + HTML Badge Canvas -->
+          <div class="flow-viewport" tabindex="0" role="region" aria-label="可横向滚动的架构图"><div id="harness-canvas" class="flow-canvas px-3.5 py-4 rounded-xl bg-white border border-emerald-300">
+            <svg id="harness-svg" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 2;"></svg>
+            <div id="harness-badges" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 10;"></div>
+
+            <!-- Row 1: Cordis Profile/Bundles + SessionLog -->
+            <div class="grid grid-cols-2 gap-5">
+              <div id="harness-node-boot" class="f-node">
+                <div class="text-[11px] font-bold text-stone-900">🧩 Cordis Profile &amp; Bundles</div>
+                <div class="text-[10px] text-stone-500">Profile 选择 Bundles 与配置补丁，组合所需服务；插件卸载时撤销其注册的效果</div>
+              </div>
+              <div id="harness-node-log" class="f-node">
+                <div class="text-[11px] font-bold text-emerald-900">📜 ctx.sessions (core/session)</div>
+                <div class="text-[10px] text-stone-500"><code class="font-mono">session.vN.jsonl[.zstd]</code>：纯函数 <code class="font-mono">deriveMessages()</code> 投影历史</div>
+              </div>
+            </div>
+
+            <!-- Row 2: ctx.agentLoop Waterfall Driver -->
+            <div class="flex justify-center">
+              <div id="harness-node-loop" class="f-node w-4/5 text-center">
+                <div class="text-xs font-bold text-stone-900">🔄 ctx.agentLoop：会话循环</div>
+                <div class="text-[10.5px] text-stone-500"><code class="font-mono">turn/start</code> ➔ 认领 <code class="font-mono">inbox</code> ➔ <code class="font-mono">agent/pre-step</code> 拦截 ➔ <code class="font-mono">prepareCall</code> ➔ 冻结请求调 <code class="font-mono">llm/stream</code></div>
+              </div>
+            </div>
+
+            <!-- Row 3: ctx.tools Pipeline + ptc-runtime / spill / compaction -->
+            <div class="grid grid-cols-2 gap-5">
+              <div id="harness-node-tools" class="f-node">
+                <div class="text-[11px] font-bold text-emerald-900">🛡️ ctx.tools 三级管道 (core/tools)</div>
+                <div class="text-[10px] text-stone-500"><code class="font-mono">tools/pre-execute ➔ execute ➔ post-execute</code>；失败自动补缺失 <code class="font-mono">tool/result</code></div>
+              </div>
+              <div id="harness-node-ptc" class="f-node">
+                <div class="text-[11px] font-bold text-emerald-900">🧪 ptc-runtime / spill / compaction</div>
+                <div class="text-[10px] text-stone-500">编程式工具调用+ 超长输出溢出 <code class="font-mono">spill</code> + 压缩插件</div>
+              </div>
+            </div>
+          </div>
+          </div>
+
+          <!-- DSH Kernel Active Route Explanation -->
+          <div id="harness-route-desc" class="p-2.5 rounded-lg bg-emerald-950 text-emerald-100 font-mono text-[11px] leading-relaxed"></div>
+        </div>
+      <!-- ==================== C. DS SuperAgent (Full-Width 12 cols) ==================== -->
+      <div class="p-4 sm:p-5 rounded-xl bg-amber-50/60 border-2 border-amber-400 space-y-3.5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-bold px-2.5 py-0.5 rounded bg-amber-500 text-stone-950">DS SuperAgent · 基于 DSH 的任务编排</span>
+          </div>
+          <a href="https://github.com/deepseek-ai/dsh-superagent-prototype" target="_blank" rel="noopener" class="text-[11px] font-mono text-amber-950 hover:underline">github: deepseek-ai/dsh-superagent-prototype ↗</a>
+        </div>
+
+        <!-- DS SuperAgent 4-Route Step Selector -->
+        <div class="flex flex-wrap gap-1.5 text-[11px]" id="superagent-step-btns">
+          <button onclick="setSuperagentStep(0)" id="superagent-btn-0" class="px-2.5 py-1 rounded-md font-bold bg-amber-500 text-stone-950 transition-colors">忽略事件</button>
+          <button onclick="setSuperagentStep(1)" id="superagent-btn-1" class="px-2.5 py-1 rounded-md font-medium bg-white text-stone-700 border border-amber-300 hover:bg-amber-50 transition-colors">接受并执行</button>
+          <button onclick="setSuperagentStep(2)" id="superagent-btn-2" class="px-2.5 py-1 rounded-md font-medium bg-white text-stone-700 border border-amber-300 hover:bg-amber-50 transition-colors">工单追问</button>
+          <button onclick="setSuperagentStep(3)" id="superagent-btn-3" class="px-2.5 py-1 rounded-md font-medium bg-white text-stone-700 border border-amber-300 hover:bg-amber-50 transition-colors">报告与交付</button>
+        </div>
+
+        <!-- DS SuperAgent SVG + HTML Badge Topology Canvas -->
+        <div class="flow-viewport" tabindex="0" role="region" aria-label="可横向滚动的架构图"><div id="superagent-canvas" class="flow-canvas pl-12 pr-4 py-4 rounded-xl bg-white border border-amber-300" style="gap: 112px; padding-left: 112px; padding-right: 112px; min-width: 900px;">
+          <svg id="superagent-svg" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 2;"></svg>
+          <div id="superagent-badges" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 10;"></div>
+
+          <!-- Row 1: External Event Sources (Feishu vs GitHub Triggers) -->
+          <div class="grid grid-cols-2 gap-8">
+            <div id="superagent-node-human" class="f-node">
+              <div class="text-[11px] font-bold text-stone-900">👤 飞书事件</div>
+              <div class="text-[10px] text-stone-500">群消息转 <code class="font-mono">Trigger</code> 调 <code class="font-mono">Engine.receive(trigger)</code></div>
+            </div>
+            <div id="superagent-node-event" class="f-node">
+              <div class="text-[11px] font-bold text-stone-900">📡 GitHub 事件</div>
+              <div class="text-[10px] text-stone-500">Issue / PR / Review / CI 触发 <code class="font-mono">Engine.receive(trigger)</code></div>
+            </div>
+          </div>
+
+          <!-- Row 2: Long-Lived Main Session / MasterAssessor (Center Hub) -->
+          <div class="flex justify-center py-0.5">
+            <div id="superagent-node-router" class="f-node w-3/4 text-center">
+              <div class="text-xs font-bold text-amber-950">🧭 Main Session：评估与路由</div>
+              <div class="text-[10.5px] text-stone-600">基于 DSH 会话（预设 <code class="font-mono">dsh-superagent-router</code>）；主要负责评估与路由，调用 <code class="font-mono">orchestrator_route(accept|attach|ignore|stop)</code></div>
+            </div>
+          </div>
+
+          <!-- Row 3: Outbox / Fast Ignore vs Engine (Intake / Tickets / Assignments) -->
+          <div class="grid grid-cols-12 gap-6 items-center">
+            <div class="col-span-5">
+              <div id="superagent-node-fast" class="f-node">
+                <div class="text-[11px] font-bold text-stone-800">⏭️ 忽略：记录决定，不创建工单</div>
+                <div class="text-[10px] text-stone-500">Engine 记录 ignore；需要发送的答复统一交给 Outbox 处理</div>
+              </div>
+            </div>
+            <div class="col-span-7">
+              <div id="superagent-node-tickets" class="f-node">
+                <div class="text-[11px] font-bold text-amber-900">📋 Engine：工单与执行分配</div>
+                <div class="text-[10px] text-stone-500">单事务建 <code class="font-mono">Ticket + Mandate + Subscriptions + Assignment</code>；已订阅线程追问由 <code class="font-mono">Intake</code> 直接 fan-out</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 4: Isolated Disposable Worker Sessions via DshExecutor -->
+          <div class="grid grid-cols-2 gap-8 pt-1">
+            <div id="superagent-node-w1" class="f-node">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-bold text-emerald-900">⚙️ Worker #1</span>
+                <span class="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">内部运行上图 DSH 循环</span>
+              </div>
+              <div class="text-[10px] text-stone-500 mt-0.5">使用 Worker 预设和工单目录；准备命令可创建 git worktree。调用 <code class="font-mono">orchestrator_report</code> 汇报状态</div>
+            </div>
+            <div id="superagent-node-w2" class="f-node">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-bold text-emerald-900">⚙️ Worker #2</span>
+                <span class="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">每个工单独立会话</span>
+              </div>
+              <div class="text-[10px] text-stone-500 mt-0.5">工单目录默认位于 <code class="font-mono">&lt;stateDir&gt;/work/&lt;name&gt;</code>；并发受执行器管理，会话与工单状态分别维护</div>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <!-- DSH Active Route Explanation -->
+        <div id="superagent-route-desc" class="p-2.5 rounded-lg bg-stone-900 text-amber-300 font-mono text-[11px] leading-relaxed"></div>
+      </div>
+
+      <details class="demo-sources">
+        <summary class="cursor-pointer text-xs text-stone-500">来源与阅读范围</summary>
+        <p class="text-xs text-stone-500 leading-relaxed mt-2">任务和状态变化为教学示意，省略存储、权限与恢复细节。核对日期：2026-11-08；DSH 为开发者预览，SuperAgent 为研究原型。来源：<a class="underline" href="https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md" target="_blank" rel="noopener">DSH 架构</a> · <a class="underline" href="https://github.com/deepseek-ai/dsh-superagent-prototype/blob/main/docs/001-domain.md" target="_blank" rel="noopener">SuperAgent 领域模型</a> · <a class="underline" href="https://github.com/deepseek-ai/dsh-superagent-prototype/blob/main/docs/003-execution.md" target="_blank" rel="noopener">执行机制</a> · <a class="underline" href="https://github.com/deepseek-ai/dsh-superagent-prototype/blob/main/docs/007-architecture.md" target="_blank" rel="noopener">实现架构</a> · <a class="underline" href="https://github.com/langchain-ai/deepagents#readme" target="_blank" rel="noopener">Deep Agents</a>。</p>
+      </details>
+    </section>
+
+    <!-- DIAGRAM 4: responsibilities matrix, projects as rows -->
+    <section id="comparison" class="card p-5 sm:p-6 space-y-4">
+      <div class="border-b border-stone-200 pb-3 space-y-2">
+        <h2 class="text-base sm:text-lg font-bold">图 4：带着同一组问题，比较六个方案</h2>
+        <p class="text-xs text-stone-500 leading-relaxed">共同检查：循环怎样推进、状态如何保存、上下文怎样裁剪、工具如何执行、权限在哪里落实、暂停后如何恢复。下面突出各自值得读的入口；同一种能力可能出现在多个项目中。</p>
+      </div>
+      <div class="overflow-x-auto" tabindex="0" role="region" aria-label="可横向滚动的六方案对照表">
+        <table class="w-full text-xs text-left border-collapse" style="min-width: 720px">
+          <caption class="text-left text-xs text-stone-500 pb-3">六方案职责与源码阅读对照；窄屏可横向滚动。</caption>
+          <thead><tr class="bg-stone-100 border-b border-stone-200"><th scope="col" class="p-3">方案</th><th scope="col" class="p-3">侧重点</th><th scope="col" class="p-3">代表机制</th><th scope="col" class="p-3">阅读重点 / 入口</th></tr></thead>
+          <tbody class="divide-y divide-stone-200 text-stone-700">
+            <tr><th scope="row" class="p-3 align-top"><a class="underline text-stone-900" href="index.html?step=1">Pi</a></th><td class="p-3 align-top">精简且可扩展的运行实现</td><td class="p-3 align-top">循环、会话、上下文、工具钩子</td><td class="p-3 align-top">固定一条任务路径，区分核心与扩展</td></tr>
+            <tr><th scope="row" class="p-3 align-top"><a class="underline text-stone-900" href="https://github.com/langchain-ai/deepagents" target="_blank" rel="noopener">Deep Agents</a></th><td class="p-3 align-top">长任务能力的默认组合</td><td class="p-3 align-top">计划、文件后端、摘要与子 Agent</td><td class="p-3 align-top">理解中间件怎样组合到图运行时</td></tr>
+            <tr><th scope="row" class="p-3 align-top"><a class="underline text-stone-900" href="https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md" target="_blank" rel="noopener">DeepSeek Harness</a></th><td class="p-3 align-top">可组合的插件运行底座</td><td class="p-3 align-top">Cordis、Profile / Bundle、会话事件</td><td class="p-3 align-top">追踪插件生命周期与事件接口</td></tr>
+            <tr><th scope="row" class="p-3 align-top"><a class="underline text-stone-900" href="https://github.com/anomalyco/opencode" target="_blank" rel="noopener">OpenCode</a></th><td class="p-3 align-top">完整 Coding Agent 产品</td><td class="p-3 align-top">Build / Plan、子 Agent 与多种界面</td><td class="p-3 align-top">拆开界面、会话与执行能力阅读</td></tr>
+            <tr><th scope="row" class="p-3 align-top"><a class="underline text-stone-900" href="https://developers.openai.com/blog/codex-as-a-platform" target="_blank" rel="noopener">Codex Harness</a></th><td class="p-3 align-top">运行边界与应用集成</td><td class="p-3 align-top">会话、事件、沙箱 / 审批、app-server</td><td class="p-3 align-top">区分客户端协议、宿主执行与模型服务</td></tr>
+            <tr><th scope="row" class="p-3 align-top"><a class="underline text-stone-900" href="https://github.com/OpenHands/software-agent-sdk" target="_blank" rel="noopener">OpenHands SDK</a></th><td class="p-3 align-top">执行环境与服务化</td><td class="p-3 align-top">Agent / Tool / Conversation / Workspace</td><td class="p-3 align-top">区分 SDK、Agent Server 与自动化组件</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-xs text-stone-600 leading-relaxed"><strong>两端参照：</strong>mini-swe-agent 帮助认识最小循环；DS SuperAgent 展示运行底座之上的工单应用。它们在本文分别承担入门参照与应用案例的角色。</p>
+    </section>
+
+    <section id="why-pi" class="card p-5 sm:p-6 space-y-4">
+      <div class="space-y-2"><h2 class="text-base sm:text-lg font-bold">带着图 2 的问题读源码，为什么以 Pi 为主线？</h2><p class="text-sm text-stone-600 leading-relaxed">图 2 按场景列出了工程问题与处理步骤；接下来读源码，是要找到它们的实现位置、触发条件和状态变化。可以先用 mini-swe-agent 理解最小循环，再沿 Pi 的一条修 Bug 路径，追踪输入怎样调度、上下文怎样管理、工具怎样校验和执行。然后带着同样的问题对照其他方案。</p></div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <article class="p-4 rounded-xl bg-amber-50 border border-amber-200 space-y-2"><h3 class="text-sm font-bold">1 · 从可追踪的闭环开始</h3><p class="text-xs text-stone-600 leading-relaxed">输入 → 组装请求 → 模型响应 → 工具执行 → 结果回填。沿同一个场景认识宿主与模型的分工。</p></article>
+        <article class="p-4 rounded-xl bg-amber-50 border border-amber-200 space-y-2"><h3 class="text-sm font-bold">2 · 看清核心与策略的边界</h3><p class="text-xs text-stone-600 leading-relaxed">区分默认循环、参数校验与钩子槽位，也区分可选路由和审批扩展。学习一种能力应放在哪一层。</p></article>
+        <article class="p-4 rounded-xl bg-amber-50 border border-amber-200 space-y-2"><h3 class="text-sm font-bold">3 · 带着问题读其他实现</h3><p class="text-xs text-stone-600 leading-relaxed">再看 Deep Agents 的能力组合、DSH 的插件树、OpenCode 的产品组织、Codex 的应用接口与 OpenHands 的执行环境，最后进入 SuperAgent 的工单应用。</p></article>
+      </div>
+      <div class="p-4 rounded-xl bg-blue-50 border border-blue-200 space-y-2">
+        <h3 class="text-sm font-bold">建议的学习路线</h3>
+        <p class="text-xs text-stone-600 leading-relaxed">mini-swe-agent 看闭环 → Pi 看工程机制 → 按问题选读其他 Harness → DS SuperAgent 看应用协调。中间几个项目可以按兴趣选择，下面入口分别对应不同问题。</p>
+        <div class="reading-nav"><a href="#minimal-baseline">最小循环</a><a href="index.html?step=1">Pi 工程主线</a><a href="#open-source">六方案阅读入口</a><a href="#harness-and-superagent">工单应用案例</a></div>
+      </div>
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-stone-900 text-stone-100">
+        <p class="text-sm leading-relaxed">带着一个问题进入源码：<strong class="text-amber-400">模型提出一个工具调用之后，宿主到底做了哪些事？</strong></p>
+        <a href="index.html?step=1" class="shrink-0 px-4 py-2 rounded-lg bg-amber-500 text-stone-950 font-bold text-sm text-center">从 Pi 第 1 站开始 ➔</a>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    // =========================================================================
+    // DIAGRAM 1 MINI SIMULATOR DATA (4 steps of 1 turn)
+    // =========================================================================
+    const simSteps = [
+  {
+    "title": "① 用户提出目标",
+    "body": "宿主接收任务，开始一次模型与工具的循环。"
+  },
+  {
+    "title": "② 宿主把请求发给模型",
+    "body": "把目标、已有历史和工具说明组装成请求。"
+  },
+  {
+    "title": "③ 模型决定下一步",
+    "body": "需要工具时返回调用指令；直接答复时走右侧结束分支。"
+  },
+  {
+    "title": "④ 执行并回填，继续循环",
+    "body": "宿主执行工具，把结果加入历史，再回到②请求模型。"
+  }
+];
+
+    let curSimIdx = 0;
+
+    function renderSim() {
+      for (let i = 0; i < 4; i++) {
+        const el = document.getElementById(`sim-node-${i}`);
+        if (el) el.classList.toggle("sim-active", i === curSimIdx);
+      }
+      document.getElementById("sim-step-label").textContent = `${curSimIdx + 1} / 4`;
+      document.getElementById("sim-trace-number").textContent = String(curSimIdx + 1);
+      document.getElementById("sim-trace-title").textContent = simSteps[curSimIdx].title.replace(/^[①②③④]\s*/, "");
+      document.getElementById("sim-trace-body").textContent = simSteps[curSimIdx].body;
+      drawBasicAgentLoop();
+    }
+
+    function setSim(idx) {
+      curSimIdx = idx;
+      renderSim();
+    }
+    function nextSim() {
+      curSimIdx = (curSimIdx + 1) % simSteps.length;
+      renderSim();
+    }
+    function prevSim() {
+      curSimIdx = (curSimIdx - 1 + simSteps.length) % simSteps.length;
+      renderSim();
+    }
+
+    // =========================================================================
+    // DIAGRAM 2: engineering problem scenarios
+    // =========================================================================
+    const archNodes = [
+  {
+    "badge": "问题 1 · 循环与控制流",
+    "frameworks": [
+      {
+        "name": "① 已有的基础能力",
+        "tag": "能连续执行模型提出的动作",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "宿主发请求，执行工具，把结果回填后继续下一轮。一次任务可以这样逐步推进。"
+      },
+      {
+        "name": "② 真实任务暴露的问题",
+        "tag": "基础做法遇到瓶颈",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "你在任务中途说“先别改数据库”，简单循环若只顾着继续执行已有工具调用，新指令就可能一直得不到处理。工具已经执行，结果也需要准确归到当前回合。"
+      },
+      {
+        "name": "③ 需要补上的工程机制",
+        "tag": "工程化的落点",
+        "tagCls": "bg-blue-100 text-blue-900",
+        "desc": "给循环增加明确的回合状态、待处理输入队列和中断检查点：先接收输入，再调用模型、执行工具、回填结果，按状态继续或结束。"
+      }
+    ],
+    "interviewQuestion": "Agent 正在执行一条耗时命令，用户突然说“停下来，先别改文件”。你会怎样设计中断和恢复，既让新指令及时生效，又不重复执行已经产生副作用的动作？",
+    "solutionSteps": [
+      [
+        "先接住新要求",
+        "把中途输入放入待处理队列，并标记当前任务需要重新判断，避免新消息只出现在界面上。"
+      ],
+      [
+        "在执行边界处理",
+        "在下一次模型请求、工具执行前检查队列；对正在运行的工具尝试取消，并记录成功、失败或已完成。"
+      ],
+      [
+        "带着新状态继续",
+        "把新要求和已执行结果一起交给模型，重新决定下一步；已产生的文件修改不会因中断自动撤销。"
+      ]
+    ]
+  },
+  {
+    "badge": "问题 2 · 会话与上下文",
+    "frameworks": [
+      {
+        "name": "① 已有的基础能力",
+        "tag": "能把工具结果留在消息历史中",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "每次执行后把结果追加到 messages，下一次请求带上这些历史，模型就能利用前面的结果。"
+      },
+      {
+        "name": "② 真实任务暴露的问题",
+        "tag": "基础做法遇到瓶颈",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "连续读文件、跑测试会不断增加历史。若每轮把全部消息原样发送，最终会超过模型窗口；若直接删除旧消息，最初的目标和关键决定又可能丢失。只保存在内存中也不便重启后继续。"
+      },
+      {
+        "name": "③ 需要补上的工程机制",
+        "tag": "工程化的落点",
+        "tagCls": "bg-blue-100 text-blue-900",
+        "desc": "把“完整历史存什么”和“本次发给模型什么”分开：持久化会话以便恢复，对活动上下文做预算、摘要并保留近期细节。长输出也可以外置，按需读取。"
+      }
+    ],
+    "interviewQuestion": "Agent 修 Bug 时已经读了几十个文件，上下文快满了。如果只能保留一部分历史，你会保留什么？怎样避免压缩后忘记任务约束，或者重复走已经失败的方案？",
+    "solutionSteps": [
+      [
+        "保留完整历史",
+        "消息与工具结果持久化保存；每次发给模型的上下文从这份历史中选择，不必等于全部历史。"
+      ],
+      [
+        "按预算压缩",
+        "估算 Token 用量并预留输出空间，接近上限时总结早期过程，保留目标、约束、关键决定、失败尝试与近期消息。"
+      ],
+      [
+        "长内容外置",
+        "把大段日志、文件内容等留在可检索的文件或存储中，上下文带摘要与引用，需要细节时再读取。"
+      ]
+    ]
+  },
+  {
+    "badge": "问题 3 · 项目规范与技能",
+    "frameworks": [
+      {
+        "name": "① 已有的基础能力",
+        "tag": "能接收用户的任务目标",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "宿主把“修复登录 Bug”等目标传给模型，再提供读文件、改代码和测试所需的工具。"
+      },
+      {
+        "name": "② 真实任务暴露的问题",
+        "tag": "基础做法遇到瓶颈",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "同一句“修登录 Bug”，在不同项目中可能要用不同测试命令、遵守不同代码规范。若不提供这些信息，模型缺少依据；若把全部技能正文每轮都塞入，请求又会变长。"
+      },
+      {
+        "name": "③ 需要补上的工程机制",
+        "tag": "工程化的落点",
+        "tagCls": "bg-blue-100 text-blue-900",
+        "desc": "把项目规范作为常驻上下文，把专项技能作为按需资料：先提供名称、用途和位置，需要时再读取正文，并与历史和工具说明一起组装请求。"
+      }
+    ],
+    "interviewQuestion": "一个仓库有项目规范和 50 个技能文件。哪些内容应该每轮都给模型，哪些应该按需加载？如果任务中途切换方向，怎样让模型拿到相关规则？",
+    "solutionSteps": [
+      [
+        "先装入项目规则",
+        "识别当前仓库，读取项目规范、测试方式等必要信息，作为当前任务的工作上下文。"
+      ],
+      [
+        "技能只给索引",
+        "先提供技能名称、用途与位置；确定相关后再加载正文，减少无关资料占用上下文。"
+      ],
+      [
+        "任务变化时重新选择",
+        "切换项目或任务方向后更新规则与技能选择，让下一次请求使用适用的资料。"
+      ]
+    ]
+  },
+  {
+    "badge": "问题 4 · 工具与缓存",
+    "frameworks": [
+      {
+        "name": "① 已有的基础能力",
+        "tag": "能向模型声明可用工具",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "把工具名称、用途与参数说明放入请求，模型就能选择并提出工具调用。"
+      },
+      {
+        "name": "② 真实任务暴露的问题",
+        "tag": "基础做法遇到瓶颈",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "接入多个 MCP 服务后，工具说明可能占用大量上下文；如果对话中途反复改动请求前面的工具声明，还可能减少可复用的前缀。模型未必需要每次都看到所有工具细节。"
+      },
+      {
+        "name": "③ 需要补上的工程机制",
+        "tag": "工程化的落点",
+        "tagCls": "bg-blue-100 text-blue-900",
+        "desc": "为工具设计发现与暴露方式：按需给出说明，或让模型通过编程接口调用；同时尽量保持请求前缀稳定。缓存效果仍取决于供应商与适配层。"
+      }
+    ],
+    "interviewQuestion": "接入 10 个 MCP 服务后有 200 个工具，模型请求越来越慢。你会怎样设计工具发现和加载？如果对话中途新增一个工具，又怎样尽量保持前缀缓存可复用？",
+    "solutionSteps": [
+      [
+        "把工具说明与实现分开",
+        "工具注册表保存完整定义和执行入口，请求只暴露当前需要的接口。"
+      ],
+      [
+        "按需发现或加载",
+        "先提供精简目录或检索入口，再加载相关工具的 Schema；适合时用编程式调用处理多次操作。"
+      ],
+      [
+        "减少前缀反复变化",
+        "保持稳定声明的顺序和内容；动态变化按供应商支持的方式表达，并观察实际 Token 用量与缓存命中。"
+      ]
+    ]
+  },
+  {
+    "badge": "问题 5 · 模型与执行校验",
+    "frameworks": [
+      {
+        "name": "① 已有的基础能力",
+        "tag": "能把模型返回的调用交给工具",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "收到工具名和参数后，宿主找到对应实现并执行，模型提出的动作就产生了实际效果。"
+      },
+      {
+        "name": "② 真实任务暴露的问题",
+        "tag": "基础做法遇到瓶颈",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "模型可能因输出上限只生成半截参数，也可能给出类型错误或超出预期的命令。即使 JSON 能被解析，也不表示动作完整、符合工具要求或已获允许。"
+      },
+      {
+        "name": "③ 需要补上的工程机制",
+        "tag": "工程化的落点",
+        "tagCls": "bg-blue-100 text-blue-900",
+        "desc": "在执行前分层检查：响应是否完整、参数是否符合 Schema、策略是否允许。模型路由单独作为可选策略；参数校验和审批也不能替代执行环境的权限限制。"
+      }
+    ],
+    "interviewQuestion": "模型返回了一条可以通过 JSON 和 Schema 校验的删除命令。参数合法是否就可以执行？如果用户批准后，实际执行的目标发生变化，你会在哪一层重新检查？",
+    "solutionSteps": [
+      [
+        "先检查响应完整性",
+        "响应截断、调用缺失或参数不完整时，不执行受影响的动作，把明确错误交回模型修正。"
+      ],
+      [
+        "再检查参数与权限",
+        "查找工具并校验 Schema；按操作目标、作用范围等执行审批与策略检查。参数合法不等于获得授权。"
+      ],
+      [
+        "让执行边界真正生效",
+        "执行器落实文件、进程与网络权限；目标或参数改变时重新判断授权，避免仅靠提示词限制行为。"
+      ]
+    ]
+  },
+  {
+    "badge": "问题 6 · 执行与并发",
+    "frameworks": [
+      {
+        "name": "① 已有的基础能力",
+        "tag": "能执行多种文件与命令操作",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "宿主可以运行 edit、Shell 等工具，并把文件内容、命令输出作为结果交给模型。"
+      },
+      {
+        "name": "② 真实任务暴露的问题",
+        "tag": "基础做法遇到瓶颈",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "同一轮两个 edit 若都基于旧内容修改同一文件，可能相互覆盖；测试的海量日志若全部回填，会迅速占满上下文。模型生成的脚本还需要明确的执行环境。"
+      },
+      {
+        "name": "③ 需要补上的工程机制",
+        "tag": "工程化的落点",
+        "tagCls": "bg-blue-100 text-blue-900",
+        "desc": "按资源协调并发写入，对输出做裁剪或落盘，并把脚本运行、宿主工具和系统权限的边界说清楚。目录分离、脚本 VM 与系统沙箱分别解决不同层面的问题。"
+      }
+    ],
+    "interviewQuestion": "模型同一轮发出两个修改同一文件的工具调用，同时测试命令输出了十万行日志。你会怎样安排并发和结果回填，既避免覆盖修改，又保留足够的排错信息？",
+    "solutionSteps": [
+      [
+        "按资源安排并发",
+        "对同一文件的“读取当前版本 → 修改 → 写回”串行处理或检查版本；互不冲突的操作再并发。"
+      ],
+      [
+        "限制输出规模",
+        "完整日志落盘，模型先收到退出码、错误摘要、有限片段与日志位置，需要时再分段读取。"
+      ],
+      [
+        "管理运行环境",
+        "限制并发数与执行时长，为超时、取消和失败返回可追踪结果；脚本 VM、宿主工具与系统沙箱分别配置边界。"
+      ]
+    ]
+  },
+  {
+    "badge": "问题 7 · 暂停与恢复",
+    "frameworks": [
+      {
+        "name": "① 已有的基础能力",
+        "tag": "能提出问题并等待人工输入",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "Agent 遇到权限审批、信息缺失等情况，可以提出问题，让当前任务等待人工回答。"
+      },
+      {
+        "name": "② 真实任务暴露的问题",
+        "tag": "退出后，等待状态丢失",
+        "tagCls": "bg-stone-100 text-stone-800",
+        "desc": "等待期间关闭界面或进程退出，重新打开时，聊天记录可能还在，却不知道任务停在哪、在等什么。若只重放历史，还可能重复执行已有副作用的动作，或把未回答的审批当成已通过。"
+      },
+      {
+        "name": "③ 需要补上的工程机制",
+        "tag": "持久化检查点与显式恢复",
+        "tagCls": "bg-blue-100 text-blue-900",
+        "desc": "持久化任务标识、执行位置、待处理问题与工具执行记录；重新打开后恢复为“等待人工输入”，收到关联的回答后才继续。关闭界面、停止进程和取消任务应有不同语义；对外部副作用还要做去重或状态核对。"
+      }
+    ],
+    "interviewQuestion": "Agent 正在等待你批准一个操作，这时进程退出了。第二天重新打开，怎样找回待审批问题并从正确位置继续？如果操作已执行、结果却还没保存，怎样避免重复执行？",
+    "solutionSteps": [
+      [
+        "等待前先保存",
+        "用稳定任务 ID 持久化执行检查点、待回答问题或待审批动作，再展示人工协助请求。"
+      ],
+      [
+        "重开时恢复等待",
+        "从持久存储找回原任务并显示待办；用请求 ID 关联人的回答，校验仍适用后保存回复，再继续执行。"
+      ],
+      [
+        "防止副作用重做",
+        "保存动作标识与执行结果；恢复前核对未确认的动作。外部系统支持时使用幂等键，否则查证实际状态，不能仅凭聊天记录盲目重试。"
+      ]
+    ]
+  }
+];
+
+    let curArchIdx = 0;
+
+    function selectArchNode(idx) {
+      curArchIdx = idx;
+      for (let i = 0; i < archNodes.length; i++) {
+        const el = document.getElementById(`arch-node-${i}`);
+        if (el) {
+          el.classList.toggle("active", i === idx);
+          el.setAttribute("aria-pressed", String(i === idx));
+        }
+      }
+      const item = archNodes[idx];
+      document.getElementById("engineering-detail").setAttribute("aria-label", item.badge);
+      document.getElementById("detail-interview-question").textContent = item.interviewQuestion;
+
+      const fwGrid = document.getElementById("detail-fw-grid");
+      const stages = ["基础做法", "实际瓶颈", "解决思路"];
+      fwGrid.innerHTML = item.frameworks.map((stage, idx) => `
+        <div class="engineering-stage">
+          <h4>${stages[idx]}</h4>
+          <p>${stage.desc}</p>
+          ${idx === 2 ? `<ol class="solution-steps">${item.solutionSteps.map(([title, body]) => `<li><strong>${title}</strong><span>${body}</span></li>`).join("")}</ol>` : ""}
+        </div>`).join("");
+    }
+
+    // =========================================================================
+    // DIAGRAM 3: independent flowcharts for Deep Agents, Harness and SuperAgent
+    // =========================================================================
+    let curDaStep = 0;
+    let curHarnessStep = 0;
+    let curSuperagentStep = 1; // Default to Route B (Spawn Worker) so main flow is immediately visible
+
+    const daSteps = [
+      {
+        activeNodes: ["da-node-user", "da-node-main", "da-node-todo"],
+        activeEdges: ["user->main", "main->todo"],
+        desc: "目标进入主循环，write_todos 维护计划；长历史按需摘要。"
+      },
+      {
+        activeNodes: ["da-node-main", "da-node-sub"],
+        activeEdges: ["main->sub", "sub->main"],
+        desc: "主 Agent 调 task → 子 Agent 独立处理 → 结果回到主循环。"
+      },
+      {
+        activeNodes: ["da-node-main", "da-node-vfs"],
+        activeEdges: ["main->vfs"],
+        desc: "中间产物与长输出进入文件后端；Skills 按需加载。"
+      }
+    ];
+
+    const harnessSteps = [
+      {
+        activeNodes: ["harness-node-boot", "harness-node-loop"],
+        activeEdges: ["boot->loop", "loop->log"],
+        desc: "Profile / Bundles 组合插件，挂载会话、循环、模型与工具。"
+      },
+      {
+        activeNodes: ["harness-node-loop", "harness-node-log"],
+        activeEdges: ["loop->log", "log->loop"],
+        desc: "循环写入会话事件，deriveMessages() 派生模型请求使用的历史。"
+      },
+      {
+        activeNodes: ["harness-node-loop", "harness-node-tools", "harness-node-ptc"],
+        activeEdges: ["loop->tools", "loop->ptc"],
+        desc: "工具调用经管道执行并回填；编程调用、输出落盘与压缩由对应插件提供。"
+      }
+    ];
+
+    const superagentSteps = [
+      {
+        activeNodes: ["superagent-node-human", "superagent-node-router", "superagent-node-fast"],
+        activeEdges: ["human->router", "router->fast"],
+        desc: "事件进入评估 → ignore 记录决定，不创建新工单。"
+      },
+      {
+        activeNodes: ["superagent-node-human", "superagent-node-event", "superagent-node-router", "superagent-node-tickets", "superagent-node-w1", "superagent-node-w2"],
+        activeEdges: ["human->router", "event->router", "router->tickets", "tickets->w1", "tickets->w2"],
+        desc: "accept → Engine 创建工单与执行分配 → Worker 在独立会话和目录中执行。目录准备可配置为 worktree。"
+      },
+      {
+        activeNodes: ["superagent-node-human", "superagent-node-tickets", "superagent-node-w1"],
+        activeEdges: ["human->tickets", "tickets->w1"],
+        desc: "已订阅线程的追问 → Intake → 对应工单 / Worker，绕过新工作评估；跨线程关联由 Main 执行 attach。"
+      },
+      {
+        activeNodes: ["superagent-node-w1", "superagent-node-router", "superagent-node-human"],
+        activeEdges: ["w1->router", "router->human"],
+        desc: "Worker 报告 → Notices / Main → Outbox 交付。ready 表示待评审，不自动等于工单结束。"
+      }
+    ];
+
+    function getRelBox(originEl, nodeId) {
+      const el = document.getElementById(nodeId);
+      if (!el || !originEl) return null;
+      const cRect = originEl.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      return {
+        left: r.left - cRect.left,
+        right: r.right - cRect.left,
+        top: r.top - cRect.top,
+        bottom: r.bottom - cRect.top,
+        cx: r.left - cRect.left + r.width / 2,
+        cy: r.top - cRect.top + r.height / 2,
+        w: r.width,
+        h: r.height
+      };
+    }
+
+    // Renders an HTML pill badge with a solid circular number (1, 2, 3...) + label at (cx, cy)
+    function renderHtmlPillBadge(cx, cy, numStr, text, theme, isActive) {
+      if (!text) return "";
+      let actCls = "";
+      if (isActive) {
+        actCls = theme === "blue" ? "act-blue" : theme === "emerald" ? "act-emerald" : "act-amber";
+      }
+      return `<div class="edge-pill ${actCls}" style="left: ${Math.round(cx)}px; top: ${Math.round(cy)}px;">
+        <span class="edge-num">${numStr}</span>
+        <span class="edge-txt">${text}</span>
+      </div>`;
+    }
+
+    function renderFlowEdges(svg, badgesBox, edges, step, prefix, theme) {
+      const colors = { blue: "#2563eb", emerald: "#059669", amber: "#d97706" };
+      const color = colors[theme];
+      // SVG places native arrowheads on the path endpoint and follows its tangent.
+      let paths = `<defs>
+        <marker id="${prefix}-arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto" overflow="visible"><path d="M 1 1 L 9 5 L 1 9 Z" fill="#cbd5e1" /></marker>
+        <marker id="${prefix}-arrow-active" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="18" markerHeight="18" markerUnits="userSpaceOnUse" orient="auto" overflow="visible"><path d="M 1 1 L 9 5 L 1 9 Z" fill="${color}" /></marker>
+      </defs>`;
+      // Keep every route visible; inactive routes carry no floating labels.
+      edges.filter((edge) => !step.activeEdges.includes(edge.id)).forEach((edge) => {
+        paths += `<path data-edge="${edge.id}" d="${edge.d}" fill="none" stroke="#cbd5e1" stroke-width="1.4" stroke-opacity="0.65" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#${prefix}-arrow-muted)" />`;
+      });
+      let badges = "";
+      edges.filter((edge) => step.activeEdges.includes(edge.id)).forEach((edge) => {
+        paths += `<path d="${edge.d}" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />`;
+        paths += `<path data-edge="${edge.id}" data-active="true" d="${edge.d}" fill="none" stroke="${color}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" class="edge-flow-anim" marker-end="url(#${prefix}-arrow-active)" />`;
+        badges += renderHtmlPillBadge(edge.bx, edge.by, edge.num, edge.defaultLabel, theme, true);
+      });
+      svg.innerHTML = paths;
+      badgesBox.innerHTML = badges;
+    }
+
+    function buildBasicAgentEdges({ user, host, model, tools, answer }) {
+      const gap = 1;
+      const topLane = (user.bottom + host.top) / 2;
+      const bottomLane = (model.bottom + tools.top) / 2;
+      const requestLane = (host.right + model.left) / 2;
+      const returnLane = Math.max(12, Math.min(host.left, tools.left) - 26);
+      const goalPort = user.cx - Math.min(32, user.w * 0.15);
+      const toolCallPort = model.left + model.w * 0.32;
+      const toolResultPort = tools.left + tools.w * 0.62;
+      const answerOutPort = model.left + model.w * 0.76;
+      const answerInPort = answer.left + answer.w * 0.76;
+      return [
+        { id: "goal->host", num: "1", defaultLabel: "提交目标",
+          d: `M ${goalPort} ${user.bottom + gap} C ${goalPort} ${topLane}, ${host.cx} ${topLane}, ${host.cx} ${host.top - gap}`,
+          bx: (goalPort + host.cx) / 2, by: topLane },
+        { id: "host->model", num: "2", defaultLabel: "发送请求",
+          d: `M ${host.right + gap} ${host.cy} C ${requestLane} ${host.cy}, ${requestLane} ${model.cy}, ${model.left - gap} ${model.cy}`,
+          bx: requestLane, by: (host.cy + model.cy) / 2 },
+        { id: "model->tools", num: "3", defaultLabel: "宿主派发",
+          d: `M ${toolCallPort} ${model.bottom + gap} C ${toolCallPort} ${bottomLane}, ${toolResultPort} ${bottomLane}, ${toolResultPort} ${tools.top - gap}`,
+          bx: (toolCallPort + toolResultPort) / 2, by: bottomLane },
+        { id: "tools->host", num: "4", defaultLabel: "结果回填",
+          d: `M ${tools.left - gap} ${tools.cy} H ${returnLane} V ${host.cy} H ${host.left - gap}`,
+          bx: returnLane, by: (host.bottom + tools.top) / 2 },
+        { id: "model->answer", num: "5", defaultLabel: "最终答复",
+          d: `M ${answerOutPort} ${model.bottom + gap} C ${answerOutPort} ${bottomLane}, ${answerInPort} ${bottomLane}, ${answerInPort} ${answer.top - gap}`,
+          bx: (answerOutPort + answerInPort) / 2, by: bottomLane }
+      ];
+    }
+
+    function readBasicAgentBox(id) {
+      const slot = document.getElementById(`${id}-slot`);
+      const x = Number(slot.getAttribute("x"));
+      const y = Number(slot.getAttribute("y"));
+      const w = Number(slot.getAttribute("width"));
+      const h = Number(slot.getAttribute("height"));
+      return { left: x, top: y, right: x + w, bottom: y + h, cx: x + w / 2, cy: y + h / 2, w, h };
+    }
+
+    function drawBasicAgentLoop() {
+      const edgesLayer = document.getElementById("basic-agent-edges");
+      const badgesBox = document.getElementById("basic-agent-badges");
+      const user = readBasicAgentBox("sim-node-0");
+      const host = readBasicAgentBox("sim-node-1");
+      const model = readBasicAgentBox("sim-node-2");
+      const tools = readBasicAgentBox("sim-node-3");
+      const answer = readBasicAgentBox("basic-agent-answer");
+      const edges = buildBasicAgentEdges({ user, host, model, tools, answer });
+      const routes = [["goal->host"], ["host->model"], ["model->tools", "model->answer"], ["tools->host", "host->model"]];
+      renderFlowEdges(edgesLayer, badgesBox, edges, { activeEdges: routes[curSimIdx] }, "basic-agent", "amber");
+      document.getElementById("basic-agent-answer").classList.toggle("f-active-amber", curSimIdx === 2);
+    }
+
+    function drawDaGraph() {
+      const canvas = document.getElementById("da-canvas");
+      const svg = document.getElementById("da-svg");
+      const badgesBox = document.getElementById("da-badges");
+      if (!canvas || !svg || !badgesBox) return;
+      const cRect = svg.getBoundingClientRect();
+      if (cRect.width === 0 || cRect.height === 0) return;
+      svg.setAttribute("viewBox", `0 0 ${cRect.width} ${cRect.height}`);
+      svg.setAttribute("preserveAspectRatio", "none");
+
+      const step = daSteps[curDaStep];
+      ["da-node-user", "da-node-todo", "da-node-main", "da-node-sub", "da-node-vfs"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle("f-active-blue", step.activeNodes.includes(id));
+      });
+
+      const bUser = getRelBox(svg, "da-node-user");
+      const bTodo = getRelBox(svg, "da-node-todo");
+      const bMain = getRelBox(svg, "da-node-main");
+      const bSub = getRelBox(svg, "da-node-sub");
+      const bVfs = getRelBox(svg, "da-node-vfs");
+      if (!bUser || !bTodo || !bMain || !bSub || !bVfs) return;
+
+      const midTop = (bUser.bottom + bMain.top) / 2;
+      const midBot = (bMain.bottom + bSub.top) / 2;
+
+      const edges = [
+        {
+          id: "user->main",
+          num: "1",
+          defaultLabel: "任务输入",
+          d: `M ${bUser.cx} ${bUser.bottom + 2} C ${bUser.cx} ${midTop}, ${bMain.cx - 50} ${midTop}, ${bMain.cx - 50} ${bMain.top - 4}`,
+          bx: (bUser.cx + bMain.cx - 50) / 2 - 8,
+          by: midTop
+        },
+        {
+          id: "main->todo",
+          num: "2",
+          defaultLabel: "计划 / 摘要",
+          d: `M ${bMain.cx + 50} ${bMain.top - 2} C ${bMain.cx + 50} ${midTop}, ${bTodo.cx} ${midTop}, ${bTodo.cx} ${bTodo.bottom + 4}`,
+          bx: (bTodo.cx + bMain.cx + 50) / 2 + 8,
+          by: midTop
+        },
+        {
+          id: "main->sub",
+          num: "3",
+          defaultLabel: "task 委派",
+          d: `M ${bMain.cx - 70} ${bMain.bottom + 2} V ${midBot - 26} H ${bSub.cx - 38} V ${bSub.top - 4}`,
+          bx: (bMain.cx - 70 + bSub.cx - 38) / 2,
+          by: midBot - 26
+        },
+        {
+          id: "sub->main",
+          num: "4",
+          defaultLabel: "结果回传",
+          d: `M ${bSub.cx + 30} ${bSub.top - 2} V ${midBot + 26} H ${bMain.cx - 12} V ${bMain.bottom + 4}`,
+          bx: (bSub.cx + 30 + bMain.cx - 12) / 2,
+          by: midBot + 26
+        },
+        {
+          id: "main->vfs",
+          num: "5",
+          defaultLabel: "文件 / Skills",
+          d: `M ${bMain.cx + 55} ${bMain.bottom + 2} C ${bMain.cx + 55} ${midBot}, ${bVfs.cx} ${midBot}, ${bVfs.cx} ${bVfs.top - 4}`,
+          bx: (bMain.cx + 55 + bVfs.cx) / 2 + 10,
+          by: midBot
+        }
+      ];
+
+      renderFlowEdges(svg, badgesBox, edges, step, "da", "blue");
+      document.getElementById("da-route-desc").textContent = step.desc;
+    }
+
+    function drawHarnessGraph() {
+      const canvas = document.getElementById("harness-canvas");
+      const svg = document.getElementById("harness-svg");
+      const badgesBox = document.getElementById("harness-badges");
+      if (!canvas || !svg || !badgesBox) return;
+      const cRect = svg.getBoundingClientRect();
+      if (cRect.width === 0 || cRect.height === 0) return;
+      svg.setAttribute("viewBox", `0 0 ${cRect.width} ${cRect.height}`);
+      svg.setAttribute("preserveAspectRatio", "none");
+
+      const step = harnessSteps[curHarnessStep];
+      ["harness-node-boot", "harness-node-log", "harness-node-loop", "harness-node-tools", "harness-node-ptc"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle("f-active-emerald", step.activeNodes.includes(id));
+      });
+
+      const bBoot = getRelBox(svg, "harness-node-boot");
+      const bLog = getRelBox(svg, "harness-node-log");
+      const bLoop = getRelBox(svg, "harness-node-loop");
+      const bTools = getRelBox(svg, "harness-node-tools");
+      const bPtc = getRelBox(svg, "harness-node-ptc");
+      if (!bBoot || !bLog || !bLoop || !bTools || !bPtc) return;
+
+      const midTop = (bBoot.bottom + bLoop.top) / 2;
+      const midBot = (bLoop.bottom + bTools.top) / 2;
+
+      const edges = [
+        {
+          id: "boot->loop",
+          num: "1",
+          defaultLabel: "装配插件",
+          d: `M ${bBoot.cx} ${bBoot.bottom + 2} C ${bBoot.cx} ${midTop}, ${bLoop.cx - 60} ${midTop}, ${bLoop.cx - 60} ${bLoop.top - 4}`,
+          bx: (bBoot.cx + bLoop.cx - 60) / 2 - 10,
+          by: midTop
+        },
+        {
+          id: "loop->log",
+          num: "2",
+          defaultLabel: "写 SessionEvent",
+          d: `M ${bLoop.cx + 25} ${bLoop.top - 2} V ${midTop - 26} H ${bLog.cx - 32} V ${bLog.bottom + 4}`,
+          bx: (bLoop.cx + 25 + bLog.cx - 32) / 2,
+          by: midTop - 26
+        },
+        {
+          id: "log->loop",
+          num: "3",
+          defaultLabel: "deriveMessages()",
+          d: `M ${bLog.cx + 32} ${bLog.bottom + 2} V ${midTop + 26} H ${bLoop.cx + 80} V ${bLoop.top - 4}`,
+          bx: (bLog.cx + 32 + bLoop.cx + 80) / 2,
+          by: midTop + 26
+        },
+        {
+          id: "loop->tools",
+          num: "4",
+          defaultLabel: "工具执行",
+          d: `M ${bLoop.cx - 55} ${bLoop.bottom + 2} C ${bLoop.cx - 55} ${midBot}, ${bTools.cx} ${midBot}, ${bTools.cx} ${bTools.top - 4}`,
+          bx: (bLoop.cx - 55 + bTools.cx) / 2 - 8,
+          by: midBot
+        },
+        {
+          id: "loop->ptc",
+          num: "5",
+          defaultLabel: "编程调用 / 落盘",
+          d: `M ${bLoop.cx + 55} ${bLoop.bottom + 2} C ${bLoop.cx + 55} ${midBot}, ${bPtc.cx} ${midBot}, ${bPtc.cx} ${bPtc.top - 4}`,
+          bx: (bLoop.cx + 55 + bPtc.cx) / 2 + 8,
+          by: midBot
+        }
+      ];
+
+      renderFlowEdges(svg, badgesBox, edges, step, "harness", "emerald");
+      document.getElementById("harness-route-desc").textContent = step.desc;
+    }
+
+    function drawSuperagentGraph() {
+      const canvas = document.getElementById("superagent-canvas");
+      const svg = document.getElementById("superagent-svg");
+      const badgesBox = document.getElementById("superagent-badges");
+      if (!canvas || !svg || !badgesBox) return;
+      const cRect = svg.getBoundingClientRect();
+      if (cRect.width === 0 || cRect.height === 0) return;
+      svg.setAttribute("viewBox", `0 0 ${cRect.width} ${cRect.height}`);
+      svg.setAttribute("preserveAspectRatio", "none");
+
+      const step = superagentSteps[curSuperagentStep];
+      [
+        "superagent-node-human",
+        "superagent-node-event",
+        "superagent-node-router",
+        "superagent-node-fast",
+        "superagent-node-tickets",
+        "superagent-node-w1",
+        "superagent-node-w2"
+      ].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle("f-active-amber", step.activeNodes.includes(id));
+      });
+
+      const bHuman = getRelBox(svg, "superagent-node-human");
+      const bEvent = getRelBox(svg, "superagent-node-event");
+      const bRouter = getRelBox(svg, "superagent-node-router");
+      const bFast = getRelBox(svg, "superagent-node-fast");
+      const bTickets = getRelBox(svg, "superagent-node-tickets");
+      const bW1 = getRelBox(svg, "superagent-node-w1");
+      const bW2 = getRelBox(svg, "superagent-node-w2");
+      if (!bHuman || !bEvent || !bRouter || !bFast || !bTickets || !bW1 || !bW2) return;
+
+      const midR1R2 = (bHuman.bottom + bRouter.top) / 2;
+      const midR2R3 = (bRouter.bottom + bTickets.top) / 2;
+      const midR3R4 = (bTickets.bottom + bW1.top) / 2;
+
+      const edges = [
+        {
+          id: "human->router",
+          num: "1",
+          defaultLabel: "接入事件",
+          d: `M ${bHuman.cx} ${bHuman.bottom + 2} C ${bHuman.cx} ${midR1R2}, ${bRouter.cx - 45} ${midR1R2}, ${bRouter.cx - 45} ${bRouter.top - 4}`,
+          bx: (bHuman.cx + bRouter.cx - 45) / 2 + 28,
+          by: midR1R2
+        },
+        {
+          id: "event->router",
+          num: "2",
+          defaultLabel: "GitHub 事件",
+          d: `M ${bEvent.cx} ${bEvent.bottom + 2} C ${bEvent.cx} ${midR1R2}, ${bRouter.cx + 55} ${midR1R2}, ${bRouter.cx + 55} ${bRouter.top - 4}`,
+          bx: (bEvent.cx + bRouter.cx + 55) / 2,
+          by: midR1R2
+        },
+        {
+          id: "router->fast",
+          num: "3",
+          defaultLabel: "ignore",
+          d: `M ${bRouter.cx - 65} ${bRouter.bottom + 2} C ${bRouter.cx - 65} ${midR2R3}, ${bFast.cx} ${midR2R3}, ${bFast.cx} ${bFast.top - 4}`,
+          bx: (bRouter.cx - 65 + bFast.cx) / 2 + 12,
+          by: midR2R3
+        },
+        {
+          id: "router->tickets",
+          num: "4",
+          defaultLabel: "accept",
+          d: `M ${bRouter.cx + 55} ${bRouter.bottom + 2} C ${bRouter.cx + 55} ${midR2R3}, ${bTickets.cx} ${midR2R3}, ${bTickets.cx} ${bTickets.top - 4}`,
+          bx: (bRouter.cx + 55 + bTickets.cx) / 2,
+          by: midR2R3
+        },
+        {
+          id: "tickets->w1",
+          num: "5",
+          defaultLabel: "执行分配 #1",
+          d: `M ${bTickets.cx - 40} ${bTickets.bottom + 2} C ${bTickets.cx - 40} ${midR3R4}, ${bW1.cx + 15} ${midR3R4}, ${bW1.cx + 15} ${bW1.top - 4}`,
+          bx: (bTickets.cx - 40 + bW1.cx + 15) / 2 + 22,
+          by: midR3R4
+        },
+        {
+          id: "tickets->w2",
+          num: "6",
+          defaultLabel: "执行分配 #2",
+          d: `M ${bTickets.cx + 45} ${bTickets.bottom + 2} C ${bTickets.cx + 45} ${midR3R4}, ${bW2.cx} ${midR3R4}, ${bW2.cx} ${bW2.top - 4}`,
+          bx: (bTickets.cx + 45 + bW2.cx) / 2 + 12,
+          by: midR3R4
+        },
+        {
+          id: "w1->router",
+          num: "7",
+          defaultLabel: "工作报告",
+          d: `M ${bW1.left - 2} ${bW1.cy} H 36 V ${bRouter.cy + 10} H ${bRouter.left - 5}`,
+          bx: 92,
+          by: midR3R4
+        },
+        {
+          id: "router->human",
+          num: "8",
+          defaultLabel: "消息交付",
+          d: `M ${bRouter.left - 2} ${bRouter.cy - 10} H 76 V ${bHuman.cy} H ${bHuman.left - 5}`,
+          bx: 92,
+          by: midR1R2
+        },
+        {
+          id: "human->tickets",
+          num: "9",
+          defaultLabel: "追问直达",
+          d: `M ${bHuman.cx + 50} ${bHuman.bottom + 2} V ${midR1R2 - 28} H ${cRect.width - 62} V ${bTickets.cy} H ${bTickets.right + 5}`,
+          bx: cRect.width - 62,
+          by: bRouter.cy
+        }
+      ];
+
+      renderFlowEdges(svg, badgesBox, edges, step, "superagent", "amber");
+      document.getElementById("superagent-route-desc").textContent = step.desc;
+    }
+
+    function setDaStep(idx) {
+      curDaStep = idx;
+      for (let i = 0; i < 3; i++) {
+        const btn = document.getElementById(`da-btn-${i}`);
+        if (!btn) continue;
+        btn.setAttribute("aria-pressed", String(i === idx));
+        btn.className =
+          i === idx
+            ? "px-2.5 py-1 rounded-md font-bold bg-blue-600 text-white transition-colors"
+            : "px-2.5 py-1 rounded-md font-medium bg-white text-stone-700 border border-blue-200 hover:bg-blue-50 transition-colors";
+      }
+      drawDaGraph();
+    }
+
+    function setHarnessStep(idx) {
+      curHarnessStep = idx;
+      for (let i = 0; i < 3; i++) {
+        const btn = document.getElementById(`harness-btn-${i}`);
+        if (!btn) continue;
+        btn.setAttribute("aria-pressed", String(i === idx));
+        btn.className =
+          i === idx
+            ? "px-2.5 py-1 rounded-md font-bold bg-emerald-600 text-white transition-colors"
+            : "px-2.5 py-1 rounded-md font-medium bg-white text-stone-700 border border-emerald-300 hover:bg-emerald-50 transition-colors";
+      }
+      drawHarnessGraph();
+    }
+
+    function setSuperagentStep(idx) {
+      curSuperagentStep = idx;
+      for (let i = 0; i < 4; i++) {
+        const btn = document.getElementById(`superagent-btn-${i}`);
+        if (!btn) continue;
+        btn.setAttribute("aria-pressed", String(i === idx));
+        btn.className =
+          i === idx
+            ? "px-2.5 py-1 rounded-md font-bold bg-amber-500 text-stone-950 transition-colors"
+            : "px-2.5 py-1 rounded-md font-medium bg-white text-stone-700 border border-amber-300 hover:bg-amber-50 transition-colors";
+      }
+      drawSuperagentGraph();
+    }
+
+    function redrawAllFlowcharts() {
+      drawDaGraph();
+      drawHarnessGraph();
+      drawSuperagentGraph();
+    }
+
+    let flowRedrawPending = false;
+    function scheduleFlowRedraw() {
+      if (flowRedrawPending) return;
+      flowRedrawPending = true;
+      requestAnimationFrame(() => {
+        flowRedrawPending = false;
+        redrawAllFlowcharts();
+      });
+    }
+    window.addEventListener("resize", scheduleFlowRedraw);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleFlowRedraw);
+    window.addEventListener("load", scheduleFlowRedraw);
+
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(scheduleFlowRedraw);
+      ["da-canvas", "harness-canvas", "superagent-canvas"].forEach((id) => {
+        const element = document.getElementById(id);
+        if (element) ro.observe(element);
+      });
+    }
+
+    renderSim();
+    selectArchNode(0);
+    requestAnimationFrame(() => {
+      setDaStep(0);
+      setHarnessStep(0);
+      setSuperagentStep(1);
+    });
+  </script>
+</body>
+</html>
