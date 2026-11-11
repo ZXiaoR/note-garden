@@ -1,130 +1,795 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-plop-surface="mat">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>note-garden · 我的技术知识花园</title>
-<style>
-  :root{
-    --bg:#0f1419; --panel:#1a2028; --panel2:#222b36; --text:#d7dde5; --muted:#8b97a6;
-    --accent:#4aa8ff; --accent2:#38c172; --purple:#c792ea; --border:#2c3742;
-  }
-  *{box-sizing:border-box;}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-    background:var(--bg);color:var(--text);line-height:1.7;min-height:100vh;}
-  .wrap{max-width:1040px;margin:0 auto;padding:64px 28px 100px;}
-  header{text-align:center;margin-bottom:12px;}
-  h1{font-size:44px;margin:0 0 8px;background:linear-gradient(90deg,#4aa8ff,#38c172,#c792ea);
-    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-weight:800;}
-  .sub{color:var(--muted);font-size:16px;margin:0;}
-  .tagline{color:var(--muted);font-size:14px;text-align:center;margin:6px 0 48px;}
-  .tagline code{background:var(--panel2);padding:2px 7px;border-radius:5px;color:var(--purple);font-size:12.5px;}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>note-garden · 我的技术知识花园</title>
+  <link rel="stylesheet" href="assets/plop-garden.css">
+  <style>
+    .garden-wrap {
+      min-width: 0;
+      width: 100%;
+    }
 
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px;}
-  a.card{display:block;text-decoration:none;color:inherit;background:var(--panel);border:1px solid var(--border);
-    border-radius:16px;padding:26px 24px;transition:transform .15s,border-color .15s,box-shadow .15s;position:relative;overflow:hidden;}
-  a.card:hover{transform:translateY(-4px);border-color:var(--accent);box-shadow:0 14px 40px rgba(0,0,0,.4);}
-  .card.soon{opacity:.6;cursor:default;}
-  .card.soon:hover{transform:none;border-color:var(--border);box-shadow:none;}
-  .card .ico{font-size:34px;margin-bottom:12px;display:block;}
-  .card h2{font-size:21px;margin:0 0 6px;}
-  .card p{font-size:13.5px;color:var(--muted);margin:0 0 14px;line-height:1.6;}
-  .card .meta{font-size:12px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;}
-  .badge{font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid var(--border);}
-  .badge.done{color:var(--accent2);border-color:#255c3e;background:rgba(56,193,114,.08);}
-  .badge.wip{color:var(--warn,#ffb454);border-color:#6b5326;background:rgba(255,180,84,.08);}
-  .accent-line{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#4aa8ff,#38c172);}
-  .accent-line.mysql{background:linear-gradient(90deg,#4aa8ff,#38c172);}
-  .accent-line.postgres{background:linear-gradient(90deg,#336791,#5b9bd5);}
-  .accent-line.redis{background:linear-gradient(90deg,#ff6b6b,#ffb454);}
-  .accent-line.go{background:linear-gradient(90deg,#00add8,#4aa8ff);}
-  .accent-line.os{background:linear-gradient(90deg,#f0883e,#4aa8ff);}
-  .accent-line.mq{background:linear-gradient(90deg,#e0648c,#c792ea);}
-  .accent-line.agent{background:linear-gradient(90deg,#f59e0b,#d97706);}
-  .accent-line.browser{background:linear-gradient(90deg,#c792ea,#4aa8ff);}
+    /* Hero Taped Sheet */
+    .garden-hero {
+      position: relative;
+      background: var(--plop-paper);
+      border: 3.2px solid var(--plop-ink);
+      border-radius: 26px 18px 28px 20px / 18px 28px 20px 26px;
+      box-shadow:
+        0 0 0 6px var(--plop-paper),
+        10px 14px 0 var(--plop-shadow-strong);
+      padding: clamp(22px, 3vw, 34px);
+      margin-bottom: 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 22px;
+      flex-wrap: wrap;
+    }
 
-  footer{text-align:center;color:var(--muted);font-size:13px;margin-top:56px;}
-  footer a{color:var(--accent);text-decoration:none;}
-</style>
-<script defer src="assets/analytics.js"></script>
+    .hero-left {
+      flex: 1 1 380px;
+      min-width: 0;
+    }
+
+    .hero-eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .garden-h1 {
+      font-family: var(--font-head);
+      font-size: clamp(28px, 3.8vw, 44px);
+      font-weight: 900;
+      color: var(--plop-ink-text);
+      line-height: 1.16;
+      margin: 0 0 10px;
+      letter-spacing: -0.5px;
+    }
+
+    .garden-h1 .word-sticker {
+      display: inline-block;
+      background: var(--plop-mustard);
+      color: var(--plop-ink-text);
+      border: 2.5px solid var(--plop-ink);
+      border-radius: 14px 10px 16px 11px;
+      padding: 0 10px;
+      transform: rotate(-2deg);
+      box-shadow: 3px 4px 0 var(--plop-shadow);
+      transition: transform 0.2s var(--spring-bounce);
+    }
+
+    .garden-h1:hover .word-sticker {
+      transform: rotate(1.5deg) scale(1.05);
+    }
+
+    .garden-sub {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--plop-ink);
+      margin: 0 0 6px;
+    }
+
+    .garden-tagline {
+      font-size: 14.2px;
+      color: var(--plop-ink-soft);
+      margin: 0;
+    }
+
+    /* Right side receipt stats box in Hero */
+    .hero-receipt {
+      flex: 0 1 248px;
+      min-width: 215px;
+      background: var(--plop-sheet);
+      border: 2.5px solid var(--plop-ink);
+      border-right-style: dashed;
+      border-radius: 14px 10px 16px 12px;
+      padding: 13px 16px;
+      box-shadow: 4px 6px 0 var(--plop-shadow);
+      transform: rotate(1.4deg);
+      font-family: var(--font-mono);
+      font-size: 12.2px;
+      transition: transform 0.2s var(--spring-bounce);
+    }
+
+    .hero-receipt:hover {
+      transform: rotate(0deg) scale(1.03);
+    }
+
+    @media (max-width: 720px) {
+      .hero-receipt {
+        flex: 1 1 100%;
+        transform: none;
+      }
+    }
+
+    .hero-receipt-title {
+      font-family: var(--font-head);
+      font-style: italic;
+      font-weight: 900;
+      font-size: 13.5px;
+      color: var(--plop-tomato);
+      border-bottom: 2px dashed rgba(40, 72, 216, 0.3);
+      padding-bottom: 5px;
+      margin-bottom: 7px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .hero-receipt-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 2.5px 0;
+      font-weight: 700;
+      color: var(--plop-ink-text);
+    }
+
+    /* Section Header Bar */
+    .garden-sec-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 32px 0 20px;
+      padding: 10px 18px;
+      background: var(--plop-paper);
+      border: 3px solid var(--plop-ink);
+      border-radius: 18px 13px 20px 14px / 14px 20px 13px 18px;
+      box-shadow: 0 0 0 4px var(--plop-paper), 5px 7px 0 var(--plop-shadow);
+      transform: rotate(-0.3deg);
+    }
+
+    .garden-sec-bar h2 {
+      font-family: var(--font-head);
+      font-size: clamp(17.5px, 2.2vw, 20px);
+      font-weight: 900;
+      color: var(--plop-ink-text);
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Responsive Bouncy Sticker Grid */
+    .garden-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 285px), 1fr));
+      gap: 24px;
+    }
+
+    a.plop-note-card,
+    div.plop-note-card {
+      position: relative;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      text-decoration: none;
+      color: var(--plop-ink-text);
+      background: var(--plop-paper);
+      border: 3px solid var(--plop-ink);
+      border-radius: var(--plop-radius-card);
+      box-shadow:
+        0 0 0 4.5px var(--plop-paper),
+        6px 8px 0 var(--plop-shadow-strong);
+      padding: 20px 20px 16px;
+      transition: transform 0.18s var(--spring-bounce), box-shadow 0.18s ease;
+    }
+
+    a.plop-note-card:nth-child(odd) {
+      transform: rotate(-0.45deg);
+    }
+
+    a.plop-note-card:nth-child(even) {
+      transform: rotate(0.45deg);
+    }
+
+    @media (max-width: 640px) {
+      a.plop-note-card:nth-child(odd),
+      a.plop-note-card:nth-child(even) {
+        transform: none;
+      }
+    }
+
+    a.plop-note-card:hover {
+      transform: translateY(-5px) rotate(-1deg) scale(1.015);
+      box-shadow:
+        0 0 0 5px var(--plop-paper),
+        10px 14px 0 var(--plop-shadow-strong);
+    }
+
+    .plop-note-card.soon {
+      opacity: 0.78;
+      background: var(--plop-sheet);
+      border-style: dashed;
+      cursor: default;
+    }
+
+    .card-top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 11px;
+      padding-bottom: 9px;
+      border-bottom: 2px dashed rgba(40, 72, 216, 0.25);
+    }
+
+    .card-ico-blob {
+      width: 48px;
+      height: 48px;
+      border: 2.5px solid var(--plop-ink);
+      border-radius: 50% 45% 53% 47%;
+      background: var(--plop-mustard);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      box-shadow: 2px 3px 0 var(--plop-shadow);
+      flex-shrink: 0;
+      transition: transform 0.2s var(--spring-bounce);
+    }
+
+    a.plop-note-card:hover .card-ico-blob {
+      transform: rotate(-8deg) scale(1.1);
+    }
+
+    .card-ico-blob.mint { background: var(--plop-mint); }
+    .card-ico-blob.pink { background: var(--plop-bubblegum); }
+    .card-ico-blob.periwinkle { background: var(--plop-periwinkle); }
+    .card-ico-blob.tomato { background: var(--plop-tomato); }
+
+    .plop-note-card h3 {
+      font-family: var(--font-head);
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--plop-ink);
+      margin: 0 0 8px;
+      line-height: 1.25;
+    }
+
+    a.plop-note-card:hover h3 {
+      text-decoration: underline wavy var(--plop-tomato);
+      text-underline-offset: 4px;
+    }
+
+    .plop-note-card p {
+      font-size: 13.6px;
+      color: var(--plop-ink-text);
+      margin: 0 0 14px;
+      line-height: 1.56;
+    }
+
+    .card-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding-top: 9px;
+      border-top: 1.8px dotted rgba(40, 72, 216, 0.25);
+    }
+
+    .garden-footer {
+      margin-top: 56px;
+      text-align: center;
+    }
+
+    .footer-sticker {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      background: var(--plop-paper);
+      border: 2.5px solid var(--plop-ink);
+      border-radius: var(--plop-radius-pill);
+      box-shadow: 0 0 0 4px var(--plop-paper), 4px 6px 0 var(--plop-shadow);
+      padding: 10px 22px;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--plop-ink-text);
+      transform: rotate(-0.8deg);
+    }
+
+    .footer-sticker a {
+      color: var(--plop-tomato);
+      text-decoration: underline wavy;
+      text-underline-offset: 3px;
+    }
+  </style>
+  <script src="assets/plop-garden.js"></script>
+  <script defer src="assets/analytics.js"></script>
 </head>
-<body>
-<div class="wrap">
-  <header>
-    <h1>🌱 note-garden</h1>
-    <p class="sub">我的技术知识花园 · 按自己的理解梳理，持续生长</p>
-  </header>
-  <p class="tagline">每个专题一份自包含的 HTML 笔记，图解 + 对比 + 面试速记。种下一颗，长成一棵。</p>
+<body class="plop-garden-body">
 
-  <div class="grid">
-    <a class="card" href="mysql/index.html">
-      <span class="accent-line mysql"></span>
-      <span class="ico">🐬</span>
-      <h2>MySQL</h2>
-      <p>架构 → 存储结构 → 索引 → 事务 → MVCC → 锁 → 日志 → 主从复制，一条主线串到底。</p>
-      <div class="meta"><span class="badge done">✓ 已完成</span><span>Server 层 / InnoDB 引擎层</span></div>
+  <!-- Hidden Hand-Drawn SVG Mascot & Sticker Symbols -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="plop-buddy-cap" viewBox="2 4 86 70">
+        <g fill="var(--plop-paper)" stroke="var(--plop-paper)" stroke-width="10" stroke-linejoin="round">
+          <path d="M16 48 C 14 28, 28 18, 44 18 C 60 18, 70 30, 68 46 C 66 60, 56 66, 42 66 C 26 66, 17 60, 16 48 Z"></path>
+          <path d="M62 34 C 72 29, 83 31, 83 37 C 77 42, 68 42, 62 40 Z"></path>
+        </g>
+        <g fill="none" stroke="var(--plop-ink)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 48 C 14 28, 28 18, 44 18 C 60 18, 70 30, 68 46 C 66 60, 56 66, 42 66 C 26 66, 17 60, 16 48 Z" fill="var(--plop-paper)"></path>
+          <path d="M18 49 C 9 45, 7 59, 18 61" fill="var(--plop-paper)"></path>
+          <path d="M16 41 C 15 18, 60 10, 68 36 C 50 32, 32 34, 16 41 Z" stroke="none" fill="var(--plop-bubblegum)" transform="translate(2 1.5)"></path>
+          <path d="M16 41 C 15 18, 60 10, 68 36 C 50 32, 32 34, 16 41 Z"></path>
+          <path d="M62 34 C 72 29, 83 31, 83 37 C 77 42, 68 42, 62 40 Z" fill="var(--plop-paper)"></path>
+          <circle cx="40" cy="15" r="2.6" stroke="none" fill="var(--plop-ink)"></circle>
+        </g>
+        <ellipse cx="46" cy="47" rx="2.6" ry="3.8" fill="var(--plop-ink)"></ellipse>
+        <ellipse cx="58" cy="46" rx="2.6" ry="3.8" fill="var(--plop-ink)"></ellipse>
+        <path d="M46 56 C 51 61, 58 60, 62 53" fill="none" stroke="var(--plop-ink)" stroke-width="3.2" stroke-linecap="round"></path>
+      </symbol>
+
+      <symbol id="plop-buddy-beanie" viewBox="2 2 56 56">
+        <path d="M30 15 C 42 15, 48 23, 47 34 C 46 45, 39 51, 29 51 C 19 51, 12 44, 12 33 C 12 22, 18 15, 30 15 Z" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="3" stroke-linejoin="round"></path>
+        <ellipse cx="23" cy="39" rx="3" ry="1.8" fill="var(--plop-bubblegum)"></ellipse>
+        <ellipse cx="43" cy="38" rx="2.4" ry="1.6" fill="var(--plop-bubblegum)"></ellipse>
+        <path d="M12 29 C 11 12, 47 10, 47 28 Z" fill="var(--plop-mustard)" transform="translate(1.5 1.2)"></path>
+        <path d="M12 29 C 11 12, 47 10, 47 28 Z" fill="none" stroke="var(--plop-ink)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+        <circle cx="29" cy="9" r="4" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.6"></circle>
+        <ellipse cx="28" cy="33" rx="2" ry="3.1" fill="var(--plop-ink)"></ellipse>
+        <ellipse cx="38" cy="32" rx="2" ry="3.1" fill="var(--plop-ink)"></ellipse>
+        <path d="M28.5 40 C 30 46, 38 46, 40 39 Z" fill="var(--plop-tomato)" stroke="var(--plop-ink)" stroke-width="2.3" stroke-linejoin="round"></path>
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- Top Craft Console -->
+  <header class="plop-craft-bar">
+    <a href="index.html" class="plop-logo-badge">
+      <svg width="34" height="28" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+      <span>note-garden</span>
+      <span class="tag-pill">手账笔记库</span>
     </a>
 
-    <a class="card" href="postgres/index.html">
-      <span class="accent-line postgres"></span>
-      <span class="ico">🐘</span>
-      <h2>PostgreSQL</h2>
-      <p>进程架构 → 数据类型/DDL/关系 → DML/窗口函数 → MVCC/隔离级别 → 锁 → 索引(GIN/BRIN) → EXPLAIN → VACUUM/表膨胀。</p>
-      <div class="meta"><span class="badge done">✓ 已完成</span><span>MVCC / 索引类型 / EXPLAIN / VACUUM</span></div>
-    </a>
-
-    <a class="card" href="redis/index.html">
-      <span class="accent-line redis"></span>
-      <span class="ico">🧱</span>
-      <h2>Redis</h2>
-      <p>为什么快/单线程 → 数据结构 → 缓存三大问题 → 持久化 → 过期淘汰 → 主从/哨兵/集群 → 分布式锁。</p>
-      <div class="meta"><span class="badge done">✓ 已完成</span><span>单机原理 / 数据结构 / 高可用 / 分布式锁</span></div>
-    </a>
-
-    <a class="card" href="go/index.html">
-      <span class="accent-line go"></span>
-      <span class="ico">🐹</span>
-      <h2>Go</h2>
-      <p>基础语法/包管理 → 为什么引入协程 → GMP 调度 → channel → 锁与同步 → GC → context/泛型/数据竞争/测试/性能。</p>
-      <div class="meta"><span class="badge done">✓ 已完成</span><span>并发模型 / 调度 / GC / 工程化</span></div>
-    </a>
-
-    <a class="card" href="os/index.html">
-      <span class="accent-line os"></span>
-      <span class="ico">🖥️</span>
-      <h2>操作系统</h2>
-      <p>用户态/内核态 → 进程/线程 → 虚拟内存/分页 → IPC → 并发同步/死锁 → CPU 调度(CFS) → 文件系统/epoll/零拷贝。</p>
-      <div class="meta"><span class="badge done">✓ 已完成</span><span>侧重 Linux 实现</span></div>
-    </a>
-
-    <a class="card" href="mq/index.html">
-      <span class="accent-line mq"></span>
-      <span class="ico">📨</span>
-      <h2>消息队列</h2>
-      <p>为什么用(解耦/异步/削峰) → 核心模型 → 三大主流对比 → 不丢/不重/有序/堆积/延迟/事务 → Kafka 为什么快/ISR/Rebalance。</p>
-      <div class="meta"><span class="badge done">✓ 已完成</span><span>Kafka / RocketMQ / RabbitMQ</span></div>
-    </a>
-
-    <a class="card" href="pi-agent/index.html">
-      <span class="accent-line agent"></span>
-      <span class="ico">🤖</span>
-      <h2>Coding Agent (pi)</h2>
-      <p>用 12 个机制理解一次 Agent 任务：会话树、技能与 MCP、模型与工具循环、执行前检查、运行中补充指令、上下文压缩；区分核心能力与可选扩展。</p>
-      <div class="meta"><span class="badge done">✓ 已完成</span><span>机制链路图 + 源码链接 + 单步模拟</span></div>
-    </a>
-
-    <div class="card soon">
-      <span class="accent-line browser"></span>
-      <span class="ico">🌐</span>
-      <h2>浏览器</h2>
-      <p>渲染流程、事件循环、跨域、缓存、性能优化、从输入 URL 到页面呈现。</p>
-      <div class="meta"><span class="badge wip">🚧 建设中</span></div>
+    <div class="surface-switcher">
+      <span class="surface-switcher-label">🎨 切换手账桌面材质：</span>
+      <button type="button" class="plop-sticker-btn active" data-surface-btn="mat" onclick="setPlopSurface('mat', this)">
+        🟩 切割垫
+      </button>
+      <button type="button" class="plop-sticker-btn" data-surface-btn="poster" onclick="setPlopSurface('poster', this)">
+        📄 奶油画纸
+      </button>
+      <button type="button" class="plop-sticker-btn" data-surface-btn="notebook" onclick="setPlopSurface('notebook', this)">
+        📓 横线本
+      </button>
+      <button type="button" class="plop-sticker-btn" data-surface-btn="kraft" onclick="setPlopSurface('kraft', this)">
+        📦 牛皮纸
+      </button>
+      <button type="button" class="plop-sticker-btn" data-surface-btn="riso" onclick="setPlopSurface('riso', this)">
+        🌸 孔版粉
+      </button>
     </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物贴 + 分类过滤耳标 ==================== -->
+    <aside class="plop-side-rail left" aria-label="左侧手账筛选贴纸">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div>
+              <div style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12.5px; color:var(--plop-tomato); line-height:1.15;">📚 专题分类索引</div>
+              <div style="font-size:10.8px; font-weight:800; color:var(--plop-ink-text);">点击书签按领域筛选</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 侧边分类耳朵书签贴 (Interactive Category Filter Ear-Tabs) -->
+        <div class="plop-index-tabs" id="category-tabs">
+          <button type="button" class="plop-ear-tab active" onclick="setCategoryFilter('all', this)">
+            <span class="ear-dot"></span>
+            <span>📚 全部专题 (10)</span>
+          </button>
+          <button type="button" class="plop-ear-tab" onclick="setCategoryFilter('ai', this)">
+            <span class="ear-dot mustard"></span>
+            <span>🤖 AI 与 Agent (3)</span>
+          </button>
+          <button type="button" class="plop-ear-tab" onclick="setCategoryFilter('db', this)">
+            <span class="ear-dot mint"></span>
+            <span>🐬 数据库缓存 (3)</span>
+          </button>
+          <button type="button" class="plop-ear-tab" onclick="setCategoryFilter('sys', this)">
+            <span class="ear-dot periwinkle"></span>
+            <span>⚙️ Go·OS·MQ (4)</span>
+          </button>
+        </div>
+
+        <!-- 3. 图钉便利贴：近期新增重点速查 -->
+        <div class="plop-sticky-note tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span>📌 近期更新考点</span>
+            <span>NEW</span>
+          </div>
+          <div style="font-size:11.6px; display:grid; gap:4px;">
+            <div>• <strong>Carbon</strong>: <code>thinking_level</code> + 1M 后台长解码 + <code>/swarm</code></div>
+            <div>• <strong>Agent 记忆</strong>: <code>&lt;1k</code> 目录 + Wiki 双链 + RRF 融合</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央主知识花园面板 ==================== -->
+    <div class="garden-wrap">
+      <!-- 窄屏/平板横向快捷筛选栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="快捷分类导航">
+        <button type="button" class="active" onclick="setCategoryFilter('all', this)">📚 全部 (10)</button>
+        <button type="button" onclick="setCategoryFilter('ai', this)">🤖 AI &amp; Agent (3)</button>
+        <button type="button" onclick="setCategoryFilter('db', this)">🐬 数据库缓存 (3)</button>
+        <button type="button" onclick="setCategoryFilter('sys', this)">⚙️ Go / OS / MQ (4)</button>
+      </nav>
+
+      <!-- Hero Banner -->
+      <section class="garden-hero">
+        <div class="plop-washi" style="width:124px; margin-left:-62px;"></div>
+        <div class="hero-left">
+          <div class="hero-eyebrow">
+            <span class="plop-badge hot">✨ 手绘贴纸手账知识库</span>
+            <span class="plop-badge topic">架构图解 · 源码导读 · 生产避坑</span>
+          </div>
+          <h1 class="garden-h1">
+            🌱 <span class="word-sticker">note-garden</span> 技术知识花园
+          </h1>
+          <p class="garden-sub">
+            按自己的理解梳理，边学边修正，持续生长。
+          </p>
+          <p class="garden-tagline">
+            每个专题一份独立自包含的手账笔记：<strong>架构图解 + 深度对比 + 源码导读 + 生产避坑</strong>。种下一颗，长成一棵。
+          </p>
+        </div>
+
+        <div class="hero-receipt">
+          <div class="hero-receipt-title">
+            <span>GARDEN ARCHIVE</span>
+            <span>9 / 10 已完成</span>
+          </div>
+          <div class="hero-receipt-row">
+            <span>🤖 AI &amp; Agent 专题</span>
+            <span>3 篇</span>
+          </div>
+          <div class="hero-receipt-row">
+            <span>🐬 数据库与高性能缓存</span>
+            <span>3 篇</span>
+          </div>
+          <div class="hero-receipt-row">
+            <span>⚙️ Go / Linux / 消息队列</span>
+            <span>3 篇</span>
+          </div>
+          <div class="hero-receipt-row" style="border-top:1.5px dashed rgba(40,72,216,0.3); margin-top:4px; padding-top:5px; color:var(--plop-tomato);">
+            <span>STATUS</span>
+            <span>KEEP GROWING 🌱</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 1: AI & Agent Frontier -->
+      <div class="garden-sec-bar" id="sec-ai">
+        <h2>
+          <span>🤖 AI &amp; Agent 工程前沿拆解</span>
+        </h2>
+        <span class="plop-badge hot">架构图解 + 源码实战</span>
+      </div>
+
+      <div class="garden-grid" id="grid-ai">
+        <a class="plop-note-card" data-category="ai" href="ai/index.html">
+          <div class="plop-washi mint"></div>
+          <div>
+            <div class="card-top-row">
+              <span class="card-ico-blob">🧠</span>
+              <span class="plop-badge hot">★ NEW · 手绘手账版</span>
+            </div>
+            <h3>Gemini 4 Carbon 开发者指南</h3>
+            <p>
+              Google 最强深度推理模型全拆解：Carbon vs Argon 选型、1M 统一窗口超长解码、Interactions API 四大变更、长程基线验证闭环与 <code>/swarm</code> 多智能体混编。
+            </p>
+          </div>
+          <div class="card-meta">
+            <span class="plop-badge">✓ 已完成</span>
+            <span class="plop-badge topic">全景架构图 + SDK 源码</span>
+          </div>
+        </a>
+
+        <a class="plop-note-card" data-category="ai" href="ai/memory.html">
+          <div class="plop-washi pink"></div>
+          <div>
+            <div class="card-top-row">
+              <span class="card-ico-blob pink">🌙</span>
+              <span class="plop-badge hot">★ 手绘手账版</span>
+            </div>
+            <h3>Anthropic Agent 记忆架构</h3>
+            <p>
+              深度拆解《The components of agent memory》与 Google 91.3 万次会话分心税：极小常驻目录 + Wiki 双链真值库 + RRF 混合检索 + 离线做梦 (Dreaming) 整理。
+            </p>
+          </div>
+          <div class="card-meta">
+            <span class="plop-badge">✓ 已完成</span>
+            <span class="plop-badge topic">双环架构图 + TS 实现</span>
+          </div>
+        </a>
+
+        <a class="plop-note-card" data-category="ai" href="pi-agent/index.html">
+          <div class="plop-washi periwinkle"></div>
+          <div>
+            <div class="card-top-row">
+              <span class="card-ico-blob periwinkle">🤖</span>
+              <span class="plop-badge">单步交互模拟</span>
+            </div>
+            <h3>Coding Agent (pi) 源码导读</h3>
+            <p>
+              用 12 个机制理解一次 Agent 任务：会话树、技能与 MCP、模型与工具循环、执行前检查、运行中补充指令、上下文压缩；区分核心能力与可选扩展。
+            </p>
+          </div>
+          <div class="card-meta">
+            <span class="plop-badge">✓ 已完成</span>
+            <span class="plop-badge topic">机制链路图 + 源码链接</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- Section 2: Core Backend & Systems -->
+      <div class="garden-sec-bar" id="sec-backend">
+        <h2>
+          <span>⚙️ 数据库、后端语言与系统底层</span>
+        </h2>
+        <span class="plop-badge">图解 + 对比 + 面试串联</span>
+      </div>
+
+      <div class="garden-grid" id="grid-backend">
+        <a class="plop-note-card" data-category="db" href="mysql/index.html">
+          <div class="plop-washi"></div>
+          <div>
+            <div class="card-top-row">
+              <span class="card-ico-blob mint">🐬</span>
+              <span class="plop-badge">数据库核心</span>
+            </div>
+            <h3>MySQL</h3>
+            <p>
+              架构 → 存储结构(B+树/页/行格式) → 索引 → 事务 → MVCC → 锁 → 日志(redo/undo/binlog) → 主从复制，一条主线串到底。
+            </p>
+          </div>
+          <div class="card-meta">
+            <span class="plop-badge">✓ 已完成</span>
+            <span class="plop-badge topic">Server 层 / InnoDB 引擎层</span>
+          </div>
+        </a>
+
+        <a class="plop-note-card" data-category="db" href="postgres/index.html">
+          <div class="plop-washi periwinkle"></div>
+          <div>
+            <div class="card-top-row">
+              <span class="card-ico-blob periwinkle">🐘</span>
+              <span class="plop-badge">进阶关系型</span>
+            </div>
+            <h3>PostgreSQL</h3>
+            <p>
+              进程架构 → 数据类型/DDL/关系 → DML/窗口函数 → MVCC/隔离级别 → 锁 → 索引(GIN/BRIN) → EXPLAIN → VACUUM/表膨胀。
+            </p>
+          </div>
+          <div class="card-meta">
+            <span class="plop-badge">✓ 已完成</span>
+            <span class="plop-badge topic">MVCC / 索引 / VACUUM</span>
+          </div>
+        </a>
+
+        <a class="plop-note-card" data-category="db" href="redis/index.html">
+          <div class="plop-washi pink"></div>
+          <div>
+            <div class="card-top-row">
+              <span class="card-ico-blob pink">🧱</span>
+              <span class="plop-badge">高性能缓存</span>
+            </div>
+            <h3>Redis</h3>
+            <p>
+              为什么快/单线程 → 数据结构(底层编码/阈值) → 缓存三大问题 → 持久化 → 过期淘汰 → 主从/哨兵/集群 → 分布式锁。
+            </p>
+          </div>
+          <div class="card-meta">
+            <span class="plop-badge">✓ 已完成</span>
+            <span class="plop-badge topic">单机原理 / 高可用 / 锁</span>
+          </div>
+        </a>
+
+        <a class="plop-note-card" data-category="sys" href="go/index.html">
+          <div class="plop-washi mint"></div>
+          <div>
+            <div class="card-top-row">
+              <span class="card-ico-blob">🐹</span>
+              <span class="plop-badge">并发与运行时</span>
+            </div>
+            <h3>Go</h3>
+            <p>
+              基础语法/包管理 → 为什么引入协程 → GMP 调度 → channel → 锁与同步 → GC(三色标记/写屏障) → context/泛型/数据竞争/性能。
+            </p>
+          </div>
+          <div class="card-meta">
+            <span class="plop-badge">✓ 已完成</span>
+            <span class="plop-badge topic">并发模型 / GMP / GC</span>
+          </div>
+        </a>
+
+        <a class="plop-note-card" data-category="sys" href="os/index.html">
+          <div class="plop-washi"></div>
+          <div>
+            <div class="card-top-row">
+              <span class="card-ico-blob mint">🖥️</span>
+              <span class="plop-badge">Linux 内核视角</span>
+            </div>
+            <h3>操作系统</h3>
+            <p>
+              用户态/内核态 → 进程/线程 → 虚拟内存/分页 → IPC → 并发同步/死锁 → CPU 调度(CFS) → 文件系统/epoll/零拷贝。
+            </p>
+          </div>
+          <div class="card-meta">
+            <span class="plop-badge">✓ 已完成</span>
+            <span class="plop-badge topic">侧重 Linux 实现</span>
+          </div>
+        </a>
+
+        <a class="plop-note-card" data-category="sys" href="mq/index.html">
+          <div class="plop-washi pink"></div>
+          <div>
+            <div class="card-top-row">
+              <span class="card-ico-blob pink">📨</span>
+              <span class="plop-badge">分布式中间件</span>
+            </div>
+            <h3>消息队列</h3>
+            <p>
+              为什么用(解耦/异步/削峰) → 核心模型 → 三大主流对比 → 不丢/不重/有序/堆积/延迟/事务 → Kafka 为什么快/ISR/Rebalance。
+            </p>
+          </div>
+          <div class="card-meta">
+            <span class="plop-badge">✓ 已完成</span>
+            <span class="plop-badge topic">Kafka / RocketMQ / RabbitMQ</span>
+          </div>
+        </a>
+
+        <div class="plop-note-card soon" data-category="sys">
+          <div>
+            <div class="card-top-row">
+              <span class="card-ico-blob periwinkle">🌐</span>
+              <span class="plop-badge wip">🚧 建设中</span>
+            </div>
+            <h3>浏览器原理与网络</h3>
+            <p>
+              渲染流水线、Event Loop 事件循环、跨域机制、浏览器缓存策略、性能优化、从输入 URL 到页面呈现全链路。
+            </p>
+          </div>
+          <div class="card-meta">
+            <span class="plop-badge wip">即将上线</span>
+          </div>
+        </div>
+      </div>
+
+      <footer class="garden-footer">
+        <div class="footer-sticker">
+          <span>🌿 持续补充中 · 由 <a href="mysql/index.html">MySQL</a> 开始，最新生长：<a href="ai/index.html">Gemini 4 Carbon</a></span>
+        </div>
+      </footer>
+    </div>
+
+    <!-- ==================== 右侧手账贴纸栏：全站专题快速跳转耳标 + 随机抽题贴 ==================== -->
+    <aside class="plop-side-rail right" aria-label="右侧专题快速跳转贴纸">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 毛线帽吉祥物模切贴纸 -->
+        <div class="diecut-sticker tilt-right" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="42" height="42" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-beanie"></use></svg>
+            <div>
+              <div style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12.5px; color:var(--plop-ink);">🗂️ 专题直达目录</div>
+              <div style="font-size:10.8px; font-weight:800; color:var(--plop-tomato);">一键跳进 9 篇已完成笔记</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 9 大专题直达书签耳标 -->
+        <div class="plop-index-tabs">
+          <a href="ai/index.html" class="plop-ear-tab">
+            <span class="ear-dot"></span>
+            <span>🧠 Gemini 4 Carbon</span>
+          </a>
+          <a href="ai/memory.html" class="plop-ear-tab">
+            <span class="ear-dot pink"></span>
+            <span>🌙 Agent 记忆架构</span>
+          </a>
+          <a href="pi-agent/index.html" class="plop-ear-tab">
+            <span class="ear-dot periwinkle"></span>
+            <span>🤖 Coding Agent (pi)</span>
+          </a>
+          <a href="mysql/index.html" class="plop-ear-tab">
+            <span class="ear-dot mint"></span>
+            <span>🐬 MySQL 架构与锁</span>
+          </a>
+          <a href="postgres/index.html" class="plop-ear-tab">
+            <span class="ear-dot periwinkle"></span>
+            <span>🐘 PostgreSQL 进阶</span>
+          </a>
+          <a href="redis/index.html" class="plop-ear-tab">
+            <span class="ear-dot pink"></span>
+            <span>🧱 Redis 原理与集群</span>
+          </a>
+          <a href="go/index.html" class="plop-ear-tab">
+            <span class="ear-dot mustard"></span>
+            <span>🐹 Go GMP 与 GC</span>
+          </a>
+          <a href="os/index.html" class="plop-ear-tab">
+            <span class="ear-dot mint"></span>
+            <span>🖥️ Linux 操作系统</span>
+          </a>
+          <a href="mq/index.html" class="plop-ear-tab">
+            <span class="ear-dot"></span>
+            <span>📨 消息队列对比</span>
+          </a>
+        </div>
+
+        <!-- 3. 互动玩具贴纸按钮：随机抽一篇笔记复习 -->
+        <button
+          type="button"
+          class="plop-pill-sticker tilt-left"
+          onclick="const links=['ai/index.html','ai/memory.html','pi-agent/index.html','mysql/index.html','postgres/index.html','redis/index.html','go/index.html','os/index.html','mq/index.html']; window.location.href=links[Math.floor(Math.random()*links.length)];"
+        >
+          🎲 随机抽一篇笔记复习
+        </button>
+      </div>
+    </aside>
   </div>
 
-  <footer>
-    持续补充中 · 由 <a href="mysql/index.html">MySQL</a> 开始 🌿
-  </footer>
-</div>
+  <script>
+    let activeCategory = 'all';
+
+    function setCategoryFilter(cat, btn) {
+      activeCategory = cat;
+      document.querySelectorAll('#category-tabs .plop-ear-tab, .plop-mobile-toc button').forEach(b => {
+        b.classList.remove('active');
+      });
+      if (btn) btn.classList.add('active');
+      filterGardenCards();
+    }
+
+    function filterGardenCards() {
+      const q = (document.getElementById('topic-search')?.value || '').trim().toLowerCase();
+      const cards = document.querySelectorAll('.plop-note-card');
+      let aiVisible = 0;
+      let backendVisible = 0;
+
+      cards.forEach(card => {
+        const cat = card.getAttribute('data-category') || '';
+        const text = (card.innerText || '').toLowerCase();
+        const matchCat = activeCategory === 'all' || cat === activeCategory;
+        const matchQuery = !q || text.includes(q);
+        const show = matchCat && matchQuery;
+        card.style.display = show ? '' : 'none';
+        if (show) {
+          if (cat === 'ai') aiVisible++;
+          else backendVisible++;
+        }
+      });
+
+      const secAi = document.getElementById('sec-ai');
+      const gridAi = document.getElementById('grid-ai');
+      const secBackend = document.getElementById('sec-backend');
+      const gridBackend = document.getElementById('grid-backend');
+      if (secAi && gridAi) {
+        secAi.style.display = aiVisible > 0 ? '' : 'none';
+        gridAi.style.display = aiVisible > 0 ? '' : 'none';
+      }
+      if (secBackend && gridBackend) {
+        secBackend.style.display = backendVisible > 0 ? '' : 'none';
+        gridBackend.style.display = backendVisible > 0 ? '' : 'none';
+      }
+    }
+  </script>
 </body>
 </html>

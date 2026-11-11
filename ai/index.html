@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gemini 4 Carbon 开发者指南 · note-garden 技术知识花园</title>
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <style>
+    /* ==========================================================================
+       手账全览页自适应样式 (Responsive Sketchbook Workbench)
+       ========================================================================== */
+    .washi-tape {
+      position: absolute;
+      top: -11px;
+      left: 50%;
+      width: 92px;
+      height: 20px;
+      margin-left: -46px;
+      transform: rotate(-2deg);
+      background: repeating-linear-gradient(
+        -45deg,
+        rgba(246, 196, 69, 0.88) 0 7px,
+        rgba(246, 196, 69, 0.62) 7px 14px
+      );
+      border-left: 2px dashed rgba(40, 72, 216, 0.35);
+      border-right: 2px dashed rgba(40, 72, 216, 0.35);
+      box-shadow: 0 2px 4px rgba(18, 36, 120, 0.12);
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .washi-tape.pink {
+      transform: rotate(1.8deg);
+      background: repeating-linear-gradient(
+        -45deg,
+        rgba(246, 169, 184, 0.9) 0 7px,
+        rgba(246, 169, 184, 0.62) 7px 14px
+      );
+    }
+
+    .washi-tape.mint {
+      transform: rotate(-1.5deg);
+      background: repeating-linear-gradient(
+        -45deg,
+        rgba(159, 216, 184, 0.92) 0 7px,
+        rgba(159, 216, 184, 0.65) 7px 14px
+      );
+    }
+
+    .plop-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-head);
+      font-weight: 800;
+      font-size: 11.5px;
+      letter-spacing: 0.02em;
+      padding: 2px 10px;
+      border: 2px solid var(--plop-ink);
+      border-radius: 14px 10px 15px 9px / 10px 15px 9px 14px;
+      background: var(--plop-mustard);
+      color: var(--plop-ink-text);
+      box-shadow: 0 0 0 2px var(--plop-paper), 2px 3px 0 var(--plop-shadow);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .plop-tag.tomato {
+      background: var(--plop-tomato);
+      color: var(--plop-on-ink);
+    }
+
+    .plop-tag.mint {
+      background: var(--plop-mint);
+      color: var(--plop-ink-text);
+    }
+
+    .plop-tag.bubblegum {
+      background: var(--plop-bubblegum);
+      color: var(--plop-ink-text);
+    }
+
+    .plop-tag.periwinkle {
+      background: var(--plop-periwinkle);
+      color: var(--plop-ink-text);
+    }
+
+    .hl-mustard {
+      background: linear-gradient(180deg, transparent 52%, var(--plop-mustard) 52% 92%, transparent 92%);
+      padding: 0 3px;
+      font-weight: 800;
+    }
+
+    .code-inline {
+      font-family: var(--font-mono);
+      font-size: 0.9em;
+      font-weight: 700;
+      background: var(--plop-sheet);
+      color: var(--plop-tomato);
+      border: 1.5px solid var(--plop-ink);
+      border-radius: 5px;
+      padding: 0 5px;
+    }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.9em;
+      font-weight: 700;
+      color: var(--plop-tomato);
+      background: rgba(246, 196, 69, 0.22);
+      padding: 1px 4px;
+      border-radius: 4px;
+      word-break: break-word;
+    }
+
+    /* 顶部贴纸控制台按钮 */
+    .console-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .console-label {
+      font-family: var(--font-head);
+      font-size: 12.5px;
+      font-weight: 800;
+      color: var(--plop-ink);
+    }
+
+    .sticker-btn {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 800;
+      padding: 5px 11px;
+      border: 2.2px solid var(--plop-ink);
+      border-radius: 14px 10px 16px 11px / 11px 16px 10px 14px;
+      background: var(--plop-sheet);
+      color: var(--plop-ink-text);
+      box-shadow: 0 0 0 2px var(--plop-paper), 2px 3px 0 var(--plop-shadow);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .sticker-btn:hover {
+      transform: translateY(-1.5px);
+      box-shadow: 0 0 0 2px var(--plop-paper), 3px 5px 0 var(--plop-shadow-strong);
+    }
+
+    .sticker-btn.active {
+      background: var(--plop-mustard);
+      color: var(--plop-ink-text);
+    }
+
+    .mode-switch-btn {
+      font-family: var(--font-body);
+      font-size: 12.5px;
+      font-weight: 900;
+      padding: 6px 13px;
+      border: 2.2px solid var(--plop-ink);
+      border-radius: 16px 11px 18px 12px;
+      background: var(--plop-paper);
+      color: var(--plop-ink-text);
+      box-shadow: 0 0 0 2.5px var(--plop-paper), 2px 4px 0 var(--plop-shadow);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      transition: transform 0.12s ease;
+    }
+
+    .mode-switch-btn:hover {
+      transform: translateY(-1.5px);
+      background: var(--plop-mustard);
+    }
+
+    .mode-switch-btn.active {
+      background: var(--plop-tomato);
+      color: var(--plop-on-ink);
+    }
+
+    /* 手绘感表格与自适应横向滚动包装 */
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border: 2.2px solid var(--plop-ink);
+      border-radius: 12px 9px 14px 10px;
+      background: var(--plop-paper);
+    }
+
+    .plop-table {
+      width: 100%;
+      min-width: 440px;
+      border-collapse: collapse;
+      font-size: 13.4px;
+      background: var(--plop-paper);
+    }
+
+    .plop-table th,
+    .plop-table td {
+      padding: 9px 11px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1.6px dashed rgba(40, 72, 216, 0.28);
+      border-right: 1.6px dashed rgba(40, 72, 216, 0.28);
+      color: var(--plop-ink-text);
+    }
+
+    .plop-table th:last-child,
+    .plop-table td:last-child {
+      border-right: none;
+    }
+
+    .plop-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .plop-table th {
+      background: var(--plop-periwinkle);
+      color: var(--plop-ink-text);
+      font-weight: 900;
+      border-bottom: 2px solid var(--plop-ink);
+    }
+
+    .wb-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .plop-ticket-kpi {
+      border: 2px solid var(--plop-ink);
+      border-right-style: dashed;
+      border-radius: 10px 7px 11px 8px;
+      padding: 9px 11px;
+      background: var(--plop-paper);
+      box-shadow: 2px 3px 0 var(--plop-shadow);
+      min-width: 0;
+    }
+
+    /* 主画布与自适应网格 */
+    .plop-workbench {
+      min-width: 0;
+      width: 100%;
+    }
+
+    .wb-sheet {
+      position: relative;
+      background: var(--plop-paper);
+      border: 3px solid var(--plop-ink);
+      border-radius: 24px 18px 26px 20px / 18px 26px 20px 24px;
+      box-shadow:
+        0 0 0 5px var(--plop-paper),
+        8px 12px 0 var(--plop-shadow-strong);
+      padding: clamp(16px, 2.8vw, 30px);
+    }
+
+    /* 自适应刊头：左侧日期印章卡 + 中央大标题 + 右侧快捷操作卡 */
+    .wb-masthead {
+      display: flex;
+      justify-content: space-between;
+      align-items: stretch;
+      flex-wrap: wrap;
+      gap: 18px;
+      padding-bottom: 22px;
+      border-bottom: 3px dashed var(--plop-ink);
+    }
+
+    .wb-date-card {
+      flex: 0 0 172px;
+      background: var(--plop-mustard);
+      transform: rotate(-1.5deg);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 16px 18px;
+      transition: transform 0.2s var(--spring-bounce);
+    }
+
+    .wb-date-card:hover {
+      transform: rotate(0deg) scale(1.03);
+    }
+
+    .wb-masthead-main {
+      flex: 1 1 360px;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 4px;
+    }
+
+    @media (max-width: 820px) {
+      .wb-date-card {
+        flex: 1 1 100%;
+        transform: none;
+      }
+    }
+
+    .wb-sec-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 26px 0 16px;
+      padding: 9px 15px;
+      background: var(--plop-mustard);
+      border: 2.6px solid var(--plop-ink);
+      border-radius: 16px 12px 18px 13px / 13px 18px 12px 16px;
+      box-shadow: 3px 5px 0 var(--plop-shadow);
+      scroll-margin-top: 76px;
+    }
+
+    .wb-sec-header.mint { background: var(--plop-mint); }
+    .wb-sec-header.pink { background: var(--plop-bubblegum); }
+    .wb-sec-header.periwinkle { background: var(--plop-periwinkle); }
+
+    .wb-sec-num {
+      font-family: var(--font-head);
+      font-size: 19px;
+      font-weight: 900;
+      background: var(--plop-paper);
+      color: var(--plop-ink);
+      border: 2.2px solid var(--plop-ink);
+      border-radius: 50%;
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 2px 2px 0 var(--plop-shadow);
+      flex-shrink: 0;
+    }
+
+    .wb-sec-title {
+      font-family: var(--font-head);
+      font-size: clamp(16.5px, 2vw, 19.5px);
+      font-weight: 900;
+      color: var(--plop-ink-text);
+      flex: 1 1 240px;
+      min-width: 0;
+    }
+
+    /* 容器自适应多列网格：宽度不足时自动折行，绝不挤压文字 */
+    .wb-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 370px), 1fr));
+      gap: 18px;
+    }
+
+    .wb-grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+      gap: 16px;
+    }
+
+    .wb-card {
+      position: relative;
+      min-width: 0;
+      max-width: 100%;
+      background: var(--plop-sheet);
+      border: 2.4px solid var(--plop-ink);
+      border-radius: var(--plop-radius-card);
+      box-shadow: 4px 6px 0 var(--plop-shadow);
+      padding: clamp(14px, 2.2vw, 20px);
+      overflow-wrap: break-word;
+    }
+
+    .wb-card.notebook-lines {
+      background:
+        linear-gradient(90deg, transparent 22px, rgba(231, 156, 156, 0.4) 22px 23.5px, transparent 23.5px),
+        repeating-linear-gradient(#FFFDF7 0 27px, #DCE4F9 27px 28px);
+    }
+
+    .wb-card h3, .wb-card h4 {
+      font-family: var(--font-head);
+      font-weight: 900;
+      color: var(--plop-ink);
+      margin-top: 0;
+    }
+
+    .plop-code-pre {
+      background: #141B3A;
+      color: #FFF8E7;
+      font-family: var(--font-mono);
+      overflow-x: auto;
+      max-width: 100%;
+    }
+
+    .plop-code-pre code {
+      background: none;
+      color: inherit;
+      padding: 0;
+      font-size: inherit;
+    }
+
+    .c-kw { color: #FF9E64; font-weight: 700; }
+    .c-fn { color: #7DCFFF; font-weight: 700; }
+    .c-str { color: #9ECE6A; }
+    .c-cm { color: #A9B6EE; font-style: italic; }
+  </style>
+</head>
+<body>
+
+  <!-- 隐藏手绘 SVG 吉祥物 Sprite -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="plop-buddy-cap" viewBox="2 4 86 70">
+        <g fill="var(--plop-paper)" stroke="var(--plop-paper)" stroke-width="10" stroke-linejoin="round">
+          <path d="M16 48 C 14 28, 28 18, 44 18 C 60 18, 70 30, 68 46 C 66 60, 56 66, 42 66 C 26 66, 17 60, 16 48 Z"></path>
+          <path d="M62 34 C 72 29, 83 31, 83 37 C 77 42, 68 42, 62 40 Z"></path>
+        </g>
+        <g fill="none" stroke="var(--plop-ink)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 48 C 14 28, 28 18, 44 18 C 60 18, 70 30, 68 46 C 66 60, 56 66, 42 66 C 26 66, 17 60, 16 48 Z" fill="var(--plop-paper)"></path>
+          <path d="M18 49 C 9 45, 7 59, 18 61" fill="var(--plop-paper)"></path>
+          <path d="M16 41 C 15 18, 60 10, 68 36 C 50 32, 32 34, 16 41 Z" stroke="none" fill="var(--plop-bubblegum)" transform="translate(2 1.5)"></path>
+          <path d="M16 41 C 15 18, 60 10, 68 36 C 50 32, 32 34, 16 41 Z"></path>
+          <path d="M62 34 C 72 29, 83 31, 83 37 C 77 42, 68 42, 62 40 Z" fill="var(--plop-paper)"></path>
+          <circle cx="40" cy="15" r="2.6" stroke="none" fill="var(--plop-ink)"></circle>
+        </g>
+        <ellipse cx="46" cy="47" rx="2.6" ry="3.8" fill="var(--plop-ink)"></ellipse>
+        <ellipse cx="58" cy="46" rx="2.6" ry="3.8" fill="var(--plop-ink)"></ellipse>
+        <path d="M46 56 C 51 61, 58 60, 62 53" fill="none" stroke="var(--plop-ink)" stroke-width="3.2" stroke-linecap="round"></path>
+      </symbol>
+
+      <symbol id="plop-buddy-beanie" viewBox="2 2 56 56">
+        <path d="M30 15 C 42 15, 48 23, 47 34 C 46 45, 39 51, 29 51 C 19 51, 12 44, 12 33 C 12 22, 18 15, 30 15 Z" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="3" stroke-linejoin="round"></path>
+        <ellipse cx="23" cy="39" rx="3" ry="1.8" fill="var(--plop-bubblegum)"></ellipse>
+        <ellipse cx="43" cy="38" rx="2.4" ry="1.6" fill="var(--plop-bubblegum)"></ellipse>
+        <path d="M12 29 C 11 12, 47 10, 47 28 Z" fill="var(--plop-mustard)" transform="translate(1.5 1.2)"></path>
+        <path d="M12 29 C 11 12, 47 10, 47 28 Z" fill="none" stroke="var(--plop-ink)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+        <circle cx="29" cy="9" r="4" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.6"></circle>
+        <ellipse cx="28" cy="33" rx="2" ry="3.1" fill="var(--plop-ink)"></ellipse>
+        <ellipse cx="38" cy="32" rx="2" ry="3.1" fill="var(--plop-ink)"></ellipse>
+        <path d="M28.5 40 C 30 46, 38 46, 40 39 Z" fill="var(--plop-tomato)" stroke="var(--plop-ink)" stroke-width="2.3" stroke-linejoin="round"></path>
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- ==========================================================================
+       顶部固定导航与材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+        <span class="plop-tag">GEMINI 4 CARBON 全览</span>
+      </div>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + API 速查小票 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与参数速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs">
+          <a href="#sec-01" class="plop-ear-tab active" data-toc="sec-01">
+            <span class="ear-dot"></span>
+            <span>01 双子星选型</span>
+          </a>
+          <a href="#sec-02" class="plop-ear-tab" data-toc="sec-02">
+            <span class="ear-dot mint"></span>
+            <span>02 双环架构图</span>
+          </a>
+          <a href="#sec-03" class="plop-ear-tab" data-toc="sec-03">
+            <span class="ear-dot periwinkle"></span>
+            <span>03 API 四大升级</span>
+          </a>
+          <a href="#sec-04" class="plop-ear-tab" data-toc="sec-04">
+            <span class="ear-dot mustard"></span>
+            <span>04 五大工程实践</span>
+          </a>
+          <a href="#sec-05" class="plop-ear-tab" data-toc="sec-05">
+            <span class="ear-dot pink"></span>
+            <span>05 迁移 6 大避坑</span>
+          </a>
+          <a href="#sec-06" class="plop-ear-tab" data-toc="sec-06">
+            <span class="ear-dot mint"></span>
+            <span>06 渠道与自检表</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：API 参数与变更速查表 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>CARBON API 速查</span>
+            <span>#SPEC</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>MODEL</span>
+            <span>gemini-4-carbon</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>THINKING</span>
+            <span>low|medium|high</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>&gt;64K 解码</span>
+            <span>background=True</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>隐式缓存</span>
+            <span>≥4096 tok -95%</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>必删参数</span>
+            <span>temp/top_p/top_k</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="full-broadsheet-view">
+      <!-- 窄屏/平板横向章节导航栏 (< 1120px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#sec-01" class="active">01 双子星选型</a>
+        <a href="#sec-02">02 双环架构图</a>
+        <a href="#sec-03">03 API 四大升级</a>
+        <a href="#sec-04">04 五大工程实践</a>
+        <a href="#sec-05">05 迁移 6 大避坑</a>
+        <a href="#sec-06">06 渠道与自检</a>
+      </nav>
+
+      <div class="wb-sheet">
+        <div class="washi-tape"></div>
+
+        <!-- 响应式手账刊头：左侧日期印章卡 + 右侧大标题 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">NOTE-GARDEN CHRONICLE</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:44px; font-weight:900; color:var(--plop-ink); line-height:1; margin:6px 0;">11.10</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">GEMINI 4 CARBON GUIDE</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag tomato">OFFICIAL DEVELOPER GUIDE</span>
+              <span class="plop-tag mint">1M UNIFIED CONTEXT</span>
+              <span class="plop-tag periwinkle">95% IMPLICIT CACHE</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              Google《Gemini 4 Carbon 开发者指南》全景手账拆解
+            </h1>
+            <p style="font-size:14.8px; color:var(--plop-ink-soft); margin:0; font-weight:600;">
+              涵盖 Carbon vs Argon 双子星选型、双环全景架构图、Interactions API 四大升级、5 大工程实践、官方原版 Prompt 模板与 Python/TypeScript 完整 SDK 代码。
+            </p>
+          </div>
+        </header>
+
+        <!-- ====================================================================
+             SECTION 01: 模型定位与双子星选型
+             ==================================================================== -->
+        <div class="wb-sec-header" id="sec-01">
+          <span class="wb-sec-num">01</span>
+          <span class="wb-sec-title">模型定位与双子星选型：Gemini 4 Carbon vs Gemini 4 Argon</span>
+          <span class="plop-tag tomato">同规格 · 同单价 · 一行切换</span>
+        </div>
+
+        <div class="wb-grid-2">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <div class="washi-tape pink"></div>
+            <h3 style="font-size:18px; margin-bottom:10px;">
+              📌 双子星怎么选？Carbon vs Argon（共享规格与每 Token 单价）
+            </h3>
+            <p style="font-size:14px; margin-bottom:12px;">
+              继两周前通过 Fairwind 计划向网安防御者开放后，<strong>Gemini 4 Carbon (<code>gemini-4-carbon</code>)</strong> 正式向付费 API 开发者开放！它与 <strong>Argon</strong> 共享 <span class="hl-mustard">统一 1M 上下文、thinking_level 控制、内置工具与相同的每 Token 单价</span>：
+            </p>
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:18%">对比维度</th>
+                    <th style="width:42%">🔥 Gemini 4 Carbon (<code>gemini-4-carbon</code>)</th>
+                    <th style="width:40%">⚡ Gemini 4 Argon (<code>gemini-4-argon</code>)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>最佳场景</strong></td>
+                    <td><strong>极限智力攻坚</strong>：跨大代码库找隐蔽根因、顶层架构设计、安全漏洞修补、形式化数学证明、多 Agent 总控</td>
+                    <td><strong>日常主力研发</strong>：绝大多数高级软件工程与知识工作、交互式结对编程、快速生产迭代</td>
+                  </tr>
+                  <tr>
+                    <td><strong>思考方式</strong></td>
+                    <td>舍得投入更多 Thinking Tokens 深度探索并跑长验证闭环</td>
+                    <td>前沿推理 + 更紧凑的 Token 消耗与更快响应速度</td>
+                  </tr>
+                  <tr>
+                    <td><strong>混编绝配</strong></td>
+                    <td colspan="2">在 Antigravity <code>/swarm</code> 中用 <strong>Carbon 当总架构师+终审员</strong>，把并行写业务切片交给 <strong>Argon 或 3.8 Flash</strong>！</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="wb-card">
+            <div class="washi-tape mint"></div>
+            <h3 style="font-size:18px; margin-bottom:10px;">
+              🏷️ 核心规格、早鸟阶梯定价与三大解锁场景
+            </h3>
+            <div class="wb-kpi-grid">
+              <div class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:20px; font-weight:900; color:var(--plop-ink-text);">$2 / $10</div>
+                <div style="font-size:12px; font-weight:800;">截至11月30日半价尝鲜 (每1M输入/输出含思考)</div>
+              </div>
+              <div class="plop-ticket-kpi">
+                <div style="font-family:var(--font-head); font-size:20px; font-weight:900; color:var(--plop-ink);">$4 / $20</div>
+                <div style="font-size:12px; font-weight:800;">12月1日起标准API价 (每1M输入/输出含思考)</div>
+              </div>
+              <div class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:20px; font-weight:900; color:var(--plop-ink-text);">1M Unified</div>
+                <div style="font-size:12px; font-weight:800;">输入 + 思考 + 输出共享百万窗口</div>
+              </div>
+              <div class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:20px; font-weight:900; color:var(--plop-ink-text);">95% OFF</div>
+                <div style="font-size:12px; font-weight:800;">隐式缓存默认开启（≥4,096 Token 命中享0.5折）</div>
+              </div>
+            </div>
+
+            <div style="background:var(--plop-paper); border:2px dashed var(--plop-ink); border-radius:12px; padding:12px 14px; font-size:13.5px;">
+              <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">🚀 官方点名的三大高难度解锁工作流：</strong>
+              <ul style="list-style:none; padding:0; margin:0; display:grid; gap:6px;">
+                <li><strong>① 长程工程、形式化验证与网安攻防</strong>：追踪多跳软件漏洞、把安全属性转化为形式化数学证明，对照编译器与测试套件反复验证直至全绿。</li>
+                <li><strong>② 高精度多模态知识与科研推导</strong>：混合解析密集 PDF、长视频、财务账本与实验数据，严格按 Schema 产出表格、报告与科学推导。</li>
+                <li><strong>③ 全栈 Web、3D 世界与物理仿真</strong>：跨 Three.js、Blender、WebGPU 兼顾前端审美与空间物理模拟。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 02: 全景工作流架构图
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="sec-02">
+          <span class="wb-sec-num">02</span>
+          <span class="wb-sec-title">全景架构图：单 Agent 长程自验证闭环 (LOOP A) × 多 Agent 军团编排 (LOOP B)</span>
+          <span class="plop-tag">FIG 1.0 · WORKFLOW TOPOLOGY</span>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <svg viewBox="0 0 600 295" style="width:100%; height:auto; display:block; background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:14px; margin-bottom:18px;">
+            <defs>
+              <marker id="plop-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
+              </marker>
+              <marker id="plop-arr-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-tomato)" stroke="var(--plop-tomato)" stroke-linejoin="round"/>
+              </marker>
+            </defs>
+
+            <!-- 左半区：单Agent长程自验证环 -->
+            <rect x="8" y="8" width="320" height="279" rx="12" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="2.5" stroke-dasharray="6 4"/>
+            <rect x="16" y="14" width="304" height="24" rx="8" fill="var(--plop-ink)"/>
+            <text x="168" y="30" fill="#FFF8E7" font-family="monospace" font-size="10.2" font-weight="bold" text-anchor="middle">⚡ LOOP A: 单 Agent 长程自验证闭环 (Tip 1/2/5)</text>
+
+            <!-- 右半区：多Agent /swarm 编排环 -->
+            <rect x="336" y="8" width="256" height="279" rx="12" fill="#FFF5F7" stroke="var(--plop-ink)" stroke-width="2.5" stroke-dasharray="6 4"/>
+            <rect x="344" y="14" width="240" height="24" rx="8" fill="var(--plop-tomato)"/>
+            <text x="464" y="30" fill="#FFF8E7" font-family="monospace" font-size="10" font-weight="bold" text-anchor="middle">🐝 LOOP B: /swarm 军团与跨模态 (Tip 3/4)</text>
+
+            <!-- 节点 1：对齐意图 -->
+            <rect x="16" y="46" width="144" height="52" rx="10" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <text x="24" y="63" fill="var(--plop-ink-text)" font-size="10.5" font-weight="bold">1. 🎯 对齐意图 &amp; Pre-flight</text>
+            <text x="24" y="78" fill="var(--plop-ink-text)" font-size="9.5" font-weight="bold">• 反问边界条件与验收标准</text>
+            <text x="24" y="91" fill="var(--plop-ink-soft)" font-size="9" font-weight="bold">• 提炼 DESIGN.md 视觉规范</text>
+
+            <!-- 核心节点：Carbon -->
+            <rect x="174" y="46" width="146" height="52" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.8"/>
+            <text x="247" y="67" fill="var(--plop-ink)" font-size="12" font-weight="bold" text-anchor="middle">🧠 Gemini 4 Carbon</text>
+            <text x="247" y="84" fill="var(--plop-tomato)" font-size="9.5" font-weight="bold" text-anchor="middle">low | medium(默认) | high</text>
+            <path d="M 160 72 L 170 72" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#plop-arr)"/>
+
+            <!-- 节点 2：验证闭环 -->
+            <rect x="16" y="110" width="304" height="54" rx="10" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <text x="26" y="128" fill="var(--plop-ink-text)" font-size="10.5" font-weight="bold">2. 🔬 真实验证信号与基线脚本 (Build-and-Verify)</text>
+            <text x="26" y="143" fill="var(--plop-ink-text)" font-size="9.5" font-weight="bold">• 无测试时先写 Headless Chrome 脚本跑出 Baseline 初始分</text>
+            <text x="26" y="156" fill="var(--plop-ink-text)" font-size="9.5" font-weight="bold">• 按共享组件根因分簇修复 → 每次改完重跑脚本直至 0 违规</text>
+            <path d="M 247 98 L 247 106" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#plop-arr)"/>
+
+            <!-- 底层能力支撑 -->
+            <rect x="16" y="176" width="146" height="44" rx="9" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="2"/>
+            <text x="89" y="194" fill="var(--plop-ink-text)" font-size="10" font-weight="bold" text-anchor="middle">🚀 1M 统一窗口长解码</text>
+            <text x="89" y="209" fill="var(--plop-ink-text)" font-size="9" font-weight="bold" text-anchor="middle">后台 + 提高输出预算</text>
+
+            <rect x="174" y="176" width="146" height="44" rx="9" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="2"/>
+            <text x="247" y="194" fill="var(--plop-ink-text)" font-size="10" font-weight="bold" text-anchor="middle">🛡️ Antigravity 托管沙箱</text>
+            <text x="247" y="209" fill="var(--plop-ink-text)" font-size="9" font-weight="bold" text-anchor="middle">联网/写码/调MCP一键跑</text>
+
+            <path d="M 89 164 L 89 172" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#plop-arr)"/>
+            <path d="M 247 164 L 247 172" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#plop-arr)"/>
+
+            <!-- 节点 3：反思沉淀 -->
+            <rect x="16" y="232" width="304" height="46" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <text x="168" y="250" fill="var(--plop-ink)" font-size="10.2" font-weight="bold" text-anchor="middle">3. 📓 任务后复盘反思 (Reflect &amp; Visual Explainer)</text>
+            <text x="168" y="266" fill="var(--plop-ink-text)" font-size="9" font-weight="bold" text-anchor="middle">暗坑写进 AGENTS.md · 提炼 Skill · 生成交互式架构图</text>
+            <path d="M 168 220 L 168 228" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#plop-arr)"/>
+
+            <!-- 右侧：多Agent 与 跨模态 -->
+            <rect x="344" y="46" width="240" height="52" rx="10" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <text x="464" y="64" fill="var(--plop-ink-text)" font-size="10.2" font-weight="bold" text-anchor="middle">👑 Carbon 总指挥与终审员 (medium/high)</text>
+            <text x="464" y="79" fill="var(--plop-ink-text)" font-size="9.2" font-weight="bold" text-anchor="middle">负责架构拆解、接口定义、安全审计与终审</text>
+            <text x="464" y="91" fill="var(--plop-ink-soft)" font-size="8.6" font-weight="bold" text-anchor="middle">Antigravity /swarm 隔离工作区实时追踪</text>
+            <path d="M 320 72 L 340 72" stroke="var(--plop-tomato)" stroke-width="2.2" stroke-dasharray="4 2" marker-end="url(#plop-arr-red)"/>
+
+            <rect x="344" y="110" width="240" height="54" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2"/>
+            <text x="464" y="128" fill="var(--plop-ink)" font-size="10.2" font-weight="bold" text-anchor="middle">⚡ 并行编码子 Agent 军团</text>
+            <text x="352" y="143" fill="var(--plop-ink-text)" font-size="9.2" font-weight="bold">• Gemini 4 Argon：主力业务模块与复杂逻辑</text>
+            <text x="352" y="156" fill="var(--plop-leaf)" font-size="9.2" font-weight="bold">• Gemini 3.8 Flash：叶子模块迁移/单测/高频检查</text>
+            <path d="M 464 98 L 464 106" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#plop-arr)"/>
+
+            <rect x="344" y="176" width="240" height="102" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2"/>
+            <text x="464" y="194" fill="var(--plop-ink)" font-size="10.2" font-weight="bold" text-anchor="middle">🎨 跨模态专精模型调度 (CLI 直存本地)</text>
+            <text x="352" y="210" fill="var(--plop-ink-text)" font-size="9.2" font-weight="bold">• Nano Banana 2.1：产品图、贴图、3D参考图</text>
+            <text x="352" y="225" fill="var(--plop-ink-text)" font-size="9.2" font-weight="bold">• Gemini Omni 1.2 Flash：生成视频动态参考</text>
+            <text x="352" y="240" fill="var(--plop-ink-text)" font-size="9.2" font-weight="bold">• Gemini 3.8 Flash TTS / Lyria：语音与配乐</text>
+            <rect x="352" y="248" width="224" height="22" rx="6" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+            <text x="464" y="263" fill="var(--plop-ink-text)" font-size="8.8" font-weight="bold" text-anchor="middle">★ gemini-api-cli 终端落盘，零上下文膨胀！</text>
+            <path d="M 464 164 L 464 172" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#plop-arr)"/>
+          </svg>
+
+          <div class="wb-grid-2">
+            <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+              <h4 style="font-size:15.5px; margin-bottom:6px;">🔬 为什么必须给 Carbon 建立“真实验证闭环”？</h4>
+              <p style="font-size:13.6px; margin:0;">
+                不要让模型靠猜判断修没修好！接入测试套件、服务端日志或浏览器截图。<strong>若项目暂无自动化测试，先让 Carbon 写无头浏览器（Headless Chrome）脚本记录初始 Baseline 分数</strong>，按共享组件根因分簇修复，每改完一簇重跑脚本验证直至 0 违规。
+              </p>
+            </div>
+            <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+              <h4 style="font-size:15.5px; margin-bottom:6px;">🐝 Antigravity <code>/swarm</code> 多 Agent 混编分工</h4>
+              <p style="font-size:13.6px; margin:0;">
+                • <strong>总架构师与终审员</strong>：<code>gemini-4-carbon</code>（<code>medium/high</code>），把控顶层接口与终审。<br/>
+                • <strong>并行执行切片</strong>：<code>gemini-4-argon</code>（复杂业务）+ <code>gemini-3.8-flash</code>（叶子模块迁移/单测）。<br/>
+                • <strong>跨模态媒体资产</strong>：通过 <code>gemini-api-cli</code> 调 Nano Banana 2.1 / Omni 1.2 / Lyria 直接落盘。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 03: API 四大核心升级
+             ==================================================================== -->
+        <div class="wb-sec-header periwinkle" id="sec-03">
+          <span class="wb-sec-num">03</span>
+          <span class="wb-sec-title">Interactions API 四大核心升级：thinking_level、1M 超长解码与托管沙箱</span>
+          <span class="plop-tag tomato">API DEEP DIVE</span>
+        </div>
+
+        <div class="wb-grid-2">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <div class="washi-tape"></div>
+            <h3 style="font-size:17.5px; margin-bottom:10px;">
+              🎛️ 1. 用 <code>thinking_level</code> 精准控制推理深度（默认 <code>medium</code>）
+            </h3>
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:24%">档位参数</th>
+                    <th style="width:28%">推理特征与开销</th>
+                    <th>官方推荐最佳适用场景</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong style="color:var(--plop-tomato);"><code>"high"</code></strong></td>
+                    <td>最大化思考深度与探索轮次</td>
+                    <td><strong>跨文件隐蔽 Bug 根因排查、安全漏洞修补、形式化数学证明、前期顶层架构设计</strong></td>
+                  </tr>
+                  <tr>
+                    <td><strong style="color:var(--plop-ink);"><code>"medium"</code></strong> <span class="code-inline">默认</span></td>
+                    <td>速度、成本与首轮准确率最优解</td>
+                    <td><strong>日常交互式编程、全栈应用开发、Agent 工具调用主循环（推荐默认档）</strong></td>
+                  </tr>
+                  <tr>
+                    <td><strong style="color:var(--plop-leaf);"><code>"low"</code></strong></td>
+                    <td>最小化延迟与 Token 消耗</td>
+                    <td><strong>高速意图分类、路由分发（Routing）、结构化定向提取</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="wb-card" style="display:flex; flex-direction:column; gap:14px;">
+            <div class="washi-tape pink"></div>
+            <div style="background:var(--plop-paper); border:2px solid var(--plop-ink); border-radius:12px; padding:13px 15px;">
+              <h4 style="font-size:16px; margin-bottom:6px;">📏 2. 突破 64K 限制：1M 统一窗口超长解码 (Long Decode)</h4>
+              <p style="font-size:13.6px; margin:0;">
+                • <strong>1M 统一池</strong>：输入 + 思考 + 输出共享 <strong>1M Token</strong>（输出预算含思考 Token）。<br/>
+                • <strong>默认同步上限</strong>：同步流式/非流式默认上限仍为 <code>65,536</code>。<br/>
+                • <strong>开启超长解码</strong>：在 Interactions API 中设 <span class="hl-mustard">background=True</span> 并调高 <code>max_output_tokens</code>（如 <code>262144</code>），单次即可生成超 64K 的完整多文件重构 Diff 或长篇数学证明；如需精细容错也可使用客户端手动续写。
+              </p>
+            </div>
+
+            <div style="background:var(--plop-paper); border:2px solid var(--plop-ink); border-radius:12px; padding:13px 15px;">
+              <h4 style="font-size:16px; margin-bottom:6px;">🛡️ 3. Managed Agents：一行调起远程 Antigravity 沙箱</h4>
+              <p style="font-size:13.6px; margin:0;">
+                • <strong>免搭本地工具链</strong>：传入 <code>agent="antigravity-preview-09-2026"</code> 与 <code>environment="remote"</code>。<br/>
+                • <strong>自带云端执行环境</strong>：Carbon 在远程托管沙箱中自动联网搜索、读写代码、运行验证脚本与调用 MCP 工具（官方展示了自动联网考证族谱并生成交互式 3D 地球的 <em>Family Historian</em>）。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 04: 5 大工程实践 + 官方 Prompt + SDK 完整代码
+             ==================================================================== -->
+        <div class="wb-sec-header" id="sec-04">
+          <span class="wb-sec-num">04</span>
+          <span class="wb-sec-title">五大工程实践秘籍 + 官方原版 Prompt 模板 + Python / TS 完整代码</span>
+          <span class="plop-tag mint">BATTLE-TESTED WORKFLOWS</span>
+        </div>
+
+        <div class="wb-grid-3" style="margin-bottom:18px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+              <h4 style="margin:0;">🎯 Tip 1：长跑前先对齐意图</h4>
+              <span class="plop-tag">Scoping</span>
+            </div>
+            <p style="font-size:13.5px; margin:0;">
+              Carbon 能独立连续跑很久，跑偏代价高：先让它<strong>主动反问边界条件与验收标准</strong>、一起脑暴架构、做 Pre-flight 工具检查，确认后再放手让它自主跑到底（仅在不可逆操作前暂停确认）。
+            </p>
+          </div>
+
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+              <h4 style="margin:0;">🔬 Tip 2：给真实验证信号与基线</h4>
+              <span class="plop-tag tomato">黄金法则</span>
+            </div>
+            <p style="font-size:13.5px; margin:0;">
+              别让模型盲猜修好没！接入测试集、日志或浏览器截图。<strong>若无自动化检查，先让 Carbon 写 Headless Chrome 脚本跑出初始 Baseline 分数</strong>，按根因分簇修复并循环回归直到 0 违规。
+            </p>
+          </div>
+
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+              <h4 style="margin:0;">🎨 Tip 3：多模态参考 + 前端 Skill</h4>
+              <span class="plop-tag bubblegum">UI 审美</span>
+            </div>
+            <p style="font-size:13.5px; margin:0;">
+              喂参考图、视频、PDF 或先提炼 <code>DESIGN.md</code>。搭配官方 <code>gemini-frontend-design</code> 技能与 <code>gemini-api-cli</code>（终端直接生成媒体落盘，避免 Base64 撑爆上下文）。
+            </p>
+          </div>
+        </div>
+
+        <div class="wb-grid-2" style="margin-bottom:18px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+              <h4 style="margin:0;">🐝 Tip 4：担任多 Agent 军团总指挥 (<code>/swarm</code>)</h4>
+              <span class="plop-tag periwinkle">Multi-Agent</span>
+            </div>
+            <p style="font-size:13.5px; margin:0;">
+              在 Antigravity <code>/swarm</code> 中，将 Carbon（<code>medium/high</code>）钉在<strong>总控架构师与终审员</strong>位置；把叶子模块迁移、写单测分包给高速 <code>Gemini 3.8 Flash</code>；图像/视频/音频调用专精模型生成。
+            </p>
+          </div>
+
+          <div class="wb-card notebook-lines">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+              <h4 style="margin:0;">📓 Tip 5：任务后复盘反思与可视化解说</h4>
+              <span class="plop-tag tomato">复利增长</span>
+            </div>
+            <p style="font-size:13.5px; margin:0;">
+              跑完复杂任务后让 Carbon 回看会话：<strong>① 把仓库暗坑（特殊测试 Flag、Lint 规则）写进 <code>AGENTS.md</code></strong>；<strong>② 把多步排障流程打包成 Reusable Skill</strong>；<strong>③ 改动几十个文件不想生啃 Diff 时，让它生成交互式架构图或数据流动画！</strong>
+            </p>
+          </div>
+        </div>
+
+        <!-- Prompt Templates & SDK Code -->
+        <div class="wb-grid-2">
+          <div class="wb-card">
+            <h3 style="font-size:17.5px; margin-bottom:12px;">
+              1. 官方原版高价值 Prompt 模板（一键复制）
+            </h3>
+
+            <div style="border:2.2px solid var(--plop-ink); border-radius:12px; overflow:hidden; margin-bottom:14px; background:var(--plop-paper);">
+              <div style="background:var(--plop-ink); color:var(--plop-on-ink); padding:7px 12px; font-family:var(--font-mono); font-size:11.8px; font-weight:800; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                <span>🔬 Prompt A：无自动化测试时先写脚本立 Baseline (Tip 2)</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('wb-prompt-1', this)">复制</button>
+              </div>
+              <div id="wb-prompt-1" style="padding:11px 13px; font-family:var(--font-mono); font-size:12.2px; line-height:1.58; color:var(--plop-ink-text);">We want to fix accessibility and layout issues across our web app, but we don't have automated checks yet. First, write a headless Chrome script that crawls every route in src/routes/, inspects the live DOM and accessibility tree, and logs all violations to record our baseline score. Group the failing checks into shared root causes across our shared components, then fix them one cluster at a time. Re-run your script after each change to verify that each single fix resolves the entire cluster with zero regressions. Keep going until all routes pass with zero violations.</div>
+            </div>
+
+            <div style="border:2.2px solid var(--plop-ink); border-radius:12px; overflow:hidden; margin-bottom:14px; background:var(--plop-paper);">
+              <div style="background:var(--plop-ink); color:var(--plop-on-ink); padding:7px 12px; font-family:var(--font-mono); font-size:11.8px; font-weight:800; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                <span>📓 Prompt B：任务后复盘并更新 AGENTS.md 与 Skill (Tip 5)</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('wb-prompt-2', this)">复制</button>
+              </div>
+              <div id="wb-prompt-2" style="padding:11px 13px; font-family:var(--font-mono); font-size:12.2px; line-height:1.58; color:var(--plop-ink-text);">Investigate our current session to see where things stalled or required extra steps, and analyze why. Propose updates to our AGENTS.md or custom skills so we can improve our flow and take a more direct path next time.</div>
+            </div>
+
+            <h3 style="font-size:17.5px; margin-bottom:10px;">
+              2. 官方推荐安装的 3 个 Agent Skills
+            </h3>
+            <div style="background:var(--plop-paper); border:2px dashed var(--plop-ink); border-radius:12px; padding:11px 13px; font-family:var(--font-mono); font-size:12px; line-height:1.65;">
+              <strong style="color:var(--plop-tomato);"># 1. 前端设计技能（提供前端与 UI 设计指导）</strong><br/>
+              npx skills add google-gemini/demolab --skill gemini-frontend-design<br/><br/>
+              <strong style="color:var(--plop-leaf);"># 2. 终端多媒体生成 CLI 技能（媒体生成直接落盘，减少上下文膨胀）</strong><br/>
+              npx skills add google-gemini/gemini-skills --skill gemini-api-cli<br/><br/>
+              <strong style="color:var(--plop-ink);"># 3. 代码库自动升级技能：安装 gemini-api-dev 自动迁移至 gemini-4-carbon</strong>
+            </div>
+          </div>
+
+          <div class="wb-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column;">
+            <div style="background:#000; color:#fff; padding:9px 14px; font-family:var(--font-mono); font-size:12px; font-weight:800; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <span>💻 gemini_4_carbon_sdk.py / .ts (google-genai SDK)</span>
+              <button class="sticker-btn" style="padding:3px 9px; font-size:11px;" onclick="copyText('wb-full-code', this)">复制全部代码</button>
+            </div>
+            <pre class="plop-code-pre" id="wb-full-code" style="padding:14px; font-size:12px; line-height:1.54; flex:1; margin:0;"><code><span class="c-cm"># ==================== 1. Python: 后台超长解码 (Long Decode &gt; 64K) ====================</span>
+<span class="c-kw">import</span> time
+<span class="c-kw">from</span> google <span class="c-kw">import</span> genai
+
+client = genai.<span class="c-fn">Client</span>()
+
+interaction = client.interactions.<span class="c-fn">create</span>(
+    model=<span class="c-str">"gemini-4-carbon"</span>,
+    input=<span class="c-str">"Write a complete, rigorous proof of the prime number theorem."</span>,
+    background=<span class="c-kw">True</span>,  <span class="c-cm"># 突破 65,536 默认上限必须开启 background=True</span>
+    generation_config={
+        <span class="c-str">"max_output_tokens"</span>: 262144,
+        <span class="c-str">"thinking_level"</span>: <span class="c-str">"high"</span>,  <span class="c-cm"># "low" | "medium" (default) | "high"</span>
+    },
+)
+
+<span class="c-kw">while</span> interaction.status <span class="c-kw">in</span> (<span class="c-str">"in_progress"</span>, <span class="c-str">"queued"</span>):
+    time.<span class="c-fn">sleep</span>(5)
+    interaction = client.interactions.<span class="c-fn">get</span>(id=interaction.id)
+
+<span class="c-cm"># 每个续写分段会追加一个 model_output step，需遍历拼接全文</span>
+text = <span class="c-str">""</span>.<span class="c-fn">join</span>(
+    content.text
+    <span class="c-kw">for</span> step <span class="c-kw">in</span> interaction.steps <span class="c-kw">if</span> step.type == <span class="c-str">"model_output"</span>
+    <span class="c-kw">for</span> content <span class="c-kw">in</span> step.content <span class="c-kw">if</span> content.type == <span class="c-str">"text"</span>
+)
+<span class="c-fn">print</span>(text)
+
+<span class="c-cm"># ==================== 2. Python: Managed Agents (Antigravity 托管沙箱) ====================</span>
+audit_run = client.interactions.<span class="c-fn">create</span>(
+    agent=<span class="c-str">"antigravity-preview-09-2026"</span>,
+    agent_config={<span class="c-str">"type"</span>: <span class="c-str">"antigravity"</span>, <span class="c-str">"model"</span>: <span class="c-str">"gemini-4-carbon"</span>},
+    input=(
+        <span class="c-str">"Audit https://web.dev for performance, Core Web Vitals, and SEO. "</span>
+        <span class="c-str">"Query Google's PageSpeed Insights API for both Mobile and Desktop. "</span>
+        <span class="c-str">"Format the output as a side-by-side scorecard table with prioritized fixes."</span>
+    ),
+    environment=<span class="c-str">"remote"</span>,
+)
+<span class="c-fn">print</span>(audit_run.output_text)
+
+<span class="c-cm">// ==================== 3. TypeScript: Interactions API 标准调用 ====================</span>
+<span class="c-kw">import</span> { GoogleGenAI } <span class="c-kw">from</span> <span class="c-str">"@google/genai"</span>;
+<span class="c-kw">const</span> ai = <span class="c-kw">new</span> <span class="c-fn">GoogleGenAI</span>({});
+
+<span class="c-kw">const</span> res = <span class="c-kw">await</span> ai.interactions.<span class="c-fn">create</span>({
+  model: <span class="c-str">"gemini-4-carbon"</span>,
+  input: <span class="c-str">"Build a single-file HTML drum machine and synth using Web Audio API..."</span>,
+  generation_config: { thinking_level: <span class="c-str">"medium"</span> },
+});
+console.<span class="c-fn">log</span>(res.output_text);</code></pre>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 05: 6 大迁移避坑贴纸
+             ==================================================================== -->
+        <div class="wb-sec-header pink" id="sec-05">
+          <span class="wb-sec-num">05</span>
+          <span class="wb-sec-title">迁移与生产落地的 6 大避坑指南 (Migration &amp; Production Mitigations)</span>
+          <span class="plop-tag tomato">BREAKING CHANGES &amp; PITFALLS</span>
+        </div>
+
+        <div class="wb-grid-3">
+          <div class="wb-card">
+            <div class="washi-tape"></div>
+            <span class="plop-tag tomato" style="margin-bottom:8px;">PITFALL 01 · 参数废弃</span>
+            <h4 style="font-size:16.5px; margin-bottom:6px;">还在传 thinking_budget</h4>
+            <p style="font-size:13.5px; margin-bottom:10px;">从 Gemini 3 迁移时，旧版按 Token 数量传参的 <code>thinking_budget</code> 已不再适用。</p>
+            <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:12.8px; font-weight:800;">
+              💊 解药：全面替换为 <code>thinking_level</code>（<code>low/medium/high</code>）。
+            </div>
+          </div>
+
+          <div class="wb-card">
+            <div class="washi-tape mint"></div>
+            <span class="plop-tag tomato" style="margin-bottom:8px;">PITFALL 02 · 采样失效</span>
+            <h4 style="font-size:16.5px; margin-bottom:6px;">习惯性传 temperature / top_p</h4>
+            <p style="font-size:13.5px; margin-bottom:10px;">在 <code>gemini-4-carbon</code> 中，自定义 <code>temperature</code>、<code>top_p</code>、<code>top_k</code> 会被直接忽略。</p>
+            <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:12.8px; font-weight:800;">
+              💊 解药：从请求配置中彻底删除这三个采样参数。
+            </div>
+          </div>
+
+          <div class="wb-card">
+            <div class="washi-tape pink"></div>
+            <span class="plop-tag tomato" style="margin-bottom:8px;">PITFALL 03 · 缓存冗余</span>
+            <h4 style="font-size:16.5px; margin-bottom:6px;">手动维护显式 cached_content</h4>
+            <p style="font-size:13.5px; margin-bottom:10px;">以前为了省钱需要专门调接口创建并传递显式缓存 ID，增加了状态管理复杂度。</p>
+            <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:12.8px; font-weight:800;">
+              💊 解药：移除显式缓存代码！默认隐式缓存，≥4,096 Token 命中部分享 95% 折扣。
+            </div>
+          </div>
+
+          <div class="wb-card">
+            <span class="plop-tag" style="margin-bottom:8px;">PITFALL 04 · 超时截断</span>
+            <h4 style="font-size:16.5px; margin-bottom:6px;">64K 同步截断与 HTTP 超时</h4>
+            <p style="font-size:13.5px; margin-bottom:10px;">深度推理可能思考数分钟，且默认同步最大输出仍为 65,536，长任务容易超时或截断。</p>
+            <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:12.8px; font-weight:800;">
+              💊 解药：开启 <code>background=True</code> 或将 HTTP Timeout 调至 15~20 分钟。
+            </div>
+          </div>
+
+          <div class="wb-card">
+            <span class="plop-tag" style="margin-bottom:8px;">PITFALL 05 · 杀鸡牛刀</span>
+            <h4 style="font-size:16.5px; margin-bottom:6px;">简单任务全用 Carbon 导致变慢</h4>
+            <p style="font-size:13.5px; margin-bottom:10px;">Carbon 倾向于深度探索，拿它跑简单 CRUD 或叶子模块单测会消耗不必要的思考时间。</p>
+            <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:12.8px; font-weight:800;">
+              💊 解药：日常开发用 Argon，并行高频切片派发给 3.8 Flash。
+            </div>
+          </div>
+
+          <div class="wb-card">
+            <span class="plop-tag" style="margin-bottom:8px;">PITFALL 06 · 盲跑长任务</span>
+            <h4 style="font-size:16.5px; margin-bottom:6px;">不给验证脚本就让模型盲跑</h4>
+            <p style="font-size:13.5px; margin-bottom:10px;">没有测试集或浏览器 DOM 检查信号，模型在几十个文件的连续修改中只能靠猜。</p>
+            <div style="background:var(--plop-bubblegum); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:12.8px; font-weight:800;">
+              💊 解药：先让 Carbon 写自动化基准脚本跑出 Baseline 分数再动手。
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 06: 全平台接入渠道、免费申请通道与 5 步自检清单
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="sec-06">
+          <span class="wb-sec-num">06</span>
+          <span class="wb-sec-title">全平台接入渠道、科研/网安免费申请通道与迁移 5 步自检清单</span>
+          <span class="plop-tag">GETTING STARTED &amp; CHECKLIST</span>
+        </div>
+
+        <div class="wb-grid-2">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h3 style="font-size:17.5px; margin-bottom:10px;">🚀 四大官方接入渠道与免费专项申请</h3>
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:26%">平台 / 计划</th>
+                    <th style="width:24%">开放对象</th>
+                    <th>核心能力与福利详情</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Google AI Studio</strong></td>
+                    <td>Paid API / Ultra</td>
+                    <td>在 Playground 测试 Prompt，或在 <strong>AI Studio Build</strong> 构建全栈应用。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Gemini API</strong></td>
+                    <td>付费层开发者</td>
+                    <td>支持 <strong>Interactions API</strong>、<code>google-genai</code> SDK 首日支持与远程 <strong>Managed Agents</strong>。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Google Antigravity</strong></td>
+                    <td>AI Ultra 订阅</td>
+                    <td>桌面端、CLI、IDE 插件向 Ultra 开放 Carbon；<code>/swarm</code> 在桌面端与 CLI 预览。</td>
+                  </tr>
+                  <tr>
+                    <td><strong style="color:var(--plop-tomato);">🎁 免费专项申请</strong></td>
+                    <td><strong>科研 / 网安防御</strong></td>
+                    <td>• <strong>科学家与学者</strong>：可申请 <strong>6个月免费</strong> Antigravity 权限（须审核）<br/>• <strong>网安防御人员</strong>：可申请 <strong>DeepMind Fairwind Program</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:16px; min-width:0;">
+            <div class="wb-card notebook-lines" style="flex:1;">
+              <h3 style="font-size:17.5px; margin-bottom:8px;">☑️ 迁移与生产落地 5 步自检清单</h3>
+              <ul style="list-style:none; padding:0; margin:0; display:grid; gap:6px; font-size:13.8px;">
+                <li>✅ <code>thinking_budget</code> 是否已全部替换为 <code>thinking_level</code>？</li>
+                <li>✅ 请求配置中是否已删除被忽略的 <code>temperature / top_p / top_k</code>？</li>
+                <li>✅ 超 64K 输出任务是否已开启 <code>background=True</code> 并提高 <code>max_output_tokens</code>？</li>
+                <li>✅ 长跑复杂任务前，是否先让 Carbon 写了自动化脚本建立 Baseline 分数？</li>
+                <li>✅ 是否做到了“架构与硬骨头用 Carbon，日常与并行切片用 Argon / 3.8 Flash”？</li>
+              </ul>
+            </div>
+
+            <div class="wb-card" style="background:var(--plop-mustard);">
+              <h4 style="font-size:15.5px; margin-bottom:6px;">💬 核心工程总结</h4>
+              <p style="font-family:var(--font-head); font-size:14.5px; font-weight:900; color:var(--plop-ink-text); line-height:1.5; margin:0;">
+                “别把最强推理模型当普通聊天框一问一答——先对齐边界、给它量化验证脚本立 Baseline、让它指挥多 Agent 军团，最后把踩坑复盘写进 AGENTS.md！”
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：代码/Prompt 速拷贴 + 跨专题切换耳标 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 毛线帽吉祥物 + 快捷复制工具便签 -->
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>📋 源码/模板速拷</span>
+            </span>
+            <span>COPY</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
+            <button type="button" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('wb-full-code', this)">
+              💻 复制 SDK 完整代码
+            </button>
+            <button type="button" class="plop-pill-sticker mustard" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('wb-prompt-1', this)">
+              🔬 复制 Baseline Prompt
+            </button>
+            <button type="button" class="plop-pill-sticker paper" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('wb-prompt-2', this)">
+              📓 复制复盘 Prompt
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. 跨专题快速切换书签耳标 -->
+        <div class="plop-index-tabs">
+          <a href="memory.html" class="plop-ear-tab">
+            <span class="ear-dot pink"></span>
+            <span>🌙 Agent 记忆架构</span>
+          </a>
+          <a href="../pi-agent/index.html" class="plop-ear-tab">
+            <span class="ear-dot periwinkle"></span>
+            <span>🤖 Coding Agent (pi)</span>
+          </a>
+          <a href="../mysql/index.html" class="plop-ear-tab">
+            <span class="ear-dot mint"></span>
+            <span>🐬 MySQL 架构与锁</span>
+          </a>
+          <a href="../postgres/index.html" class="plop-ear-tab">
+            <span class="ear-dot periwinkle"></span>
+            <span>🐘 PostgreSQL 进阶</span>
+          </a>
+          <a href="../redis/index.html" class="plop-ear-tab">
+            <span class="ear-dot pink"></span>
+            <span>🧱 Redis 原理与集群</span>
+          </a>
+          <a href="../go/index.html" class="plop-ear-tab">
+            <span class="ear-dot mustard"></span>
+            <span>🐹 Go GMP 与 GC</span>
+          </a>
+          <a href="../os/index.html" class="plop-ear-tab">
+            <span class="ear-dot mint"></span>
+            <span>🖥️ Linux 操作系统</span>
+          </a>
+          <a href="../mq/index.html" class="plop-ear-tab">
+            <span class="ear-dot"></span>
+            <span>📨 消息队列对比</span>
+          </a>
+        </div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    function setSurface(surface, btn) {
+      document.documentElement.setAttribute('data-plop-surface', surface);
+      try {
+        localStorage.setItem('note-garden-plop-surface', surface);
+      } catch (e) {}
+      btn.parentElement.querySelectorAll('.sticker-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    (function initSavedSurface() {
+      try {
+        const saved = localStorage.getItem('note-garden-plop-surface');
+        if (saved) {
+          document.documentElement.setAttribute('data-plop-surface', saved);
+          document.querySelectorAll('.plop-console .sticker-btn').forEach(btn => {
+            const match = btn.getAttribute('onclick') && btn.getAttribute('onclick').includes("'" + saved + "'");
+            btn.classList.toggle('active', Boolean(match));
+          });
+        }
+      } catch (e) {}
+    })();
+
+    function copyText(id, btn) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const text = el.innerText || el.textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const old = btn.innerText;
+        btn.innerText = '✅ 已复制!';
+        setTimeout(() => { btn.innerText = old; }, 1800);
+      });
+    }
+
+    // 实时阅读进度与当前章节滚动高亮 (Scroll-Spy)
+    (function initScrollSpy() {
+      const bar = document.getElementById('read-progress-bar');
+      const txt = document.getElementById('read-progress-text');
+      const sections = ['sec-01', 'sec-02', 'sec-03', 'sec-04', 'sec-05', 'sec-06']
+        .map(id => document.getElementById(id))
+        .filter(Boolean);
+
+      function onScroll() {
+        const doc = document.documentElement;
+        const scrollTop = window.scrollY || doc.scrollTop;
+        const maxScroll = Math.max(1, doc.scrollHeight - window.innerHeight);
+        const pct = Math.min(100, Math.max(0, Math.round((scrollTop / maxScroll) * 100)));
+        if (bar) bar.style.width = pct + '%';
+        if (txt) txt.textContent = pct + '%';
+
+        let currentId = sections[0]?.id || 'sec-01';
+        for (const sec of sections) {
+          if (sec.getBoundingClientRect().top <= 140) {
+            currentId = sec.id;
+          }
+        }
+        document.querySelectorAll('[data-toc]').forEach(a => {
+          a.classList.toggle('active', a.getAttribute('data-toc') === currentId);
+        });
+        document.querySelectorAll('.plop-mobile-toc a').forEach(a => {
+          a.classList.toggle('active', a.getAttribute('href') === '#' + currentId);
+        });
+      }
+
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+    })();
+  </script>
+</body>
+</html>
