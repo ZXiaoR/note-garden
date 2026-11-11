@@ -1,0 +1,408 @@
+<!-- ====================================================================
+             PART 06: 三大日志、五道兜底防线与主从复制
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="log">
+          <span class="wb-sec-num">06</span>
+          <span class="wb-sec-title">可靠与高可用 · 三大日志到底记了什么？为什么逼出五道兜底防线？</span>
+          <span class="plop-tag">WAL · 2PC · REPLICATION</span>
+        </div>
+
+        <!-- 06.1：三大日志到底记了什么？（拿一条具体 UPDATE 拆开看） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 06.1 · 执行一条 UPDATE 时，undo、redo、binlog 这三本账本里到底各自记了什么？</div>
+          <h3>📓 06.1 盯住一条 SQL：看三本日志各自写下什么内容</h3>
+          <p>
+            光背“物理日志、逻辑日志”太抽象。假设表 <code>t_user</code> 里 <code>id = 1</code>（小林）原本的余额是 <strong><code>balance = 100</code></strong>，现在事务 <code>trx_id = 20</code> 执行了一条：
+          </p>
+          <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:10px; padding:9px 14px; margin:10px 0 14px; font-family:var(--font-mono); font-size:14px; font-weight:900; color:var(--plop-ink);">
+            UPDATE t_user SET balance = 200 WHERE id = 1; <span style="color:var(--plop-ink-soft); font-weight:700;">-- 原值 100 改为 200</span>
+          </div>
+          <p>
+            这一条语句执行时，MySQL 会在底层同时写 <strong>3 本完全不同的账本</strong>（由上到下拆开看它们的真实内容）：
+          </p>
+
+          <!-- 三大日志具体内容卡片（统一 PlopUI 手账风格） -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow); display:grid; gap:14px;">
+            <!-- ① undo log -->
+            <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="font-weight:900; font-size:15px; color:var(--plop-ink-text);">
+                  ① <code>undo log</code>（回滚日志 · InnoDB 引擎层）—— 记的是「怎么改回去的旧值」
+                </span>
+                <span class="plop-tag" style="background:#FFFFFF; font-size:11.5px;">逻辑日志 · 管原子性 A 与 MVCC</span>
+              </div>
+              <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 12px; font-family:var(--font-mono); font-size:13px; color:var(--plop-ink); margin-bottom:8px;">
+                📝 <strong>账本里写的具体内容：</strong><br/>
+                <code>[undo_no=1, trx_id=20, table=t_user, pk=(id=1)] 旧值: balance = 100, prev_roll_ptr = 0x0A1</code><br/>
+                <span style="color:var(--plop-ink-soft); font-size:12.2px;">（大意：如果事务 20 要反悔回滚，请把 t_user 表主键 id=1 的 balance 恢复成 100！）</span>
+              </div>
+              <div style="font-size:13.4px; color:var(--plop-ink-text); line-height:1.55;">
+                <strong>🎯 为什么必须有它？</strong> 一旦事务执行到一半报错或你敲了 <code>ROLLBACK</code>，就靠它把数据改回 <code>100</code>（<strong>原子性 A</strong>）；同时，其他并发事务执行普通 <code>SELECT</code> 时，也顺着它串成的版本链读历史旧值（<strong>第 4 章的 MVCC</strong>）。
+              </div>
+            </div>
+
+            <!-- ② redo log -->
+            <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="font-weight:900; font-size:15px; color:var(--plop-ink-text);">
+                  ② <code>redo log</code>（重做日志 · InnoDB 引擎层）—— 记的是「几号物理页哪个偏移量改成了啥」
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">物理页日志 · 管崩溃恢复持久性 D</span>
+              </div>
+              <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 12px; font-family:var(--font-mono); font-size:13px; color:var(--plop-ink); margin-bottom:8px;">
+                📝 <strong>账本里写的具体内容：</strong><br/>
+                <code>[LSN=89020, type=MLOG_4BYTES, space_id=5, page_no=38, offset=0x01A0] 新值: 0x000000C8 (即 200)</code><br/>
+                <span style="color:var(--plop-ink-soft); font-size:12.2px;">（大意：根本不管表名叫啥，直接记“把 5 号表空间、第 38 号 16KB 数据页、偏移量 0x01A0 处的 4 字节改成 200”！）</span>
+              </div>
+              <div style="font-size:13.4px; color:var(--plop-ink-text); line-height:1.55;">
+                <strong>🎯 为什么必须有它？</strong> 改数据时只改了内存 <code>Buffer Pool</code> 里的第 38 号页（脏页），还没刷回磁盘数据文件。万一突然断电内存清空，重启后 InnoDB 就照着这行紧凑的物理指令，把第 38 号页重新改成 <code>200</code>（<strong>Crash-Safe 崩溃恢复</strong>）。<br/>
+                <strong>⚠️ 特点：</strong>它是<strong>固定大小的环形文件</strong>（写满一圈会擦掉已经刷盘的旧日志），<strong>只管救命，不能拿来做长久备份！</strong>
+              </div>
+            </div>
+
+            <!-- ③ binlog -->
+            <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="font-weight:900; font-size:15px; color:var(--plop-ink-text);">
+                  ③ <code>binlog</code>（归档二进制日志 · MySQL Server 层）—— 记的是「逻辑行变更事件」
+                </span>
+                <span class="plop-tag" style="background:#FFFFFF; font-size:11.5px;">逻辑归档日志 · 管主从复制与删库恢复</span>
+              </div>
+              <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 12px; font-family:var(--font-mono); font-size:13px; color:var(--plop-ink); margin-bottom:8px;">
+                📝 <strong>账本里写的具体内容（默认 ROW 格式）：</strong><br/>
+                <code>[Update_rows_event, server_id=1, pos=1542, table=db.t_user] WHERE @1=1, @2=100 SET @1=1, @2=200</code><br/>
+                <span style="color:var(--plop-ink-soft); font-size:12.2px;">（大意：在 db.t_user 表里，把第 1 列=1、第 2 列=100 的这一行，变成了第 1 列=1、第 2 列=200！）</span>
+              </div>
+              <div style="font-size:13.4px; color:var(--plop-ink-text); line-height:1.55;">
+                <strong>🎯 为什么有了 <code>redo log</code> 还要 <code>binlog</code>？</strong><br/>
+                1. <strong>层级与历史原因：</strong><code>redo log</code> 是 InnoDB 引擎私有的（只看得懂本机的 38 号物理页）；而 <code>binlog</code> 是 MySQL Server 层生成的通用逻辑日志，发给从库（哪怕从库物理页号完全不同）也能照着执行。<br/>
+                2. <strong>保存方式不同：</strong><code>redo log</code> 循环覆盖写，写满就擦；而 <code>binlog</code> 是<strong>不断新建文件追加写（<code>mysql-bin.000001 → 000002</code>）</strong>，专门用来做 <strong>主从复制</strong> 和 <strong>按时间点恢复数据（PITR）</strong>。
+              </div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:15%">日志名称</th>
+                  <th style="width:16%">所属层级</th>
+                  <th style="width:22%">文件写入方式</th>
+                  <th style="width:25%">核心记录格式</th>
+                  <th>一言以蔽之的使命</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong><code>undo log</code></strong></td>
+                  <td>InnoDB 引擎层</td>
+                  <td>回滚段表空间（用完由 purge 线程回收）</td>
+                  <td>逻辑旧版本记录（反向恢复信息）</td>
+                  <td><strong>防事务反悔（回滚） + 给 MVCC 提供历史版本链</strong></td>
+                </tr>
+                <tr>
+                  <td><strong><code>redo log</code></strong></td>
+                  <td>InnoDB 引擎层</td>
+                  <td><strong>固定大小环形循环写</strong>（<code>checkpoint</code> 推进擦除）</td>
+                  <td>物理页修改（几号表空间、几号页、偏移量改了啥）</td>
+                  <td><strong>防断电丢内存脏页（启动时快速 Crash-Safe 恢复）</strong></td>
+                </tr>
+                <tr>
+                  <td><strong><code>binlog</code></strong></td>
+                  <td>Server 层</td>
+                  <td><strong>文件追加写</strong>（写满切新文件，按过期策略清理）</td>
+                  <td>逻辑事件（<code>ROW</code> 行变更 / <code>STATEMENT</code> 语句）</td>
+                  <td><strong>把修改同步给从库（主从复制） + 备份后时间点恢复</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 06.2：为什么发展出这么多兜底手段？（5 次故障逼出的 5 道防线进化史） -->
+        <div class="wb-card" id="2pc" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 06.2 · 为什么 MySQL 要搞出 WAL、双 1、两阶段提交 (2PC)、Doublewrite 这 5 道兜底防线？</div>
+          <h3>🛡️ 06.2 5 次致命故障，逼出 MySQL 的「5 道兜底防线进化史」</h3>
+          <p>
+            你之所以觉得第 06 章概念多（WAL、刷盘双 1、两阶段提交 2PC、双写缓冲 Doublewrite、半同步复制），是因为数据库工程师在对抗<strong>「随时可能拔电源、掉盘、崩溃」</strong>的物理世界时，<strong>每踩一个死穴，就被迫打上一层新补丁</strong>。顺着下面 <strong>第 1 关 → 第 5 关</strong> 往下看，你就彻底明白为什么一个都不能少：
+          </p>
+
+          <!-- 5 道兜底防线由上到下闯关图 -->
+          <div style="display:grid; gap:14px; margin:14px 0;">
+
+            <!-- 第 1 道防线：WAL -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:var(--plop-ink); color:#FFFFFF; font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🚧 第 1 关痛点：每次 COMMIT 直接刷 16KB 数据页太慢，不刷又怕断电丢数据！
+                </span>
+                <span class="plop-tag mint" style="font-size:11.5px;">逼出兜底 ①：WAL 预写日志</span>
+              </div>
+              <div style="font-size:13.5px; color:var(--plop-ink-text); line-height:1.6;">
+                • <strong>为什么不能直接刷数据页？</strong> 一条更新可能改了 3 个索引页，每个页都是 <strong>16KB</strong>，而且散落在磁盘不同角落（<strong>随机 I/O</strong>）。如果每次 <code>COMMIT</code> 都去磁盘随机找这几个 16KB 的大块头覆写，数据库每秒只能处理几百单！<br/>
+                • <strong>🛡️ 兜底手段（WAL，Write-Ahead Logging）：</strong>内存里只管改 16KB 脏页（先不急着刷回数据文件），提交时只把几十字节的 <code>redo log</code> <strong>顺序追加写到磁盘末尾（顺序 I/O，快几十倍）</strong>！只要日志落盘就算提交成功，脏页等后台慢慢刷。
+              </div>
+            </div>
+
+            <!-- 第 2 道防线：刷盘双 1 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:var(--plop-mustard); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🚧 第 2 关痛点：写日志调了 write()，结果停在操作系统内存缓存里，整机断电还是丢了！
+                </span>
+                <span class="plop-tag mustard" style="font-size:11.5px;">逼出兜底 ②：“双 1”刷盘配置</span>
+              </div>
+              <div style="font-size:13.5px; color:var(--plop-ink-text); line-height:1.6;">
+                • <strong>漏洞在哪？</strong> MySQL 把日志写出去，首先进的是 <strong>操作系统内核缓存（OS Page Cache，也是内存！）</strong>，必须再调用昂贵的 <code>fsync()</code> 才能真正刻进磁盘介质。<br/>
+                • <strong>🛡️ 兜底手段（“双 1”配置 + 组提交 Group Commit）：</strong>生产环境将下面两个参数同时设为 <code>1</code>（俗称<strong>“双 1”</strong>），并把同一时刻并发提交的十几个事务打包做一次 <code>fsync()</code>（组提交），既保住性能又确保断电不丢单：
+              </div>
+              <div class="table-wrap" style="margin-top:8px; margin-bottom:0;">
+                <table class="plop-table" style="font-size:12.8px;">
+                  <thead>
+                    <tr>
+                      <th style="width:32%">参数与档位</th>
+                      <th>提交时日志写到哪儿？</th>
+                      <th style="width:34%">什么故障会丢数据？</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong><code>innodb_flush_log_at_trx_commit = 1</code> ⭐默认</strong><br/>+ <strong><code>sync_binlog = 1</code> ⭐默认</strong></td>
+                      <td>每次提交都调 <code>fsync()</code> 把 <code>redo</code> 和 <code>binlog</code> 真正刷进物理磁盘</td>
+                      <td><strong>“双 1”黄金兜底：</strong>只要磁盘不物理炸裂，断电/崩溃均不丢已提交事务</td>
+                    </tr>
+                    <tr>
+                      <td><code>innodb_flush_log_at_trx_commit = 2</code></td>
+                      <td>每次提交只 <code>write()</code> 到 OS 内存缓存，后台约每秒 <code>fsync</code> 一次</td>
+                      <td>MySQL 进程挂掉不丢；但<strong>操作系统崩溃或机房断电</strong>会丢近期提交</td>
+                    </tr>
+                    <tr>
+                      <td><code>innodb_flush_log_at_trx_commit = 0</code></td>
+                      <td>提交时连 MySQL 自己的 <code>redo log buffer</code> 都不出，后台每秒写并刷</td>
+                      <td>哪怕只是 <strong>MySQL 进程自己 crash</strong>，也会丢最近约一秒的提交</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- 第 3 道防线：内部两阶段提交 2PC -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:#FFF0F5; border:2px solid var(--plop-tomato); color:var(--plop-tomato); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🚧 第 3 关痛点：写完 redo 还没写 binlog 时断电，主库和从库数据永久不一致了！
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">逼出兜底 ③：内部两阶段提交 (2PC)</span>
+              </div>
+              <div style="font-size:13.5px; color:var(--plop-ink-text); line-height:1.6;">
+                • <strong>为什么不能简单“先写 A 再写 B”？</strong><br/>
+                  - 假如<strong>先写完 <code>redo log</code>，还没写 <code>binlog</code> 就断电</strong>：重启后主库靠 <code>redo log</code> 把余额恢复成了 <code>200</code>，但因为 <code>binlog</code> 没录上，从库同步过去永远停在 <code>100</code>！<br/>
+                  - 假如<strong>先写完 <code>binlog</code>，还没写 <code>redo log</code> 就断电</strong>：从库收到 <code>binlog</code> 改成了 <code>200</code>，主库重启后却因为没有 <code>redo log</code> 变回了 <code>100</code>！<br/>
+                • <strong>🛡️ 兜底手段（内部两阶段提交 2PC）：</strong>把写 <code>redo log</code> 拆成“准备”和“提交”两步，把 <code>binlog</code> 夹在正中间：
+              </div>
+              <!-- 2PC 3步大字图 -->
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px; margin:10px 0;">
+                <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                  <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">Step ①：redo log 写盘 (prepare)</div>
+                  <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.45; font-weight:700;">
+                    InnoDB 先把修改写进 <code>redo log</code> 并刷盘，打上 <strong><code>prepare</code>（准备态）</strong> 标签和事务 ID <code>XID</code>。
+                  </div>
+                </div>
+                <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                  <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">Step ②：binlog 写盘（裁决点！）</div>
+                  <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.45; font-weight:700;">
+                    Server 层把逻辑事件和同一个 <code>XID</code> 写进 <code>binlog</code> 并刷盘。<strong>只要这一步成功，事务就铁定算数！</strong>
+                  </div>
+                </div>
+                <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                  <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">Step ③：redo log 标为 commit</div>
+                  <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.45; font-weight:700;">
+                    InnoDB 把刚才那条 <code>redo log</code> 状态改为 <strong><code>commit</code></strong>，释放事务锁。
+                  </div>
+                </div>
+              </div>
+              <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:9px; padding:8px 12px; font-size:13px; color:var(--plop-ink-text);">
+                <strong>⚡ 万一卡在中间断电怎么救？</strong> 重启时如果发现某条 <code>redo log</code> 停在 <code>prepare</code> 状态，MySQL 就会拿着它的 <code>XID</code> 去查 <code>binlog</code>：<strong>如果 <code>binlog</code> 里还没写完 → 直接用 <code>undo log</code> 回滚；如果 <code>binlog</code> 里已经完整写好了 → 自动帮它补上 <code>commit</code>！</strong>主库和从库永远 100% 一致！
+              </div>
+            </div>
+
+            <!-- 第 4 道防线：Doublewrite Buffer -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:var(--plop-mint); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🚧 第 4 关痛点：后台刷 16KB 脏页到磁盘时，刚写了前 8KB 就断电，烂成半截页连 redo 都救不活！
+                </span>
+                <span class="plop-tag mint" style="font-size:11.5px;">逼出兜底 ④：Doublewrite 双写缓冲</span>
+              </div>
+              <div style="font-size:13.5px; color:var(--plop-ink-text); line-height:1.6;">
+                • <strong>为什么连 <code>redo log</code> 都失效了？</strong> Linux 文件系统一页通常是 <strong>4KB</strong>，而 InnoDB 一页是 <strong>16KB</strong>（要分 4 次写盘）。如果后台线程刷第 38 号数据页时，刚写了前 8KB 就断电了，这叫<strong>「部分写失效 / 半截页（Torn Page）」</strong>。因为 <code>redo log</code> 只记了“把第 38 号页偏移量 <code>0x01A0</code> 改成 200”，如果第 38 号页本身已经损坏校验不过，<code>redo log</code> 根本没法在一个烂页上重放！<br/>
+                • <strong>🛡️ 兜底手段（Doublewrite 双写文件）：</strong>在把 16KB 脏页写回真正的数据文件之前，<strong>先顺序写一份完整的 16KB 副本到磁盘上的 <code>doublewrite</code> 双写文件里</strong>，然后再去覆写数据文件。万一覆写数据文件中途断电写烂了，重启时直接从 <code>doublewrite</code> 里把完好无损的 16KB 旧页拷过来修复地基，最后再用 <code>redo log</code> 重放最新数据！
+              </div>
+            </div>
+
+            <!-- 第 5 道防线：主从复制与半同步 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🚧 第 5 关痛点：单机防线再完美，万一主库整块硬盘物理烧毁，异步没传完的 binlog 还是会丢！
+                </span>
+                <span class="plop-tag periwinkle" style="font-size:11.5px;">逼出兜底 ⑤：主从复制 &amp; 半同步 (Semi-Sync)</span>
+              </div>
+              <div style="font-size:13.5px; color:var(--plop-ink-text); line-height:1.6;">
+                • <strong>主从复制三步链路：</strong><code>主库提交写 binlog</code> ──▶ <code>从库 IO 线程接收写进 relay log（中继日志）</code> ──▶ <code>从库 SQL/Worker 线程重放 relay log 提交生效</code>。<br/>
+                • <strong>🛡️ 兜底手段（半同步复制 Semi-Sync）：</strong>默认的<strong>异步复制</strong>下，主库写完自己的磁盘就立刻给客户端返回成功，不管从库收没收到；而开启<strong>半同步复制</strong>后，主库必须<strong>等待至少 1 台从库确认“我已经把这条 <code>binlog</code> 写进我的本地 <code>relay log</code> 磁盘了”</strong>，才向客户端返回提交成功——哪怕下一秒主库硬盘炸成灰，从库磁盘里也一定有完整日志！
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- 06.3：生产实战选型：不同业务到底怎么配日志与主从？（三档真实方案） -->
+        <div class="wb-card" id="prod-config" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 06.3 · 生产实战选型：实际公司业务里，日志参数和主从架构到底怎么配？（三档方案）</div>
+          <h3>🛠️ 06.3 绝不一刀切！生产环境「三档业务实战配置方案」</h3>
+          <p>
+            面试官最爱追问的一句话就是：<em>“你把双 1、半同步、异步复制背得很熟，那你们实际项目里到底是怎么配的？”</em>——<strong>安全与性能永远是跷跷板，真实互联网大厂会把数据库按业务重要度分成「三档」来配置</strong>：
+          </p>
+
+          <!-- 三档实战方案由上到下大字卡片 -->
+          <div style="display:grid; gap:14px; margin:14px 0;">
+
+            <!-- 第一档：金融/交易/账务 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:#FFF0F5; border:2px solid var(--plop-tomato); color:var(--plop-tomato); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🥇 第一档：支付账务 / 钱包余额 / 核心交易订单库（「一分钱都不能丢」档）
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">铁律双 1 + 无损半同步 / MGR</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(270px, 1fr)); gap:12px;">
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.58;">
+                  <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:4px;">⚙️ 日志参数怎么配（满配安全）：</div>
+                  <code style="display:block; background:var(--plop-sheet); border:1.5px solid var(--plop-ink); padding:6px 10px; border-radius:6px; margin-bottom:6px; font-size:12.4px;">
+                    innodb_flush_log_at_trx_commit = 1 <span style="color:var(--plop-ink-soft);">-- 每次提交刷 redo</span><br/>
+                    sync_binlog = 1                    <span style="color:var(--plop-ink-soft);">-- 每次提交刷 binlog</span><br/>
+                    binlog_format = ROW                <span style="color:var(--plop-ink-soft);">-- 严禁 STATEMENT</span><br/>
+                    innodb_doublewrite = ON            <span style="color:var(--plop-ink-soft);">-- 开启双写防烂页</span>
+                  </code>
+                  <strong>核心考量：</strong>宁可牺牲一点磁盘 IOPS，也绝不允许任何断电、崩溃导致已支付订单蒸发或余额错账。
+                </div>
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.58;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">📡 主从架构与读写怎么配：</div>
+                  • <strong>主从模式：</strong>一主两从（跨机架/同城双中心），开启<strong>无损半同步复制（<code>AFTER_SYNC</code>，至少等 1 台从库落盘 <code>relay log</code> 才算提交成功）</strong>；银行/头部支付核心直接上 <strong>MGR（基于 Paxos 多数派强一致集群）</strong>。<br/>
+                  • <strong>读写规则：</strong>扣款、下单后的<strong>实时查询 100% 强制读主库</strong>！从库只拿来做异步对账、财务报表和灾备切换。
+                </div>
+              </div>
+            </div>
+
+            <!-- 第二档：常规互联网主力业务 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-mustard); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🥈 第二档：商品 / 用户 / 社区评论 / 常规业务库（「高可用 + 性价比」主力档，占公司 80%）
+                </span>
+                <span class="plop-tag" style="font-size:11.5px;">双 1（或峰值退 2）+ 超时降级半同步</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(270px, 1fr)); gap:12px;">
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.58;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">⚙️ 日志参数怎么配（日常双 1，峰值可放宽）：</div>
+                  • <strong>日常标准：</strong>现在云厂商（阿里云 RDS / 腾讯云 CDB）底层都是高性能 NVMe SSD + 组提交优化，<strong>日常一律保持“双 1”默认开启</strong>，性能完全够用。<br/>
+                  • <strong>大促峰值放宽（如秒杀点赞、弹幕、发帖）：</strong>如果瞬时写入把磁盘 I/O 打满，会把非资金表调成 <strong><code>trx_commit = 2</code> + <code>sync_binlog = 100</code></strong>（写进 OS 缓存即返回，每 100 组刷一次盘），写入吞吐直接翻几倍！
+                </div>
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.58;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">📡 主从架构与读写怎么配：</div>
+                  • <strong>主从模式：</strong>开启<strong>带超时退化的半同步复制</strong>（比如设置 <code>timeout = 1000ms</code>：正常情况保数据不丢；万一从库网络抖动超过 1 秒，<strong>自动降级回异步复制</strong>，绝不因为从库挂了把主库拖死！）。<br/>
+                  • <strong>从库加速 + 读写分离：</strong>从库开启 <strong><code>WRITESET</code> 多线程并行复制</strong>（8~16 线程）压低延迟；前面挡一层 <strong>Redis 缓存</strong>，未命中的读走从库，仅“刚改完自己读自己”走主库。
+                </div>
+              </div>
+            </div>
+
+            <!-- 第三档：埋点/日志/监控流水 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-mint); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🥉 第三档：App 埋点 / 操作行为日志 / 监控流水库（「极致写入吞吐、丢 1 秒无所谓」档）
+                </span>
+                <span class="plop-tag mint" style="font-size:11.5px;">2 + 0（或 0 + 0）+ 纯异步复制</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(270px, 1fr)); gap:12px;">
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.58;">
+                  <div style="font-weight:900; color:var(--plop-leaf); margin-bottom:4px;">⚙️ 日志参数怎么配（全开写入狂飙模式）：</div>
+                  <code style="display:block; background:var(--plop-sheet); border:1.5px solid var(--plop-ink); padding:6px 10px; border-radius:6px; margin-bottom:6px; font-size:12.4px;">
+                    innodb_flush_log_at_trx_commit = 2 <span style="color:var(--plop-ink-soft);">-- (甚至设为 0)</span><br/>
+                    sync_binlog = 0                    <span style="color:var(--plop-ink-soft);">-- 交给 OS 定时刷盘</span>
+                  </code>
+                  <strong>核心考量：</strong>每秒几万条用户浏览足迹、埋点上报，就算机房突然断电丢了最后 1 秒的几百条浏览记录，对业务 0 影响，但省下了 80% 的磁盘刷盘开销！
+                </div>
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.58;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">📡 主从架构与读写怎么配：</div>
+                  • <strong>主从模式：</strong>纯 <strong>异步复制</strong>，主库只管往前冲，完全不等从库确认。<br/>
+                  • <strong>读写分工：</strong>主库只负责高频写入（并定时清除 7~30 天前的历史分区）；从库专门挂给大数据团队（通过 Flink CDC / Canal 订阅从库 <code>binlog</code>）实时抽取到 ClickHouse / Elasticsearch 里做搜索和报表分析。
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="plop-callout tip">
+            <strong>💡 面试满分回答模板：</strong>当被问到“你们线上怎么配日志和主从”时，千万别只答一个死参数，而是答：<strong>“我们按业务等级分级配置：核心订单/账务库强制开『双 1 + ROW 格式 + 无损半同步』且写后读走主库；普通业务库日常开『双 1 + 超时自动降级半同步 + WRITESET 并行复制 + Redis 挡读』，大促极端峰值非核心表可退化为 <code>trx_commit=2, sync_binlog=100</code>；而埋点流水类表直接用 <code>2 + 0 + 异步复制</code> 换极致写入吞吐。”</strong>
+          </div>
+        </div>
+
+        <!-- 06.4：分布式一主多从 CAP 取舍 & MySQL × Redis 缓存一致性（由上到下大字卡片） -->
+        <div class="wb-card" id="sync-consistency" style="background:var(--plop-paper);">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill" id="replication">❓ 06.4 · 刚写成功为什么从库读不到？一主多从与 MySQL × Redis 缓存一致性怎么兜底？</div>
+          <h3>🌐 06.4 从单机走向分布式：主从延迟应对 &amp; MySQL × Redis 缓存同步</h3>
+          <p>
+            注意区分一个关键细节：即使开了上面的<strong>半同步复制</strong>，也只代表从库<strong>“收到了日志（写进了 <code>relay log</code>）”</strong>，不代表从库已经<strong>“执行完了日志（Applier 重放提交）”</strong>！所以在高并发读写分离或外挂 Redis 缓存时，还要做好业务层兜底：
+          </p>
+
+          <div style="display:grid; gap:14px; margin:14px 0;">
+            <!-- 场景一：同服务一主多从读写分离 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  📡 场景一：MySQL「一主多从」读写分离 —— 刚写完立刻读，怎么防止在从库读到旧数据？
+                </span>
+                <span class="plop-tag periwinkle" style="font-size:11.5px;">CAP 权衡：AP 最终一致 vs CP 强一致</span>
+              </div>
+              <div style="font-size:13.5px; color:var(--plop-ink-text); line-height:1.6;">
+                • <strong>普通场景选 AP（最终一致）：</strong>商品列表、评论流等走从库读取，容忍几毫秒到几百毫秒的复制重放延迟，换取极高的读并发吞吐。<br/>
+                • <strong>核心链路选 CP（强一致兜底）：</strong>像“付完款立刻跳转到订单详情页”、“扣完余额立刻查余额”这种<strong>写后立刻读</strong>场景，绝不能直接读异步从库！工业界有 2 种标准解法：<br/>
+                  &nbsp;&nbsp;1. <strong>强制走主库（最简单可靠）：</strong>对核心写后读接口（或在写操作后的 1~2 秒窗口内）直接把读请求路由到主库。<br/>
+                  &nbsp;&nbsp;2. <strong>GTID 等待机制：</strong>主库写完拿到该事务的全局编号 <code>GTID</code>，去从库执行 <code>WAIT_FOR_EXECUTED_GTID_SET(gtid, timeout)</code>，确认从库已经重放完这笔事务后再读。
+              </div>
+            </div>
+
+            <!-- 场景二：跨组件 MySQL × Redis 缓存一致性 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:var(--plop-mustard); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🧱 场景二：跨组件「MySQL × Redis」数据同步 —— 怎么保证数据库和缓存一致？
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">Cache-Aside + Binlog 异步兜底</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px; margin-top:8px;">
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.58;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">方案 A：业务代码双操作（Cache-Aside）</div>
+                  <strong>标准顺序：① 先更新 MySQL ──▶ ② 再直接删除 Redis 缓存</strong>（下次有人读时未命中，再从 MySQL 查出新值回填）。<br/>
+                  • <em>为什么是“删缓存”而不是“更新缓存”？</em> 并发写时两次更新缓存一旦乱序就会留下永久脏数据；删掉让下次按需加载最安全。<br/>
+                  • <em>为什么“先改库再删缓存”？</em> 如果先删缓存，在 MySQL 还没改完的空档期里，并发读请求进来会把数据库里的旧值重新塞回缓存！
+                </div>
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.58;">
+                  <div style="font-weight:900; color:var(--plop-leaf); margin-bottom:4px;">方案 B：Canal 订阅 Binlog + MQ 重试兜底</div>
+                  <strong>万一第 ② 步“删 Redis 缓存”网络抖动失败了怎么办？</strong><br/>
+                  业务代码只管写 MySQL（第 1 步），MySQL 自动生成 <code>binlog</code>；部署 <strong>Canal 伪装成从库监听 <code>binlog</code></strong>，一旦发现数据变更就发消息到 MQ 异步删除 Redis 缓存——如果删失败了，MQ 会自动重试直到删成功为止，再用 Redis Key 的 <code>TTL</code> 过期时间做最后一道保底！
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：学完了索引、事务、MVCC、锁与三大日志，现在把一次 SELECT 和一次 UPDATE 从头到尾串联起来，并动手跑通双会话实验！</span>
+          </div>
+        </div>

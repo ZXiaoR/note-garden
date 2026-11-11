@@ -1,0 +1,763 @@
+<!-- ====================================================================
+             PART 04: 事务、隔离级别与 MVCC
+             ==================================================================== -->
+        <div class="wb-sec-header" id="trx">
+          <span class="wb-sec-num">04</span>
+          <span class="wb-sec-title">并发正确 · 事务 ACID、四大隔离级别与 MVCC 多版本并发控制</span>
+          <span class="plop-tag mint">ACID · ISOLATION · MVCC</span>
+        </div>
+
+        <!-- 04.1 · 事务与隔离级别（由上到下顺序排列） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+            <div class="washi-tape"></div>
+            <div class="chapter-q-pill">❓ 04.1 · 转账不能只扣钱、不加钱，事务 ACID 与四大隔离级别承诺了什么？</div>
+            <h3>🛡️ 04.1 事务 ACID 与四大隔离级别（承诺标准）</h3>
+
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>💸 transfer_tx.sql · 显式事务示例</span>
+              </div>
+              <pre class="plop-code-pre"><code><span class="c-kw">START TRANSACTION</span>;
+<span class="c-kw">UPDATE</span> users <span class="c-kw">SET</span> balance = balance - 10.00 <span class="c-kw">WHERE</span> id = 1;
+<span class="c-kw">UPDATE</span> users <span class="c-kw">SET</span> balance = balance + 10.00 <span class="c-kw">WHERE</span> id = 2;
+<span class="c-kw">COMMIT</span>;  <span class="c-cm">-- 失败时由应用按错误情况决定 ROLLBACK / 重试</span></code></pre>
+            </div>
+
+            <p>
+              真实转账还应检查余额、受影响行数和请求幂等性。可用 <code>UPDATE ... WHERE id=1 AND balance&gt;=10.00</code> 做条件扣款，并在同一事务内检查是否成功。默认 <code>autocommit=1</code> 时每条语句各自成为一个事务；许多 DDL 会隐式提交，不能认为所有 SQL 都能跟着事务一起回滚。
+            </p>
+
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:20%">ACID</th>
+                    <th style="width:32%">含义</th>
+                    <th>底层靠什么兑现</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>原子性 A</strong></td>
+                    <td>修改一起提交，或一起回滚</td>
+                    <td>靠 <code>undo log</code> 回滚日志撤销已执行修改</td>
+                  </tr>
+                  <tr>
+                    <td><strong>一致性 C</strong></td>
+                    <td>从满足约束的状态变到另一个满足约束的状态</td>
+                    <td>A + I + D 三个手段共同守护的<strong>最终目的</strong>，加业务规则约束</td>
+                  </tr>
+                  <tr>
+                    <td><strong>隔离性 I</strong></td>
+                    <td>控制并发事务之间能观察、干扰到什么</td>
+                    <td><strong>读靠 MVCC 版本链快照，写靠锁（记录锁 / 间隙锁 / 临键锁）</strong></td>
+                  </tr>
+                  <tr>
+                    <td><strong>持久性 D</strong></td>
+                    <td>提交成功的修改在故障断电后不丢</td>
+                    <td>靠 <code>redo log</code> (WAL) + <code>binlog</code> 两阶段提交刷盘</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h3 style="margin-top:14px;">🎚️ 四大隔离级别中文叫法 &amp; 并发异常对照表</h3>
+            <p>
+              并发读写时如果不加控制，会按严重程度出现三类现象：<br/>
+              <strong>① 脏读 (Dirty Read)：</strong>读到了别人<strong>还没 <code>COMMIT</code>（甚至随后回滚了）</strong>的脏数据。<br/>
+              <strong>② 不可重复读 (Non-repeatable Read)：</strong>同一事务内两次读<strong>同一行</strong>，因为别人中途提交了 <code>UPDATE</code>，两次读到的<strong>值不一样</strong>。<br/>
+              <strong>③ 幻读 (Phantom Read)：</strong>同一事务内按<strong>同一范围条件</strong>查询，因为别人中途提交了 <code>INSERT / DELETE</code>，导致满足条件的<strong>记录集合凭空多出或少了几行</strong>。
+            </p>
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:26%">中文通用叫法 (英文简称)</th>
+                    <th style="width:12%">脏读</th>
+                    <th style="width:16%">不可重复读</th>
+                    <th style="width:12%">幻读</th>
+                    <th>InnoDB 底层解决机制（怎么做到？）</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>① 读未提交</strong><br/><code>READ UNCOMMITTED (RU)</code></td>
+                    <td style="color:var(--plop-tomato); font-weight:900;">❌ 有</td>
+                    <td style="color:var(--plop-tomato); font-weight:900;">❌ 有</td>
+                    <td style="color:var(--plop-tomato); font-weight:900;">❌ 有</td>
+                    <td>不建 ReadView 快照，直接读最新内存页上的未提交修改。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>② 读已提交</strong><br/><code>READ COMMITTED (RC)</code></td>
+                    <td style="color:var(--plop-leaf); font-weight:900;">✅ 解决</td>
+                    <td style="color:var(--plop-tomato); font-weight:900;">❌ 有</td>
+                    <td style="color:var(--plop-tomato); font-weight:900;">❌ 有</td>
+                    <td><strong>每次 <code>SELECT</code> 都重新拍一张新 ReadView 快照</strong>（未提交事务在活跃列表里不可见，故无脏读；但别人提交后下次拍照就能看见）。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>③ 可重复读 ⭐默认</strong><br/><code>REPEATABLE READ (RR)</code></td>
+                    <td style="color:var(--plop-leaf); font-weight:900;">✅ 解决</td>
+                    <td style="color:var(--plop-leaf); font-weight:900;">✅ 解决</td>
+                    <td style="color:var(--plop-leaf); font-weight:900;">✅ 解决*</td>
+                    <td><strong>快照读复用首次 <code>SELECT</code> 的 ReadView</strong>；<strong>当前读靠 Next-Key Lock（记录锁 + Gap 间隙锁）</strong>锁住区间缝隙防插入。（*注：快照读与当前读混用时需注意视角切换）</td>
+                  </tr>
+                  <tr>
+                    <td><strong>④ 可串行化</strong><br/><code>SERIALIZABLE</code></td>
+                    <td style="color:var(--plop-leaf); font-weight:900;">✅ 解决</td>
+                    <td style="color:var(--plop-leaf); font-weight:900;">✅ 解决</td>
+                    <td style="color:var(--plop-leaf); font-weight:900;">✅ 解决</td>
+                    <td>普通 <code>SELECT</code> 自动转为 <code>SELECT ... FOR SHARE</code> 共享锁，<strong>读写互斥排队</strong>，牺牲并发度换绝对隔离。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="plop-callout tip">
+              <strong>💡 一句话记牢四种隔离级别：</strong>中文标准叫法就是<strong>「读未提交 (RU)、读已提交 (RC)、可重复读 (RR)、可串行化 (Serializable)」</strong>。Oracle / PostgreSQL 默认是<strong>读已提交 (RC)</strong>，而 MySQL InnoDB 默认是<strong>可重复读 (RR)</strong>。
+            </div>
+        </div>
+
+        <!-- 04.2 · 承上启下与 MVCC 三大零件概览 -->
+        <div class="wb-card" id="mvcc" style="background:var(--plop-paper); margin-bottom:20px;">
+            <div class="washi-tape pink"></div>
+            <div class="chapter-q-pill">❓ 04.2 · 承上启下：MVCC 和前面的「事务、四大隔离级别」到底是什么关系？</div>
+            <h3>🌉 04.2 承上启下：隔离级别是「承诺标准」，MVCC 是兑现 RC / RR 的「底层武器」</h3>
+
+            <!-- 承上启下关系传导图（严格对齐 PlopUI 手账配色） -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:10px;">
+                🧭 第一性原理推导链：为什么讲完事务和隔离级别，紧接着必须讲 MVCC？
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px;">
+                <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                  <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">① 提出目标：事务 ACID 的 I（隔离性）</div>
+                  <div style="font-size:12.8px; color:var(--plop-ink-soft); margin-top:4px; line-height:1.5; font-weight:700;">
+                    多个事务同时读写一行数据时，不能乱套（不能发生脏读、不可重复读、幻读）。
+                  </div>
+                </div>
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                  <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato);">② 划分档位：4 大隔离级别（What）</div>
+                  <div style="font-size:12.8px; color:var(--plop-ink-soft); margin-top:4px; line-height:1.5; font-weight:700;">
+                    SQL 标准定了 <strong>RU / RC / RR / Serializable</strong> 四个档位，但这只是<strong>“对外承诺的效果”</strong>，没说代码怎么写。
+                  </div>
+                </div>
+                <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                  <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">③ 笨办法的死穴：全靠加锁会卡死</div>
+                  <div style="font-size:12.8px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                    如果为了隔离，别人改 <code>id=1</code> 时连普通 <code>SELECT</code> 都加锁排队（像 Serializable 那样），并发性能直接雪崩！
+                  </div>
+                </div>
+                <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                  <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">④ 终极解法：MVCC 登场（How）</div>
+                  <div style="font-size:12.8px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                    为了在 <strong>RC（读已提交）</strong> 和 <strong>RR（可重复读）</strong> 下做到<strong>「既满足隔离承诺，普通 SELECT 又完全不加锁」</strong>，InnoDB 发明了 <strong>MVCC</strong>！
+                  </div>
+                </div>
+              </div>
+              <div style="margin-top:10px; padding:9px 12px; background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:9px; font-size:13px; color:var(--plop-ink-text); line-height:1.58;">
+                <strong>🎯 四大隔离级别与 MVCC 的精确对应关系：</strong><br/>
+                • <strong>读未提交 (RU)：</strong>完全<strong>不用 MVCC</strong>，直接裸读内存最新页（所以有脏读）。<br/>
+                • <strong>读已提交 (RC) &amp; 可重复读 (RR)：</strong>普通 <code>SELECT</code> 全靠 <strong>MVCC</strong> 实现！两者的<strong>唯一区别</strong>就是<strong>生成 <code>ReadView</code> 快照的时机不同</strong>（RC 每次 <code>SELECT</code> 都新拍一张，RR 只在第一次 <code>SELECT</code> 拍一张后面一直复用）。<br/>
+                • <strong>可串行化 (Serializable)：</strong>放弃无锁 MVCC，普通 <code>SELECT</code> 全部退化为加共享锁（<code>FOR SHARE</code>）排队。
+              </div>
+            </div>
+
+            <h3>📸 MVCC 的本质：用「3 个数据结构」代替整表拷贝</h3>
+            <p>
+              搞懂了上面的关系，你就明白为什么必须拆解 <strong>MVCC（Multi-Version Concurrency Control，多版本并发控制）</strong>了——它是兑现 <strong>RC 和 RR 隔离级别</strong>的核心引擎。为了做到“别人正在改这一行，我普通 <code>SELECT</code> 不用等锁也能读到一致的旧版本”，InnoDB 用了 <strong>3 个实打实的数据结构</strong>：
+            </p>
+
+            <div style="display:grid; gap:10px; margin:12px 0;">
+              <div style="background:#FFFFFF; border:2.2px solid var(--plop-ink); border-radius:12px; padding:11px 14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:4px;">
+                  ① 每行自带 2 个隐藏列：<code>DB_TRX_ID</code> + <code>DB_ROLL_PTR</code>
+                </div>
+                <div style="font-size:13.2px; color:var(--plop-ink-soft); line-height:1.55;">
+                  • <code>DB_TRX_ID</code>（6 字节）：记录<strong>最后一次修改这行数据的事务 ID</strong>。<br/>
+                  • <code>DB_ROLL_PTR</code>（7 字节）：<strong>回滚指针</strong>，就像单向链表的 <code>next</code> 指针，指向这行数据在 <code>undo log</code> 里的上一个旧版本。
+                </div>
+              </div>
+
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:11px 14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:4px;">
+                  ② Undo Log 历史版本单向链表（Version Chain）
+                </div>
+                <div style="font-size:13.2px; color:var(--plop-ink-text); line-height:1.55;">
+                  每次 <code>UPDATE</code> 前，先把旧值写进一条 <code>undo log</code>，再用 <code>DB_ROLL_PTR</code> 指针把<strong>「数据页最新行 ──▶ Undo 旧版 V2 ──▶ Undo 更老版 V1」</strong>串成一条单向链表。
+                </div>
+              </div>
+
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:11px 14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:4px;">
+                  ③ ReadView 读视图结构体（一把只有 4 个字段的“水位尺”）
+                </div>
+                <div style="font-size:13.2px; color:var(--plop-ink-text); line-height:1.55;">
+                  执行普通 <code>SELECT</code> 时瞬间创建的轻量结构体，记录拍照那一刻<strong>「哪些事务还没提交 (<code>m_ids</code>)」</strong>以及<strong>「高低水位事务 ID」</strong>，用来顺着链表判断哪一版数据对你可见。
+                </div>
+              </div>
+            </div>
+
+            <h4>⚡ 读已提交 (RC) vs 可重复读 (RR) 在代码上只差一行</h4>
+            <p>
+              • <strong>读已提交 (RC)</strong>：<strong>每次执行 <code>SELECT</code></strong> 时，都重新创建一个新的 <code>ReadView</code>。<br/>
+              • <strong>可重复读 (RR)</strong>：<strong>只在第一次 <code>SELECT</code></strong> 时创建 <code>ReadView</code>，本事务后续所有普通查询都一直复用这同一个 <code>ReadView</code>！
+            </p>
+
+            <h4>🔒 当前读 vs 快照读：更新时绝不能拿旧余额</h4>
+            <p>
+              普通 <code>SELECT</code> 是<strong>快照读</strong>（走 MVCC 链表不加锁）；而 <code>SELECT ... FOR UPDATE</code>、<code>SELECT ... FOR SHARE</code>、<code>UPDATE</code>、<code>DELETE</code> 是<strong>当前读</strong>，必须直接读取并锁定<strong>链表头部的最新记录</strong>。
+            </p>
+
+            <div class="plop-callout warn">
+              <strong>⚠️ 为什么长事务会拖垮数据库？</strong>只要还有一个老事务的 <code>ReadView</code> 没销毁，比它晚产生的 <code>Undo Log</code> 链表节点就不敢被清理回收，会导致 Undo 表空间暴涨。<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-multi-versioning.html" target="_blank" rel="noopener">官方文档 ↗</a>
+            </div>
+        </div>
+
+        <!-- 04.3 · 第一步：先把 ReadView 这把“可见性尺子”的结构与四步规则搞懂 -->
+        <div class="wb-card" style="margin-bottom:20px; background:var(--plop-paper);">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill">❓ 04.3 · 第一步（先懂尺子）：ReadView 结构体到底长什么样？</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+            <h3 style="margin:0;">🪪 04.3 第一步（先懂尺子）：ReadView 的 4 个核心字段、数轴水位尺与四步判定漏斗</h3>
+            <span class="plop-tag tomato">InnoDB 源码 read0types.h</span>
+          </div>
+          <p style="margin-bottom:12px;">
+            要看懂 MVCC 是怎么选版本的，<strong>必须先认识 <code>ReadView</code> 这把“可见性尺子”</strong>。假设当前时刻系统里：事务 <code>1~49</code> 都已提交；事务 <code>50</code>、<code>60</code> 正在执行还没提交；事务 <code>55</code>、<code>65</code> 开启得晚但已经抢先提交了；本事务自己的 ID 是 <code>70</code>；系统下一个准备发出去的事务 ID 是 <code>80</code>。此时你执行 <code>SELECT</code> 拍下一张 <strong><code>ReadView</code></strong>，它的内部结构如下：
+          </p>
+
+          <!-- 第 1 层：ReadView 内存对象 4 大字段解剖盒 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; box-shadow:3px 4px 0 var(--plop-shadow); margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+              <span style="font-family:var(--font-mono); font-weight:900; font-size:15px; color:var(--plop-ink);">
+                📦 class ReadView &#123; ... &#125; 内存结构（4 个核心成员变量）
+              </span>
+              <span class="plop-tag mint">拍照瞬间 O(1) 记录边界，绝不拷贝表数据</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px;">
+              <!-- 字段 1 -->
+              <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:11px; padding:11px 12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;">
+                  <span style="font-weight:900; font-size:12.5px; color:var(--plop-ink);">字段 ①</span>
+                  <span class="plop-tag" style="font-size:10.5px;">本事务 ID</span>
+                </div>
+                <div style="font-family:var(--font-mono); font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px; word-break:break-all;">
+                  m_creator_trx_id
+                </div>
+                <div style="font-family:var(--font-mono); font-size:16px; font-weight:900; color:var(--plop-ink); background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px 8px; text-align:center; margin:6px 0;">
+                  = 70 <span style="font-size:11px; font-weight:700; color:var(--plop-ink-soft);">（只读为 0）</span>
+                </div>
+                <div style="font-size:12.5px; color:var(--plop-ink-soft); line-height:1.45;">
+                  <strong>含义：</strong>是谁拍了这张 ReadView 快照。<br/>
+                  <strong>作用：</strong>自己事务改的数据（<code>trx_id == 70</code>），自己当然永远能看见！
+                </div>
+              </div>
+
+              <!-- 字段 2 -->
+              <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:11px; padding:11px 12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;">
+                  <span style="font-weight:900; font-size:12.5px; color:var(--plop-tomato);">字段 ②</span>
+                  <span class="plop-tag tomato" style="font-size:10.5px;">未提交活跃名单</span>
+                </div>
+                <div style="font-family:var(--font-mono); font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;">
+                  m_ids <span style="font-size:12px; font-weight:800;">(活跃数组)</span>
+                </div>
+                <div style="font-family:var(--font-mono); font-size:16px; font-weight:900; color:var(--plop-tomato); background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:7px; padding:5px 8px; text-align:center; margin:6px 0;">
+                  [ 50, 60 ]
+                </div>
+                <div style="font-size:12.5px; color:var(--plop-ink-soft); line-height:1.45;">
+                  <strong>含义：</strong>拍照那一刻，系统里<strong>已开启但还没 COMMIT</strong> 的所有读写事务 ID 有序数组。<br/>
+                  <strong>作用：</strong>名单里的事务一律算“未提交”，<strong>不可见</strong>！
+                </div>
+              </div>
+
+              <!-- 字段 3 -->
+              <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:11px; padding:11px 12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;">
+                  <span style="font-weight:900; font-size:12.5px; color:var(--plop-leaf);">字段 ③</span>
+                  <span class="plop-tag mint" style="font-size:10.5px;">低水位 min_trx_id</span>
+                </div>
+                <div style="font-family:var(--font-mono); font-weight:900; font-size:14px; color:var(--plop-leaf); margin-bottom:6px;">
+                  m_up_limit_id
+                </div>
+                <div style="font-family:var(--font-mono); font-size:16px; font-weight:900; color:var(--plop-ink-text); background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px 8px; text-align:center; margin:6px 0;">
+                  = 50 <span style="font-size:11px; font-weight:700;">（m_ids 最小值）</span>
+                </div>
+                <div style="font-size:12.5px; color:var(--plop-ink-soft); line-height:1.45;">
+                  <strong>含义：</strong>活跃数组里的<strong>最小事务 ID</strong>。<br/>
+                  <strong>作用：</strong>凡是 <code>trx_id &lt; 50</code> 的事务，说明拍照前 100% 早已提交，<strong>直接放行可见</strong>！
+                </div>
+              </div>
+
+              <!-- 字段 4 -->
+              <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:11px; padding:11px 12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;">
+                  <span style="font-weight:900; font-size:12.5px; color:var(--plop-ink);">字段 ④</span>
+                  <span class="plop-tag mustard" style="font-size:10.5px;">高水位 max_trx_id</span>
+                </div>
+                <div style="font-family:var(--font-mono); font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">
+                  m_low_limit_id
+                </div>
+                <div style="font-family:var(--font-mono); font-size:16px; font-weight:900; color:var(--plop-ink-text); background:var(--plop-mustard); border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px 8px; text-align:center; margin:6px 0;">
+                  = 80 <span style="font-size:11px; font-weight:700;">（下个待分配ID）</span>
+                </div>
+                <div style="font-size:12.5px; color:var(--plop-ink-soft); line-height:1.45;">
+                  <strong>含义：</strong>拍照时系统的<strong>下一个待分配事务 ID</strong>（注意不是 m_ids 最大值！）。<br/>
+                  <strong>作用：</strong>凡是 <code>trx_id ≥ 80</code> 的，全是拍照后才开启的未来事务，<strong>直接拦截不可见</strong>！
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 第 2 层：ReadView 事务 ID 水平数轴标尺图 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; box-shadow:3px 4px 0 var(--plop-shadow); margin-bottom:16px;">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:10px;">
+              📏 把全部事务 ID 摊开在一条「水平数轴」上：高低水位线把世界切成了 3 段
+            </div>
+
+            <!-- 三段数轴横条 -->
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:12px; align-items:stretch;">
+              <!-- 左段：已提交老事务区 -->
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">🟢 左段：老事务区</span>
+                  <span style="font-family:var(--font-mono); font-weight:900; font-size:13px; background:#FFFFFF; border:1.8px solid var(--plop-ink); padding:2px 7px; border-radius:6px; color:var(--plop-leaf);">trx_id &lt; 50</span>
+                </div>
+                <div style="font-size:12.8px; color:var(--plop-ink-text); margin-bottom:8px; font-weight:700;">
+                  在低水位 <code>m_up_limit_id (50)</code> 左边，拍照前<strong>全部早已提交</strong>。
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <span style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:6px; padding:3px 8px; color:var(--plop-leaf);">trx=10 ✅可见</span>
+                  <span style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:6px; padding:3px 8px; color:var(--plop-leaf);">trx=30 ✅可见</span>
+                  <span style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:6px; padding:3px 8px; color:var(--plop-leaf);">trx=49 ✅可见</span>
+                </div>
+              </div>
+
+              <!-- 中段：高低水位混合区 -->
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">🟡 中段：混合核查区</span>
+                  <span style="font-family:var(--font-mono); font-weight:900; font-size:13px; background:#FFFFFF; border:1.8px solid var(--plop-ink); padding:2px 7px; border-radius:6px; color:var(--plop-ink-text);">50 ≤ trx_id &lt; 80</span>
+                </div>
+                <div style="font-size:12.8px; color:var(--plop-ink-text); margin-bottom:8px; font-weight:700;">
+                  夹在低水位 <code>50</code> 与高水位 <code>80</code> 之间，<strong>查它在不在 <code>m_ids[50,60]</code> 里</strong>：
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <span style="font-family:var(--font-mono); font-size:12px; font-weight:900; background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:6px; padding:3px 7px; color:var(--plop-tomato);">50 (在m_ids) ❌</span>
+                  <span style="font-family:var(--font-mono); font-size:12px; font-weight:900; background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:6px; padding:3px 7px; color:var(--plop-leaf);">55 (已提交) ✅</span>
+                  <span style="font-family:var(--font-mono); font-size:12px; font-weight:900; background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:6px; padding:3px 7px; color:var(--plop-tomato);">60 (在m_ids) ❌</span>
+                  <span style="font-family:var(--font-mono); font-size:12px; font-weight:900; background:var(--plop-periwinkle); border:1.8px solid var(--plop-ink); border-radius:6px; padding:3px 7px; color:var(--plop-ink-text);">70 (本事务) ✅</span>
+                </div>
+              </div>
+
+              <!-- 右段：未来新事务区 -->
+              <div style="background:#FFF0F5; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-weight:900; font-size:14px; color:var(--plop-tomato);">🔴 右段：未来事务区</span>
+                  <span style="font-family:var(--font-mono); font-weight:900; font-size:13px; background:#FFFFFF; border:1.8px solid var(--plop-tomato); padding:2px 7px; border-radius:6px; color:var(--plop-tomato);">trx_id ≥ 80</span>
+                </div>
+                <div style="font-size:12.8px; color:var(--plop-ink-text); margin-bottom:8px; font-weight:700;">
+                  在高水位 <code>m_low_limit_id (80)</code> 右边，拍照后才开启，<strong>哪怕已提交也不可见</strong>！
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <span style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; background:#FFFFFF; border:1.8px solid var(--plop-tomato); border-radius:6px; padding:3px 8px; color:var(--plop-tomato);">trx=80 ❌不可见</span>
+                  <span style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; background:#FFFFFF; border:1.8px solid var(--plop-tomato); border-radius:6px; padding:3px 8px; color:var(--plop-tomato);">trx=95 ❌不可见</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 第 3 层：ReadView::changes_visible(trx_id) 四步判断横向漏斗 -->
+          <div style="background:var(--plop-sheet); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+            <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">
+              ⚙️ 源码级四步判断函数 <code>ReadView::changes_visible(trx_id)</code> 执行顺序：
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(195px, 1fr)); gap:8px; font-size:12.8px;">
+              <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:8px 10px;">
+                <strong style="color:var(--plop-ink);">Step 1 · 先认自己人</strong><br/>
+                若 <code>trx_id == m_creator_trx_id</code><br/>
+                👉 <strong>✅ 直接可见</strong>（自己改的）
+              </div>
+              <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:8px 10px;">
+                <strong style="color:var(--plop-leaf);">Step 2 · 查低水位左侧</strong><br/>
+                若 <code>trx_id &lt; m_up_limit_id (50)</code><br/>
+                👉 <strong>✅ 直接可见</strong>（拍照前已交）
+              </div>
+              <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:8px 10px;">
+                <strong style="color:var(--plop-tomato);">Step 3 · 查高水位右侧</strong><br/>
+                若 <code>trx_id ≥ m_low_limit_id (80)</code><br/>
+                👉 <strong>❌ 不可见</strong>（顺 undo 找旧版）
+              </div>
+              <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:8px 10px;">
+                <strong style="color:var(--plop-ink-text);">Step 4 · 二分查活跃数组</strong><br/>
+                在 <code>m_ids[50,60]</code> 里二分查找：<br/>
+                👉 <strong>命中则 ❌ 不可见；未命中则 ✅ 可见</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 04.4 · 第二步：拿着 ReadView 尺子，实战推演一条记录从 Step 0 到 Step 3 的物理变化全过程 -->
+        <div class="wb-card" style="margin-bottom:20px; background:var(--plop-paper);">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 04.4 · 第二步（实战推演）：盯住 id=1 这一行，每次修改后记录、Undo 链表与 RC / RR 怎么变？</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+            <h3 style="margin:0;">🎬 04.4 第二步（实战推演）：盯住 <code>id=1</code> 从 Step 0 到 Step 3 的完整版本链变化</h3>
+            <span class="plop-tag tomato">4 步连环画 · 彻底顿悟 RC 与 RR</span>
+          </div>
+          <p style="margin-bottom:14px;">
+            现在你已经懂了 <code>ReadView</code> 这把尺子怎么量可见性！接下来我们直接盯住 <code>users</code> 表里 <strong><code>id = 1</code>（小林）</strong> 这一条记录，从它刚被插入开始，一步步看当两个并发事务修改它时，<strong>数据页里的记录怎么变、Undo 链表怎么一节节长出来、以及 RC（读已提交）和 RR（可重复读）拿着各自的 <code>ReadView</code> 为什么读出不同的值</strong>：
+          </p>
+
+          <div style="display:grid; gap:16px;">
+            <!-- ==================== STEP 0 ==================== -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-ink); color:#FFFFFF; font-weight:900; font-size:13.5px; padding:4px 12px; border-radius:8px;">
+                  Step 0 · 初始状态：事务 10 插入一行初始数据并提交
+                </span>
+                <span style="font-family:var(--font-mono); font-size:13px; font-weight:800; color:var(--plop-ink-soft);">
+                  SQL: <code>INSERT INTO users VALUES (1, '小林', 100); COMMIT;</code>（事务 ID = 10）
+                </span>
+              </div>
+
+              <div style="font-size:13.2px; color:var(--plop-ink-text); margin-bottom:10px;">
+                此时这行数据刚出生，还没有被任何人修改过，所以 <strong>Undo Log 是空的</strong>，回滚指针 <code>DB_ROLL_PTR = NULL</code>：
+              </div>
+
+              <!-- Step 0 内存/磁盘记录状态 -->
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:11px; padding:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">
+                  📄 数据页里的当前记录（V1）：
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; font-family:var(--font-mono); font-size:13.5px; font-weight:900;">
+                  <span style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px 10px;">id = 1 ｜ name = '小林' ｜ 余额 = 100</span>
+                  <span style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px 10px; color:var(--plop-leaf);">DB_TRX_ID = 10 (已提交)</span>
+                  <span style="background:var(--plop-sheet); border:1.8px dashed var(--plop-ink); border-radius:7px; padding:5px 10px; color:var(--plop-ink-soft);">DB_ROLL_PTR = NULL (无旧版本)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- ==================== STEP 1 ==================== -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-mustard); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:13.5px; padding:4px 12px; border-radius:8px;">
+                  Step 1 · 第一次修改：事务 20 和事务 30 同时开启，事务 20 把余额改成 200（⚠️ 还没 COMMIT）
+                </span>
+                <span style="font-family:var(--font-mono); font-size:13px; font-weight:800; color:var(--plop-tomato);">
+                  事务 20: <code>UPDATE users SET balance = 200 WHERE id = 1;</code>（未提交）
+                </span>
+              </div>
+
+              <div style="font-size:13.2px; color:var(--plop-ink-text); margin-bottom:10px; line-height:1.55;">
+                <strong>记录发生了什么物理变化？</strong><br/>
+                ① InnoDB 先把改之前的旧记录 <code>(余额=100, trx_id=10)</code> 拷贝写进 <strong>Undo Log（假设地址为 <code>0x01</code>）</strong>；<br/>
+                ② 再把数据页里的最新行覆盖成 <code>余额=200</code>，把隐藏列 <code>DB_TRX_ID</code> 改成 <code>20</code>，并把 <code>DB_ROLL_PTR</code> 指向 <code>0x01</code>：
+              </div>
+
+              <!-- Step 1 链表状态（2节） -->
+              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:11px; padding:12px; margin-bottom:12px;">
+                <div style="flex:1 1 280px; background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                  <div style="font-weight:900; font-size:13.5px; color:var(--plop-tomato); margin-bottom:4px;">🔥 链表第 1 节（数据页最新行 · V2）</div>
+                  <div style="font-family:var(--font-mono); font-size:13px; font-weight:900; color:var(--plop-ink);">
+                    余额 = 200 ｜ <span style="color:var(--plop-tomato);">DB_TRX_ID = 20 (未提交)</span> ｜ PTR = 0x01
+                  </div>
+                </div>
+
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink);">──顺 0x01 找──▶</div>
+
+                <div style="flex:1 1 260px; background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                  <div style="font-weight:900; font-size:13.5px; color:var(--plop-ink-text); margin-bottom:4px;">🕰️ 链表第 2 节（Undo 0x01 · V1）</div>
+                  <div style="font-family:var(--font-mono); font-size:13px; font-weight:900; color:var(--plop-ink-text);">
+                    余额 = 100 ｜ <span style="color:var(--plop-leaf);">DB_TRX_ID = 10 (已提交)</span> ｜ PTR = NULL
+                  </div>
+                </div>
+              </div>
+
+              <!-- 此时查询事务 Q 执行第 1 次 SELECT -->
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px; font-size:13.2px; line-height:1.6; color:var(--plop-ink-text);">
+                <strong>👀 此时你的查询事务 Q 进来执行【第 1 次 <code>SELECT balance WHERE id = 1</code>】：</strong><br/>
+                • 无论你是 <strong>RC</strong> 还是 <strong>RR</strong>，第 1 次查询都会拍下快照 <strong><code>ReadView #1</code></strong>：此时未提交的活跃事务有 <code>20</code> 和 <code>30</code>，所以 <strong><code>m_ids = [20, 30]</code>，低水位 = <code>20</code></strong>。<br/>
+                • <strong>顺链表比对：</strong>先看链表第 1 节 <code>trx_id = 20</code>（在 <code>m_ids[20,30]</code> 里，未提交 ❌ 不可见） ──▶ 顺着 <code>0x01</code> 跳到第 2 节 <code>trx_id = 10</code>（<code>10 &lt; 低水位 20</code>，已提交 ✅ 可见）！<br/>
+                • <strong>第 1 次查询结果：</strong><span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); padding:1px 8px; border-radius:6px; font-weight:900; color:var(--plop-leaf);">RC 读到 100，RR 也读到 100（都没有发生脏读！）</span>
+              </div>
+            </div>
+
+            <!-- ==================== STEP 2 ==================== -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:#FFF0F5; border:2px solid var(--plop-tomato); color:var(--plop-tomato); font-weight:900; font-size:13.5px; padding:4px 12px; border-radius:8px;">
+                  Step 2 · 第二次修改：事务 20 正式 COMMIT！紧接着事务 30 又把余额改成 300（⚠️ 还没 COMMIT）
+                </span>
+                <span style="font-family:var(--font-mono); font-size:13px; font-weight:800; color:var(--plop-ink);">
+                  事务 20: <code>COMMIT;</code> ｜ 事务 30: <code>UPDATE balance = 300;</code>（未提交）
+                </span>
+              </div>
+
+              <div style="font-size:13.2px; color:var(--plop-ink-text); margin-bottom:10px; line-height:1.55;">
+                <strong>记录又发生了什么物理变化？</strong><br/>
+                ① InnoDB 先把刚才事务 20 的版本 <code>(余额=200, trx_id=20, ptr=0x01)</code> 压进 <strong>Undo Log（地址为 <code>0x02</code>）</strong>；<br/>
+                ② 再把数据页里的最新行覆盖成 <code>余额=300</code>，隐藏列 <code>DB_TRX_ID</code> 改成 <code>30</code>，<code>DB_ROLL_PTR</code> 指向 <code>0x02</code>——<strong>现在链表长成了 3 节</strong>：
+              </div>
+
+              <!-- Step 2 链表状态（3节） -->
+              <div style="display:grid; grid-template-columns:1fr auto 1fr auto 1fr; gap:8px; align-items:center; background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:11px; padding:12px;">
+                <div style="background:#FFF0F5; border:2.2px solid var(--plop-tomato); border-radius:10px; padding:10px; text-align:center;">
+                  <div style="font-weight:900; font-size:13px; color:var(--plop-tomato);">🔥 第 1 节：数据页最新行 (V3)</div>
+                  <div style="font-family:var(--font-mono); font-size:14px; font-weight:900; color:var(--plop-ink); margin:4px 0;">余额 = 300</div>
+                  <div style="font-family:var(--font-mono); font-size:12px; font-weight:900; color:var(--plop-tomato);">trx_id = 30 (未提交)</div>
+                  <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--plop-ink-soft);">DB_ROLL_PTR = 0x02</div>
+                </div>
+
+                <div style="font-weight:900; font-size:13px; color:var(--plop-ink);">──0x02──▶</div>
+
+                <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px; text-align:center;">
+                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">📜 第 2 节：Undo 0x02 (V2)</div>
+                  <div style="font-family:var(--font-mono); font-size:14px; font-weight:900; color:var(--plop-ink); margin:4px 0;">余额 = 200</div>
+                  <div style="font-family:var(--font-mono); font-size:12px; font-weight:900; color:var(--plop-leaf);">trx_id = 20 (刚已提交!)</div>
+                  <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--plop-ink-soft);">DB_ROLL_PTR = 0x01</div>
+                </div>
+
+                <div style="font-weight:900; font-size:13px; color:var(--plop-ink);">──0x01──▶</div>
+
+                <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px; text-align:center;">
+                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">🕰️ 第 3 节：Undo 0x01 (V1)</div>
+                  <div style="font-family:var(--font-mono); font-size:14px; font-weight:900; color:var(--plop-leaf); margin:4px 0;">余额 = 100</div>
+                  <div style="font-family:var(--font-mono); font-size:12px; font-weight:900; color:var(--plop-leaf);">trx_id = 10 (早已提交)</div>
+                  <div style="font-family:var(--font-mono); font-size:11.5px; color:var(--plop-ink-soft);">DB_ROLL_PTR = NULL</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ==================== STEP 3：高潮对决 RC vs RR ==================== -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                <span style="background:var(--plop-tomato); color:#FFFFFF; font-weight:900; font-size:14px; padding:5px 14px; border-radius:8px;">
+                  Step 3 · 终极对决：你的查询事务 Q 现在执行【第 2 次 SELECT balance WHERE id = 1】！
+                </span>
+                <span class="plop-tag mint">同一条 3 节链表，RC 和 RR 怎么走出不同结果？</span>
+              </div>
+
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:14px;">
+                <!-- 左：RC 读已提交 -->
+                <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+                  <div style="font-weight:900; font-size:15px; color:var(--plop-ink-text); margin-bottom:8px;">
+                    🟡 若隔离级别是「读已提交 (RC)」：重新拍新快照！
+                  </div>
+                  <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-family:var(--font-mono); font-size:12.8px; font-weight:900; margin-bottom:10px;">
+                    🆕 新建 ReadView #2：<br/>
+                    • 事务 20 已提交，从活跃名单移除！<br/>
+                    • <span style="color:var(--plop-tomato);">m_ids = [ 30 ]</span> ｜ <span style="color:var(--plop-leaf);">新低水位 = 30</span>
+                  </div>
+                  <div style="font-size:13px; line-height:1.6; color:var(--plop-ink-text);">
+                    <strong>拿着新快照去遍历上面的 3 节链表：</strong><br/>
+                    1. 查第 1 节 <code>(余额=300, trx_id=30)</code>：<code>30</code> 在 <code>m_ids[30]</code> 内 → <strong>❌ 不可见</strong>，顺 <code>0x02</code> 跳下一节；<br/>
+                    2. 查第 2 节 <code>(余额=200, trx_id=20)</code>：<code>20 &lt; 新低水位 30</code> → <strong>✅ 判定可见！立刻停下返回 200！</strong>
+                  </div>
+                  <div style="margin-top:10px; background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:900; color:var(--plop-tomato);">
+                    👉 RC 第 2 次读到：200（跟第 1 次读到的 100 不一样，这就是“读已提交”与“不可重复读”！）
+                  </div>
+                </div>
+
+                <!-- 右：RR 可重复读 -->
+                <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+                  <div style="font-weight:900; font-size:15px; color:var(--plop-ink-text); margin-bottom:8px;">
+                    🟢 若隔离级别是「可重复读 (RR)」：继续用 Step 1 老快照！
+                  </div>
+                  <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-family:var(--font-mono); font-size:12.8px; font-weight:900; margin-bottom:10px;">
+                    ♻️ 复用老 ReadView #1（绝不新建）：<br/>
+                    • 拍照时事务 20 还没交，名单锁死不变！<br/>
+                    • <span style="color:var(--plop-tomato);">m_ids = [ 20, 30 ]</span> ｜ <span style="color:var(--plop-leaf);">老低水位 = 20</span>
+                  </div>
+                  <div style="font-size:13px; line-height:1.6; color:var(--plop-ink-text);">
+                    <strong>拿着老快照去遍历同一条 3 节链表：</strong><br/>
+                    1. 查第 1 节 <code>(余额=300, trx_id=30)</code>：<code>30</code> 在 <code>m_ids[20,30]</code> 内 → <strong>❌ 不可见</strong>，顺 <code>0x02</code> 跳下一节；<br/>
+                    2. 查第 2 节 <code>(余额=200, trx_id=20)</code>：虽然 20 现实中已提交，但<strong>在老快照 `m_ids[20,30]` 里它仍在黑名单上 → ❌ 不可见！</strong>顺 <code>0x01</code> 再跳下一节；<br/>
+                    3. 查第 3 节 <code>(余额=100, trx_id=10)</code>：<code>10 &lt; 老低水位 20</code> → <strong>✅ 判定可见！返回 100！</strong>
+                  </div>
+                  <div style="margin-top:10px; background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:900; color:var(--plop-leaf);">
+                    👉 RR 第 2 次读到：100（比 RC 多顺着链表往前跳了一节，和第 1 次读完全一致！）
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 04.5 · 第三步：三大并发异常时间线 × 四大隔离级别的拦截与解决办法 -->
+        <div class="wb-card" style="margin-bottom:20px; background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 04.5 · 第三步（全景收尾）：三大并发异常是怎么发生的 × 四大隔离级别怎么解决？</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+            <h3 style="margin:0;">⏱️ 04.5 第三步（时间线全景对照）：T1 → T5 四大隔离级别的拦截与解法</h3>
+            <span class="plop-tag tomato">时间轴 T1 → T5 对照</span>
+          </div>
+          <p style="margin-bottom:12px;">
+            把<strong>「事务 A（你正在查账）」</strong>和<strong>「事务 B / C（别人并发改余额 / 插新行）」</strong>放在同一条时间轴 <code>T1 → T5</code> 上，一眼看清<strong>读未提交 (RU)、读已提交 (RC)、可重复读 (RR)、可串行化 (Serializable)</strong> 在每个时间点的结果与底层解决办法：
+          </p>
+
+          <div class="table-wrap">
+            <table class="plop-table" style="min-width:860px;">
+              <thead>
+                <tr>
+                  <th style="width:11%; background:var(--plop-ink); color:#FFFFFF;">时间点</th>
+                  <th style="width:22%; background:var(--plop-mustard);">⚡ 并发操作动作<br/><span style="font-size:11.5px; font-weight:700;">（初始 id=1, balance=100）</span></th>
+                  <th style="width:15%; background:#FFF0F5; color:var(--plop-tomato);">① 读未提交<br/><code>RU</code></th>
+                  <th style="width:18%; background:var(--plop-sheet);">② 读已提交<br/><code>RC</code></th>
+                  <th style="width:20%; background:var(--plop-mint); color:var(--plop-ink-text);">③ 可重复读 ⭐默认<br/><code>RR</code></th>
+                  <th style="width:14%; background:var(--plop-periwinkle);">④ 可串行化<br/><code>Serializable</code></th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- T1 -->
+                <tr>
+                  <td>
+                    <strong style="font-size:14px; color:var(--plop-ink);">T1</strong><br/>
+                    <span class="plop-tag" style="font-size:11px;">首次查询</span>
+                  </td>
+                  <td>
+                    <strong>事务 A 开启并首次查询：</strong><br/>
+                    <code>BEGIN;</code><br/>
+                    <code>SELECT balance WHERE id=1;</code>
+                  </td>
+                  <td>读到 <strong>100</strong></td>
+                  <td>
+                    📸 <strong>拍快照 #1</strong><br/>
+                    读到 <strong>100</strong>
+                  </td>
+                  <td style="background:#F0FDF4;">
+                    📸 <strong>拍快照 #1</strong>，读到 <strong>100</strong><br/>
+                    <span style="color:var(--plop-leaf); font-weight:800;">（整笔事务锁定复用此快照！）</span>
+                  </td>
+                  <td>
+                    🔒 自动加 <code>S</code> 共享锁<br/>
+                    读到 <strong>100</strong>
+                  </td>
+                </tr>
+
+                <!-- T2：脏读 -->
+                <tr>
+                  <td style="background:#FFF0F5;">
+                    <strong style="font-size:14px; color:var(--plop-tomato);">T2 · 考题1</strong><br/>
+                    <span class="plop-tag tomato" style="font-size:11px;">【脏读】</span>
+                  </td>
+                  <td style="background:var(--plop-sheet);">
+                    <strong>事务 B 改余额但未提交：</strong><br/>
+                    <code>UPDATE SET balance=200;</code><br/>
+                    <strong style="color:var(--plop-tomato);">⚠️ 注意：B 还没 COMMIT！</strong><br/>
+                    此时事务 A 第 2 次 <code>SELECT id=1</code>
+                  </td>
+                  <td style="background:#FFF0F5;">
+                    <strong style="color:var(--plop-tomato); font-size:13.8px;">❌ 读到 200（脏读！）</strong><br/>
+                    万一 B 回滚，A 就拿了假钱发货。
+                  </td>
+                  <td style="background:#F0FDF4;">
+                    <strong style="color:var(--plop-leaf); font-size:13.8px;">✅ 仍读 100（解决脏读）</strong><br/>
+                    <strong>办法：</strong>拍新快照 #2，B 未提交在 <code>m_ids</code> 内不可见，顺着 <code>undo</code> 链表读回 100。
+                  </td>
+                  <td style="background:#F0FDF4;">
+                    <strong style="color:var(--plop-leaf); font-size:13.8px;">✅ 仍读 100（解决脏读）</strong><br/>
+                    <strong>办法：</strong>复用快照 #1，B 不可见，顺着 <code>undo</code> 链表读回 100。
+                  </td>
+                  <td style="background:#F0FDF4;">
+                    <strong style="color:var(--plop-leaf); font-size:13.8px;">✅ B 写操作被阻塞</strong><br/>
+                    A 握着 S 共享锁，B 根本改不动。
+                  </td>
+                </tr>
+
+                <!-- T3：不可重复读 -->
+                <tr>
+                  <td style="background:var(--plop-sheet);">
+                    <strong style="font-size:14px; color:var(--plop-ink-text);">T3 · 考题2</strong><br/>
+                    <span class="plop-tag mustard" style="font-size:11px;">【不可重复读】</span>
+                  </td>
+                  <td style="background:var(--plop-sheet);">
+                    <strong>事务 B 正式提交修改：</strong><br/>
+                    <code>COMMIT;</code>（200 落盘生效）<br/>
+                    此时事务 A 还没结束，第 3 次执行 <code>SELECT id=1</code>
+                  </td>
+                  <td style="background:#FFF0F5;">
+                    <strong style="color:var(--plop-tomato);">❌ 读到 200</strong><br/>
+                    前后两次读不一致。
+                  </td>
+                  <td style="background:#FFF0F5;">
+                    <strong style="color:var(--plop-tomato); font-size:13.8px;">❌ 读到 200（不可重复读！）</strong><br/>
+                    <strong>原因：</strong>RC 重新拍了快照 #3，B 已提交，导致 A 跟 T1 读到的 100 不一致！
+                  </td>
+                  <td style="background:#F0FDF4;">
+                    <strong style="color:var(--plop-leaf); font-size:13.8px;">✅ 仍读 100（解决不可重复读！）</strong><br/>
+                    <strong>办法：</strong>继续复用 T1 的快照 #1！不管 B 提没提交，都顺着 <code>undo</code> 链表拿 100。
+                  </td>
+                  <td style="background:#F0FDF4;">
+                    <strong style="color:var(--plop-leaf);">✅ 仍读 100</strong><br/>
+                    B 还在门外排队等 A 结束。
+                  </td>
+                </tr>
+
+                <!-- T4：快照读幻读 -->
+                <tr>
+                  <td style="background:var(--plop-sheet);">
+                    <strong style="font-size:14px; color:var(--plop-ink);">T4 · 考题3a</strong><br/>
+                    <span class="plop-tag periwinkle" style="font-size:11px;">【幻读·快照读】</span>
+                  </td>
+                  <td style="background:var(--plop-sheet);">
+                    <strong>事务 C 插入新行并提交：</strong><br/>
+                    <code>INSERT id=5; COMMIT;</code><br/>
+                    此时事务 A 普通范围查询：<br/>
+                    <code>SELECT * WHERE id &gt; 0;</code>
+                  </td>
+                  <td style="background:#FFF0F5;">
+                    <strong style="color:var(--plop-tomato);">❌ 多出 id=5（幻读）</strong>
+                  </td>
+                  <td style="background:#FFF0F5;">
+                    <strong style="color:var(--plop-tomato); font-size:13.8px;">❌ 多出 id=5（发生幻读！）</strong><br/>
+                    <strong>原因：</strong>新快照 #4 看到了已提交的新行 <code>id=5</code>，结果集凭空多出一行。
+                  </td>
+                  <td style="background:#F0FDF4;">
+                    <strong style="color:var(--plop-leaf); font-size:13.8px;">✅ 看不到 id=5（防快照幻读）</strong><br/>
+                    <strong>办法：</strong>复用 T1 快照 #1，新行 <code>id=5</code> 的 <code>trx_id</code> 太新被直接过滤。
+                  </td>
+                  <td style="background:#F0FDF4;">
+                    <strong style="color:var(--plop-leaf);">✅ C 插入被阻塞</strong><br/>
+                    范围共享锁挡住 C 的插入。
+                  </td>
+                </tr>
+
+                <!-- T5：当前读幻读 -->
+                <tr>
+                  <td style="background:#F0FDF4;">
+                    <strong style="font-size:14px; color:var(--plop-leaf);">T5 · 考题3b</strong><br/>
+                    <span class="plop-tag mint" style="font-size:11px;">【幻读·当前读】</span>
+                  </td>
+                  <td style="background:var(--plop-sheet);">
+                    <strong>若事务 A 用加锁当前读查区间：</strong><br/>
+                    <code>SELECT * WHERE id &gt; 0</code><br/>
+                    <code>FOR UPDATE;</code><br/>
+                    怎么防止别人往区间插新行？
+                  </td>
+                  <td colspan="2" style="background:#FFF0F5;">
+                    <strong style="color:var(--plop-tomato); font-size:13.8px;">❌ RU / RC 只有「记录锁 (Record Lock)」，没有间隙锁！</strong><br/>
+                    RC 只锁住已存在的行，<strong>锁不住行与行之间的“空隙”</strong>，别人依然能 <code>INSERT id=5</code> 进区间 → <strong>当前读发生幻读</strong>。
+                  </td>
+                  <td style="background:#F0FDF4;">
+                    <strong style="color:var(--plop-leaf); font-size:13.8px;">✅ 临键锁 Next-Key Lock！</strong><br/>
+                    <strong>办法：记录锁 + Gap 间隙锁</strong>，把已有记录和区间空隙一起锁死，别人 <code>INSERT</code> 直接阻塞等待！
+                  </td>
+                  <td style="background:#F0FDF4;">
+                    <strong style="color:var(--plop-leaf);">✅ 同样加 Next-Key 锁</strong><br/>
+                    连普通 <code>SELECT</code> 都加锁排队。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-callout tip" style="margin-top:12px;">
+            <strong>🎯 面试秒答公式（背这一句就够）：</strong><br/>
+            InnoDB 解决隔离级别问题靠两条腿走路 —— <strong>① 普通查询（快照读）靠 MVCC 控制 <code>ReadView</code> 拍照时机</strong>（RC 每次拍新照防脏读，RR 复用首张照防不可重复读与快照幻读）；<strong>② 加锁读写（当前读）靠 <code>Next-Key Lock</code>（记录锁 + <code>Gap</code> 间隙锁）</strong>封死区间缝隙防当前读幻读！
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：既然当前读和写操作靠「锁」来防并发冲突和幻读，那记录锁、间隙锁、临键锁到底是怎么自动加上的？</span>
+          </div>
+        </div>

@@ -1,0 +1,379 @@
+<!-- ====================================================================
+             PART 02: 数据为什么按页组织 & Buffer Pool
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="storage">
+          <span class="wb-sec-num">02</span>
+          <span class="wb-sec-title">存储与内存 · 从“硬盘找一行太慢”出发：为什么需要 16 KiB 页、B+ 树与 Buffer Pool？</span>
+          <span class="plop-tag">PAGE · B+ TREE · BUFFER POOL</span>
+        </div>
+
+        <!-- 02.1 先讲故事背景：为什么会有这三大结构？ -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 02.1 · 面对硬盘上的几百万行数据，InnoDB 是怎么一步步逼出这套存储结构的？</div>
+          <h3>🧭 02.1 三大硬件痛点，逼出 InnoDB 的三大核心存储结构</h3>
+          <p>
+            别急着死记“页是 16 KiB、索引是 B+ 树”。我们先设想：<strong>如果让你把 1000 万行 <code>users</code> 存在硬盘文件里，你会遇到哪三个致命痛点？</strong>InnoDB 的三大核心组件，正好按顺序一步步解决这三个痛点：
+          </p>
+          <div class="wb-grid-3" style="margin-top:12px;">
+            <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text); margin-bottom:6px;">痛点 ①：一行行读硬盘太慢！</div>
+              <div style="font-size:13.2px; line-height:1.58;">
+                硬盘随机 I/O 最怕“零碎小读写”。如果每次只从磁盘读几十字节的一行，找 100 行就要跑 100 次磁盘 I/O。<br/>
+                <strong style="color:var(--plop-tomato);">👉 第一步：引入「16 KiB 页 (Page)」</strong>——把相邻的多行打包进一个 16 KiB 的页里，每次按“页”整批读写，摊薄磁盘开销！
+              </div>
+            </div>
+
+            <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text); margin-bottom:6px;">痛点 ②：几万个页怎么找目标页？</div>
+              <div style="font-size:13.2px; line-height:1.58;">
+                1000 万行会装满几十万个数据页。如果从第 1 页挨个翻到最后一页（全表扫描），还是慢得无法接受。<br/>
+                <strong style="color:var(--plop-ink);">👉 第二步：引入「B+ 树」给页建目录</strong>——把每个数据页的“最小主键值 + 页号”提出来做成目录页，从根页 3 步就能定位到目标数据页！
+              </div>
+            </div>
+
+            <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text); margin-bottom:6px;">痛点 ③：每次查都读盘还是嫌慢！</div>
+              <div style="font-size:13.2px; line-height:1.58;">
+                就算 B+ 树只需走 3 层，如果每秒上万次请求都去磁盘读这 3 个页，硬盘照样被打爆。<br/>
+                <strong style="color:var(--plop-tomato);">👉 第三步：引入「Buffer Pool 内存池」</strong>——把热页常驻内存！读优先走内存，写也先改内存页（脏页）+ 记 redo 日志，后台慢慢刷盘。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 02.2 第一步 & 第二步（由上到下全宽排列，大字号图解） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 02.2 · 16 KiB 数据页与 B+ 树目录是怎么配合快速找行的？</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+            <h3 style="margin:0;">🌳 02.2 第一步 &amp; 第二步：16 KiB 数据页与 B+ 树目录导航</h3>
+            <span class="plop-tag mint">STEP 1 &amp; 2 · 磁盘组织结构</span>
+          </div>
+          <p>
+            InnoDB 管理和缓存数据的基本单位是<strong>页（Page）</strong>，默认大小为 <strong>16 KiB</strong>（可在实例初始化时配置；注意这不代表操作系统或硬盘的最小 I/O 单位也是 16 KiB）。
+          </p>
+          <p>
+            为了在成千上万个页里快速定位，InnoDB 用 <strong>B+ 树</strong>把页组织起来：<strong>非叶子页（目录页）只存“键值 + 子页指针”</strong>，<strong>叶子页才存真正的索引记录（聚簇索引存完整行）</strong>。同一层的页通过双向指针前后链接，范围查询只需先定位起点页，再顺着<span class="hl-mustard">叶子页双向链表</span>向右滑行即可：
+          </p>
+
+          <!-- 大字号手账卡片图解：B+ 树聚簇索引结构示意 -->
+          <div style="background:#FFFDF7; border:2.5px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <!-- 顶层：非叶子目录页 -->
+            <div style="max-width:680px; margin:0 auto; background:var(--plop-mustard); border:2.4px solid var(--plop-ink); border-radius:12px; padding:12px 16px; text-align:center;">
+              <div style="font-weight:900; font-size:15px; color:var(--plop-ink-text); margin-bottom:8px;">
+                📂 非叶子目录页（16 KiB）· 仅存「最小主键值 + 子页号指针」（不存整行数据，扇出极大！）
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:8px;">
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:6px 10px; font-family:var(--font-mono); font-size:13.5px; font-weight:900;">
+                  id ≥ 1 ──▶ 指向 页#10
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:6px 10px; font-family:var(--font-mono); font-size:13.5px; font-weight:900;">
+                  id ≥ 101 ──▶ 指向 页#20
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:6px 10px; font-family:var(--font-mono); font-size:13.5px; font-weight:900;">
+                  id ≥ 201 ──▶ 指向 页#30
+                </div>
+              </div>
+            </div>
+
+            <!-- 向下导航箭头 -->
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); text-align:center; padding:8px 0; font-weight:900; font-size:14px; color:var(--plop-ink);">
+              <div>⬇️ 按页号定位 #10</div>
+              <div>⬇️ 按页号定位 #20</div>
+              <div>⬇️ 按页号定位 #30</div>
+            </div>
+
+            <!-- 底层：3 个双向链表连接的叶子数据页 -->
+            <div style="display:grid; grid-template-columns:1fr auto 1fr auto 1fr; gap:8px; align-items:center;">
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px; text-align:center;">
+                <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text);">📄 叶子数据页 #10</div>
+                <div style="font-family:var(--font-mono); font-size:13px; font-weight:900; color:#15803d; margin:4px 0;">主键 id: 1 ~ 100</div>
+                <div style="font-size:12.5px; font-weight:800; color:var(--plop-ink-soft); background:#FFFFFF; border:1.5px solid var(--plop-ink); border-radius:6px; padding:4px;">
+                  存完整行记录（页内按主键有序 + 页目录槽二分查找）
+                </div>
+              </div>
+
+              <div style="font-size:22px; font-weight:900; color:var(--plop-tomato); text-align:center;" title="叶子页双向链表指针">⇄</div>
+
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px; text-align:center;">
+                <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text);">📄 叶子数据页 #20</div>
+                <div style="font-family:var(--font-mono); font-size:13px; font-weight:900; color:#15803d; margin:4px 0;">主键 id: 101 ~ 200</div>
+                <div style="font-size:12.5px; font-weight:800; color:var(--plop-ink-soft); background:#FFFFFF; border:1.5px solid var(--plop-ink); border-radius:6px; padding:4px;">
+                  存完整行记录（页内按主键有序 + 页目录槽二分查找）
+                </div>
+              </div>
+
+              <div style="font-size:22px; font-weight:900; color:var(--plop-tomato); text-align:center;" title="叶子页双向链表指针">⇄</div>
+
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px; text-align:center;">
+                <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text);">📄 叶子数据页 #30</div>
+                <div style="font-family:var(--font-mono); font-size:13px; font-weight:900; color:#15803d; margin:4px 0;">主键 id: 201 ~ 300</div>
+                <div style="font-size:12.5px; font-weight:800; color:var(--plop-ink-soft); background:#FFFFFF; border:1.5px solid var(--plop-ink); border-radius:6px; padding:4px;">
+                  存完整行记录（页内按主键有序 + 页目录槽二分查找）
+                </div>
+              </div>
+            </div>
+
+            <div style="text-align:center; margin-top:10px; font-size:13px; font-weight:800; color:var(--plop-ink-soft);">
+              💡 <strong>范围查询为什么极快？</strong> 比如查 <code>WHERE id BETWEEN 50 AND 150</code>，只需从根页定位到 <code>页#10</code>，读完直接顺着红色的 <code>⇄</code> 双向指针滑到 <code>页#20</code>，不用再回根页重新找！
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">对比结构</th>
+                  <th style="width:26%">适合什么场景</th>
+                  <th>为什么 InnoDB 最终选了 B+ 树？</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>哈希表 (Hash)</strong></td>
+                  <td>纯等值查找 <code>=</code></td>
+                  <td>哈希完全无序，无法直接支持 <code>&gt; / &lt; / BETWEEN</code> 范围查询与 <code>ORDER BY</code> 排序。</td>
+                </tr>
+                <tr>
+                  <td><strong>平衡二叉树 (AVL/红黑树)</strong></td>
+                  <td>内存中的有序查找</td>
+                  <td>每个节点只分 2 个叉（瘦高），1000 万行树高超过 20 层，每次下潜都要读盘的话磁盘 I/O 次数太多。</td>
+                </tr>
+                <tr>
+                  <td><strong>普通 B 树 (B-Tree)</strong></td>
+                  <td>单点多路有序查找</td>
+                  <td>B 树非叶子节点也存完整行数据，导致一个 16 KiB 目录页装不下几个指针（扇出小、树变高）；且范围扫描要跨层上下回溯，不如 B+ 树叶子双向链表顺滑。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-callout tip">
+            <strong>📌 正确的记忆方式：</strong>非叶子页只存“键+指针”，单页容纳分支极多（约上千个），树才足够“矮胖”。但<strong>树高 ≠ 实际磁盘 I/O 次数</strong>：高频目录页大概率常驻在内存 Buffer Pool 中，而二级索引查询还可能发生回表或读取 undo 旧版本。
+          </div>
+
+          <!-- 进阶图解 1（大字号手账卡片版） -->
+          <details class="plop-drawer" open>
+            <summary>🔍 进阶图解 ① · “三层 B+ 树存两千万行”是怎么算出来的？为什么逻辑连续 ≠ 物理连续？</summary>
+            <div class="drawer-body">
+              <p>
+                面试常背“B+ 树三层能存两千万行”，它其实是一个<strong>非叶子页扇出 × 叶子页行数的数量级估算模型</strong>：
+              </p>
+
+              <!-- 图 A：3 层 B+ 树容量推导 -->
+              <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin:10px 0;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:10px;">
+                  📐 图 A：3 层 B+ 树容量算术推导（假设 BIGINT 主键 8B + 页号指针 6B ≈ 14B / 条目录项）
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; text-align:center;">
+                  <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                    <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">第 1 层：根页（1 个页）</div>
+                    <div style="font-size:12.8px; margin:4px 0; color:var(--plop-ink-soft);">16 KiB 扣除页头页尾后除以 14B</div>
+                    <div style="font-family:var(--font-mono); font-size:15px; font-weight:900; color:var(--plop-tomato);">≈ 装 1,000 个子页指针</div>
+                  </div>
+
+                  <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                    <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">第 2 层：二级目录页（1,000 页）</div>
+                    <div style="font-size:12.8px; margin:4px 0; color:var(--plop-ink-soft);">每页同样装约 1,000 个指针</div>
+                    <div style="font-family:var(--font-mono); font-size:15px; font-weight:900; color:var(--plop-ink);">1000 × 1000 = 100 万个叶子指针</div>
+                  </div>
+
+                  <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                    <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">第 3 层：叶子数据页（100 万页）</div>
+                    <div style="font-size:12.8px; margin:4px 0; color:var(--plop-ink-soft);">假设单行 ~1KB（每页装 ~15 行）</div>
+                    <div style="font-family:var(--font-mono); font-size:15px; font-weight:900; color:#15803d;">100万 × 15 ≈ 1,500 万行记录！</div>
+                  </div>
+                </div>
+                <div style="margin-top:10px; font-size:13px; font-weight:800; color:var(--plop-tomato);">
+                  ⚠️ <strong>边界结论：</strong>如果单行只有 100 字节，每页能装 100 多行，3 层就能装上亿行！真实容量受「键宽、单行大小、页填充率」影响，脱离行大小空谈“一千万行必分表”没有依据。
+                </div>
+              </div>
+
+              <!-- 图 B：逻辑双向链表 vs 物理区 Extent -->
+              <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin-top:10px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:10px;">
+                  🧱 图 B：叶子页「逻辑双向链表」≠「磁盘物理连续」（按区 Extent = 1 MiB 分配）
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+                  <div style="background:#F8FAFC; border:2px dashed var(--plop-ink); border-radius:10px; padding:12px;">
+                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:8px;">
+                      🔗 逻辑视角：靠页头里的 <code>prev / next</code> 页号串联
+                    </div>
+                    <div style="display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap; font-family:var(--font-mono); font-size:13px; font-weight:900;">
+                      <span style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px 10px;">页#12 (id 1~50)</span>
+                      <span style="color:var(--plop-tomato); font-size:18px;">⇄</span>
+                      <span style="background:var(--plop-mustard); border:1.8px solid var(--plop-tomato); border-radius:7px; padding:6px 10px; color:var(--plop-tomato);">页#89 (分裂新页)</span>
+                      <span style="color:var(--plop-tomato); font-size:18px;">⇄</span>
+                      <span style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px 10px;">页#13 (id 81~120)</span>
+                    </div>
+                  </div>
+
+                  <div style="background:#FFFBEB; border:2px solid var(--plop-ink); border-radius:10px; padding:12px; font-size:13px; line-height:1.6;">
+                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:4px;">
+                      💽 物理视角：按「区 Extent = 连续 64 页 (1 MiB)」分配
+                    </div>
+                    • 中间插入导致<strong>页分裂</strong>时，新申请的 <code>页#89</code> 在磁盘上未必紧挨着旧页 <code>#12</code>。<br/>
+                    • 为了减少随机 I/O，表变大后 InnoDB 每次按<strong>区（Extent，连续 64 个 16KiB 页 = 1 MiB）</strong>向磁盘申请空间，提升范围扫描的局部性。
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <!-- 02.3 第三步：Buffer Pool 内存池（顺承向下排列，大字号图解） -->
+        <div class="wb-card" id="buffer" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill">❓ 02.3 · 为什么有了 B+ 树，还需要 Buffer Pool 内存缓冲池？</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+            <h3 style="margin:0;">⚡ 02.3 第三步：Buffer Pool 内存缓冲池 —— 把热页留在内存</h3>
+            <span class="plop-tag periwinkle">STEP 3 · 内存加速核心</span>
+          </div>
+          <p>
+            有了 16 KiB 页和 B+ 树，InnoDB 又在内存中开辟了 <strong>Buffer Pool（缓冲池）</strong>，避免每次查询和修改都直接读写磁盘：
+          </p>
+          <ul>
+            <li><strong>读数据页：</strong>先查 Buffer Pool 哈希表，命中直接读内存页；未命中才从磁盘把那个 16 KiB 页整页加载进 Buffer Pool。</li>
+            <li><strong>改数据页：</strong>直接修改 Buffer Pool 里的内存页，把它标记为<strong>脏页（Dirty Page）</strong>，同时顺序追加写 <code>redo log</code>；后台线程会在合适时机把脏页刷回磁盘数据文件，腾出内存并推进恢复点（checkpoint）。</li>
+          </ul>
+
+          <!-- 大字号手账卡片图解：Buffer Pool 读写主线流转 -->
+          <div style="background:#FFFDF7; border:2.5px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:14px; align-items:stretch;">
+              <!-- 左侧：SQL 执行器请求 -->
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; display:flex; flex-direction:column; justify-content:center;">
+                <div style="font-weight:900; font-size:15px; color:var(--plop-ink-text); margin-bottom:8px;">
+                  ① ⚡ SQL 执行器发起请求
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:13.2px; font-weight:800; margin-bottom:6px;">
+                  • <code>SELECT</code>：按页号请求读某页
+                </div>
+                <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:8px 10px; font-size:13.2px; font-weight:800; color:var(--plop-tomato);">
+                  • <code>UPDATE</code>：直接改内存页 + 写 redo
+                </div>
+              </div>
+
+              <!-- 中间：Buffer Pool 内存池 -->
+              <div style="background:var(--plop-mint); border:2.4px solid var(--plop-ink); border-radius:12px; padding:14px;">
+                <div style="font-weight:900; font-size:15px; color:var(--plop-ink-text); margin-bottom:8px; text-align:center;">
+                  ② 🧠 Buffer Pool（内存页池）
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; text-align:center; margin-bottom:8px;">
+                  <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 6px;">
+                    <div style="font-weight:900; font-size:13.5px; color:#15803d;">干净页 (Clean)</div>
+                    <div style="font-size:12px; color:var(--plop-ink-soft); font-weight:700;">与磁盘一致，命中直读</div>
+                  </div>
+                  <div style="background:#FFD6E6; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:8px 6px;">
+                    <div style="font-weight:900; font-size:13.5px; color:var(--plop-tomato);">脏页 (Dirty)</div>
+                    <div style="font-size:12px; color:var(--plop-ink-text); font-weight:700;">内存已改，待后台刷盘</div>
+                  </div>
+                </div>
+                <div style="font-size:12.5px; font-weight:800; color:var(--plop-ink-text); text-align:center; background:#FFFFFF; border:1.5px solid var(--plop-ink); border-radius:7px; padding:5px;">
+                  COMMIT 时只需刷 Redo 日志，无需每次立刻刷 16KiB 数据页！
+                </div>
+              </div>
+
+              <!-- 右侧：磁盘数据文件 -->
+              <div style="background:#F8FAFC; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; display:flex; flex-direction:column; justify-content:center;">
+                <div style="font-weight:900; font-size:15px; color:var(--plop-ink-text); margin-bottom:8px;">
+                  ③ 💽 磁盘表空间数据文件 (.ibd)
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:13.2px; font-weight:800; margin-bottom:6px;">
+                  ⬅️ 缓存未命中时：从磁盘读入 16KiB 页
+                </div>
+                <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:8px 10px; font-size:13.2px; font-weight:800; color:var(--plop-tomato);">
+                  ➡️ 后台异步 Flush：把脏页刷回磁盘
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="plop-callout info">
+            <strong>💡 这里先埋一个问题：</strong>内存里的脏页还没刷回磁盘就 COMMIT 了，万一此时断电怎么办？答案是 <a href="#log" style="color:var(--plop-tomato); font-weight:900;">06 章的 WAL 与 redo 日志</a>。注意：后台刷回脏页到表空间仍可能是随机 I/O，不能把后台刷页直接等同于“随机写全部变成了顺序写”。
+          </div>
+
+          <!-- 进阶图解 2（大字号手账卡片版） -->
+          <details class="plop-drawer" open>
+            <summary>🔍 进阶图解 ② · 三条管理链表、5:3 冷热分区 LRU（防全表扫描污染）与 Change Buffer</summary>
+            <div class="drawer-body">
+              <p>
+                Buffer Pool 内部靠<strong>三条链表</strong>管理页帧，并用<strong>改进版 5:3 冷热分区 LRU</strong> 防止一次全表大扫描把热点页全挤走，同时用 <strong>Change Buffer</strong> 优化非唯一二级索引的写入：
+              </p>
+
+              <!-- 图 A：三条管理链表 + 5:3 冷热分区 LRU -->
+              <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin:10px 0;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:10px;">
+                  🌡️ 图 A：Buffer Pool 三条管理链表 &amp; 5:3 冷热分区 LRU（Midpoint 插入防全表扫描冲刷）
+                </div>
+
+                <!-- 三条链表卡片 -->
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:8px; margin-bottom:12px;">
+                  <div style="background:#F8FAFC; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:800;">
+                    <strong>① Free List（空闲链表）</strong>：刚启动或淘汰后，用来快速找空闲页帧。
+                  </div>
+                  <div style="background:#FFFBEB; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:800;">
+                    <strong>② LRU List（冷热淘汰链表）</strong>：按访问热度排序，内存满时淘汰冷页。
+                  </div>
+                  <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:800; color:var(--plop-tomato);">
+                    <strong>③ Flush List（脏页链表）</strong>：专门挂载已修改的脏页，供后台按 LSN 刷盘。
+                  </div>
+                </div>
+
+                <!-- 5:3 冷热分区条 -->
+                <div style="display:grid; grid-template-columns:5fr auto 3fr; gap:8px; align-items:center;">
+                  <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:12px; text-align:center;">
+                    <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text);">🔥 Young 热数据区（约占 5/8）</div>
+                    <div style="font-size:12.8px; font-weight:800; color:var(--plop-ink-soft); margin-top:4px;">
+                      真正高频访问的热点页受保护，不会被一次全表扫描挤走
+                    </div>
+                  </div>
+
+                  <div style="background:#FFD6E6; border:2px solid var(--plop-tomato); border-radius:8px; padding:8px 10px; text-align:center; font-size:12.5px; font-weight:900; color:var(--plop-tomato);">
+                    ⬇️ Midpoint<br/>新页插入口
+                  </div>
+
+                  <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:10px; padding:12px; text-align:center;">
+                    <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text);">🧊 Old 冷数据区（约占 3/8）</div>
+                    <div style="font-size:12.8px; font-weight:800; color:var(--plop-ink-text); margin-top:4px;">
+                      新读入的页先插在 Old 区头部 ──▶ 尾部优先淘汰
+                    </div>
+                  </div>
+                </div>
+                <div style="margin-top:8px; font-size:13px; font-weight:800; color:var(--plop-ink-text);">
+                  💡 <strong>为什么全表扫描不会冲掉热缓存？</strong> 因为新读入的页不会直接插到链表最左边（Young 头），而是插在 5:3 交界的 <strong>Midpoint（Old 区头部）</strong>；必须在 Old 区存活满 <code>1 秒（innodb_old_blocks_time=1000）</code> 后又被访问，才有资格晋升到 Young 热区！
+                </div>
+              </div>
+
+              <!-- 图 B：Change Buffer 写缓冲 -->
+              <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin-top:10px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:10px;">
+                  ⚡ 图 B：Change Buffer 写缓冲（延迟非唯一二级索引页的随机读盘）
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+                  <div style="background:#F0FDF4; border:2px solid #15803d; border-radius:10px; padding:12px; font-size:13px; line-height:1.6;">
+                    <div style="font-weight:900; font-size:13.8px; color:#15803d; margin-bottom:4px;">
+                      ✅ 适用场景：修改「非唯一二级索引」且目标页不在内存时
+                    </div>
+                    1. 写操作先把变更暂存进 <strong>Change Buffer</strong> 即可返回；<br/>
+                    2. 省去了立刻去磁盘随机读入那个二级索引页的 I/O；<br/>
+                    3. 等后续真正读到该页或后台空闲时，再执行 <strong>Merge（合并）</strong>！
+                  </div>
+
+                  <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:12px; font-size:13px; line-height:1.6;">
+                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato); margin-bottom:4px;">
+                      🚫 两个必考边界（唯一索引 &amp; 8.0 / 8.4 版本差异）
+                    </div>
+                    • <strong>唯一索引不能用</strong>：写入时必须立刻把索引页读进内存检查唯一性冲突，省不掉读盘；<br/>
+                    • <strong>MySQL 8.0 默认</strong>：<code>innodb_change_buffering = all</code>（开启）；<br/>
+                    • <strong>MySQL 8.4 默认</strong>：改为 <code>none</code>（SSD 普及后随机读极快，Change Buffer 收益下降）。
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：知道了索引是一棵 B+ 树，还要区分：树的叶子究竟存整行，还是只存主键？这直接决定了查询要不要“回表”！</span>
+          </div>
+        </div>

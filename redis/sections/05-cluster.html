@@ -1,0 +1,147 @@
+<!-- ====================================================================
+             PART 05: 高可用三级演进 · 主从复制 → 哨兵 Sentinel → 集群 Cluster (16384 槽)
+             ==================================================================== -->
+        <div class="wb-sec-header periwinkle" id="replication">
+          <span class="wb-sec-num">05</span>
+          <span class="wb-sec-title">高可用三级演进 · 主从复制（读写分离）→ 哨兵 Sentinel（自动切主）→ Cluster 分片</span>
+          <span class="plop-tag tomato">HIGH AVAILABILITY · 三级跳</span>
+        </div>
+
+        <!-- 第一级：主从复制（由上到下顺序排列） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+            <div class="washi-tape"></div>
+            <div class="chapter-q-pill">❓ 05.1 · 第一级「主从复制」：第一次连怎么全量同步？断线重连怎么只补差量？</div>
+            <h3>📡 05.1 第一级：主从复制（<code>replicaof</code> · 数据冗余 + 读写分离）</h3>
+            <p>
+              主从复制分为三阶段：<strong>① 握手建连（PING → AUTH → REPLCONF → PSYNC）</strong> → <strong>② 首次全量同步（发 RDB 快照 + 缓冲期间写命令）</strong> → <strong>③ 持续命令传播与断线增量重连</strong>。
+            </p>
+
+            <!-- 手绘 SVG：全量同步 vs repl_backlog 环形缓冲区增量同步 -->
+            <svg viewBox="0 0 480 225" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:10px; margin:8px 0;" aria-label="Redis 主从全量与增量复制原理图">
+              <!-- 上半部分：首次全量同步 -->
+              <rect x="12" y="10" width="456" height="86" rx="8" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+              <text x="24" y="28" font-size="10.2" font-weight="900" fill="var(--plop-ink)">① 首次全量同步（从节点发送 psync ? -1）：</text>
+              <text x="24" y="48" font-size="9.5" font-weight="800" fill="var(--plop-ink-text)">• 主库执行 bgsave 生成 RDB 发给从库（从库清空旧数据并加载 RDB）</text>
+              <text x="24" y="66" font-size="9.5" font-weight="800" fill="#D2381E">• 生成 RDB 期间的新写命令，主库先攒进「复制缓冲区 replication buffer」，最后发给从库重放</text>
+              <text x="24" y="84" font-size="9.2" font-weight="700" fill="var(--plop-ink-soft)">⚠️ 复制风暴避坑：一主挂太多从同时全量同步会打爆主库，可用「主 - 从 - 从」级联树状同步分摊</text>
+
+              <!-- 下半部分：断线重连增量同步 repl_backlog -->
+              <rect x="12" y="106" width="456" height="108" rx="8" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+              <text x="22" y="124" font-size="9.6" font-weight="900" fill="var(--plop-ink)">② 断线重连 (psync replid offset) —— 靠环形缓冲 repl_backlog 决定增量或全量：</text>
+
+              <!-- 环形缓冲条 -->
+              <rect x="24" y="134" width="130" height="30" rx="4" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.4" stroke-dasharray="3 2"/>
+              <text x="89" y="153" text-anchor="middle" font-size="9" font-weight="700" fill="var(--plop-ink-soft)">offset &lt; 200 (已被覆盖)</text>
+
+              <rect x="154" y="134" width="298" height="30" rx="4" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+              <text x="180" y="153" font-size="9.5" font-weight="900" fill="var(--plop-ink-text)">起点 200</text>
+              <rect x="300" y="137" width="66" height="24" rx="4" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+              <text x="333" y="153" text-anchor="middle" font-size="9.5" font-weight="900" fill="#D2381E">从=480</text>
+              <text x="415" y="153" text-anchor="middle" font-size="9.5" font-weight="900" fill="var(--plop-ink-text)">主=500</text>
+
+              <text x="22" y="182" font-size="9.2" font-weight="800" fill="var(--plop-leaf)">✅ 情况 A：从库 offset(480) 在 [200, 500] 内 → 回 +CONTINUE，只补发 481~500 差量命令</text>
+              <text x="22" y="199" font-size="9.2" font-weight="800" fill="#D2381E">❌ 情况 B：断线太久 offset(150) &lt; 200 已被覆盖 → 回 +FULLRESYNC，退化为全量同步！</text>
+            </svg>
+        </div>
+
+        <!-- 第二级：哨兵 Sentinel（由上到下顺序排列） -->
+        <div class="wb-card" id="sentinel" style="background:var(--plop-paper); margin-bottom:20px;">
+            <div class="washi-tape pink"></div>
+            <div class="chapter-q-pill">❓ 05.2 · 第二级「哨兵 Sentinel」：主节点挂了，谁来自动选新主并切换？</div>
+            <h3>🚨 05.2 第二级：哨兵 Sentinel（监控 + 自动选主切换 + 通知）</h3>
+            <p>
+              单纯的主从复制<strong>不会自动故障转移</strong>。哨兵是独立部署的奇数个进程（至少 3 台），专门盯梢主从健康并在主库宕机时自动切主：
+            </p>
+
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:28%">故障转移 4 步</th>
+                    <th>核心判定规则与选举算法</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>① 主观下线 (SDOWN)<br>→ 客观下线 (ODOWN)</strong></td>
+                    <td>单个哨兵 PING 超时判为 <strong>SDOWN（主观下线）</strong>；当认为主库下线的哨兵数达到配置的 <strong><code>quorum</code>（法定人数）</strong> 时，达成共识判为 <strong>ODOWN（客观下线，仅针对主库）</strong>。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>② 哨兵选 Leader</strong></td>
+                    <td>哨兵集群内部通过 <strong>Raft 算法</strong> 投票选出 1 个 Leader 哨兵（需拿到超半数且 ≥ quorum 票），由它主持本次主从切换。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>③ 从节点中挑新主</strong><br><span style="font-size:11px; color:var(--plop-tomato);">(面试必考顺序)</span></td>
+                    <td>剔除断线失联的从节点后，依次按 3 个条件PK：<br>
+                      <strong>1. <code>slave-priority</code> 优先级最高</strong>（数值越小越优先）<br>
+                      <strong>2. 复制偏移量 <code>offset</code> 最大</strong>（离主库数据最全最新）<br>
+                      <strong>3. <code>runid</code> 最小</strong>（字典序最小）</td>
+                  </tr>
+                  <tr>
+                    <td><strong>④ 升主与改挂通知</strong></td>
+                    <td>对新主发 <code>replicaof no one</code>，让其余从节点改挂新主，并通过发布订阅通知客户端新主地址；旧主恢复后降级为新主的从库。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="plop-callout warn">
+              <strong>🧠 哨兵脑裂（Split-Brain）怎么导致丢数据？怎么防？</strong><br>
+              <strong>成因：</strong>主库没死，只是和哨兵之间网络分区了。哨兵选出了新主，此时集群里<strong>同时存在两个主库</strong>！老客户端继续往旧主写数据，等网络恢复后旧主被强制降级为从库，清空自己去同步新主——<strong>脑裂期间写进旧主的数据全部丢失！</strong><br>
+              <strong>防御参数：</strong>在主库配置 <code>min-replicas-to-write N</code> + <code>min-replicas-max-lag S</code>（要求主库至少连着 N 个延迟 ≤ S 秒的从库才允许写，否则旧主被孤立后主动拒绝客户端写入）。
+            </div>
+        </div>
+
+        <!-- 第三级：Redis Cluster 分片集群 -->
+        <div class="wb-card" id="cluster" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 05.3 · 第三级「Cluster 集群」：单机内存装不下、写并发超上限怎么办？为什么是 16384 个槽？</div>
+          <h3>🧩 05.3 第三级：Redis Cluster 分片集群（16384 哈希槽 + Gossip 去中心化）</h3>
+          <p>
+            主从 + 哨兵解决了高可用，但所有数据依然全塞在一台主节点上。当数据量达到几十上百 GB、或者写 QPS 超过单机上限时，必须用 <strong>Redis Cluster</strong> 做水平分片：把全集划分为固定的 <strong>16384 个哈希槽（Hash Slots）</strong>，由多个主节点各自负责一段槽位，每个主节点再配从节点自带高可用切换。
+          </p>
+
+          <div style="display:grid; gap:14px;">
+            <!-- 上：16384 槽路由与 MOVED / ASK 重定向 SVG（全宽展示） -->
+            <div>
+              <svg viewBox="0 0 460 190" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:10px;" aria-label="Redis Cluster 16384 哈希槽路由图">
+                <rect x="14" y="12" width="432" height="34" rx="7" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+                <text x="230" y="34" text-anchor="middle" font-size="11.2" font-weight="900" fill="var(--plop-ink-text)">算法：Slot 槽号 = CRC16(key) % 16384</text>
+
+                <!-- 三个分片主从组 -->
+                <rect x="14" y="58" width="136" height="62" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+                <text x="82" y="78" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--plop-ink-text)">Master A (带从)</text>
+                <text x="82" y="96" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-leaf)">负责槽: 0 ~ 5460</text>
+                <text x="82" y="111" text-anchor="middle" font-size="8.8" font-weight="700" fill="var(--plop-ink-soft)">Gossip 互发心跳</text>
+
+                <rect x="162" y="58" width="136" height="62" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+                <text x="230" y="78" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--plop-ink-text)">Master B (带从)</text>
+                <text x="230" y="96" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink-text)">负责槽: 5461 ~ 10922</text>
+                <text x="230" y="111" text-anchor="middle" font-size="8.8" font-weight="700" fill="var(--plop-ink-soft)">Gossip 互发心跳</text>
+
+                <rect x="310" y="58" width="136" height="62" rx="8" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+                <text x="378" y="78" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--plop-ink-text)">Master C (带从)</text>
+                <text x="378" y="96" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">负责槽: 10923 ~ 16383</text>
+                <text x="378" y="111" text-anchor="middle" font-size="8.8" font-weight="700" fill="var(--plop-ink-soft)">Gossip 互发心跳</text>
+
+                <rect x="14" y="130" width="432" height="48" rx="7" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.6"/>
+                <text x="24" y="148" font-size="9.6" font-weight="800" fill="var(--plop-ink-text)">• MOVED 重定向：槽已永久属于目标节点，客户端收到后更新本地槽缓存映射表</text>
+                <text x="24" y="166" font-size="9.6" font-weight="800" fill="#D2381E">• ASK 重定向：槽正在在线迁移中，仅本次请求临时跳转目标节点，不更新本地映射</text>
+              </svg>
+            </div>
+
+            <!-- 右：16384 vs 65536 原因 + Hash Tag -->
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <div class="plop-callout good" style="margin:0;">
+                <strong>❓ 为什么哈希槽设计成 16384（$2^{14}$）个，而不是 CRC16 上限 65536（$2^{16}$）个？</strong><br>
+                1. <strong>心跳包体积差 4 倍：</strong>节点间每秒通过 Gossip 协议互发 PING/PONG 心跳，包头里携带一张表示自己负责哪些槽的 bitmap 位图。16384 位 = <strong>2KB</strong>，而 65536 位 = <strong>8KB</strong>，频繁广播 8KB 心跳太浪费带宽。<br>
+                2. <strong>节点规模上限：</strong>Redis Cluster 推荐主节点规模不超过 1000 台（再多 Gossip 心跳风暴会恶化），16384 个槽分给 1000 个节点已经足够均匀，且位图越短压缩率越高。
+              </div>
+
+              <div class="plop-callout tip" style="margin:0;">
+                <strong>🏷️ 跨槽多 Key 限制与 <code>{Hash Tag}</code> 解法：</strong><br>
+                Cluster 下执行 <code>MSET</code> 或 Lua 脚本要求所有 Key 必须在同一个槽，否则报错。只需给 Key 加上大括号 <code>user:{1001}:profile</code> 与 <code>user:{1001}:orders</code>，Redis 就<strong>只对 <code>{1001}</code> 内部的字符串算 CRC16</strong>，强制让同一用户的多个 Key 落入同一个槽！
+              </div>
+            </div>
+          </div>
+        </div>

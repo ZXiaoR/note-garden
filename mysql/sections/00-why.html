@@ -1,0 +1,177 @@
+<!-- ====================================================================
+             PART 00: 第一性原理导读 · 为什么要学 MySQL？入门懂什么、进阶在解决什么？
+             ==================================================================== -->
+        <div class="wb-sec-header tomato" id="why" style="background:var(--plop-mustard);">
+          <span class="wb-sec-num">00</span>
+          <span class="wb-sec-title">第一性原理导读 · 我们为什么学 MySQL？入门懂什么就够、进阶到底在解决什么？</span>
+          <span class="plop-tag tomato">FIRST PRINCIPLES · 必读心法</span>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🧭 先搞清楚目的 · 别把数据库当成一堆孤立的八股名词来背</div>
+          <h3>💡 从第一性原理出发：如果不用数据库，直接读写磁盘文件会死在哪里？</h3>
+          <p>
+            很多同学刚接触 MySQL 时，会被满屏的 <code>B+ 树</code>、<code>ACID</code>、<code>隔离级别</code>、<code>MVCC</code>、<code>间隙锁 (Gap Lock)</code>、<code>CAP / 主从复制 / Redis 一致性</code> 劝退，不知道学这些到底是为了干什么。其实数据库没有任何“凭空发明”的概念——<strong>每一个机制，都是被真实的物理硬件限制、高并发冲突与分布式同步痛点一步步逼出来的</strong>。
+          </p>
+          <p>
+            假设你写一个业务系统，最朴素的想法是把数据存成服务器硬盘上的文件。当系统只有你一个人测试、只有 100 条数据时，只要会写基础的增删改查就够了；但只要业务真正上线，你会依次撞上 <strong>三堵逃不掉的高墙（慢查询墙 → 单机并发墙 → 分布式与缓存同步墙）</strong>：
+          </p>
+
+          <!-- 手绘 SVG：从第一性原理推导 MySQL 三大进阶主线的全景导图 -->
+          <svg viewBox="0 0 880 415" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="MySQL 第一性原理推导全景图">
+            <defs>
+              <marker id="fp-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
+              </marker>
+              <marker id="fp-arr-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="#D2381E" stroke="#D2381E" stroke-linejoin="round"/>
+              </marker>
+            </defs>
+
+            <!-- 左侧：入门起点 -->
+            <rect x="14" y="18" width="196" height="378" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <rect x="26" y="30" width="172" height="28" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2"/>
+            <text x="112" y="49" text-anchor="middle" font-size="12.5" font-weight="900" fill="var(--plop-ink-text)">🌱 入门阶段（起点）</text>
+
+            <text x="112" y="82" text-anchor="middle" font-size="13.5" font-weight="900" fill="var(--plop-ink)">常规的「增删改查」</text>
+            <text x="112" y="101" text-anchor="middle" font-size="11" font-weight="700" fill="var(--plop-ink-soft)">(表建模 + SQL CRUD)</text>
+
+            <rect x="28" y="118" width="168" height="48" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="112" y="138" text-anchor="middle" font-size="11.2" font-weight="800" fill="var(--plop-ink-text)">① 把业务建成结构化表</text>
+            <text x="112" y="156" text-anchor="middle" font-size="10.2" font-weight="700" fill="var(--plop-ink-soft)">主键 / 字段类型 / 非空唯一约束</text>
+
+            <rect x="28" y="178" width="168" height="48" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="112" y="198" text-anchor="middle" font-size="11.2" font-weight="800" fill="var(--plop-ink-text)">② 写出正确的增删改查</text>
+            <text x="112" y="216" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">SELECT/INSERT/UPDATE/JOIN</text>
+
+            <rect x="28" y="238" width="168" height="48" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="112" y="258" text-anchor="middle" font-size="11.2" font-weight="800" fill="var(--plop-ink-text)">③ 基础事务意识</text>
+            <text x="112" y="276" text-anchor="middle" font-size="10.2" font-weight="700" fill="var(--plop-ink-soft)">多步写操作捆成事务一起提交</text>
+
+            <rect x="28" y="302" width="168" height="78" rx="8" fill="#FFF6F4" stroke="#D2381E" stroke-width="1.8" stroke-dasharray="4 3"/>
+            <text x="112" y="324" text-anchor="middle" font-size="10.8" font-weight="900" fill="#D2381E">⚠️ 为什么不能停在入门？</text>
+            <text x="112" y="342" text-anchor="middle" font-size="10" font-weight="700" fill="var(--plop-ink-text)">当数据上百万、并发上千、</text>
+            <text x="112" y="357" text-anchor="middle" font-size="10" font-weight="700" fill="var(--plop-ink-text)">机器变多台时，立刻撞上</text>
+            <text x="112" y="372" text-anchor="middle" font-size="10" font-weight="800" fill="#D2381E">右侧三大工程主线问题 ➔</text>
+
+            <!-- 三条分叉箭头 -->
+            <path d="M210 105 L248 72" stroke="#D2381E" stroke-width="2.4" marker-end="url(#fp-arr-red)"/>
+            <path d="M210 202 L248 202" stroke="#D2381E" stroke-width="2.4" marker-end="url(#fp-arr-red)"/>
+            <path d="M210 295 L248 340" stroke="#D2381E" stroke-width="2.4" marker-end="url(#fp-arr-red)"/>
+
+            <!-- 右上：进阶主线一（查询速度问题） -->
+            <rect x="254" y="18" width="612" height="108" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <rect x="266" y="26" width="588" height="24" rx="7" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="278" y="42" font-size="11.8" font-weight="900" fill="var(--plop-ink-text)">🚀 进阶主线一：单机「查询速度变慢」怎么破？（第 02～03 章 · 存储与索引）</text>
+
+            <rect x="268" y="58" width="174" height="56" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="355" y="76" text-anchor="middle" font-size="11" font-weight="900" fill="#D2381E">痛点：磁盘慢 + 全表扫描</text>
+            <text x="355" y="92" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">百万行逐行读盘要几秒钟</text>
+            <text x="355" y="106" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-soft)">→ 16KB 数据页 + Buffer Pool</text>
+
+            <line x1="442" y1="86" x2="466" y2="86" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#fp-arr)"/>
+
+            <rect x="470" y="58" width="184" height="56" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="562" y="76" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">武器：B+ 树索引体系</text>
+            <text x="562" y="92" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">聚簇索引(存行) vs 二级索引(存主键)</text>
+            <text x="562" y="106" text-anchor="middle" font-size="9.6" font-weight="800" fill="#D2381E">→ 回表、覆盖索引、最左前缀</text>
+
+            <line x1="654" y1="86" x2="678" y2="86" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#fp-arr)"/>
+
+            <rect x="682" y="58" width="170" height="56" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="767" y="76" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">验证：EXPLAIN 执行计划</text>
+            <text x="767" y="92" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">为什么建了索引却没走？</text>
+            <text x="767" y="106" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">慢在扫描、回表还是排序？</text>
+
+            <!-- 右中：进阶主线二（并发场景与数据一致性问题） -->
+            <rect x="254" y="138" width="612" height="136" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <rect x="266" y="146" width="588" height="24" rx="7" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="278" y="162" font-size="11.8" font-weight="900" fill="var(--plop-ink-text)">🛡️ 进阶主线二：单机「高并发读写一致性与死锁」怎么破？（第 04～05 章 · 事务、MVCC 与锁）</text>
+
+            <rect x="268" y="178" width="132" height="84" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="334" y="196" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink)">① ACID 事务基础</text>
+            <text x="334" y="212" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">Undo 保原子回滚</text>
+            <text x="334" y="227" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">Redo 保持久恢复</text>
+            <text x="334" y="244" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">并发引出隔离级别 ➔</text>
+
+            <line x1="400" y1="220" x2="418" y2="220" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#fp-arr)"/>
+
+            <rect x="422" y="178" width="136" height="84" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="490" y="196" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">② 四大隔离级别</text>
+            <text x="490" y="212" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">脏读 / 不可重复读 / 幻读</text>
+            <text x="490" y="227" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">RU / RC / RR(默认) / 串行</text>
+            <text x="490" y="244" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">靠什么实现隔离？➔</text>
+
+            <line x1="558" y1="220" x2="576" y2="220" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#fp-arr)"/>
+
+            <rect x="580" y="178" width="132" height="84" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="646" y="196" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">③ MVCC 多版本</text>
+            <text x="646" y="212" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-leaf)">管「读与写」不阻塞</text>
+            <text x="646" y="227" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">ReadView + Undo 版本链</text>
+            <text x="646" y="244" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">普通 SELECT 读历史快照</text>
+
+            <line x1="712" y1="220" x2="726" y2="220" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#fp-arr)"/>
+
+            <rect x="730" y="178" width="124" height="84" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="792" y="196" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">④ 锁的范围粒度</text>
+            <text x="792" y="212" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">管「写与写」不冲突</text>
+            <text x="792" y="227" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">行锁 / 间隙锁 / 临键锁</text>
+            <text x="792" y="244" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">防超卖、防并发插入幻读</text>
+
+            <!-- 右下：进阶主线三（分布式一主多从 & MySQL 与 Redis 跨组件同步） -->
+            <rect x="254" y="286" width="612" height="110" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <rect x="266" y="294" width="588" height="24" rx="7" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="278" y="310" font-size="11.8" font-weight="900" fill="var(--plop-ink-text)">🌐 进阶主线三：多节点与跨组件「数据同步一致性」怎么选？（第 06 章 · 复制、CAP 与 Redis 同步）</text>
+
+            <rect x="268" y="326" width="282" height="58" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="409" y="344" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink)">📡 同服务多节点：一主多从读写分离 (CAP 取舍)</text>
+            <text x="409" y="360" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">主库增删改 → binlog → 从库查（存在主从延迟）</text>
+            <text x="409" y="375" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">选 AP(异步复制/最终一致) 还是 CP(半同步/强制读主库)？</text>
+
+            <line x1="550" y1="355" x2="568" y2="355" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#fp-arr)"/>
+
+            <rect x="572" y="326" width="280" height="58" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="712" y="344" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">🧱 跨组件同步：MySQL × Redis 缓存一致性</text>
+            <text x="712" y="360" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">为什么不用 2PC 强锁缓存？因为会拖垮高并发性能！</text>
+            <text x="712" y="375" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">主流最终一致：先更库再删缓存 / 订阅 binlog 异步删</text>
+          </svg>
+
+          <!-- 入门 vs 进阶双栏拆解 -->
+          <div class="wb-grid-2" style="margin-top:14px;">
+            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
+              <span class="plop-tag mint" style="margin-bottom:8px;">STAGE 1 · 入门阶段我们懂什么就够了？</span>
+              <h4>🎯 目标：把单库业务数据存对、查对（应对基础功能开发）</h4>
+              <p>
+                在入门阶段，你不需要一上来就去背页分裂、锁退化或分布式一致性，只需要掌握好 <strong>3 件事</strong> 就能胜任日常 CRUD 功能开发：
+              </p>
+              <ol>
+                <li><strong>会设计一张干净的表（第 01 章）：</strong>懂得每张表必须有主键（<code>PRIMARY KEY</code>），金额用精确的 <code>DECIMAL</code> 而不用浮点数，合理设置 <code>NOT NULL</code> 与唯一约束。</li>
+                <li><strong>会写常规的增删改查 CRUD（第 01 &amp; 03 章）：</strong>熟练使用 <code>SELECT / INSERT / UPDATE / DELETE</code>、<code>WHERE</code> 过滤、<code>ORDER BY</code> 排序、<code>LIMIT</code> 分页，以及给高频查询字段建上基础索引。</li>
+                <li><strong>有基本的单机事务意识（第 04 章）：</strong>知道“扣 A 的钱 + 给 B 加钱”这种多步写操作必须包在 <code>START TRANSACTION ... COMMIT</code> 事务里，不能拆成两条裸 SQL 各自跑。</li>
+              </ol>
+            </div>
+
+            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
+              <span class="plop-tag tomato" style="margin-bottom:8px;">STAGE 2 · 进阶在干什么？为什么要了解进阶？</span>
+              <h4>🔥 目标：解决「慢查询」「并发错乱/死锁」与「多节点/Redis 同步」（应对生产与面试）</h4>
+              <p>
+                <strong>入门解决的是“功能写得出来”，进阶解决的是“数据大了不慢、并发高了不乱、加了从库和 Redis 后数据还一致”。</strong>具体对应这 4 类生产必遇问题：
+              </p>
+              <ul>
+                <li><strong>问题 ①（慢查询）：明明建了索引，为什么线上查询还是慢到超时？</strong><br>
+                  👉 对应 <strong>第 02～03 章（B+ 树、回表、覆盖索引、最左前缀与 EXPLAIN）</strong>。</li>
+                <li><strong>问题 ②（并发读写）：高并发下怎么防止超卖/脏数据，又让普通查询不卡死？</strong><br>
+                  👉 对应 <strong>第 04 章（ACID → 隔离级别 → MVCC 历史版本链）</strong>：靠 MVCC 让读写不阻塞，靠事务与当前读防超卖。</li>
+                <li><strong>问题 ③（锁的范围与粒度）：两个接口改的不是同一行，为什么突然死锁？</strong><br>
+                  👉 对应 <strong>第 05 章（行锁 Record / 间隙锁 Gap / 临键锁 Next-Key）</strong>：理解不同隔离级别与索引条件下，锁的范围如何扩大或退化。</li>
+                <li><strong>问题 ④（分布式与异构同步）：一主多从刚写完为什么查不到？MySQL 和 Redis 怎么保持一致？</strong><br>
+                  👉 对应 <strong>第 06 章（内部 2PC、一主多从 CAP 取舍、Cache-Aside 先改库再删缓存 &amp; Binlog 异步订阅）</strong>。</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="plop-bridge">
+            <span>👇 现在带着这张地图往下读：从 <strong>01 一张表与一条 SQL 的旅程</strong> 出发，顺着「存储与索引 → 事务与 MVCC → 锁的范围 → 一主多从与 Redis 同步」一步步推导出整个体系！</span>
+          </div>
+        </div>

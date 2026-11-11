@@ -1,0 +1,129 @@
+<!-- ====================================================================
+             PART 07: 读写全链路串联 & 双会话实验
+             ==================================================================== -->
+        <div class="wb-sec-header periwinkle" id="lifecycle">
+          <span class="wb-sec-num">07</span>
+          <span class="wb-sec-title">串联与实验 · 再走一遍读写链路 + 双会话亲眼验证快照与锁</span>
+          <span class="plop-tag tomato">LIFECYCLE &amp; SQL LABS</span>
+        </div>
+
+        <div class="wb-grid-2" style="margin-bottom:18px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <div class="washi-tape mint"></div>
+            <div class="chapter-q-pill">❓ 07.1a · 一条普通 SELECT 从头到尾经历了什么？</div>
+            <h3>📖 07.1a 再走一遍：一次普通 <code>SELECT</code></h3>
+            <ol>
+              <li><strong>Server 解析与优化：</strong>Server 解析 SQL，优化器选择访问路径。</li>
+              <li><strong>定位数据页：</strong>执行器调用 InnoDB，沿索引定位所需页；Buffer Pool 不命中时从磁盘加载页。</li>
+              <li><strong>MVCC 可见性判断：</strong>RC / RR 下按 ReadView 找到可见版本；可能回表、沿 undo 重建旧版本。</li>
+              <li><strong>返回结果：</strong>按计划完成剩余过滤、连接、排序或聚合，向客户端返回结果。</li>
+            </ol>
+            <div class="plop-callout info">
+              <strong>📌 注意：</strong>普通一致性 SELECT 通常不加记录锁，但仍涉及 MDL 等机制，不能说“全程没有任何锁”。
+            </div>
+          </div>
+
+          <div class="wb-card notebook-lines">
+            <div class="washi-tape pink"></div>
+            <div class="chapter-q-pill">❓ 07.1b · 一条 UPDATE 从头到尾经历了什么？</div>
+            <h3>✍️ 07.1b 再走一遍：一次 <code>UPDATE users SET balance=balance+10 WHERE id=1</code></h3>
+            <ol>
+              <li><strong>当前读与加锁：</strong>找到当前记录，取得需要的锁；冲突时等待或处理错误。</li>
+              <li><strong>写日志与改内存页：</strong>生成 undo 与 redo，修改 Buffer Pool 中的页。undo 不是等到提交才出现，redo 也不是只在最后才生成。</li>
+              <li><strong>内部两阶段提交：</strong>Server 收集对应 binlog 事务事件；提交时通过内部 2PC 协调引擎和 binlog。</li>
+              <li><strong>完成提交与释锁：</strong>按持久化配置完成提交，释放相关事务锁，客户端得到结果。</li>
+              <li><strong>后台刷脏页：</strong>脏页按刷页策略写回；每次写数据页前都必须满足 WAL，而不是必须等到提交以后才允许刷页。</li>
+            </ol>
+            <div class="plop-callout tip" style="background:var(--plop-paper);">
+              <strong>💡 核心总结：</strong>能讲清这五步，就能解释为什么会锁等待、为什么能回滚、为什么提交后数据页不必立即写盘、为什么复制依赖 binlog。不要把概念时序图当作精确到每条 CPU 指令的实现顺序。
+            </div>
+          </div>
+        </div>
+
+        <!-- 07.2 · 双会话实验 -->
+        <div class="wb-card" id="practice" style="background:var(--plop-paper);">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🧪 07.2 · 双会话实验：打开两个终端，亲眼看到快照和锁</div>
+          <h3>🧪 07.2 动手验证：两个独立会话下的 MVCC 与锁等待</h3>
+          <p>
+            在自己的测试库使用开头的 <code>users</code> 表，打开两个独立连接。每轮开始时确认上一轮事务已结束。这里给的是预期现象；具体服务器上的结果应由实际执行验证。
+          </p>
+
+          <div class="wb-grid-2">
+            <div>
+              <h3>实验一：同一快照与当前读的区别</h3>
+              <div class="table-wrap">
+                <table class="plop-table">
+                  <thead>
+                    <tr>
+                      <th style="width:14%">步骤</th>
+                      <th style="width:46%">会话 A</th>
+                      <th>会话 B</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>准备</strong></td>
+                      <td colspan="2">先执行 <code>UPDATE users SET balance=100 WHERE id=1;</code> 并提交</td>
+                    </tr>
+                    <tr>
+                      <td><strong>1</strong></td>
+                      <td><code>SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;</code><br/><code>START TRANSACTION;</code><br/><code>SELECT balance FROM users WHERE id=1;</code><br/>👉 预期 <strong>100</strong></td>
+                      <td>—</td>
+                    </tr>
+                    <tr>
+                      <td><strong>2</strong></td>
+                      <td>—</td>
+                      <td><code>START TRANSACTION;</code><br/><code>UPDATE users SET balance=120 WHERE id=1;</code><br/><code>COMMIT;</code></td>
+                    </tr>
+                    <tr>
+                      <td><strong>3</strong></td>
+                      <td><code>SELECT balance FROM users WHERE id=1;</code><br/>👉 预期仍为 <strong>100</strong>（若改 RC 则为 120）</td>
+                      <td>—</td>
+                    </tr>
+                    <tr>
+                      <td><strong>4</strong></td>
+                      <td><code>SELECT balance FROM users WHERE id=1 FOR UPDATE;</code><br/>👉 预期 <strong>120</strong>：这是当前锁定读<br/><code>ROLLBACK;</code></td>
+                      <td>—</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <h3>实验二：同一行更新为什么等待</h3>
+              <div class="table-wrap">
+                <table class="plop-table">
+                  <thead>
+                    <tr>
+                      <th style="width:14%">步骤</th>
+                      <th style="width:46%">会话 A</th>
+                      <th>会话 B</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>1</strong></td>
+                      <td><code>START TRANSACTION;</code><br/><code>SELECT id FROM users WHERE id=1 FOR UPDATE;</code></td>
+                      <td>—</td>
+                    </tr>
+                    <tr>
+                      <td><strong>2</strong></td>
+                      <td>保持事务未结束</td>
+                      <td><code>START TRANSACTION;</code><br/><code>UPDATE users SET balance=balance+1 WHERE id=1;</code><br/>👉 预期等待 A 释放记录锁</td>
+                    </tr>
+                    <tr>
+                      <td><strong>3</strong></td>
+                      <td><code>ROLLBACK;</code></td>
+                      <td>若尚未超时，更新继续执行；随后 <code>ROLLBACK;</code> 清理实验修改</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="plop-callout warn">
+                <strong>⚠️ 实验安全守则：</strong>不要在生产库为演示故意持锁。实验完在两个会话都结束事务；若遇等待超时，应按实际错误状态清理事务再重试。
+              </div>
+            </div>
+          </div>
+        </div>

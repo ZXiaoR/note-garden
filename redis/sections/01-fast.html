@@ -1,0 +1,173 @@
+<!-- ====================================================================
+             PART 01: 性能与线程模型 · Redis 为什么快？单线程 Reactor 与 6.0 多线程 IO
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="fast">
+          <span class="wb-sec-num">01</span>
+          <span class="wb-sec-title">性能与线程模型 · Redis 为什么这么快？单线程 Reactor、epoll 与 6.0 多线程 IO</span>
+          <span class="plop-tag">REACTOR · EPOLL · IO THREADS</span>
+        </div>
+
+        <!-- 01 · Redis 为什么快 + 单线程 Reactor 与 epoll（由上到下顺序排列） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+            <div class="washi-tape"></div>
+            <div class="chapter-q-pill">❓ 01.1 · 单核单线程为什么能扛住每秒 10 万+ QPS？</div>
+            <h3>⚡ 01.1 Redis 为什么快 —— 支撑性能的四条腿</h3>
+            <p>
+              几乎是开场必问。把原因串成一条因果链：<strong>① 纯内存操作</strong> + <strong>② 单线程避免上下文切换与锁竞争</strong> + <strong>③ IO 多路复用（<code>epoll</code>）的 Reactor 网络模型</strong> + <strong>④ 针对数据规模高度优化的底层数据结构</strong>。
+            </p>
+
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:28%">核心支柱</th>
+                    <th>底层机制与数量级对比</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>① 纯内存操作</strong></td>
+                    <td>所有数据驻留内存，一次读写就是一次内存寻址（<code>~100ns</code>）。对比机械磁盘随机 IO（<code>~10ms</code>），天然快几个数量级，这是“快”的根本前提。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>② 单线程执行命令</strong></td>
+                    <td>命令一个接一个串行执行：<strong>不需要为共享数据加锁</strong>、<strong>没有多线程上下文切换开销</strong>，也没有死锁/竞态等并发 Bug。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>③ IO 多路复用</strong></td>
+                    <td>单线程却能同时服务数万连接，靠的是内核 <code>epoll</code>：把成千上万个 Socket 注册给内核，一有就绪事件才通知，线程只处理“真正有数据”的连接，绝不为空闲连接空转。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>④ 高效数据结构</strong></td>
+                    <td>同一种对外类型，底层按数据规模自动选最省内存或最快的结构（如 String 的 <code>int/embstr/raw</code>、ZSet 的 <code>listpack/skiplist</code>），让命令贴着最优复杂度跑。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="plop-callout good" id="single-thread">
+              <strong>💡 核心认知：</strong>Redis 的性能瓶颈从来在<strong>内存容量与网络 IO</strong>，而<strong>不在 CPU</strong>——单核每秒就能跑十万级内存指令，所以命令执行用“单线程”不但不拖后腿，反而省掉了多线程加锁的一切麻烦。
+            </div>
+
+            <!-- 手绘 SVG：文件事件处理器（单线程 Reactor 模型） -->
+            <h4>🔌 文件事件处理器（单线程 Reactor + epoll）</h4>
+            <svg viewBox="0 0 520 205" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:10px; margin:8px 0;" aria-label="Redis 单线程 Reactor 文件事件处理器">
+              <defs>
+                <marker id="re-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
+                </marker>
+              </defs>
+              <!-- 海量客户端 Socket -->
+              <rect x="12" y="16" width="118" height="145" rx="8" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+              <text x="71" y="36" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink)">海量并发连接</text>
+              <rect x="24" y="46" width="94" height="28" rx="6" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+              <text x="71" y="64" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">Socket A (可读)</text>
+              <rect x="24" y="82" width="94" height="28" rx="6" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.5"/>
+              <text x="71" y="100" text-anchor="middle" font-size="10" font-weight="700" fill="var(--plop-ink-soft)">Socket B (空闲)</text>
+              <rect x="24" y="118" width="94" height="28" rx="6" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+              <text x="71" y="136" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">Socket C (可写)</text>
+
+              <line x1="130" y1="88" x2="160" y2="88" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#re-arr)"/>
+
+              <!-- IO 多路复用 epoll -->
+              <rect x="164" y="32" width="142" height="114" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="2"/>
+              <text x="235" y="54" text-anchor="middle" font-size="11.2" font-weight="900" fill="var(--plop-ink-text)">IO 多路复用 (epoll)</text>
+              <text x="235" y="74" text-anchor="middle" font-size="9.6" font-weight="800" fill="#D2381E">红黑树管全量 fd</text>
+              <text x="235" y="92" text-anchor="middle" font-size="9.6" font-weight="800" fill="var(--plop-ink-text)">就绪链表回调 O(1)</text>
+              <rect x="176" y="104" width="118" height="30" rx="6" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+              <text x="235" y="123" text-anchor="middle" font-size="9.6" font-weight="800" fill="var(--plop-ink)">事件队列: [A, C]</text>
+
+              <line x1="306" y1="88" x2="336" y2="88" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#re-arr)"/>
+
+              <!-- 文件事件分派器与处理器 -->
+              <rect x="340" y="16" width="168" height="145" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2"/>
+              <text x="424" y="36" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">文件事件分派器 (单线程)</text>
+              <rect x="352" y="46" width="144" height="30" rx="6" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+              <text x="424" y="65" text-anchor="middle" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">① 连接应答处理器 (accept)</text>
+              <rect x="352" y="83" width="144" height="30" rx="6" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+              <text x="424" y="102" text-anchor="middle" font-size="9.8" font-weight="900" fill="#D2381E">② 命令请求处理器 (读+执行)</text>
+              <rect x="352" y="120" width="144" height="30" rx="6" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+              <text x="424" y="139" text-anchor="middle" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">③ 命令回复处理器 (写回)</text>
+
+              <text x="260" y="186" text-anchor="middle" font-size="9.8" font-weight="800" fill="var(--plop-ink-soft)">epoll 相比 select/poll：不用每次把全部 fd 线性扫描 O(n)，而是只交付真正就绪的 fd (O(1))</text>
+            </svg>
+        </div>
+
+        <!-- 02 · 线程模型演进 (4.0 bio 后台线程 & 6.0 多线程 IO)（由上到下顺序排列） -->
+        <div class="wb-card" id="multi-thread" style="background:var(--plop-paper); margin-bottom:20px;">
+            <div class="washi-tape pink"></div>
+            <div class="chapter-q-pill">❓ 01.2 · Redis 6.0 引入了多线程，那它还是单线程吗？</div>
+            <h3>🧵 01.2 线程模型演进：只并行“脏活与网络 IO”，绝不并行“执行命令”</h3>
+            <p>
+              这里要讲清一个高频误区：<strong>Redis 的“单线程”指的是命令的执行始终在一个主线程里串行完成</strong>，并不是整个进程只有一个线程！持久化（fork 子进程）、异步删除（4.0 bio 线程）和网络读写（6.0 IO 线程）早就交给了其他线程分担：
+            </p>
+
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:18%">版本</th>
+                    <th>多线程 / 异步化了什么？</th>
+                    <th style="width:24%">命令执行阶段</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>4.0</strong></td>
+                    <td>引入<strong>后台线程（bio）</strong>：把耗时的“大对象删除”等脏活异步化——如 <code>UNLINK</code>（异步删除大 Key）、<code>FLUSHDB ASYNC</code>、<code>AOF fsync</code> 刷盘、关闭文件等，避免删一个几 GB 的大 Key 把主线程卡死。</td>
+                    <td><strong>仍单线程串行</strong></td>
+                  </tr>
+                  <tr>
+                    <td><strong>6.0+</strong></td>
+                    <td>引入<strong>多线程 IO（IO Threads）</strong>：多个 IO 线程并行负责 <strong>Socket 数据的读取/写回 + 协议解析</strong>。因为随着网卡带宽和并发变大，<strong>网络 IO 读写成了真正的瓶颈</strong>。</td>
+                    <td><strong>仍单线程串行 ✅</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 手绘 SVG：Redis 6.0 多线程 IO 流水线 -->
+            <svg viewBox="0 0 520 198" style="width:100%; height:auto; display:block; background:var(--plop-paper); border:2px solid var(--plop-ink); border-radius:10px; margin:12px 0;" aria-label="Redis 6.0 多线程 IO 模型">
+              <rect x="12" y="16" width="152" height="132" rx="9" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="2"/>
+              <text x="88" y="38" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">① 读 Socket + 解析协议</text>
+              <rect x="24" y="48" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
+              <text x="88" y="64" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 1 (并行读)</text>
+              <rect x="24" y="78" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
+              <text x="88" y="94" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 2 (并行读)</text>
+              <rect x="24" y="108" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
+              <text x="88" y="124" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 3 (并行读)</text>
+
+              <line x1="164" y1="82" x2="188" y2="82" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#re-arr)"/>
+
+              <rect x="192" y="16" width="136" height="132" rx="9" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+              <text x="260" y="42" text-anchor="middle" font-size="11.2" font-weight="900" fill="var(--plop-ink-text)">② 执行内存命令</text>
+              <rect x="204" y="56" width="112" height="52" rx="7" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+              <text x="260" y="78" text-anchor="middle" font-size="10.5" font-weight="900" fill="#D2381E">主线程单线程串行</text>
+              <text x="260" y="96" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink-text)">✅ 免加锁 · 零竞态</text>
+              <text x="260" y="130" text-anchor="middle" font-size="9.2" font-weight="800" fill="var(--plop-ink-soft)">操作内存 dict/skiplist</text>
+
+              <line x1="328" y1="82" x2="352" y2="82" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#re-arr)"/>
+
+              <rect x="356" y="16" width="152" height="132" rx="9" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="2"/>
+              <text x="432" y="38" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">③ 写回结果到 Socket</text>
+              <rect x="368" y="48" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
+              <text x="432" y="64" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 1 (并行写)</text>
+              <rect x="368" y="78" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
+              <text x="432" y="94" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 2 (并行写)</text>
+              <rect x="368" y="108" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
+              <text x="432" y="124" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 3 (并行写)</text>
+
+              <text x="260" y="176" text-anchor="middle" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">结论：只有阶段 ① 和 ③（读写网络 Socket）是多线程并行，阶段 ②（执行命令）始终单线程！</text>
+            </svg>
+
+            <div class="plop-callout tip">
+              <strong>⚙️ 生产配置细节：</strong><code>io-threads</code> 默认为 <code>1</code>（即默认关闭多线程 IO），需手动开启（官方建议 4 核以上机器再开）；且默认只多线程化<strong>写回响应</strong>，若要连<strong>读取+解析请求</strong>也开启多线程，需额外配置 <code>io-threads-do-reads yes</code>。
+            </div>
+
+            <details class="plop-drawer">
+              <summary>❓ 高频追问：既然多线程能提速，为什么阶段 ② 执行命令不做成多线程？</summary>
+              <div class="drawer-body">
+                <p>一旦多线程并发执行命令，就必须对底层的共享哈希表、跳表、列表加锁。锁粒度很难把控：粗粒度锁会退化成串行，细粒度锁又极其复杂、容易引入死锁与并发 Bug，还要付出上下文切换开销。而 Redis 的瓶颈本就在网络 IO 而非 CPU 执行，所以选择<strong>“网络 IO 并行、命令执行串行”</strong>——既吃到了多核分担网络读写的红利，又保住了单线程无锁的极致简单与线程安全。</p>
+              </div>
+            </details>
+        </div>

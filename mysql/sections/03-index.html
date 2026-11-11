@@ -1,0 +1,253 @@
+<!-- ====================================================================
+             PART 03: 索引机制与 EXPLAIN 验证
+             ==================================================================== -->
+        <div class="wb-sec-header periwinkle" id="index">
+          <span class="wb-sec-num">03</span>
+          <span class="wb-sec-title">查询加速 · 聚簇/二级索引、联合索引、ICP 与 EXPLAIN 验证</span>
+          <span class="plop-tag tomato">INDEX · ICP · EXPLAIN</span>
+        </div>
+
+        <!-- 03.1：聚簇索引、二级索引、回表与联合索引（由上到下顺序排列） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 03.1 · “建了索引”与“高效使用索引”，差在哪里？</div>
+          <h3>🔑 03.1 聚簇索引、二级索引与回表</h3>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:22%">结构</th>
+                  <th>叶子保存什么</th>
+                  <th style="width:28%">在 users 表中</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>聚簇索引</strong></td>
+                  <td>行记录本身，包含用户列与事务相关信息；大字段可能存到页外</td>
+                  <td>按主键 <code>id</code> 组织</td>
+                </tr>
+                <tr>
+                  <td><strong>二级索引</strong></td>
+                  <td>索引列与主键值</td>
+                  <td><code>(city, age)</code> 以及 <code>id</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            按 <code>city</code> 查 <code>name</code>：先在二级索引中找主键 <code>id</code>，再去聚簇索引取 <code>name</code>，后一步叫<strong>回表</strong>。如果只取 <code>id, city, age</code>，所需列都在二级索引中，就是<span class="hl-mint">覆盖索引</span>，通常可以减少回表。
+          </p>
+
+          <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:10px; padding:11px 14px; margin:10px 0; font-family:var(--font-mono); font-size:13.5px; font-weight:800; text-align:center;">
+            <span style="background:var(--plop-mustard); padding:4px 10px; border:1.8px solid var(--plop-ink); border-radius:6px;">二级索引 idx_city_age (杭州·20 → 拿到主键 id=1)</span>
+            <span style="color:var(--plop-tomato); margin:0 8px;">──回表查聚簇索引──▶</span>
+            <span style="background:var(--plop-mint); padding:4px 10px; border:1.8px solid var(--plop-ink); border-radius:6px;">主键索引 PRIMARY (id=1 → 拿到完整行：小林 / 余额 100)</span>
+          </div>
+
+          <p>
+            每张 InnoDB 表只有一个聚簇索引。没有显式主键时，引擎会选第一个所有列都 NOT NULL 的唯一索引；还没有，才生成隐藏行 ID。显式使用较短、稳定的主键，通常也能减少二级索引的空间成本。
+          </p>
+
+          <h3 style="margin-top:14px;">📐 联合索引：先按 city 排，再按 age 排</h3>
+          <p>
+            <code>idx_city_age(city, age)</code> 是一棵树。它按组合键排序：同一城市内，年龄再有序。<strong>最左前缀说的是索引列的顺序，不是 WHERE 条件的书写顺序。</strong>
+          </p>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:32%">条件</th>
+                  <th style="width:28%">常规访问方式</th>
+                  <th>为什么</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>city='杭州'</code></td>
+                  <td>可按 city 定位</td>
+                  <td>提供了最左列</td>
+                </tr>
+                <tr>
+                  <td><code>city='杭州' AND age=20</code></td>
+                  <td>可按组合键定位</td>
+                  <td>两列连续使用；AND 顺序可交换</td>
+                </tr>
+                <tr>
+                  <td><code>city='杭州' AND age&gt;=20</code></td>
+                  <td>定位城市内的年龄范围</td>
+                  <td>先等值，再范围</td>
+                </tr>
+                <tr>
+                  <td><code>age=20</code></td>
+                  <td>通常无法按最左前缀定位</td>
+                  <td>年龄跨城市不全局有序；仍可能扫描索引或采用 Skip Scan</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 03.2：范围后的列、ICP 与“索引失效”拆解 -->
+        <div class="wb-card" id="index-fail" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 03.2 · 范围查询后的列真的“全部失效”吗？什么是索引下推 ICP？</div>
+          <h3>🔬 03.2 范围后的列、索引下推 ICP 与“索引失效”拆解</h3>
+
+          <div class="plop-callout warn">
+            <strong>⚠️ 把“后面的列全部失效”改为准确表述：</strong>在 <code>(a,b,c)</code> 中，<code>a=1 AND b&gt;2 AND c=3</code> 通常由 a、b 构造扫描范围；c 仍可能用于索引上的过滤或覆盖查询。“不能继续缩小扫描区间”不等于“这个列没有用”。<a href="https://dev.mysql.com/doc/refman/8.4/en/range-optimization.html" target="_blank" rel="noopener">官方：范围访问 ↗</a>
+          </div>
+
+          <h4>⚡ 索引下推 ICP：先过滤，再决定是否回表</h4>
+          <p>
+            假设另有索引 <code>(name, age)</code>，查询 <code>name LIKE '小%' AND age=20</code> 并返回 <code>balance</code>。引擎可以在索引记录上先检查可下推的 <code>age</code> 条件，只为通过过滤的记录取完整行。<span class="hl-mustard">覆盖索引是尽量不取行；ICP 是减少取行次数。</span>（计划中的 <code>Using index condition</code> 是识别信号。）
+          </p>
+
+          <details class="plop-drawer">
+            <summary>🔍 进阶 · 索引的成本与边界（自增空洞 &amp; 覆盖索引可见性）</summary>
+            <div class="drawer-body">
+              <p>增加索引会占空间，并增加 INSERT、UPDATE、DELETE 的维护开销。自增主键通常让写入位置更集中，但仍可能发生页分裂、热点竞争和自增空洞。自增值不保证连续，也不能作为事务提交顺序。</p>
+              <p>覆盖索引是查询与索引之间的关系，不是一种独立的索引类型。即使计划显示覆盖，在需要判断 MVCC 可见性等情况下，InnoDB 仍可能访问聚簇记录；“永远零回表”过于绝对。</p>
+            </div>
+          </details>
+
+          <h3 style="margin-top:14px;">🛠️ “索引失效”要拆成两个问题</h3>
+          <p>
+            <strong>一是能不能形成高效的搜索范围，二是优化器认为值不值得用。</strong>即使可以搜索，返回大部分行并反复回表，也可能比全表扫描更贵。
+          </p>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:27%">写法 / 场景</th>
+                  <th>准确理解</th>
+                  <th style="width:32%">处理思路</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>YEAR(created_at)=2026</code></td>
+                  <td>普通索引通常不能直接支持函数条件的范围搜索</td>
+                  <td>改为 <code>created_at &gt;= '2026-01-01' AND created_at &lt; '2027-01-01'</code>；或评估函数索引</td>
+                </tr>
+                <tr>
+                  <td>字符串列与数字比较</td>
+                  <td>隐式类型转换可能使原索引顺序无法用于定位</td>
+                  <td>参数类型与列类型一致</td>
+                </tr>
+                <tr>
+                  <td><code>LIKE '%关键词'</code></td>
+                  <td>没有固定前缀，普通 B+ 树难以进行前缀范围定位</td>
+                  <td>按检索语义评估全文索引或搜索服务</td>
+                </tr>
+                <tr>
+                  <td><code>!=</code>、<code>IS NULL</code>、<code>OR</code></td>
+                  <td>不是“一出现就失效”；可能采用范围访问、Index Merge 等</td>
+                  <td>看选择性、统计信息和实际执行计划</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 03.3 · 用 EXPLAIN 验证想法 -->
+        <div class="wb-card" id="index-opt" style="background:var(--plop-paper);">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 03.3 · 如何判断 SQL 慢在扫描、回表，还是排序？</div>
+          <h3>🔎 03.3 用 <code>EXPLAIN</code> 与 <code>EXPLAIN ANALYZE</code> 验证想法</h3>
+
+          <div style="display:grid; gap:14px;">
+            <div>
+              <div class="plop-code-box">
+                <div class="plop-code-head">
+                  <span>🔬 explain_verify.sql · 查看计划与实测开销</span>
+                  <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('sql-explain-demo', this)">复制 SQL</button>
+                </div>
+                <pre class="plop-code-pre" id="sql-explain-demo"><code><span class="c-kw">EXPLAIN SELECT</span> id, city, age
+<span class="c-kw">FROM</span> users
+<span class="c-kw">WHERE</span> city = <span class="c-str">'杭州'</span> <span class="c-kw">AND</span> age &gt;= 20
+<span class="c-kw">ORDER BY</span> age <span class="c-kw">LIMIT</span> 20;
+
+<span class="c-cm">-- MySQL 8.0.18+：真正执行查询，查看实际耗时、行数和循环次数</span>
+<span class="c-kw">EXPLAIN ANALYZE SELECT</span> id, city, age
+<span class="c-kw">FROM</span> users
+<span class="c-kw">WHERE</span> city = <span class="c-str">'杭州'</span> <span class="c-kw">AND</span> age &gt;= 20
+<span class="c-kw">ORDER BY</span> age <span class="c-kw">LIMIT</span> 20;</code></pre>
+              </div>
+              <p style="font-size:12.6px; color:var(--plop-ink-soft);">
+                注：起步示例只有三行，优化器选择全表扫描也可能合理。<code>EXPLAIN ANALYZE</code> 会真正执行语句并产生负载；先理解查询范围，再用于验证。
+              </p>
+
+              <div class="wb-card notebook-lines" style="margin-top:12px; padding:12px 14px; box-shadow:none;">
+                <h4 style="margin-bottom:6px;">📋 一个可重复的 4 步优化顺序</h4>
+                <ol style="margin:0;">
+                  <li>明确返回结果与数据规模，先排除查多了、漏条件等问题。</li>
+                  <li>查看计划和实际耗时：读了多少行，返回多少行，哪些节点循环很多次。</li>
+                  <li>根据过滤、排序、连接方式设计索引；尽量减少无效扫描和不必要的取列。</li>
+                  <li>比较改动前后结果与耗时，同时考虑新增索引的写入成本。估算明显失真时再检查统计信息。</li>
+                </ol>
+              </div>
+            </div>
+
+            <div>
+              <div class="table-wrap" style="margin-top:0;">
+                <table class="plop-table">
+                  <thead>
+                    <tr>
+                      <th style="width:32%">字段 / 信号</th>
+                      <th>应该读出什么</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>type</code></td>
+                      <td><code>const</code> 常见于主键/非空唯一键常量查找；<code>ref</code> 为非唯一等值访问；<code>range</code> 为范围；<code>index</code> 为全索引扫描；<code>ALL</code> 为全表扫描。不能只按这个字段给 SQL 打分</td>
+                    </tr>
+                    <tr>
+                      <td><code>possible_keys / key</code></td>
+                      <td>可能使用的查找索引 / 实际选择的索引；出现 key 不代表扫描少</td>
+                    </tr>
+                    <tr>
+                      <td><code>key_len</code></td>
+                      <td>使用的键长度，可辅助分析联合索引用到了哪一段；不等于索引记录总大小</td>
+                    </tr>
+                    <tr>
+                      <td><code>rows / filtered</code></td>
+                      <td>估算检查行数 / 过滤后保留百分比，不是实测值</td>
+                    </tr>
+                    <tr>
+                      <td><code>Using index</code></td>
+                      <td>覆盖访问信号；结合查询列与引擎行为理解</td>
+                    </tr>
+                    <tr>
+                      <td><code>Using index condition</code></td>
+                      <td>使用了索引条件下推（ICP）</td>
+                    </tr>
+                    <tr>
+                      <td><code>Using filesort</code></td>
+                      <td>需要额外排序，可能在内存中完成，不一定写磁盘</td>
+                    </tr>
+                    <tr>
+                      <td><code>Using temporary</code></td>
+                      <td>使用内部临时表，不代表一定发生磁盘临时表</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <details class="plop-drawer" id="join">
+                <summary>🔍 进阶 · JOIN（Hash Join 版本差异）、filesort 与深分页</summary>
+                <div class="drawer-body">
+                  <p><strong>JOIN：</strong>索引嵌套循环可对外层每行到内层做索引查找。Hash Join 构建哈希结构再探测，适合部分缺少可用连接索引的场景。8.0.18 引入 Hash Join；8.0.20 起旧 BNL 不再使用。不要把 <code>Using join buffer</code> 一律解释成 BNL，也不要只凭表的总行数强制“小表驱动大表”，应看过滤后规模和计划。<a href="https://dev.mysql.com/doc/refman/8.0/en/hash-joins.html" target="_blank" rel="noopener">官方：Hash Join ↗</a></p>
+                  <p><strong>排序：</strong>filesort 可携带要返回的字段，也可能排序键与行定位信息后再取行。实现和选择条件随版本变化，不把旧版本的单个阈值当作 8.0/8.4 的固定规则。先减少参与排序的行与字段，再考虑内存参数。</p>
+                  <p><strong>深分页：</strong><code>LIMIT 100000,20</code> 通常仍需读取并丢弃前面的记录。若业务支持沿游标继续，可用 <code>WHERE id &gt; :last_id ORDER BY id LIMIT 20</code>。非唯一排序字段需加唯一键作为稳定的第二排序条件，并让游标条件与排序一致。</p>
+                </div>
+              </details>
+            </div>
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：查询快只是第一步。两个请求同时改一笔余额，结果还能正确吗？</span>
+          </div>
+        </div>

@@ -1,0 +1,331 @@
+<!-- ====================================================================
+             PART 05: 锁与死锁
+             ==================================================================== -->
+        <div class="wb-sec-header pink" id="lock">
+          <span class="wb-sec-num">05</span>
+          <span class="wb-sec-title">并发互斥 · 锁：谁来加锁？锁长什么样？什么时候看它？</span>
+          <span class="plop-tag tomato">RECORD · GAP · NEXT-KEY LOCK</span>
+        </div>
+
+        <!-- 05.1：灵魂三问：锁是自动生成的还是手动加的？什么时候需要看它？ -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 05.1 · 这些五花八门的锁，到底是数据库自动生成的，还是我们要写代码自己加？</div>
+          <h3>🔑 05.1 先解开最大疑惑：95% 的锁是 InnoDB「全自动生成」的！</h3>
+          <p>
+            很多同学刚学完记录锁、间隙锁、临键锁、意向锁时都会懵：<em>“难道我写 SQL 时还要手动指定加一把间隙锁吗？”</em>——<strong>完全不需要！SQL 里甚至根本没有“手动加间隙锁/临键锁”的语法。</strong>
+          </p>
+
+          <!-- 自动加锁 vs 手动触发 对比框（统一 PlopUI 手账风格） -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px;">
+              <!-- 左：100% 全自动加锁 -->
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                  <span style="font-weight:900; font-size:15px; color:var(--plop-ink-text);">🤖 情况 ①：所有写操作（100% 自动加锁）</span>
+                  <span class="plop-tag tomato" style="font-size:11px;">无需操心语法</span>
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13.4px; color:var(--plop-ink-text); line-height:1.6;">
+                  只要你执行 <code>UPDATE</code>、<code>DELETE</code>、<code>INSERT</code>：<br/>
+                  • InnoDB 会在底层<strong>全自动</strong>先给表挂上<strong>意向排他锁（IX）</strong>；<br/>
+                  • 然后根据你的 <strong>隔离级别（RC / RR）</strong> + <strong>WHERE 条件走没走索引</strong>，<strong>全自动</strong>决定在索引上挂 <strong>记录锁（Record Lock）</strong>、<strong>间隙锁（Gap Lock）</strong> 还是 <strong>临键锁（Next-Key Lock）</strong>；<br/>
+                  • 等你执行 <code>COMMIT</code> 或 <code>ROLLBACK</code> 时，<strong>全自动一次性释放</strong>。
+                </div>
+              </div>
+
+              <!-- 右：读操作（默认不加行锁，加尾巴才触发自动加锁） -->
+              <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                  <span style="font-weight:900; font-size:15px; color:var(--plop-ink-text);">🖐️ 情况 ②：读操作（你只按开关，锁型仍自动）</span>
+                  <span class="plop-tag mint" style="font-size:11px;">加尾巴触发</span>
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13.4px; color:var(--plop-ink-text); line-height:1.6;">
+                  • <strong>普通 <code>SELECT ...</code>（快照读）：</strong><strong>不加任何行锁！</strong>直接走上一章讲的 <strong>MVCC 读历史版本</strong>（仅在 Server 层自动挂一把极轻的 <code>MDL</code> 读锁防别人删表结构）。<br/>
+                  • <strong>加锁读 <code>SELECT ... FOR UPDATE</code> / <code>FOR SHARE</code>（当前读）：</strong>当你为了防并发覆写，在 SQL 末尾<strong>手动加上 <code>FOR UPDATE</code></strong> 时，相当于按下了“我要加锁”的开关——至于具体锁哪条记录、锁哪个缝隙，<strong>依然由 InnoDB 根据 WHERE 条件自动生成！</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- 什么时候才需要看这些锁？（3 大实战时刻） -->
+            <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:12px; padding:14px 16px; margin-top:14px;">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:10px;">
+                🚨 既然锁是自动生成的，那程序员「什么时候」才需要懂它、看它？（3 大实战时刻）
+              </div>
+              <div style="display:grid; gap:10px;">
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:10px; padding:10px 14px; font-size:13.4px; line-height:1.58; color:var(--plop-ink-text);">
+                  <strong style="color:var(--plop-ink);">① 写「扣库存 / 扣余额 / 防重单」代码时（决定要不要加锁）：</strong><br/>
+                  如果你在事务里先用普通 <code>SELECT balance</code> 查出余额 100（MVCC 不加锁），在 Java/Go 代码里算完 <code>100 - 80 = 20</code> 再去 <code>UPDATE</code>，两个并发请求会同时读到 100 并互相覆盖！此时你必须知道：要么写 <code>SELECT ... FOR UPDATE</code> 主动上锁排队，要么直接用一条 <code>UPDATE account SET balance = balance - 80 WHERE id = 1 AND balance &gt;= 80</code> 触发自动行锁。
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:10px; padding:10px 14px; font-size:13.4px; line-height:1.58; color:var(--plop-ink-text);">
+                  <strong style="color:var(--plop-tomato);">② 线上报错 <code>Lock wait timeout exceeded</code>，明明「插的是新数据」却被别人卡死时：</strong><br/>
+                  最经典的抓狂现场：<em>“我只是 <code>INSERT</code> 一条 <code>id=15</code> 的新记录，数据库里根本还没有 <code>15</code>，我也没跟别人抢同一行，凭什么把我卡住 50 秒超时报错？！”</em>——因为另一个事务正在按范围查或更新 <code>(10, 20)</code> 区间，InnoDB 自动生成了 <strong>间隙锁（Gap Lock）</strong> 把 <code>11 ~ 19</code> 的空隙全封死了！不懂间隙锁，这类线上阻塞你永远排查不出来。
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:10px; padding:10px 14px; font-size:13.4px; line-height:1.58; color:var(--plop-ink-text);">
+                  <strong style="color:var(--plop-leaf);">③ 线上偶发 <code>Deadlock found</code>（死锁）或白天执行 <code>ALTER TABLE</code> 导致全站雪崩时：</strong><br/>
+                  两个事务交叉更新两行，或者两个事务同时持有同一个空隙的 <code>Gap Lock</code> 再同时往里 <code>INSERT</code>，就会撞成死锁；又或者有个慢查询忘了提交（一直占着自动生成的 <code>MDL</code> 元数据读锁），此时你执行 <code>ALTER TABLE</code> 加字段，会把后面所有正常的 <code>SELECT</code> 全部堵死！这时候就必须查锁视图抓凶手。
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 05.2：用一张数轴图看懂「记录锁、间隙锁、临键锁」 + 六类锁全景表 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 05.2 · 记录锁、间隙锁、临键锁到底锁在哪儿？一眼看懂索引数轴分布</div>
+          <h3>📏 05.2 先看数轴：一张只有 <code>id = 10, 20, 30</code> 三行数据的表，上面有哪些位置可以锁？</h3>
+          <p>
+            假设表 <code>t_order</code> 里目前只有 <strong>3 条记录：<code>id = 10</code>、<code>id = 20</code>、<code>id = 30</code></strong>。InnoDB 的行锁并不是锁在“空气”里，而是锁在 <strong>B+ 树索引的「记录点」和「记录之间的空隙」</strong> 上：
+          </p>
+
+          <!-- 手绘索引数轴大字图：3 个记录点 + 4 个间隙区间 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:12px;">
+              🗺️ B+ 树主键索引数轴拆解：3 个「实心记录点 (Record)」 + 4 段「开区间空隙 (Gap)」
+            </div>
+
+            <!-- 数轴可视化网格 -->
+            <div style="display:grid; grid-template-columns:1.2fr 0.9fr 1.2fr 0.9fr 1.2fr 0.9fr 1.3fr; gap:6px; align-items:stretch; text-align:center;">
+              <!-- Gap 1 -->
+              <div style="background:#FFF0F5; border:2px dashed var(--plop-tomato); border-radius:10px; padding:10px 6px;">
+                <div style="font-size:11.5px; font-weight:900; color:var(--plop-tomato);">间隙 Gap ①</div>
+                <div style="font-family:var(--font-mono); font-size:13.5px; font-weight:900; color:var(--plop-ink); margin:4px 0;">(-∞, 10)</div>
+                <div style="font-size:11.5px; color:var(--plop-ink-soft); font-weight:700;">可插 1~9</div>
+              </div>
+              <!-- Record 10 -->
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px 6px;">
+                <div style="font-size:11.5px; font-weight:900; color:var(--plop-ink-text);">记录点</div>
+                <div style="font-family:var(--font-mono); font-size:15px; font-weight:900; color:var(--plop-ink); margin:4px 0;">[id=10]</div>
+                <div style="font-size:11.5px; color:var(--plop-ink-soft); font-weight:700;">已存在行</div>
+              </div>
+              <!-- Gap 2 -->
+              <div style="background:#FFF0F5; border:2px dashed var(--plop-tomato); border-radius:10px; padding:10px 6px;">
+                <div style="font-size:11.5px; font-weight:900; color:var(--plop-tomato);">间隙 Gap ②</div>
+                <div style="font-family:var(--font-mono); font-size:13.5px; font-weight:900; color:var(--plop-ink); margin:4px 0;">(10, 20)</div>
+                <div style="font-size:11.5px; color:var(--plop-ink-soft); font-weight:700;">可插 11~19</div>
+              </div>
+              <!-- Record 20 -->
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px 6px;">
+                <div style="font-size:11.5px; font-weight:900; color:var(--plop-ink-text);">记录点</div>
+                <div style="font-family:var(--font-mono); font-size:15px; font-weight:900; color:var(--plop-ink); margin:4px 0;">[id=20]</div>
+                <div style="font-size:11.5px; color:var(--plop-ink-soft); font-weight:700;">已存在行</div>
+              </div>
+              <!-- Gap 3 -->
+              <div style="background:#FFF0F5; border:2px dashed var(--plop-tomato); border-radius:10px; padding:10px 6px;">
+                <div style="font-size:11.5px; font-weight:900; color:var(--plop-tomato);">间隙 Gap ③</div>
+                <div style="font-family:var(--font-mono); font-size:13.5px; font-weight:900; color:var(--plop-ink); margin:4px 0;">(20, 30)</div>
+                <div style="font-size:11.5px; color:var(--plop-ink-soft); font-weight:700;">可插 21~29</div>
+              </div>
+              <!-- Record 30 -->
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px 6px;">
+                <div style="font-size:11.5px; font-weight:900; color:var(--plop-ink-text);">记录点</div>
+                <div style="font-family:var(--font-mono); font-size:15px; font-weight:900; color:var(--plop-ink); margin:4px 0;">[id=30]</div>
+                <div style="font-size:11.5px; color:var(--plop-ink-soft); font-weight:700;">已存在行</div>
+              </div>
+              <!-- Gap 4 -->
+              <div style="background:#FFF0F5; border:2px dashed var(--plop-tomato); border-radius:10px; padding:10px 6px;">
+                <div style="font-size:11.5px; font-weight:900; color:var(--plop-tomato);">间隙 Gap ④</div>
+                <div style="font-family:var(--font-mono); font-size:13px; font-weight:900; color:var(--plop-ink); margin:4px 0;">(30, +∞)</div>
+                <div style="font-size:11.5px; color:var(--plop-ink-soft); font-weight:700;">可插 &gt;30</div>
+              </div>
+            </div>
+
+            <!-- 三种核心行锁组合关系 -->
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; margin-top:12px;">
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">🟡 记录锁 (Record Lock)</div>
+                <div style="font-size:12.8px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                  <strong>只锁黄色的「实心点」</strong>（例如只锁 <code>[id=20]</code>）。别人不能改/删 20，但往两边空隙插 15、25 完全不管。
+                </div>
+              </div>
+              <div style="background:#FFF0F5; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato);">🔴 间隙锁 (Gap Lock)</div>
+                <div style="font-size:12.8px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                  <strong>只锁粉色的「开区间空隙」</strong>（例如只锁 <code>(10, 20)</code>）。<strong>唯一作用是禁止别人往这个缝里 INSERT 新行</strong>，不锁 10 和 20 本身！
+                </div>
+              </div>
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">🟢 临键锁 (Next-Key Lock)</div>
+                <div style="font-size:12.8px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                  <strong>间隙锁 + 记录锁合体 = 左开右闭区间</strong>（例如 <code>(10, 20]</code>）。既不准别人往 11~19 插新行，也不准别人改 <code>[id=20]</code>！
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h4 style="margin-top:16px;">📋 InnoDB 与 Server 层 6 类锁速查表</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:24%">锁类型</th>
+                  <th style="width:28%">保护什么</th>
+                  <th>核心要点（怎么触发 &amp; 谁和谁冲突）</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>记录锁 Record Lock</strong></td>
+                  <td>单条索引记录（如 <code>[20]</code>）</td>
+                  <td>分共享锁 <code>S</code> 和排他锁 <code>X</code>；<code>UPDATE / DELETE / FOR UPDATE</code> 命中唯一索引等值时自动加 <code>X</code> 记录锁。</td>
+                </tr>
+                <tr>
+                  <td><strong>间隙锁 Gap Lock</strong></td>
+                  <td>两条记录之间的空隙（如 <code>(10, 20)</code>）</td>
+                  <td>RR 隔离级别下为防幻读自动生成。<strong>注意：两个事务可以对同一个间隙同时加 Gap Lock（互相兼容），因为大家的目标都是“别让别人插进来”！</strong></td>
+                </tr>
+                <tr>
+                  <td><strong>临键锁 Next-Key Lock</strong></td>
+                  <td>记录 + 它前面的间隙（如 <code>(10, 20]</code>）</td>
+                  <td>InnoDB 在 RR 级别下扫描索引时的<strong>默认加锁基本单位</strong>（遇到唯一索引等值命中等特殊情况会退化为记录锁或间隙锁）。</td>
+                </tr>
+                <tr>
+                  <td><strong>插入意向锁 Insert Intention</strong></td>
+                  <td><code>INSERT</code> 准备插入某个间隙的动作</td>
+                  <td>执行 <code>INSERT</code> 时自动生成。如果该位置已被别的事务挂了 <code>Gap Lock</code>，<code>INSERT</code> 就会卡住等待！</td>
+                </tr>
+                <tr>
+                  <td><strong>意向锁 IS / IX</strong></td>
+                  <td>表级锁旗子（挂在表头上）</td>
+                  <td>加行锁前 InnoDB 自动先在表头挂一面旗子，告诉别人“表里某行有锁”，避免别人申请表锁时逐行遍历检查。</td>
+                </tr>
+                <tr>
+                  <td><strong>元数据锁 MDL</strong></td>
+                  <td>表结构定义（Server 层自动加）</td>
+                  <td>任何增删改查都会自动加 <code>MDL 读锁</code>；<code>ALTER TABLE</code> 会加 <code>MDL 写锁</code>。<strong>未提交的长事务会卡死 DDL，进而堵死后续所有查询！</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 05.3：3 个具体实战例子（事务 A vs 事务 B） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 05.3 · 实战演练：表里只有 id = 10, 20, 30，执行不同 SQL 时到底谁能过、谁会被卡死？</div>
+          <h3>🎬 05.3 三个具体例子（默认 RR 可重复读 + 主键索引）：看 InnoDB 怎么自动变魔术</h3>
+          <p>
+            还是刚才那张只有 <code>id = 10, 20, 30</code> 三行数据的表。我们打开两个终端窗口（<strong>左边事务 A 先执行但暂不 COMMIT</strong>，<strong>右边事务 B 紧接着操作</strong>），看看三种最典型的 SQL 分别会自动生成什么锁：
+          </p>
+
+          <div style="display:grid; gap:14px; margin:14px 0;">
+            <!-- 例子 1：唯一索引等值命中 -> 退化为记录锁 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-mustard); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🧪 例子 ①：唯一主键精准命中（id = 20 存在） 👉 自动退化为「记录锁 Record Lock」
+                </span>
+                <span class="plop-tag" style="font-size:11.5px;">只锁 [id=20] 单点</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.6;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">🧑‍💻 事务 A 先执行（不提交）：</div>
+                  <code style="display:block; background:var(--plop-sheet); border:1.5px solid var(--plop-ink); padding:6px 10px; border-radius:6px; margin-bottom:6px; font-size:12.8px;">
+                    BEGIN;<br/>
+                    UPDATE t_order SET amount = 99 WHERE id = 20;<br/>
+                    <span style="color:var(--plop-ink-soft);">-- 或 SELECT * FROM t_order WHERE id = 20 FOR UPDATE;</span>
+                  </code>
+                  <strong>🤖 InnoDB 自动动作：</strong>因为 <code>id</code> 是唯一主键且 <code>20</code> 真实存在，绝不可能有别人再插一个 <code>id=20</code> 进来，所以临键锁自动退化，<strong>只在 <code>[id=20]</code> 这一行挂一把记录锁（Record Lock）</strong>，不锁两边的缝隙！
+                </div>
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.6;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">⚡ 此时事务 B 过来操作会发生什么？</div>
+                  • <code>SELECT * FROM t_order WHERE id = 20;</code><br/>
+                  👉 <strong style="color:var(--plop-leaf);">✅ 秒过！</strong>（普通 SELECT 走 MVCC 读旧版本，不看锁）<br/>
+                  • <code>INSERT INTO t_order VALUES (15, ...);</code> 或 <code>(25, ...);</code><br/>
+                  👉 <strong style="color:var(--plop-leaf);">✅ 秒过！</strong>（因为两边的间隙没被锁！）<br/>
+                  • <code>UPDATE t_order SET amount = 88 WHERE id = 20;</code><br/>
+                  👉 <strong style="color:var(--plop-tomato);">❌ 当场卡死等待！</strong>（撞上了 <code>[id=20]</code> 的记录锁，直到事务 A 提交）
+                </div>
+              </div>
+            </div>
+
+            <!-- 例子 2：等值未命中 -> 退化为间隙锁 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:#FFF0F5; border:2px solid var(--plop-tomato); color:var(--plop-tomato); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🧪 例子 ②：查/改一个不存在的 ID（id = 15 不存在） 👉 自动生成「间隙锁 Gap Lock」
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">锁住开区间 (10, 20) 空隙</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.6;">
+                  <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:4px;">🧑‍💻 事务 A 先执行（不提交）：</div>
+                  <code style="display:block; background:var(--plop-sheet); border:1.5px solid var(--plop-ink); padding:6px 10px; border-radius:6px; margin-bottom:6px; font-size:12.8px;">
+                    BEGIN;<br/>
+                    UPDATE t_order SET amount = 99 WHERE id = 15;<br/>
+                    <span style="color:var(--plop-ink-soft);">-- 表里只有 10, 20, 30，受影响行数为 0！</span>
+                  </code>
+                  <strong>🤖 InnoDB 自动动作：</strong>虽然一行都没改到，但为了防止事务 A 还没提交时别人突然插一条 <code>id=15</code> 造成幻读，InnoDB 找到 <code>15</code> 所在的空隙 <code>(10, 20)</code>，<strong>自动给开区间 <code>(10, 20)</code> 挂上一把间隙锁（Gap Lock）</strong>！
+                </div>
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.6;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">⚡ 此时事务 B 过来操作会发生什么？</div>
+                  • <code>UPDATE t_order SET amount = 88 WHERE id = 10;</code>（或 <code>id = 20</code>）<br/>
+                  👉 <strong style="color:var(--plop-leaf);">✅ 秒过！</strong>（因为开区间 <code>(10, 20)</code> 不包含端点 10 和 20！）<br/>
+                  • <code>INSERT INTO t_order VALUES (25, ...);</code><br/>
+                  👉 <strong style="color:var(--plop-leaf);">✅ 秒过！</strong>（25 在 <code>(20, 30)</code> 区间，不在封锁区）<br/>
+                  • <code>INSERT INTO t_order VALUES (12, ...);</code>（或插 <code>15</code>、<code>18</code>）<br/>
+                  👉 <strong style="color:var(--plop-tomato);">❌ 当场卡死等待！</strong>（11~19 全在 <code>(10, 20)</code> 间隙锁封锁区内，插不进去！）
+                </div>
+              </div>
+            </div>
+
+            <!-- 例子 3：范围查询 -> 临键锁 Next-Key Lock -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-mint); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:4px 12px; border-radius:8px;">
+                  🧪 例子 ③：范围加锁扫描（WHERE id &gt; 20 FOR UPDATE） 👉 自动挂上「临键锁 Next-Key Lock」
+                </span>
+                <span class="plop-tag mint" style="font-size:11.5px;">锁住 (20, 30] + (30, +∞)</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.6;">
+                  <div style="font-weight:900; color:var(--plop-leaf); margin-bottom:4px;">🧑‍💻 事务 A 先执行（不提交）：</div>
+                  <code style="display:block; background:var(--plop-sheet); border:1.5px solid var(--plop-ink); padding:6px 10px; border-radius:6px; margin-bottom:6px; font-size:12.8px;">
+                    BEGIN;<br/>
+                    SELECT * FROM t_order WHERE id &gt; 20 FOR UPDATE;
+                  </code>
+                  <strong>🤖 InnoDB 自动动作：</strong>顺着 B+ 树往右扫所有大于 20 的范围，自动挂上 <strong>Next-Key Lock <code>(20, 30]</code></strong>（同时锁住 21~29 的空隙和 <code>[id=30]</code> 这条记录）以及末尾的 <strong><code>(30, +supremum]</code></strong> 正无穷区间！
+                </div>
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.3px; line-height:1.6;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">⚡ 此时事务 B 过来操作会发生什么？</div>
+                  • <code>INSERT INTO t_order VALUES (15, ...);</code><br/>
+                  👉 <strong style="color:var(--plop-leaf);">✅ 秒过！</strong>（15 在 20 左边，没被扫到）<br/>
+                  • <code>UPDATE t_order SET amount = 88 WHERE id = 30;</code><br/>
+                  👉 <strong style="color:var(--plop-tomato);">❌ 当场卡死！</strong>（<code>[id=30]</code> 被临键锁的右闭端点锁住了）<br/>
+                  • <code>INSERT INTO t_order VALUES (25, ...);</code> 或 <code>(50, ...);</code><br/>
+                  👉 <strong style="color:var(--plop-tomato);">❌ 全部当场卡死！</strong>（大于 20 的所有缝隙全被锁死了，彻底杜绝当前读幻读！）
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="plop-callout warn">
+            <strong>⚠️ 生产最危险的大坑：「没走索引」会让行锁瞬间锁住全表所有行和所有间隙！</strong><br/>
+            上面 3 个例子之所以锁得很精准，是因为 <code>WHERE id = ...</code> 走了主键索引。如果你写了一条 <code>UPDATE t_order SET amount = 99 WHERE remark = 'test'</code>，而 <code>remark</code> 列<strong>没有建索引</strong>，InnoDB 只能被迫做<strong>全表扫描</strong>——在 RR 级别下，它会把整张表里<strong>每一条记录和每一个间隙全部挂上 Next-Key Lock</strong>，整张表瞬间谁也改不了、谁也插不进！
+          </div>
+
+          <h4 style="margin-top:16px;">🔄 死锁是怎么发生的？线上卡住时怎么用 SQL 抓出真凶？</h4>
+          <p>
+            当事务 A 先锁了 <code>id=10</code> 想去锁 <code>id=20</code>，而事务 B 先锁了 <code>id=20</code> 想去锁 <code>id=10</code>（或者两个事务同时对 <code>(10, 20)</code> 加了互相兼容的间隙锁，接着又同时往 <code>(10, 20)</code> 里执行 <code>INSERT</code> 互相等待对方释放间隙锁），就会形成<strong>死锁环路</strong>。InnoDB 的死锁检测器会立刻挑一个代价小的事务回滚报错，让另一个继续执行。
+          </p>
+
+          <div class="plop-code-box">
+            <div class="plop-code-head">
+              <span>🔎 inspect_locks.sql · 当线上发生阻塞或死锁时，打开终端执行这 3 条命令看锁</span>
+              <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('sql-lock-inspect', this)">复制 SQL</button>
+            </div>
+            <pre class="plop-code-pre" id="sql-lock-inspect"><code><span class="c-cm">-- ① 查看当前数据库里所有正在持有的锁（重点看 LOCK_TYPE 和 LOCK_MODE：X,REC_NOT_GAP 是记录锁；X,GAP 是间隙锁；X 是临键锁）</span>
+<span class="c-kw">SELECT</span> ENGINE_TRANSACTION_ID, OBJECT_NAME, INDEX_NAME, LOCK_TYPE, LOCK_MODE, LOCK_DATA
+<span class="c-kw">FROM</span> performance_schema.data_locks;
+
+<span class="c-cm">-- ② 查看当前「谁被谁卡住了」（哪个事务在等哪个事务释放锁）</span>
+<span class="c-kw">SELECT</span> * <span class="c-kw">FROM</span> performance_schema.data_lock_waits;
+
+<span class="c-cm">-- ③ 查看最近一次发生「死锁」的完整案发现场日志（找到 LATEST DETECTED DEADLOCK 段落）</span>
+<span class="c-kw">SHOW ENGINE INNODB STATUS</span>;</code></pre>
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：靠 MVCC 和锁解决了单机并发冲突，但如果刚 COMMIT 成功服务器突然拔电源断电，怎么保证数据一分不丢？</span>
+          </div>
+        </div>

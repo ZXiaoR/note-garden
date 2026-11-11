@@ -1,0 +1,136 @@
+<!-- ====================================================================
+             PART 08: 进阶抽屉、自测问答与官方文档 (advanced, cheat, sources)
+             ==================================================================== -->
+        <div class="wb-sec-header" id="advanced">
+          <span class="wb-sec-num">08</span>
+          <span class="wb-sec-title">进阶抽屉 · 行格式 / 页结构 / COUNT / SQL 语义 + 7 题自测与官方文档</span>
+          <span class="plop-tag mint">DEEP DIVE &amp; SELF-CHECK</span>
+        </div>
+
+        <div class="wb-grid-2" style="margin-bottom:18px;">
+          <!-- 左栏：进阶抽屉 -->
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <div class="washi-tape pink"></div>
+            <div class="chapter-q-pill">🗄️ 08.1 · 行格式、页目录、COUNT 与 SQL 语义边界</div>
+            <h3>🗄️ 08.1 进阶抽屉：有了主线再补细节</h3>
+
+            <details class="plop-drawer" id="row" open>
+              <summary>📦 行格式 · 一行除了用户列还存什么</summary>
+              <div class="drawer-body">
+                <p>以 InnoDB 常见的 COMPACT / DYNAMIC 格式为背景，记录还有记录头、变长字段长度信息、NULL 位图等。聚簇记录还包含事务 ID（<code>DB_TRX_ID</code>，6 字节）与回滚指针（<code>DB_ROLL_PTR</code>，7 字节）；需要引擎生成隐藏行 ID 时，再有 6 字节的 <code>DB_ROW_ID</code>。</p>
+                <p>变长字段长度信息与 NULL 位图不是每个字段都无条件占一份固定空间。NULL 与空字符串也不同。DYNAMIC 是 8.0/8.4 默认行格式；大变长字段需要页外存储时，行内可保留 20 字节页外指针，并不是所有 TEXT 或 VARCHAR 都一定移到页外。</p>
+              </div>
+            </details>
+
+            <details class="plop-drawer">
+              <summary>📄 索引页 · 页目录（Page Directory）怎么找记录</summary>
+              <div class="drawer-body">
+                <p>B+ 树索引页包含文件头、页头、边界记录、用户记录、空闲区、页目录与文件尾等。记录按键顺序链接，页目录通过槽定位一小组记录，再在组内查找。这是索引页的说明，不能扩展成“undo 页、溢出页等所有类型的页结构完全相同”。</p>
+              </div>
+            </details>
+
+            <details class="plop-drawer" id="count">
+              <summary>🔢 COUNT · 数行与数非 NULL 值</summary>
+              <div class="drawer-body">
+                <p><code>COUNT(*)</code> 数结果行，<code>COUNT(1)</code> 同样数行；<code>COUNT(col)</code> 只数该列非 NULL 的行。对 InnoDB，精确计数要符合当前事务可见性，因此不能只读一个全表固定计数器；无条件 <code>COUNT(*)</code> 常会选择较小的二级索引扫描，但仍需考虑可见性。</p>
+                <p>MyISAM 在特定的无过滤单表全表计数场景可使用保存的行数。不能据此推导“有 WHERE 也总是 O(1)”，更不能为了 COUNT 快就把业务表改成不支持事务的引擎。</p>
+              </div>
+            </details>
+
+            <details class="plop-drawer" id="engines">
+              <summary>⚙️ MyISAM 与 InnoDB · 看能力，不只背对照表</summary>
+              <div class="drawer-body">
+                <p>InnoDB 支持事务、MVCC、行级锁和外键约束，是本文主线。MyISAM 不支持事务和外键约束，主要使用表级锁。两者都支持 B-tree 索引；“MyISAM 才支持全文索引”是旧知识，InnoDB 也支持全文索引。</p>
+              </div>
+            </details>
+
+            <details class="plop-drawer" id="sql">
+              <summary>🧭 SQL · 逻辑处理顺序与常见语义边界</summary>
+              <div class="drawer-body">
+                <p>入门可按 <code>FROM / JOIN → WHERE → GROUP BY → HAVING → SELECT → DISTINCT → ORDER BY → LIMIT</code> 理解结果如何形成。这是逻辑模型，不是优化器的物理执行顺序；MySQL 的别名解析还有自身规则。</p>
+                <ul>
+                  <li>WHERE 过滤分组前的行，HAVING 过滤分组结果；NULL 判断用 <code>IS NULL</code>，不是 <code>= NULL</code>。</li>
+                  <li>LEFT JOIN 保留左侧未匹配行；把右表的非空过滤条件放在 WHERE，可能排除这些行，改变连接语义。</li>
+                  <li><code>NOT IN</code> 的子查询含 NULL 时会产生容易误解的 UNKNOWN；按业务语义考虑 <code>NOT EXISTS</code> 并验证 NULL 行为。</li>
+                  <li>ORDER BY 要想分页稳定，应能唯一确定顺序；默认不写 ORDER BY，就没有结果顺序保证。</li>
+                </ul>
+              </div>
+            </details>
+          </div>
+
+          <!-- 右栏：自测 7 问 -->
+          <div class="wb-card" id="cheat">
+            <div class="washi-tape mint"></div>
+            <div class="chapter-q-pill">🎯 08.2 · 闭卷自测：7 道核心追问</div>
+            <h3>🎯 08.2 自测 · 先在心里回答，再展开核对</h3>
+
+            <details class="plop-drawer" open>
+              <summary>Q1：用主键查一行，是否一定只有一次磁盘 I/O？</summary>
+              <div class="drawer-body">
+                <p><strong>不一定。</strong>要访问索引路径上的页，但页可能已经缓存；还可能需要旧版本或页外字段。树高是逻辑路径长度，不能直接当作实测磁盘 I/O 次数。</p>
+              </div>
+            </details>
+
+            <details class="plop-drawer">
+              <summary>Q2：覆盖索引和 ICP 的区别是什么？</summary>
+              <div class="drawer-body">
+                <p><strong>覆盖索引</strong>使所需列能从索引取得，通常减少取完整行；<strong>ICP</strong> 把可在索引判断的条件下推到引擎，先过滤、减少回表。两者解决的问题不同。</p>
+              </div>
+            </details>
+
+            <details class="plop-drawer">
+              <summary>Q3：RR 的快照从 BEGIN 时就固定了吗？</summary>
+              <div class="drawer-body">
+                <p>通常从<strong>首次一致性读</strong>建立，后续一致性读复用；<code>WITH CONSISTENT SNAPSHOT</code> 可显式建立。自己的修改可见，锁定读和 DML 访问当前状态，不能套用普通快照读的结论。</p>
+              </div>
+            </details>
+
+            <details class="plop-drawer">
+              <summary>Q4：RC 完全没有间隙锁吗？</summary>
+              <div class="drawer-body">
+                <p>搜索与索引扫描通常不用，但<strong>外键检查和重复键检查</strong>仍可能使用。分析锁要交代隔离级别、索引、谓词和实际计划。</p>
+              </div>
+            </details>
+
+            <details class="plop-drawer">
+              <summary>Q5：redo、undo、binlog 分别解决什么？</summary>
+              <div class="drawer-body">
+                <p><code>redo</code> 支持崩溃重做；<code>undo</code> 支持回滚与旧版本重建；<code>binlog</code> 用于复制及配合备份恢复。内部 2PC 协调事务引擎与 binlog 的提交决定，持久性还取决于刷盘配置。</p>
+              </div>
+            </details>
+
+            <details class="plop-drawer">
+              <summary>Q6：半同步确认之后，从库一定读得到新数据吗？</summary>
+              <div class="drawer-body">
+                <p><strong>不一定。</strong>确认的是日志已接收并写 relay log 刷盘，不是事务已应用。需要目标从库应用到相应事务，并使用足够新的读取视图；关键读取也可直接走主库。</p>
+              </div>
+            </details>
+
+            <details class="plop-drawer">
+              <summary>Q7：更新遇到死锁，重试最后一条 SQL 就可以吗？</summary>
+              <div class="drawer-body">
+                <p>死锁受害事务会被回滚，应<strong>重试整个业务事务</strong>，并处理幂等性和重试上限；锁等待超时与死锁的回滚范围可能不同，要按错误类型处理。</p>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <!-- 核对依据与版本边界 -->
+        <div class="wb-card" id="sources" style="background:var(--plop-sheet);">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+            <h3 style="margin:0;">📚 核对依据与官方文档边界（MySQL 8.0 / 8.4 · InnoDB）</h3>
+            <span class="plop-tag periwinkle">VERIFIED: 2026-11-11</span>
+          </div>
+          <p style="font-size:13.4px;">
+            本文以 <strong>MySQL 8.0 / 8.4、InnoDB</strong> 为范围，不假设所有参数都使用默认值。涉及具体性能和锁边界时，用目标版本、实际配置、执行计划与双会话实验确认。以下按主题链接官方文档，便于继续追问：
+          </p>
+          <ul class="source-links-grid">
+            <li>🔗 <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-index-types.html" target="_blank" rel="noopener">聚簇索引与二级索引</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-row-format.html" target="_blank" rel="noopener">行格式</a></li>
+            <li>🔗 <a href="https://dev.mysql.com/doc/refman/8.4/en/multiple-column-indexes.html" target="_blank" rel="noopener">联合索引</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/range-optimization.html" target="_blank" rel="noopener">范围优化与 Skip Scan</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/index-condition-pushdown-optimization.html" target="_blank" rel="noopener">ICP</a></li>
+            <li>🔗 <a href="https://dev.mysql.com/doc/refman/8.4/en/explain.html" target="_blank" rel="noopener">EXPLAIN / ANALYZE</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/explain-output.html" target="_blank" rel="noopener">执行计划字段</a> · <a href="https://dev.mysql.com/doc/refman/8.0/en/hash-joins.html" target="_blank" rel="noopener">Hash Join</a></li>
+            <li>🔗 <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-transaction-isolation-levels.html" target="_blank" rel="noopener">隔离级别</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-consistent-read.html" target="_blank" rel="noopener">一致性读</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-locking.html" target="_blank" rel="noopener">InnoDB 锁</a></li>
+            <li>🔗 <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-redo-log.html" target="_blank" rel="noopener">redo</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-undo-logs.html" target="_blank" rel="noopener">undo</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/binary-log.html" target="_blank" rel="noopener">binlog 与恢复</a></li>
+            <li>🔗 <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-parameters.html" target="_blank" rel="noopener">InnoDB 持久性参数</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_sync_binlog" target="_blank" rel="noopener">sync_binlog</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-change-buffer.html" target="_blank" rel="noopener">Change Buffer</a></li>
+            <li>🔗 <a href="https://dev.mysql.com/doc/refman/8.4/en/replication-semisync.html" target="_blank" rel="noopener">半同步复制</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/gtid-functions.html" target="_blank" rel="noopener">GTID 等待函数</a></li>
+          </ul>
+        </div>

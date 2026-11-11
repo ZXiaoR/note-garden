@@ -1,0 +1,157 @@
+<!-- ====================================================================
+             PART 01: 从一张表开始 & 一条 SQL 的旅程 (01 & 02)
+             ==================================================================== -->
+        <div class="wb-sec-header" id="start">
+          <span class="wb-sec-num">01</span>
+          <span class="wb-sec-title">起步 · 从一张表开始，看一条 SQL 的完整旅程</span>
+          <span class="plop-tag tomato">SERVER 层 × INNODB 引擎层</span>
+        </div>
+
+        <!-- 01.1 · 从一张表开始（由上到下顺序排列） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 01.1 · 我们要存什么，又如何准确找到它？</div>
+          <h3>📋 01.1 第一步：用一张 <code>users</code> 表贯穿全文</h3>
+          <p>
+            MySQL 是关系型数据库管理系统：用<strong>表</strong>组织数据，用 SQL 查询和修改数据。数据库可以包含多张表；表由列定义结构，每一行代表一条记录。
+          </p>
+
+          <div class="plop-code-box">
+            <div class="plop-code-head">
+              <span>🐬 schema_and_dml.sql · 贯穿全文的示例表</span>
+              <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('sql-users-init', this)">复制 SQL</button>
+            </div>
+            <pre class="plop-code-pre" id="sql-users-init"><code><span class="c-kw">CREATE TABLE</span> users (
+  id <span class="c-fn">BIGINT UNSIGNED</span> <span class="c-kw">NOT NULL AUTO_INCREMENT</span>,
+  name <span class="c-fn">VARCHAR</span>(50) <span class="c-kw">NOT NULL</span>,
+  age <span class="c-fn">TINYINT UNSIGNED</span> <span class="c-kw">NOT NULL</span>,
+  city <span class="c-fn">VARCHAR</span>(50) <span class="c-kw">NOT NULL</span>,
+  balance <span class="c-fn">DECIMAL</span>(12,2) <span class="c-kw">NOT NULL DEFAULT</span> 0.00,
+  <span class="c-kw">PRIMARY KEY</span> (id),
+  <span class="c-kw">KEY</span> idx_city_age (city, age)
+) <span class="c-kw">ENGINE</span>=InnoDB <span class="c-kw">DEFAULT CHARSET</span>=utf8mb4;
+
+<span class="c-kw">INSERT INTO</span> users (name, age, city, balance) <span class="c-kw">VALUES</span>
+  (<span class="c-str">'小林'</span>, 20, <span class="c-str">'杭州'</span>, 100.00),
+  (<span class="c-str">'小周'</span>, 25, <span class="c-str">'杭州'</span>, 200.00),
+  (<span class="c-str">'小陈'</span>, 30, <span class="c-str">'上海'</span>, 300.00);
+
+<span class="c-kw">SELECT</span> id, name <span class="c-kw">FROM</span> users <span class="c-kw">WHERE</span> city = <span class="c-str">'杭州'</span> <span class="c-kw">AND</span> age &gt;= 20;
+<span class="c-kw">UPDATE</span> users <span class="c-kw">SET</span> balance = balance + 10.00 <span class="c-kw">WHERE</span> id = 1;</code></pre>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">概念</th>
+                  <th>先这样理解</th>
+                  <th style="width:28%">示例</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>主键</strong></td>
+                  <td>唯一标识一行，不能为 NULL；联合主键可以由多列组成</td>
+                  <td><code>PRIMARY KEY (id)</code></td>
+                </tr>
+                <tr>
+                  <td><strong>索引</strong></td>
+                  <td>为查找维护的额外有序结构，读取可能更快，写入和存储有成本</td>
+                  <td><code>idx_city_age</code></td>
+                </tr>
+                <tr>
+                  <td><strong>约束</strong></td>
+                  <td>由数据库检查的数据规则，如唯一性、非空、外键</td>
+                  <td><code>NOT NULL</code></td>
+                </tr>
+                <tr>
+                  <td><strong>存储引擎</strong></td>
+                  <td>负责表的数据存取、索引等机制；本文使用 InnoDB</td>
+                  <td><code>ENGINE=InnoDB</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-callout tip">
+            <strong>💡 先记住：</strong>主键解决“是哪一行”，索引解决“如何更快找”，事务解决“多步修改如何一起成功或失败”。金额示例使用精确的 <code>DECIMAL</code>，避免用浮点数表示需要精确计算的金额。
+          </div>
+        </div>
+
+        <!-- 01.2 · 一条 SQL 的旅程（全宽大字号分层图） -->
+        <div class="wb-card" id="arch" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill" id="server">❓ 01.2 · 谁理解 SQL，谁真正读写数据？</div>
+          <h3>🗺️ 01.2 第二步：Server 层与 InnoDB 引擎层的两层协作</h3>
+          <p>
+            先区分两层：<strong>Server 层</strong>处理连接、SQL 解析与优化、执行调度；<strong>InnoDB</strong> 通过存储引擎接口提供数据访问，并实现事务、行锁和恢复机制。优化器需要引擎提供统计信息，两层紧密协作：
+          </p>
+
+          <!-- 大字号手账卡片图解：SQL 执行分层图 -->
+          <div style="background:#FFFDF7; border:2.5px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <!-- 上半层：MySQL Server 层 -->
+            <div style="background:#FBF8F0; border:2.2px dashed var(--plop-ink); border-radius:12px; padding:14px;">
+              <div style="background:var(--plop-ink); color:#FFF8E7; border-radius:8px; padding:7px 12px; font-weight:900; font-size:14.5px; text-align:center; margin-bottom:12px;">
+                ⚙️ 第一层：MySQL Server 层 —— 负责连接 · 解析 · 优化 · 执行（归属日志：<code>binlog</code> 归档日志）
+              </div>
+
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(185px, 1fr)); gap:10px;">
+                <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                  <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:4px;">① 连接与认证</div>
+                  <div style="font-size:12.8px; color:var(--plop-ink-soft); font-weight:700;">建立 TCP 会话，校验账号密码与库表权限（8.0 已移除旧 Query Cache）</div>
+                </div>
+
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                  <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:4px;">② 解析与预处理</div>
+                  <div style="font-size:12.8px; color:var(--plop-ink-soft); font-weight:700;">词法/语法分析生成 AST，检查表名、列名是否存在</div>
+                </div>
+
+                <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                  <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:4px;">③ 优化器 (Optimizer)</div>
+                  <div style="font-size:12.8px; color:var(--plop-ink-text); font-weight:700;">基于成本估算（I/O + CPU），决定选哪个索引、怎么排 JOIN 顺序</div>
+                </div>
+
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                  <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:4px;">④ 执行器 (Executor)</div>
+                  <div style="font-size:12.8px; color:var(--plop-ink-soft); font-weight:700;">按执行计划循环调用存储引擎读写接口，完成过滤与聚合</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="text-align:center; padding:8px 0; font-weight:900; font-size:14px; color:var(--plop-ink);">
+              ⬇️ 执行器通过存储引擎 API 逐行/按范围调用 InnoDB ⇄ InnoDB 向优化器反馈索引统计信息
+            </div>
+
+            <!-- 下半层：InnoDB 存储引擎层 -->
+            <div style="background:var(--plop-mint); border:2.4px solid var(--plop-ink); border-radius:12px; padding:14px; text-align:center;">
+              <div style="background:#15803d; color:#FFFFFF; border-radius:8px; padding:7px 12px; font-weight:900; font-size:14.5px; margin-bottom:10px;">
+                🐬 第二层：InnoDB 存储引擎层 —— 负责真正管数据与并发（归属日志：<code>redo log</code> / <code>undo log</code>）
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px; font-size:13.2px; font-weight:800;">
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">🌳 B+ 树聚簇 / 二级索引</div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">🧠 Buffer Pool 16KiB 内存页池</div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">📸 MVCC 多版本与行锁/间隙锁</div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">🛡️ WAL Redo 崩溃恢复与 Undo 回滚</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="plop-callout info">
+            <strong>📌 两个容易混淆的点：</strong>MySQL 8.0 已删除旧的 Query Cache，不代表数据库没有缓存；InnoDB 的 Buffer Pool 仍然缓存数据页。<span class="hl-mustard">binlog 属于 Server 层；redo、undo 属于 InnoDB。</span>
+          </div>
+
+          <details class="plop-drawer">
+            <summary>🔍 进阶 · 连接与权限的边界（空闲连接 ≠ 空闲事务）</summary>
+            <div class="drawer-body">
+              <p>连接通常可复用，连接池减少反复建连的成本。权限变更何时影响已有会话，取决于权限范围与具体操作，不能笼统说“改权限对旧连接都不生效”。</p>
+              <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:9px; padding:8px 11px; margin-top:6px; font-size:12.5px; font-weight:700;">
+                <strong style="color:var(--plop-tomato);">⚠️ 警惕“空闲连接 ≠ 空闲事务”：</strong>客户端执行了 <code>BEGIN; SELECT ...</code> 后若既不 <code>COMMIT</code> 也不 <code>ROLLBACK</code>，连接在连接池里看似 `Sleep`（空闲），但会话内部仍可能<strong>持有活跃事务、行锁/MDL 锁或旧的 ReadView 快照</strong>，拖慢后台 undo 清理甚至阻塞 DDL！
+              </div>
+            </div>
+          </details>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：执行器喊 InnoDB“把 id=1 那行给我”，如果表里有 1000 万行存在硬盘上，InnoDB 怎么找才不会慢成蜗牛？</span>
+          </div>
+        </div>

@@ -1,0 +1,211 @@
+<!-- ====================================================================
+             PART 06: 分布式锁、消息队列 Stream、事务/Lua/Pipeline 与高频面试自测
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="lock">
+          <span class="wb-sec-num">06</span>
+          <span class="wb-sec-title">实战扩展与自测 · 分布式锁 4 步演进、Stream 消息队列、Lua/Pipeline 与高频自测</span>
+          <span class="plop-tag">DISTRIBUTED LOCK · STREAM · LUA</span>
+        </div>
+
+        <!-- 14：分布式锁 4 步演进 + RedLock 争议（由上到下顺序排列） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+            <div class="washi-tape"></div>
+            <div class="chapter-q-pill">❓ 06.1 · 用 Redis 实现生产级分布式锁，必须一步步堵上哪 4 个漏洞？</div>
+            <h3>🔒 06.1 分布式锁：从朴素写法到 Redisson 生产级闭环</h3>
+
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:24%">演进阶段</th>
+                    <th>堵住什么致命漏洞？怎么写？</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>① 原子占锁+过期</strong></td>
+                    <td>不能拆成 <code>SETNX</code> + <code>EXPIRE</code> 两条命令（中间宕机就永久死锁），必须合二为一：<br><code>SET lock_key uuid_threadId NX EX 30</code></td>
+                  </tr>
+                  <tr>
+                    <td><strong>② 防误删别人锁</strong></td>
+                    <td>若线程 A 业务卡顿超过 30s 锁自动释放，线程 B 抢到锁；此时 A 跑完直接 <code>DEL</code> 就会把 B 的锁删掉！<br>👉 <strong>解法：</strong>Value 存唯一标识（<code>UUID:threadId</code>），释放时用 <strong>Lua 脚本原子执行“比对 Value 相等才 DEL”</strong>。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>③ 锁自动续期</strong><br><span style="font-size:11px; color:var(--plop-leaf);">(Watchdog 看门狗)</span></td>
+                    <td>TTL 设短了业务没跑完锁就丢了。<strong>Redisson 看门狗</strong>：加锁默认 30s，后台每 <code>10s</code>（TTL/3）检查当前线程是否仍持有锁，若是则自动把 TTL 重置回 30s；若客户端宕机则不再续期，到期自然释放。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>④ 可重入锁</strong></td>
+                    <td>同一线程内方法嵌套再次拿同一把锁时，用 <strong><code>Hash</code> 结构</strong> 存储：<code>key=锁名, field=UUID:threadId, value=重入次数</code>，重入时 <code>+1</code>，释放时 <code>-1</code>，减到 <code>0</code> 才真正 <code>DEL</code>。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📜 unlock_atomic.lua · 原子校验并释放分布式锁</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('redis-lua-unlock', this)">复制 Lua</button>
+              </div>
+              <pre class="plop-code-pre" id="redis-lua-unlock"><code><span class="c-cm">-- KEYS[1]: 锁名称 | ARGV[1]: 当前线程唯一标识 (UUID:threadId)</span>
+<span class="c-kw">if</span> redis.call(<span class="c-str">'GET'</span>, KEYS[1]) == ARGV[1] <span class="c-kw">then</span>
+    <span class="c-kw">return</span> redis.call(<span class="c-str">'DEL'</span>, KEYS[1])
+<span class="c-kw">else</span>
+    <span class="c-kw">return</span> 0
+<span class="c-kw">end</span></code></pre>
+            </div>
+
+            <div class="plop-callout warn">
+              <strong>⚖️ 主从切换丢锁问题与 RedLock 争议（Martin Kleppmann vs antirez）：</strong><br>
+              主库刚加上锁还没异步复制给从库就宕机，哨兵把从库升为新主，新主上没有这把锁，导致第二个客户端也加锁成功。<br>
+              • <strong>RedLock：</strong>部署 5 台独立 Master，向全部节点加锁，超半数（≥3 台）成功且耗时极短才算拿锁。<br>
+              • <strong>争议与选型结论：</strong>若客户端拿锁后发生长时间 Full GC 停顿，锁过期被别人拿走，仍无法保证绝对互斥（除非资源层校验单调递增的 <code>fencing token</code>）。因此：<strong>高并发提效防重用 Redis 锁（Redisson）；要求 100% 强一致零差错的账务核心，用数据库唯一约束/悲观锁或 etcd / ZooKeeper。</strong>
+            </div>
+        </div>
+
+        <!-- 15：消息队列 Stream + 事务 / Lua / Pipeline（由上到下顺序排列） -->
+        <div class="wb-card" id="mq" style="background:var(--plop-paper); margin-bottom:20px;">
+            <div class="washi-tape periwinkle"></div>
+            <div class="chapter-q-pill">❓ 06.2 · Redis 做消息队列有哪 3 种方式？为什么 Redis 事务不支持回滚？</div>
+            <h3>📨 06.2 消息队列对比：List vs Pub/Sub vs Stream (5.0+)</h3>
+
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:18%">方案</th>
+                    <th style="width:32%">核心命令</th>
+                    <th>优缺点与适用边界</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>List</strong></td>
+                    <td><code>LPUSH + BRPOP</code></td>
+                    <td>拉出即删，<strong>无 ACK 确认机制</strong>（消费者崩溃消息就丢），不支持多消费者组广播。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Pub/Sub</strong></td>
+                    <td><code>PUBLISH / SUBSCRIBE</code></td>
+                    <td>纯内存广播，<strong>不持久化历史消息</strong>，客户端断线期间的消息直接丢失（Fire-and-Forget）。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Stream</strong><br><span style="font-size:11px; color:var(--plop-leaf);">(5.0+ 推荐)</span></td>
+                    <td><code>XADD / XREADGROUP / XACK</code></td>
+                    <td>借鉴 Kafka：自增消息 ID（<code>时间戳-序号</code>）、<strong>组间广播 + 组内负载均衡</strong>、未确认消息进入 <strong>PEL 待确认列表</strong>，支持 <code>XACK</code> 与 <code>XAUTOCLAIM</code> 故障认领（需用 <code>MAXLEN ~ 10000</code> 限长防撑爆内存）。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>⚡ stream_mq_demo.redis · Stream 消费者组与 ACK 闭环命令</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('redis-stream-cmd', this)">复制命令</button>
+              </div>
+              <pre class="plop-code-pre" id="redis-stream-cmd"><code><span class="c-cm"># 1. 生产消息并限制队列近似长度 10000</span>
+XADD orders MAXLEN ~ 10000 * user 1001 amount 99.00
+<span class="c-cm"># 2. 创建消费者组 g1 并由消费者 c1 拉取未消费消息 (&gt;)</span>
+XGROUP CREATE orders g1 0 MKSTREAM
+XREADGROUP GROUP g1 c1 COUNT 5 STREAMS orders &gt;
+<span class="c-cm"># 3. 消费成功后发送 XACK 从 PEL 待确认列表中移除</span>
+XACK orders g1 1699000000000-0</code></pre>
+            </div>
+
+            <hr style="border:none; border-top:2px dashed rgba(40,72,216,0.3); margin:14px 0;" />
+
+            <h3 id="misc">🧰 事务（MULTI/EXEC）、Lua 脚本与 Pipeline 管道辨析</h3>
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:24%">机制</th>
+                    <th>核心特性与高频考点</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>MULTI / EXEC 事务</strong></td>
+                    <td><strong>不支持回滚！</strong>入队时语法错误会整个拒绝执行；但执行期运行错误（如对 String 调 <code>LPUSH</code>）<strong>只有报错那条失败，其余照常执行且不回滚</strong>。如需条件原子操作，请用 <strong>Lua 脚本</strong>。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Lua 脚本 (EVAL)</strong></td>
+                    <td>整个脚本在主线程里<strong>作为单条命令原子执行，绝不被其他客户端插队</strong>，且支持写 <code>if/else</code> 分支读取中间结果（不可写死循环或慢逻辑）。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Pipeline 管道</strong></td>
+                    <td><strong>纯网络层优化（≠ 事务）：</strong>客户端把多条命令打包一次发过去，把 $N$ 次网络 RTT 压缩成 1 次；但服务端执行时<strong>不保证原子性</strong>，中间可能穿插其他客户端命令。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+        </div>
+
+        <!-- 底部：高频面试自测抽屉 -->
+        <div class="wb-card" id="cheat" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">🎯 06.3 · 闭卷自测：9 道 Redis 核心追问（先口述回答，再点开抽屉核对）</div>
+          <h3>☑️ 06.3 高频面试速记自检表</h3>
+
+          <div class="wb-grid-2">
+            <div>
+              <details class="plop-drawer">
+                <summary>01. Redis 为什么快？6.0 多线程改了哪里？</summary>
+                <div class="drawer-body">
+                  <p>纯内存寻址（~100ns）+ 单线程免锁免上下文切换 + epoll 多路复用 Reactor 模型 + 高度优化的数据结构（SDS/跳表/listpack）。4.0 引入 bio 后台线程异步删大 Key（<code>UNLINK</code>）；6.0 多线程 IO <strong>只并行读写 Socket 与协议解析，命令执行阶段始终单线程串行</strong>。</p>
+                </div>
+              </details>
+              <details class="plop-drawer">
+                <summary>02. String 的 embstr 为什么以 44 字节为界？7.0 为什么用 listpack 替代 ziplist？</summary>
+                <div class="drawer-body">
+                  <p>jemalloc 分配 64B 内存块，减去 <code>redisObject</code> 头(16B) + <code>sdshdr8</code> 头(3B) + <code>\0</code>(1B) = <strong>44B</strong>。旧 <code>ziplist</code> 每项存前一项长度 <code>prevlen</code>，修改会触发级联扩容的“连锁更新”；<code>listpack</code> 只存自身长度，彻底根除连锁更新。</p>
+                </div>
+              </details>
+              <details class="plop-drawer">
+                <summary>03. ZSet 为什么用跳表 (skiplist + dict) 而不是红黑树或 B+ 树？</summary>
+                <div class="drawer-body">
+                  <p><code>dict</code> 支持 $O(1)$ 按成员查分值，<code>skiplist</code> 支持 $O(\log N)$ 排序与范围查。相比红黑树，跳表 L0 层就是双向有序链表，范围遍历（<code>ZRANGE</code>）极简单且靠随机层数免去旋转平衡；B+ 树则是为降低磁盘页随机 IO 设计的，纯内存无需 B+ 树。</p>
+                </div>
+              </details>
+              <details class="plop-drawer">
+                <summary>04. 渐进式 rehash 是怎么运作的？为什么 fork 期间扩容阈值从 1 提到 5？</summary>
+                <div class="drawer-body">
+                  <p>同时维护 <code>ht[0]</code> 和 <code>ht[1]</code>，每次增删改查顺带按 <code>rehashidx</code> 搬迁 1 个桶（新增只写 <code>ht[1]</code>，查询先 <code>ht[0]</code> 后 <code>ht[1]</code>）。RDB/AOF 子进程存在时，为避免大面积内存修改触发写时复制（COW）撑爆内存，把扩容负载因子阈值从 1 抬高到 5。</p>
+                </div>
+              </details>
+              <details class="plop-drawer">
+                <summary>05. 缓存穿透、击穿、雪崩分别怎么解决？</summary>
+                <div class="drawer-body">
+                  <p><strong>穿透（查不存在）：</strong>布隆过滤器前置拦截 + 缓存空对象（短 TTL）；<strong>击穿（单热点 Key 过期）：</strong>互斥锁回源重建 或 逻辑过期异步刷新；<strong>雪崩（大批过期或宕机）：</strong>TTL 加随机偏移值 + 高可用集群 + 本地多级缓存。</p>
+                </div>
+              </details>
+            </div>
+
+            <div>
+              <details class="plop-drawer">
+                <summary>06. MySQL 与 Redis 如何保持数据一致？</summary>
+                <div class="drawer-body">
+                  <p>采用 Cache-Aside 最终一致：<strong>先更新 MySQL，再删除 Redis 缓存</strong>（不更新缓存以防并发写覆盖与无效计算；不先删缓存以防并发读把旧值重新灌回缓存）。进阶可叠加<strong>延迟双删</strong>或用 <strong>Canal 订阅 MySQL binlog + MQ 重试</strong>异步删缓存。</p>
+                </div>
+              </details>
+              <details class="plop-drawer">
+                <summary>07. RDB 和 AOF 各有什么优缺点？4.0 混合持久化怎么做？</summary>
+                <div class="drawer-body">
+                  <p>RDB 是二进制快照（<code>bgsave</code> fork + COW），恢复极快但丢数据多；AOF 记录写命令（<code>everysec</code> 最多丢 1 秒），但体积大恢复慢。4.0 混合持久化在 AOF 重写时将<strong>前半段存为 RDB 快照、后半段追加增量 AOF 命令</strong>，兼顾恢复速度与数据安全。</p>
+                </div>
+              </details>
+              <details class="plop-drawer">
+                <summary>08. 过期删除和内存淘汰有什么区别？从库会自己删过期 Key 吗？</summary>
+                <div class="drawer-body">
+                  <p>过期删除采用<strong>惰性删除 + 定期抽样删除</strong>；内存达到 <code>maxmemory</code> 时触发 8 种淘汰策略（常用 <code>allkeys-lru</code> 或 <code>allkeys-lfu</code>，复用 <code>redisObject</code> 的 24-bit <code>lru</code> 字段抽样淘汰）。<strong>从库绝不主动物理删除过期 Key</strong>，统一等主库发来 <code>DEL/UNLINK</code> 才删。</p>
+                </div>
+              </details>
+              <details class="plop-drawer">
+                <summary>09. 主从、哨兵、Cluster 各自解决什么问题？分布式锁怎么防误删和过期？</summary>
+                <div class="drawer-body">
+                  <p><strong>主从：</strong>读分流与备份（靠 RDB + <code>repl_backlog</code> 环形缓冲同步）；<strong>哨兵：</strong>SDOWN→ODOWN + Raft 选主自动故障转移；<strong>Cluster：</strong>16384 槽水平分片。<strong>分布式锁：</strong><code>SET key uuid NX EX 30</code> + Lua 比对 UUID 原子释放 + Watchdog 看门狗每 10s 自动续期。</p>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>

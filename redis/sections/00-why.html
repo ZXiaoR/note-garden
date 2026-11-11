@@ -1,0 +1,130 @@
+<!-- ====================================================================
+             PART 00: 第一性原理导读 · 为什么有了 MySQL 还需要 Redis？入门懂什么、进阶解决什么？
+             ==================================================================== -->
+        <div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+          <span class="wb-sec-num">00</span>
+          <span class="wb-sec-title">第一性原理导读 · 为什么有了 MySQL 还要学 Redis？入门懂什么、进阶在解决什么？</span>
+          <span class="plop-tag tomato">FIRST PRINCIPLES · 必读心法</span>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🧭 先搞清楚定位 · Redis 不是为了替代 MySQL，而是为了补齐物理硬件的“速度鸿沟”</div>
+          <h3>💡 从第一性原理出发：为什么磁盘数据库扛不住几十万 QPS 的高并发？</h3>
+          <p>
+            刚学完 MySQL，你一定会问：<strong>“既然 MySQL 已经有 B+ 树索引、有 Buffer Pool 内存池、还有事务和锁，为什么几乎所有互联网系统还要在 MySQL 前面再架一层 Redis？”</strong>
+          </p>
+          <p>
+            答案藏在<strong>计算机硬件的物理极限与架构分工</strong>里：MySQL 的首要使命是<strong>“数据绝对可靠、支持复杂关系查询（JOIN/排序/聚合）与严格事务 ACID”</strong>，每次写操作都要维护 B+ 树页、写 Redo/Undo/Binlog 日志，单机能抗住几千 QPS 就已经很吃力；而当面对秒杀抢购、热点商品详情、排行榜、分布式锁这种<strong>每秒几万到几十万次的极高频简单读写</strong>时，必须把数据直接放在<strong>纯内存 + 极致简单的数据结构</strong>里——这就是 Redis 诞生的第一性原理。
+          </p>
+
+          <!-- 手绘 SVG：从第一性原理推导 Redis 全景知识体系 -->
+          <svg viewBox="0 0 880 390" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="Redis 第一性原理推导全景图">
+            <defs>
+              <marker id="rd-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
+              </marker>
+              <marker id="rd-arr-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="#D2381E" stroke="#D2381E" stroke-linejoin="round"/>
+              </marker>
+            </defs>
+
+            <!-- 左侧：入门起点 -->
+            <rect x="14" y="16" width="202" height="358" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <rect x="26" y="28" width="178" height="28" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2"/>
+            <text x="115" y="47" text-anchor="middle" font-size="12.2" font-weight="900" fill="var(--plop-ink-text)">🌱 入门阶段（起点）</text>
+
+            <text x="115" y="78" text-anchor="middle" font-size="13.2" font-weight="900" fill="var(--plop-ink)">拿来当「高速字典」用</text>
+            <text x="115" y="96" text-anchor="middle" font-size="10.8" font-weight="700" fill="var(--plop-ink-soft)">(选对类型 + 设好过期时间)</text>
+
+            <rect x="28" y="112" width="174" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="115" y="132" text-anchor="middle" font-size="11" font-weight="800" fill="var(--plop-ink-text)">① 掌握 5 大基础数据类型</text>
+            <text x="115" y="149" text-anchor="middle" font-size="9.2" font-weight="700" fill="var(--plop-ink-soft)">String/Hash/List/Set/ZSet</text>
+
+            <rect x="28" y="174" width="174" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="115" y="194" text-anchor="middle" font-size="11" font-weight="800" fill="var(--plop-ink-text)">② 旁路缓存读写套路</text>
+            <text x="115" y="211" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">先查 Redis → 未命中查 DB 回填</text>
+
+            <rect x="28" y="236" width="174" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="115" y="256" text-anchor="middle" font-size="11" font-weight="800" fill="var(--plop-ink-text)">③ 基础过期与原子操作</text>
+            <text x="115" y="273" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">EXPIRE 过期 / INCR 计数 / SETNX</text>
+
+            <rect x="28" y="298" width="174" height="62" rx="8" fill="#FFF6F4" stroke="#D2381E" stroke-width="1.8" stroke-dasharray="4 3"/>
+            <text x="115" y="318" text-anchor="middle" font-size="10.5" font-weight="900" fill="#D2381E">⚠️ 只会调命令为什么不够？</text>
+            <text x="115" y="334" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">内存会满、断电会丢、高并发</text>
+            <text x="115" y="349" text-anchor="middle" font-size="9.8" font-weight="800" fill="#D2381E">会击穿 DB → 引出四大进阶主线 ➔</text>
+
+            <!-- 分叉箭头 -->
+            <path d="M216 90 L252 60" stroke="#D2381E" stroke-width="2.2" marker-end="url(#rd-arr-red)"/>
+            <path d="M216 165 L252 152" stroke="#D2381E" stroke-width="2.2" marker-end="url(#rd-arr-red)"/>
+            <path d="M216 235 L252 245" stroke="#D2381E" stroke-width="2.2" marker-end="url(#rd-arr-red)"/>
+            <path d="M216 305 L252 336" stroke="#D2381E" stroke-width="2.2" marker-end="url(#rd-arr-red)"/>
+
+            <!-- 右侧四大进阶主线 -->
+            <!-- 主线 1 -->
+            <rect x="256" y="16" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <rect x="268" y="24" width="182" height="64" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="359" y="45" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">⚡ 主线一：它凭什么这么快？</text>
+            <text x="359" y="62" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 01～02 章 · 线程与编码）</text>
+            <text x="359" y="77" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">单核每秒十万级 QPS 的秘密</text>
+            <text x="466" y="46" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 网络与执行：纯内存 + 单线程免锁免切换 + epoll 多路复用 + 6.0 多线程 IO</text>
+            <text x="466" y="66" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 底层数据结构：SDS / intset / dict(渐进式rehash) / listpack(消除连锁更新) / 跳表</text>
+            <text x="466" y="83" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 明白为什么一个大 Key 会卡死整个单线程、为什么小集合比大集合省几倍内存</text>
+
+            <!-- 主线 2 -->
+            <rect x="256" y="108" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <rect x="268" y="116" width="182" height="64" rx="8" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="359" y="137" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🛡️ 主线二：做缓存会踩什么坑？</text>
+            <text x="359" y="154" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 03 章 · 异常与同步）</text>
+            <text x="359" y="169" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">保护背后的 MySQL 不被打穿</text>
+            <text x="466" y="138" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 三大异常：穿透(查不存在→布隆/空值) / 击穿(单热Key失效→互斥锁) / 雪崩(大批失效)</text>
+            <text x="466" y="158" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 双写一致性：Cache-Aside 先更 DB 再删缓存 + 延迟双删 + Canal 订阅 binlog</text>
+            <text x="466" y="175" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 加上大 Key 拆分 (UNLINK) 与热 Key 多级缓存分流，构筑完整生产防线</text>
+
+            <!-- 主线 3 -->
+            <rect x="256" y="200" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <rect x="268" y="208" width="182" height="64" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="359" y="229" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">💾 主线三：数据会丢、内存会满</text>
+            <text x="359" y="246" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 04 章 · 持久化与淘汰）</text>
+            <text x="359" y="261" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">内存有限且易失，怎么兜底？</text>
+            <text x="466" y="230" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 断电不丢：RDB 快照 (fork + COW 写时复制) + AOF 命令日志 + 4.0 混合持久化</text>
+            <text x="466" y="250" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 空间清理：过期删除 (惰性 + 定期抽样) + 内存满了触发 8 种 maxmemory 淘汰策略</text>
+            <text x="466" y="267" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 理解近似 LRU / LFU 为什么不用全局双向链表，而是靠 24-bit 字段抽样淘汰</text>
+
+            <!-- 主线 4 -->
+            <rect x="256" y="292" width="610" height="82" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <rect x="268" y="300" width="182" height="66" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="359" y="321" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🌐 主线四：单机挂了/装不下</text>
+            <text x="359" y="338" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 05～06 章 · 集群与分布式锁）</text>
+            <text x="359" y="354" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">高可用演进与跨进程协调</text>
+            <text x="466" y="322" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 高可用三级跳：主从复制 (RDB+repl_backlog) → 哨兵 Sentinel (自动选主) → Cluster (16384槽)</text>
+            <text x="466" y="342" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 分布式能力：分布式锁 (SET NX EX + Lua + Watchdog) + Stream 消息队列 + Lua/Pipeline</text>
+            <text x="466" y="359" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 看懂主从切换为什么会导致分布式锁丢锁（RedLock 争议）与脑裂怎么防护</text>
+          </svg>
+
+          <!-- 入门 vs 进阶双栏对照 -->
+          <div class="wb-grid-2" style="margin-top:14px;">
+            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
+              <span class="plop-tag mint" style="margin-bottom:8px;">STAGE 1 · 入门阶段我们懂什么就够了？</span>
+              <h4>🎯 目标：把 Redis 当成“带过期时间的远程内存字典”用对</h4>
+              <ol>
+                <li><strong>选对 5 种基础数据结构：</strong>缓存单值/计数器用 <code>String</code>，存用户各属性/购物车用 <code>Hash</code>，简单队列/时间线用 <code>List</code>，去重/交集抽奖用 <code>Set</code>，排行榜/权重区间用 <code>ZSet</code>。</li>
+                <li><strong>写对旁路缓存（Cache-Aside）套路：</strong>读请求先查 Redis，没有再查 MySQL 并写入 Redis（一定要带 <code>EXPIRE</code> 过期时间）；写请求先改 MySQL，再删 Redis 缓存。</li>
+                <li><strong>会用基本原子指令：</strong>用 <code>INCR / DECR</code> 做原子计数/限流，用 <code>SET key val NX EX 10</code> 做最基础的防重/互斥锁。</li>
+              </ol>
+            </div>
+
+            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
+              <span class="plop-tag tomato" style="margin-bottom:8px;">STAGE 2 · 进阶在干什么？为什么要了解进阶？</span>
+              <h4>🔥 目标：应对「单线程卡顿」「缓存击穿雪崩」「丢数据」与「集群扩容」</h4>
+              <ul>
+                <li><strong>为什么明明是内存操作，线上 Redis 突然卡顿几百毫秒？</strong><br>
+                  👉 因为命令执行是<strong>单线程</strong>！不懂底层编码与渐进式 rehash，随便塞一个百万元素的<strong>大 Key</strong> 或执行 <code>DEL / KEYS *</code>，就会把所有人的请求全部堵死。</li>
+                <li><strong>为什么加了 Redis，大促零点 MySQL 还是瞬间被打崩了？</strong><br>
+                  👉 因为没防住<strong>缓存穿透、击穿（热点 Key 过期瞬间万级回源）和雪崩（同批 TTL 同时失效）</strong>。</li>
+                <li><strong>为什么加了分布式锁还是出现超卖/误删别人的锁？</strong><br>
+                  👉 不懂<strong>唯一 Value + Lua 脚本原子释放 + Watchdog 自动续期</strong>，以及主从异步复制切换导致的锁丢失边界。</li>
+              </ul>
+            </div>
+          </div>
+        </div>

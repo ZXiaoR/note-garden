@@ -1,0 +1,148 @@
+<!-- ====================================================================
+             PART 03: 做缓存必遇的坑 · 穿透/击穿/雪崩、布隆过滤器、DB双写一致性、大Key与热Key
+             ==================================================================== -->
+        <div class="wb-sec-header pink" id="cache-problem">
+          <span class="wb-sec-num">03</span>
+          <span class="wb-sec-title">缓存实战避坑 · 穿透/击穿/雪崩、布隆过滤器、MySQL 双写一致性与大 Key 治理</span>
+          <span class="plop-tag tomato">HIGH FREQUENCY · 生产防线</span>
+        </div>
+
+        <!-- 06：缓存三大问题 + 布隆过滤器 SVG（由上到下顺序排列） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+            <div class="washi-tape"></div>
+            <div class="chapter-q-pill">❓ 03.1 · 缓存穿透、击穿、雪崩有什么区别？分别怎么挡住？</div>
+            <h3>🛡️ 03.1 缓存三大经典问题（都会打到 DB，但触发根因完全不同）</h3>
+
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:18%">异常类型</th>
+                    <th style="width:36%">一句话本质</th>
+                    <th>标准工程解法</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>① 缓存穿透</strong></td>
+                    <td>查<strong>根本不存在</strong>的数据（如 <code>id=-1</code>），缓存和 DB 都没有，每次都穿透打到 DB</td>
+                    <td>• <strong>布隆过滤器</strong>前置拦截<br>• <strong>缓存空对象</strong>（<code>NULL</code> 设 30~60s 短 TTL）<br>• 接口层参数合法性校验</td>
+                  </tr>
+                  <tr>
+                    <td><strong>② 缓存击穿</strong></td>
+                    <td><strong>单个超热 Key</strong>（如秒杀商品）到期瞬间，万级并发同时回源 DB 重建</td>
+                    <td>• <strong>互斥锁（Mutex）</strong>：只让第 1 个线程查 DB 重建，其余等待重试<br>• <strong>逻辑过期</strong>：物理永不过期，value 存逻辑时间戳，过期异步重建、先返旧值</td>
+                  </tr>
+                  <tr>
+                    <td><strong>③ 缓存雪崩</strong></td>
+                    <td><strong>大批 Key 同时到期</strong> 或 <strong>Redis 实例宕机</strong>，流量洪峰压垮 DB</td>
+                    <td>• <strong>TTL 加随机打散值</strong>（基础时间 + 随机几分钟）<br>• <strong>高可用集群</strong>（哨兵 / Cluster）<br>• <strong>本地多级缓存</strong>（Caffeine）+ 限流降级</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 手绘 SVG：布隆过滤器位数组与 k 次哈希原理 -->
+            <h4>🌸 布隆过滤器（Bloom Filter）防穿透原理：位数组 + $k$ 个哈希函数</h4>
+            <svg viewBox="0 0 480 185" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:10px; margin:8px 0;" aria-label="布隆过滤器位数组原理图">
+              <text x="14" y="22" font-size="10.2" font-weight="900" fill="var(--plop-ink)">① 写入存在的 key_A：经 3 个哈希函数映射到下标 [2, 7, 11]，全部置 1</text>
+              <!-- 12 位 bit 数组 -->
+              <g transform="translate(14, 30)">
+                <rect x="0"   y="0" width="36" height="40" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+                <rect x="36"  y="0" width="36" height="40" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+                <rect x="72"  y="0" width="36" height="40" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+                <rect x="108" y="0" width="36" height="40" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+                <rect x="144" y="0" width="36" height="40" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+                <rect x="180" y="0" width="36" height="40" fill="#FFF6F4" stroke="#D2381E" stroke-width="2"/>
+                <rect x="216" y="0" width="36" height="40" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+                <rect x="252" y="0" width="36" height="40" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+                <rect x="288" y="0" width="36" height="40" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+                <rect x="324" y="0" width="36" height="40" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+                <rect x="360" y="0" width="36" height="40" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+                <rect x="396" y="0" width="36" height="40" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+
+                <text x="18"  y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink-soft)">#0</text><text x="18"  y="32" text-anchor="middle" font-size="11" font-weight="800">0</text>
+                <text x="54"  y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink-soft)">#1</text><text x="54"  y="32" text-anchor="middle" font-size="11" font-weight="800">0</text>
+                <text x="90"  y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink)">#2</text><text x="90"  y="32" text-anchor="middle" font-size="12" font-weight="900" fill="var(--plop-leaf)">1</text>
+                <text x="126" y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink-soft)">#3</text><text x="126" y="32" text-anchor="middle" font-size="11" font-weight="800">0</text>
+                <text x="162" y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink-soft)">#4</text><text x="162" y="32" text-anchor="middle" font-size="11" font-weight="800">0</text>
+                <text x="198" y="14" text-anchor="middle" font-size="8.5" fill="#D2381E">#5</text><text x="198" y="32" text-anchor="middle" font-size="12" font-weight="900" fill="#D2381E">0✗</text>
+                <text x="234" y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink-soft)">#6</text><text x="234" y="32" text-anchor="middle" font-size="11" font-weight="800">0</text>
+                <text x="270" y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink)">#7</text><text x="270" y="32" text-anchor="middle" font-size="12" font-weight="900" fill="var(--plop-leaf)">1</text>
+                <text x="306" y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink-soft)">#8</text><text x="306" y="32" text-anchor="middle" font-size="11" font-weight="800">0</text>
+                <text x="342" y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink-soft)">#9</text><text x="342" y="32" text-anchor="middle" font-size="11" font-weight="800">0</text>
+                <text x="378" y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink-soft)">#10</text><text x="378" y="32" text-anchor="middle" font-size="11" font-weight="800">0</text>
+                <text x="414" y="14" text-anchor="middle" font-size="8.5" fill="var(--plop-ink)">#11</text><text x="414" y="32" text-anchor="middle" font-size="12" font-weight="900" fill="var(--plop-leaf)">1</text>
+              </g>
+
+              <rect x="14" y="82" width="452" height="44" rx="7" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.6"/>
+              <text x="22" y="100" font-size="9.3" font-weight="800" fill="var(--plop-leaf)">• 查 key_A → 落点 [2, 7, 11] 全为 1 → 判定「可能存在」（极小假阳性误判，放行）</text>
+              <text x="22" y="117" font-size="9.3" font-weight="900" fill="#D2381E">• 查不存在 key_X → 落点 [2, 5, 11]，#5 为 0 → 100% 必不存在！直接拦截穿透 ✅</text>
+
+              <text x="232" y="148" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink-text)">铁律：说“不存在”绝对可信（零假阴性）；说“存在”可能被别的 key 凑巧撞满 1（假阳性）</text>
+              <text x="232" y="166" text-anchor="middle" font-size="9.2" font-weight="700" fill="var(--plop-ink-soft)">缺点：普通布隆过滤器不支持直接删除元素（将 1 改回 0 会误伤共享该位的其他 key）</text>
+            </svg>
+        </div>
+
+        <!-- 07 & 08：缓存与数据库双写一致性 + 大 Key / 热 Key（由上到下顺序排列） -->
+        <div class="wb-card" id="consistency" style="background:var(--plop-paper); margin-bottom:20px;">
+            <div class="washi-tape mint"></div>
+            <div class="chapter-q-pill">❓ 03.2 · 先改 DB 还是先删缓存？为什么是“删”而不是“更新”缓存？</div>
+            <h3>🔄 03.2 缓存与数据库一致性（Cache-Aside 旁路缓存）</h3>
+            <p>
+              只要数据同时存在 MySQL 和 Redis，就要解决同步顺序问题。标准答案是 <strong>Cache-Aside：读时未命中查 DB 回填；写时「先更新 DB，再删除缓存」</strong>。
+            </p>
+
+            <div class="table-wrap">
+              <table class="plop-table">
+                <thead>
+                  <tr>
+                    <th style="width:28%">错误/备选方案</th>
+                    <th>为什么不行或并发下会出什么问题？</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>❌ 写 DB + 更新缓存</strong></td>
+                    <td><strong>① 并发写覆盖：</strong>请求 A(写10) 先写 DB，请求 B(写20) 后写 DB 并先更新缓存=20，结果 A 的网络慢最后把缓存覆写成旧值 10！<br><strong>② 算力浪费：</strong>写多读少时频繁更新没人读的缓存白费力气，直接删掉按需懒加载更划算。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>⚠️ 先删缓存，再更 DB</strong></td>
+                    <td><strong>高概率脏回填：</strong>写请求 A 刚删完缓存、还没来得及改完 DB 时，并发读请求 B 进来发现缓存空了，去 DB 读出<strong>旧值 V1</strong> 重新灌回缓存，导致缓存长期脏数据！<br>👉 <em>补救：若非要用此顺序，必须在更完 DB 后做<strong>延迟双删</strong>（如 sleep 500ms 再删一次）。</em></td>
+                  </tr>
+                  <tr>
+                    <td><strong>✅ 先更 DB，再删缓存</strong><br><span style="font-size:11.5px; color:var(--plop-leaf);">(工业界首选)</span></td>
+                    <td>只有当“缓存恰好失效 + 读查到旧值 V1 + 写改完 DB 并删完缓存 + 读最后才把 V1 写回缓存”同时发生才会脏（因为读内存远快于写磁盘，此交错概率极低），配合 <strong>TTL 兜底</strong> 即可。</td>
+                  </tr>
+                  <tr>
+                    <td><strong>🚀 Canal 订阅 binlog</strong></td>
+                    <td>若“删缓存”那一步网络报错失败怎么办？可用 <strong>MQ 异步重试删除</strong>，或用 <strong>Canal 伪装成 MySQL 从库订阅 binlog</strong> 异步删除缓存，与业务代码彻底解耦。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <hr style="border:none; border-top:2px dashed rgba(40,72,216,0.3); margin:14px 0;" />
+
+            <div class="chapter-q-pill" id="bigkey">❓ 03.3 · 大 Key 与热 Key 有什么危害？怎么排查和根治？</div>
+            <div class="wb-grid-2" style="gap:10px;">
+              <div class="wb-card" style="background:var(--plop-sheet); padding:11px 13px; margin-top:0;">
+                <h4>🐘 大 Key（单个 Value 体积过大）</h4>
+                <p style="font-size:12.6px;">
+                  <strong>标准：</strong>String &gt; 10KB，或 Hash/List/Set/ZSet 元素数 &gt; 5000。<br>
+                  <strong>危害：</strong>单线程读写/<code>DEL</code> 阻塞其他命令、打满网卡带宽、Cluster 分片内存倾斜。<br>
+                  <strong>排查：</strong><code>redis-cli --bigkeys</code>、<code>MEMORY USAGE key</code>。<br>
+                  <strong>根治：</strong>① <strong>化整为零拆分</strong>（大 Hash 按 field 取模拆成多个小 Hash）；② 删除一律用 <strong><code>UNLINK</code></strong>（4.0 后台异步回收，绝不用 <code>DEL</code>）。
+                </p>
+              </div>
+              <div class="wb-card" style="background:var(--plop-sheet); padding:11px 13px; margin-top:0;">
+                <h4>🔥 热 Key（单个 Key QPS 极高）</h4>
+                <p style="font-size:12.6px;">
+                  <strong>场景：</strong>顶流明星八卦、大促爆款商品，单 Key 每秒被查几万次。<br>
+                  <strong>危害：</strong>流量全打在 Cluster 的同一个分片节点上，把单机网卡/CPU 打死，失效瞬间还会引发缓存击穿。<br>
+                  <strong>发现：</strong><code>redis-cli --hotkeys</code>（需开启 LFU）、客户端/Proxy 埋点。<br>
+                  <strong>根治：</strong>① <strong>升级本地二级缓存</strong>（应用内存 Caffeine 挡掉 95% 读）；② <strong>Key 加随机后缀打散</strong>（复制成 <code>key#1..N</code> 分散到多节点）。
+                </p>
+              </div>
+            </div>
+        </div>
