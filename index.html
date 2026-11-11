@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>note-garden · 我的技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="stylesheet" href="assets/plop-garden.css">
   <style>
     .garden-wrap {
@@ -303,6 +304,214 @@
       text-decoration: underline wavy;
       text-underline-offset: 3px;
     }
+
+    /* ==========================================================================
+       右下角悬浮园主名片徽章 & 手账悬停弹出卡 (Bottom-Right Author Floating Sticker)
+       ========================================================================== */
+    .author-fab-wrap {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 360;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+
+    .author-fab-btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--plop-paper);
+      border: 3px solid var(--plop-ink);
+      border-radius: 30px 22px 32px 24px / 22px 32px 24px 30px;
+      box-shadow:
+        0 0 0 4.5px var(--plop-paper),
+        5px 7px 0 var(--plop-shadow-strong);
+      padding: 8px 15px 8px 11px;
+      cursor: pointer;
+      user-select: none;
+      transform: rotate(-1.5deg);
+      transition: transform 0.22s var(--spring-bounce), box-shadow 0.18s ease, background 0.18s ease;
+    }
+
+    .author-fab-wrap:hover .author-fab-btn,
+    .author-fab-wrap.is-open .author-fab-btn {
+      transform: translateY(-3px) rotate(0deg) scale(1.04);
+      background: var(--plop-mustard);
+      box-shadow:
+        0 0 0 5px var(--plop-paper),
+        7px 10px 0 var(--plop-shadow-strong);
+    }
+
+    .author-fab-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #FF2442;
+      border: 1.8px solid var(--plop-ink);
+      flex-shrink: 0;
+    }
+
+    /* 悬停/点击弹出的手账园主档案卡 */
+    .author-pop-card {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 14px);
+      width: min(336px, calc(100vw - 36px));
+      background: var(--plop-paper);
+      border: 3px solid var(--plop-ink);
+      border-radius: 22px 16px 24px 18px / 16px 24px 18px 22px;
+      box-shadow:
+        0 0 0 5px var(--plop-paper),
+        9px 13px 0 var(--plop-shadow-strong);
+      padding: 18px 18px 16px;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(14px) scale(0.92) rotate(1.5deg);
+      transform-origin: bottom right;
+      transition:
+        opacity 0.2s ease,
+        transform 0.26s var(--spring-bounce),
+        visibility 0.2s ease;
+    }
+
+    /* 透明悬停桥：防止鼠标从按钮移向卡片时断开 */
+    .author-pop-card::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -18px;
+      height: 20px;
+    }
+
+    .author-fab-wrap:hover .author-pop-card,
+    .author-fab-wrap:focus-within .author-pop-card,
+    .author-fab-wrap.is-open .author-pop-card {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateY(0) scale(1) rotate(-0.6deg);
+    }
+
+    .author-card-head {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding-bottom: 11px;
+      margin-bottom: 11px;
+      border-bottom: 2px dashed rgba(40, 72, 216, 0.28);
+    }
+
+    .author-avatar-ring {
+      width: 50px;
+      height: 50px;
+      border: 2.5px solid var(--plop-ink);
+      border-radius: 52% 46% 54% 48%;
+      background: var(--plop-mustard);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 2px 3px 0 var(--plop-shadow);
+      flex-shrink: 0;
+    }
+
+    .author-bio-box {
+      background: var(--plop-sheet);
+      border: 2px solid var(--plop-ink);
+      border-radius: 13px 10px 14px 11px;
+      padding: 10px 12px;
+      font-size: 12.6px;
+      font-weight: 600;
+      line-height: 1.58;
+      color: var(--plop-ink-text);
+      margin-bottom: 11px;
+    }
+
+    .author-tags-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-bottom: 12px;
+    }
+
+    .author-skill-pill {
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2.5px 8px;
+      border: 1.8px solid var(--plop-ink);
+      border-radius: 999px;
+      background: var(--plop-paper);
+      color: var(--plop-ink-text);
+      box-shadow: 1.5px 2px 0 var(--plop-shadow);
+    }
+
+    .author-skill-pill.mint { background: var(--plop-mint); }
+    .author-skill-pill.pink { background: var(--plop-bubblegum); }
+    .author-skill-pill.periwinkle { background: var(--plop-periwinkle); }
+    .author-skill-pill.mustard { background: var(--plop-mustard); }
+
+    .author-xhs-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: #FFF0F2;
+      border: 2.2px solid var(--plop-ink);
+      border-radius: 13px 10px 14px 11px;
+      padding: 8px 11px;
+      box-shadow: 2.5px 3.5px 0 var(--plop-shadow);
+    }
+
+    .author-xhs-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.2px;
+      font-weight: 900;
+      color: var(--plop-ink-text);
+      min-width: 0;
+    }
+
+    .author-xhs-pill {
+      background: #FF2442;
+      color: #FFFFFF;
+      font-size: 10.5px;
+      font-weight: 900;
+      padding: 2px 6px;
+      border-radius: 6px;
+      border: 1.6px solid var(--plop-ink);
+      flex-shrink: 0;
+    }
+
+    .author-xhs-copy {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 900;
+      padding: 4px 9px;
+      border: 2px solid var(--plop-ink);
+      border-radius: 9px;
+      background: var(--plop-mustard);
+      color: var(--plop-ink-text);
+      box-shadow: 1.5px 2px 0 var(--plop-shadow);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: transform 0.14s var(--spring-bounce);
+    }
+
+    .author-xhs-copy:hover {
+      transform: translateY(-1.5px) scale(1.04);
+    }
+
+    @media (max-width: 640px) {
+      .author-fab-wrap {
+        right: 14px;
+        bottom: 14px;
+      }
+    }
   </style>
   <script src="assets/plop-garden.js"></script>
   <script defer src="assets/analytics.js"></script>
@@ -340,6 +549,37 @@
         <ellipse cx="28" cy="33" rx="2" ry="3.1" fill="var(--plop-ink)"></ellipse>
         <ellipse cx="38" cy="32" rx="2" ry="3.1" fill="var(--plop-ink)"></ellipse>
         <path d="M28.5 40 C 30 46, 38 46, 40 39 Z" fill="var(--plop-tomato)" stroke="var(--plop-ink)" stroke-width="2.3" stroke-linejoin="round"></path>
+      </symbol>
+
+      <!-- 手绘贴纸风戴眼镜小女孩形象 (Favicon & 园主专属头像) -->
+      <symbol id="plop-buddy-girl" viewBox="6 4 52 54">
+        <!-- 蓬松波波头后发 -->
+        <path d="M13 42 C 11 24, 20 14, 32 14 C 44 14, 53 24, 51 42 C 50 50, 46 53, 42 52 L 22 52 C 18 53, 14 50, 13 42 Z" fill="#1E2D7D" stroke="var(--plop-ink)" stroke-width="3.2" stroke-linejoin="round"></path>
+        <!-- 头顶小嫩芽 -->
+        <path d="M32 14 C 31 7, 23 5, 21 9 C 21 13, 27 14, 32 14 Z" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2.6" stroke-linejoin="round"></path>
+        <path d="M32 14 C 33 7, 41 5, 43 9 C 43 13, 37 14, 32 14 Z" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2.6" stroke-linejoin="round"></path>
+        <!-- 小耳朵与脸庞 -->
+        <circle cx="16.5" cy="39" r="4" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.8"></circle>
+        <circle cx="47.5" cy="39" r="4" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.8"></circle>
+        <path d="M18 36 C 18 24, 24 20, 32 20 C 40 20, 46 24, 46 36 C 46 47, 40 52, 32 52 C 24 52, 18 47, 18 36 Z" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="3" stroke-linejoin="round"></path>
+        <!-- 齐刘海与粉色一字发卡 -->
+        <path d="M17 33 C 17 21, 24 16, 32 16 C 40 16, 47 21, 47 33 C 43 27, 39 29, 36 25 C 33 29, 28 29, 25 25 C 22 29, 19 28, 17 33 Z" fill="#1E2D7D" stroke="var(--plop-ink)" stroke-width="3" stroke-linejoin="round"></path>
+        <rect x="40" y="21" width="7.5" height="3.6" rx="1.8" transform="rotate(18 40 21)" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="2"></rect>
+        <!-- 腮红與眼睛 -->
+        <ellipse cx="21.5" cy="43.5" rx="3.2" ry="2" fill="var(--plop-bubblegum)"></ellipse>
+        <ellipse cx="42.5" cy="43.5" rx="3.2" ry="2" fill="var(--plop-bubblegum)"></ellipse>
+        <circle cx="25.5" cy="38" r="2.3" fill="var(--plop-ink)"></circle>
+        <circle cx="38.5" cy="38" r="2.3" fill="var(--plop-ink)"></circle>
+        <circle cx="24.8" cy="37.2" r="0.8" fill="var(--plop-paper)"></circle>
+        <circle cx="37.8" cy="37.2" r="0.8" fill="var(--plop-paper)"></circle>
+        <!-- 手绘大圆框眼镜 -->
+        <circle cx="25.5" cy="38" r="6.3" fill="rgba(197, 212, 247, 0.28)" stroke="var(--plop-tomato)" stroke-width="2.8"></circle>
+        <circle cx="38.5" cy="38" r="6.3" fill="rgba(197, 212, 247, 0.28)" stroke="var(--plop-tomato)" stroke-width="2.8"></circle>
+        <path d="M31.8 37.5 Q 32 36 32.2 37.5" fill="none" stroke="var(--plop-tomato)" stroke-width="2.8" stroke-linecap="round"></path>
+        <path d="M22 34.5 L 24 33" fill="none" stroke="var(--plop-paper)" stroke-width="1.6" stroke-linecap="round"></path>
+        <path d="M35 34.5 L 37 33" fill="none" stroke="var(--plop-paper)" stroke-width="1.6" stroke-linecap="round"></path>
+        <!-- 微笑 -->
+        <path d="M29 46 C 30.8 48.6, 33.2 48.6, 35 46" fill="none" stroke="var(--plop-ink)" stroke-width="2.6" stroke-linecap="round"></path>
       </symbol>
     </defs>
   </svg>
@@ -746,7 +986,77 @@
     </aside>
   </div>
 
+  <!-- ==================== 右下角悬浮园主小标志 (Hover / 点击弹出自我介绍与小红书) ==================== -->
+  <div class="author-fab-wrap" id="author-fab" aria-label="关于园主与小红书名片">
+    <!-- 悬停弹出的手账个人名片卡 -->
+    <div class="author-pop-card">
+      <div class="plop-washi pink" style="width:92px; margin-left:-46px;"></div>
+
+      <div class="author-card-head">
+        <div class="author-avatar-ring">
+          <svg width="42" height="42" class="anim-bob"><use href="#plop-buddy-girl"></use></svg>
+        </div>
+        <div style="min-width:0;">
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <span style="font-family:var(--font-head); font-size:16.5px; font-weight:900; color:var(--plop-ink-text);">ZXiaoR · 花园园主</span>
+            <span class="plop-badge hot" style="font-size:10px; padding:1px 6px;">FE × AI</span>
+          </div>
+          <div style="font-size:11.4px; font-weight:800; color:var(--plop-ink-soft); margin-top:2px;">
+            把硬核架构拆成手账的前端工程师 ✨
+          </div>
+        </div>
+      </div>
+
+      <div class="author-bio-box">
+        👋 嗨！我是 <strong>前端开发工程师</strong>，实战经历横跨 <strong>Web3 链上交互</strong>、<strong>数据可视化大屏</strong> 与 <strong>IoT 物联网终端</strong>。<br>
+        🔥 最近正在疯狂学习与深挖 <strong>AI 工程化 &amp; Agent 架构</strong>，边读论文/源码边把笔记种在这座花园里，欢迎一起交流碰撞！
+      </div>
+
+      <div class="author-tags-row">
+        <span class="author-skill-pill mustard">⚛️ 前端工程化</span>
+        <span class="author-skill-pill periwinkle">⛓️ Web3 开发</span>
+        <span class="author-skill-pill mint">📊 可视化大屏</span>
+        <span class="author-skill-pill">📡 IoT 物联网</span>
+        <span class="author-skill-pill pink">🤖 AI 狂热学习中</span>
+      </div>
+
+      <!-- 小红书主页直达栏 -->
+      <div class="author-xhs-bar">
+        <div class="author-xhs-badge">
+          <span class="author-xhs-pill">小红书</span>
+          <span>手账笔记同步更新中</span>
+        </div>
+        <a
+          href="https://xhslink.cn/o/1LoMa4ATeqF"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="author-xhs-copy"
+          style="text-decoration:none; background:#FF2442; color:#FFFFFF;"
+        >
+          ↗ 访问主页
+        </a>
+      </div>
+    </div>
+
+    <!-- 右下角触发小标志 -->
+    <button
+      type="button"
+      class="author-fab-btn"
+      onclick="document.getElementById('author-fab').classList.toggle('is-open')"
+    >
+      <svg width="30" height="30" class="anim-bob"><use href="#plop-buddy-girl"></use></svg>
+      <span style="font-family:var(--font-head); font-size:13px; font-weight:900; color:var(--plop-ink-text);">关于我 · 小红书</span>
+      <span class="author-fab-dot" title="悬停查看园主名片"></span>
+    </button>
+  </div>
+
   <script>
+    document.addEventListener('click', (e) => {
+      const fab = document.getElementById('author-fab');
+      if (fab && !fab.contains(e.target)) {
+        fab.classList.remove('is-open');
+      }
+    });
     let activeCategory = 'all';
 
     function setCategoryFilter(cat, btn) {
