@@ -56,7 +56,7 @@
   window.copyText = function (id, btn) {
     const el = document.getElementById(id);
     if (!el) return;
-    const text = el.innerText || el.textContent || '';
+    const text = el.textContent || el.innerText || '';
     if (!navigator.clipboard) return;
     navigator.clipboard.writeText(text).then(() => {
       if (!btn) return;
