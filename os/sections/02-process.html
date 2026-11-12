@@ -1,5 +1,48 @@
 <div class="wb-sec-header" id="process"><span class="wb-sec-num">02</span><span class="wb-sec-title">从文件到运行 · 进程、线程与执行进度</span><span class="plop-tag mint">先理解过程</span></div>
 <div class="wb-card" id="process-start" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3>▶️ 02.1 同一个程序运行两次，为什么互不混淆？</h3><p>保存在硬盘上的程序是一个文件。运行它时，系统要为这一次运行准备资源，并记录执行进度。<strong>一个程序的运行实例叫进程。</strong>同一个程序运行两次，可以产生两个进程。</p><p>比如同时打开两次字数统计工具，一个读甲文件，一个读乙文件。它们需要分别保存正在读的文件、当前统计值和执行状态，才不会把结果混在一起。</p><div class="plop-callout tip">先把进程理解成“一次运行及其相关资源”，不用先看内核结构体有哪些字段。</div></div>
 <div class="wb-card" id="pstate" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape pink"></div><h3>⏸️ 02.2 暂停以后，怎样从原来的地方继续？</h3><p>系统要记住程序执行到哪条指令、临时计算结果和使用的内存等状态。就像读书先放好书签，再去做另一件事。保存一个任务的执行现场、恢复另一个任务，叫<strong>上下文切换</strong>。</p><ol><li><strong>正在运行：</strong>此刻获得处理器，执行指令。</li><li><strong>等待中：</strong>缺少数据或其他条件，暂时不能往下做。</li><li><strong>可以运行：</strong>条件具备，在等待被安排执行。</li><li><strong>已结束：</strong>释放相关资源，并由父进程等机制收尾。</li></ol><p>“可以运行”与“正在运行”要分开：准备好并不等于已经轮到。</p></div>
-<div class="wb-card" id="thread" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3>🧵 02.3 一个进程里，可以同时做几件事吗？</h3><p>假设这个工具增加了窗口：一条执行路线读文件并统计，另一条路线更新界面。<strong>同一进程里的这些执行路线叫线程。</strong>线程可以共享进程的内存和文件等资源，但每条路线有自己的执行进度与调用现场。</p><p>在单个处理器核心上，它们通常轮流执行；多个核心可以让不同线程真正同时执行。轮流推进多件事叫<strong>并发</strong>；同一时刻一起执行叫<strong>并行</strong>。</p><p>共享让交流方便，也带来风险：两个线程同时修改“字数”变量，可能互相覆盖。第 05 章用一个具体例子解释。用户态运行时还可以安排更轻的执行路线，称为协程；理解进程和线程后再学它。</p></div><details class="plop-drawer"><summary><span class="plop-drawer-title">🧩 想一想：两个线程共享内存，是否就共享同一个执行进度？</span></summary><div class="drawer-body"><p>不是。它们可以读写同一份数据，但各自有执行进度和调用现场。一个线程在等文件，另一个仍可能继续运行。</p></div></details>
-<div class="plop-bridge"><span>接下来：<a href="#hierarchy">03 · 这些变量与文字，在内存里怎样安排？ →</a></span></div>
+<div class="wb-card" id="thread" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <h3>🧵 02.3 一个进程里，可以同时做几件事吗？</h3>
+  <p>假设这个字数统计工具增加了图形窗口：如果只有一条执行路线，它在慢吞吞读大文件时，整个窗口就会卡住点不动。于是可以在同一个进程里拆出两条执行路线：一条负责读文件并统计，另一条负责响应鼠标点击和刷新界面。<strong>同一进程里的这些执行路线就叫「线程（Thread）」</strong>：</p>
+
+  <!-- 双栏图解：两个独立进程（两套独立房子） vs 同进程内两个线程（同一套房子里两个人干活） -->
+  <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:12px 0; box-shadow:2px 3px 0 var(--plop-shadow);">
+    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:10px;">
+      🏠 图解「进程 vs 线程」：独立房间（资源隔离） vs 同屋协作（共享房间、各自干活）
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:12px; font-size:12.5px;">
+      <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+        <div style="font-weight:900; font-size:13.2px; color:var(--plop-ink-text); margin-bottom:6px;">
+          🏢 两个进程（如同时开两个统计工具）
+        </div>
+        <div style="background:#FFFFFF; border:1.6px solid var(--plop-ink); border-radius:7px; padding:8px; font-family:var(--font-mono); font-size:11.6px; font-weight:800; margin-bottom:6px;">
+          [进程甲的独立房间：内存A + 文件A]<br/>
+          [进程乙的独立房间：内存B + 文件B]
+        </div>
+        <div style="line-height:1.55; color:var(--plop-ink-text);">
+          • 各自拥有独立的内存空间和打开文件；<br/>
+          • <strong>优点：</strong>互不干扰，甲崩溃了不影响乙；<br/>
+          • <strong>代价：</strong>隔着墙，想传点数据很麻烦。
+        </div>
+      </div>
+
+      <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+        <div style="font-weight:900; font-size:13.2px; color:var(--plop-ink-text); margin-bottom:6px;">
+          🧵 同一个进程里的两个线程
+        </div>
+        <div style="background:#FFFFFF; border:1.6px solid var(--plop-ink); border-radius:7px; padding:8px; font-family:var(--font-mono); font-size:11.6px; font-weight:800; margin-bottom:6px;">
+          [共用同一个进程房间：共享全局变量“字数”与文件]<br/>
+          &nbsp;&nbsp;├─ 👷 线程 1：读文件算字数（有自己的进度本）<br/>
+          &nbsp;&nbsp;└─ 🎨 线程 2：刷新窗口显示（有自己的进度本）
+        </div>
+        <div style="line-height:1.55; color:var(--plop-ink-text);">
+          • 共享同一个进程的内存和文件，但<strong>每条线程有自己独立的执行进度和局部变量栈</strong>；<br/>
+          • <strong>注意：</strong>正因为共用一张桌子，两个线程同时改同一个“字数”变量时可能互相覆盖（第 05 章会讲怎么加锁保护）。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p style="margin-bottom:0;">在单个处理器核心上，多条线程靠快速轮流切换推进，这叫<strong>并发（Concurrent）</strong>；如果有多个处理器核心，不同线程在同一时刻真正一起执行，这叫<strong>并行（Parallel）</strong>。</p>
+</div><details class="plop-drawer"><summary><span class="plop-drawer-title">🧩 想一想：两个线程共享内存，是否就共享同一个执行进度？</span></summary><div class="drawer-body"><p>不是。它们可以读写同一份数据，但各自有执行进度和调用现场。一个线程在等文件，另一个仍可能继续运行。</p></div></details>

@@ -12,7 +12,7 @@
 
 
           <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
-            <div class="table-wrap" style="margin:0;"><div style="display:grid; min-width:520px; grid-template-columns:1fr auto 1.2fr auto 1fr; gap:8px; align-items:center; text-align:center;">
+            <div style="overflow-x:auto;"><div style="display:grid; min-width:520px; grid-template-columns:1fr auto 1.2fr auto 1fr; gap:8px; align-items:center; text-align:center;">
               <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:10px; padding:11px;">
                 <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">① 目录项 (dentry)</div>
                 <div style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; color:#15803d; margin:4px 0;">"app.log" ──▶ inode #1024</div>
@@ -117,7 +117,7 @@
 
 
           <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
-            <div class="table-wrap" style="margin:0;"><div style="display:grid; min-width:520px; grid-template-columns:1fr auto 1.3fr auto 1fr; gap:8px; align-items:center; text-align:center;">
+            <div style="overflow-x:auto;"><div style="display:grid; min-width:520px; grid-template-columns:1fr auto 1.3fr auto 1fr; gap:8px; align-items:center; text-align:center;">
               <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:11px;">
                 <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">① 用户态进程缓冲区</div>
                 <div style="font-size:12.4px; color:var(--plop-ink-text); font-weight:700; margin-top:4px;">
@@ -183,12 +183,12 @@
         <div class="wb-card" id="io-model" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape periwinkle"></div>
           <div class="chapter-q-pill">❓ 07.3 · 同步和异步、阻塞和非阻塞到底怎么分？epoll 为什么不用每轮扫描全部连接？为什么 ET 必须配非阻塞 fd？</div>
-          <h3 id="epoll">🌐 07.3 多个连接，怎样一起等？从等待就绪到 epoll <span class="plop-tag tomato">重点回顾</span></h3><p>先想象同时开着一万个连接，大部分时间没有数据。一个线程不必逐个反复询问，可以先把连接交给 <code>epoll</code> 监听，再等待一批就绪事件。<strong>epoll 告诉你“哪些连接现在可以尝试读写”，数据仍需要程序自己调用 read/write 取得或发送。</strong>它能减少无效检查，但不会替你并行执行业务，也不会自动让慢操作变快。</p>
+          <h3 id="epoll">🌐 07.3 多个连接，怎样一起等？从五种 I/O 模型到 epoll <span class="plop-tag tomato">重点回顾</span></h3>
           <p>
             一次网络读取（如 <code>read(socket_fd)</code>）在内核里严格分为<strong>两个阶段</strong>：<br/>
             <strong>阶段 ①（等待数据就绪）：</strong>等待远程网卡把数据包发过来，通过 DMA 放进内核 Socket 接收缓冲区（<code>sk_buff</code>）；<br/>
             <strong>阶段 ②（数据拷贝）：</strong>把数据从<strong>内核缓冲区拷贝到用户态缓冲区</strong>。<br/>
-            所谓<strong>五种 I/O 模型</strong>，区别全在这两个阶段“谁来等、怎么拷”：
+            所谓<strong>五种 I/O 模型</strong>，区别全在这两个阶段“谁来等、怎么拷”（尤其要注意：<strong><code>epoll</code> 属于 I/O 多路复用，它只负责在阶段①通知你“哪些连接现在有数据可读”，阶段②仍需用户线程自己调用 <code>read/write</code> 把数据从内核拷出来，因此本质仍是同步 I/O</strong>）：
           </p>
 
           <div class="table-wrap">
@@ -262,12 +262,72 @@
                 </tr>
                 <tr>
                   <td><strong>查找就绪 fd 复杂度</strong></td>
-                  <td><strong>$O(N)$ 全量线性轮询：</strong>不管有几个活跃，内核和用户都得把 1024 个位全扫一遍。</td>
-                  <td><strong>$O(N)$ 全量线性轮询：</strong>10 万个连接里只有 1 个来数据，也得遍历 10 万次！</td>
+                  <td><strong><code>O(N)</code> 全量线性轮询：</strong>不管有几个活跃，内核和用户都得把 1024 个位全扫一遍。</td>
+                  <td><strong><code>O(N)</code> 全量线性轮询：</strong>10 万个连接里只有 1 个来数据，也得遍历 10 万次！</td>
                   <td><strong>按就绪事件处理：</strong>注册时建立监听关系，事件回调将就绪项加入就绪链表。等待时不必每轮扫描全部监听 fd；取回和处理 K 个就绪事件仍需相应工作，不能把整个过程统称为 O(1)。</td>
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          <!-- 新增：epoll 内核底层实现图解（三步调用 × 两大结构 × 回调唤醒） -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.2px; color:var(--plop-ink); margin-bottom:10px;">
+              🔬 <code>epoll</code> 内核底层是怎么实现的？（3 个系统调用 × 红黑树 + 就绪链表 × 回调机制）
+            </div>
+            <p style="font-size:13.2px; color:var(--plop-ink-text); margin:0 0 12px; line-height:1.6;">
+              为什么 <code>epoll</code> 能在监听 10 万个连接时既不用每次重复拷贝 fd 集合，也不用线性轮询？因为它在内核里维护了一个专门的管家对象 <strong><code>struct eventpoll</code></strong>，由以下三步紧密配合完成：
+            </p>
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; font-size:12.6px; align-items:stretch;">
+              <!-- 步骤 1：epoll_create + epoll_ctl（红黑树） -->
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                <div style="font-weight:900; font-size:13.4px; color:var(--plop-ink-text); margin-bottom:6px;">
+                  ① 登记名单：<code>epoll_create</code> + <code>epoll_ctl</code>
+                </div>
+                <div style="background:#FFFFFF; border:1.6px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-family:var(--font-mono); font-size:11.5px; font-weight:800; line-height:1.55; margin-bottom:6px;">
+                  struct eventpoll {<br/>
+                  &nbsp;&nbsp;rb_root rbr; <span style="color:#15803d;">// 🌲 红黑树(存所有监听fd)</span><br/>
+                  &nbsp;&nbsp;list_head rdllist; <span style="color:var(--plop-tomato);">// 📋 双向就绪链表</span><br/>
+                  }
+                </div>
+                <div style="line-height:1.55; color:var(--plop-ink-text);">
+                  • <strong><code>epoll_create</code>：</strong>在内核创建 <code>eventpoll</code> 对象（含一棵空的<strong>红黑树 <code>rbr</code></strong> 和一条空的<strong>就绪链表 <code>rdllist</code></strong>）。<br/>
+                  • <strong><code>epoll_ctl(ADD)</code>：</strong>把要监听的 Socket <code>fd</code> 封装成 <code>epitem</code> 节点插入<strong>红黑树</strong>（增删改查均为 <code>O(log N)</code>，可高效管理数十万连接且天然去重），<strong>同时向该 Socket 的等待队列注册一个回调函数 <code>ep_poll_callback</code></strong>。
+                </div>
+              </div>
+
+              <!-- 步骤 2：网卡中断 + 回调入链 -->
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                <div style="font-weight:900; font-size:13.4px; color:var(--plop-ink-text); margin-bottom:6px;">
+                  ② 硬件来信：网卡 DMA ──▶ 触发回调 <code>ep_poll_callback</code>
+                </div>
+                <div style="background:#FFFFFF; border:1.6px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-family:var(--font-mono); font-size:11.5px; font-weight:800; line-height:1.55; margin-bottom:6px;">
+                  网卡收包 (fd=4) ──DMA──▶ Socket 接收缓冲区<br/>
+                  ──▶ 触发 <code>ep_poll_callback</code><br/>
+                  ──▶ 把 <code>[fd=4]</code> 挂入 <span style="color:var(--plop-tomato);">就绪链表 rdllist</span>
+                </div>
+                <div style="line-height:1.55; color:var(--plop-ink-text);">
+                  • 当远端给 <code>fd=4</code> 发来数据时，网卡通过 DMA 写入内存并触发中断，协议栈把数据放入 <code>fd=4</code> 的接收缓冲区。<br/>
+                  • 随后内核自动调用当初挂在 <code>fd=4</code> 上的 <strong><code>ep_poll_callback</code></strong>：直接把红黑树里 <code>fd=4</code> 对应的节点指针<strong>追加到双向就绪链表 <code>rdllist</code> 中</strong>（同一个节点既是红黑树节点，也能串进就绪链表，无需额外分配内存）。
+                </div>
+              </div>
+
+              <!-- 步骤 3：epoll_wait 收获就绪链表 -->
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                <div style="font-weight:900; font-size:13.4px; color:var(--plop-ink-text); margin-bottom:6px;">
+                  ③ 坐享其成：<code>epoll_wait</code> 只检查 <code>rdllist</code>
+                </div>
+                <div style="background:#FFFFFF; border:1.6px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-family:var(--font-mono); font-size:11.5px; font-weight:800; line-height:1.55; margin-bottom:6px;">
+                  rdllist 为空？ ──▶ 线程挂起睡眠💤<br/>
+                  rdllist 非空！ ──▶ 唤醒线程 &amp; 拷出 <code>[fd=4]</code>
+                </div>
+                <div style="line-height:1.55; color:var(--plop-ink-text);">
+                  • 用户线程调用 <strong><code>epoll_wait</code></strong> 时，内核<strong>根本不去遍历那棵有 10 万个节点的红黑树</strong>，而是只看一眼<strong>就绪链表 <code>rdllist</code> 里有没有节点</strong>。<br/>
+                  • 若为空就让出 CPU 睡觉；一旦步骤②的回调把就绪节点挂进 <code>rdllist</code>，立刻唤醒该线程，把链表里那 <code>K</code> 个真正就绪的事件拷回用户态。
+                </div>
+              </div>
+            </div>
           </div>
 
 
@@ -392,4 +452,3 @@
           <div class="plop-callout tip"><strong>📝 本章先记住：</strong>就绪通知、数据传输和持久化是不同的事情：epoll、read/write、fsync 各有职责。</div>
 
         </div>
-<div class="plop-bridge"><span>🧭 下一章：<a href="#link">08 · 运行链路、排查与自测 →</a></span></div>

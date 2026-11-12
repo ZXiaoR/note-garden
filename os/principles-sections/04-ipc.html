@@ -47,8 +47,8 @@
 
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape pink"></div>
-          <div class="chapter-q-pill">❓ 04.2 · 为什么说「共享内存」是省去经内核缓冲区中转的拷贝的 IPC？消息队列、共享内存、信号量分别解决什么问题？</div>
-          <h3 id="shm">⚡ 04.2 消息队列、共享内存（减少数据中转）、信号量与 Linux 六大 IPC 选型 <span class="plop-tag tomato">重点回顾</span></h3>
+          <div class="chapter-q-pill">❓ 04.2 · 为什么说「共享内存」是最快的 IPC？消息队列、共享内存、信号量分别解决什么问题？</div>
+          <h3 id="shm">⚡ 04.2 消息队列、共享内存（零内核拷贝）、信号量与 Linux 六大 IPC 选型 <span class="plop-tag tomato">重点回顾</span></h3>
 
 
           <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
@@ -62,14 +62,14 @@
                   进程 A 用户空间 ──<span style="color:var(--plop-tomato);">①拷贝</span>──▶ 内核缓冲区 ──<span style="color:var(--plop-tomato);">②拷贝</span>──▶ 进程 B 用户空间
                 </div>
                 <div style="font-size:12.6px; color:var(--plop-ink-soft); line-height:1.5;">
-                  每次收发都必须执行 <code>write + read</code> 系统调用，经历 <strong>2 次上下文/特权态切换 + 2 次 CPU 内存拷贝</strong>，传几百 MB 大数据时开销巨大。
+                  每次收发都必须执行 <code>write + read</code> 系统调用，经历 <strong>2 次上下文/特权态切换 + 2 次 CPU 内存拷贝</strong>，传几百 MB 大数据时开销较大。
                 </div>
               </div>
 
 
               <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
                 <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:6px;">
-                  🚀 共享内存（Shared Memory，<code>shmget / mmap</code>）—— 省去经内核缓冲区中转的拷贝 IPC！
+                  🚀 共享内存（Shared Memory，<code>shmget / mmap</code>）—— 省去内核中转的最快 IPC
                 </div>
                 <div style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px; text-align:center; margin-bottom:6px;">
                   进程 A 虚拟页 ──▶ <span style="color:#15803d;">【同一块物理内存页帧】</span> ◀── 进程 B 虚拟页
@@ -107,7 +107,7 @@
                 <tr>
                   <td><strong>共享内存 (Shared Memory)</strong></td>
                   <td>多进程页表映射<strong>同一块物理内存</strong>（<code>shmget/shmat</code> 或 <code>mmap</code>）</td>
-                  <td><strong>所有 IPC 中速度省去经内核缓冲区中转的拷贝（零内核拷贝）</strong>，适合高频大数据量交换。</td>
+                  <td><strong>所有 IPC 中速度最快（省去经内核缓冲区中转的拷贝，即零内核拷贝）</strong>，适合高频大数据量交换。</td>
                   <td><strong style="color:var(--plop-tomato);">本身不提供同步机制：</strong>并发读写会出现数据竞争，<strong>需配合信号量、互斥锁或原子操作使用</strong>。</td>
                 </tr>
                 <tr>
@@ -213,4 +213,3 @@
           <div class="plop-callout tip"><strong>📝 本章先记住：</strong>隔离的进程需要约定通信方式；共享数据以后，还需要同步。</div>
 
         </div>
-<div class="plop-bridge"><span>🧭 下一章：<a href="#race">05 · 并发、锁与死锁 →</a></span></div>

@@ -1,5 +1,47 @@
 <div class="wb-sec-header" id="what"><span class="wb-sec-num">01</span><span class="wb-sec-title">读文件之前 · 为什么需要操作系统代办？</span><span class="plop-tag mint">先理解过程</span></div>
 <div class="wb-card" id="mode" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3>🛡️ 01.1 程序可以做计算，为什么不能随便读别人的文件？</h3><p>统计字数的程序只需要读指定的文件。如果任何程序都能任意操作硬盘、修改别人的内存，一个小错误就可能影响整台机器。系统因此需要检查权限，并限制普通程序能做的事。</p><p>操作系统中负责这些核心管理工作的部分叫<strong>内核</strong>。普通程序通常在受限权限下执行，称为<strong>用户态</strong>；执行内核代码时使用更高权限，称为<strong>内核态</strong>。它们描述的是执行权限。</p></div>
-<div class="wb-card" id="syscall" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape pink"></div><h3>📨 01.2 发出请求、检查、执行、交回结果</h3><p>程序想读文件时，可以请求内核帮忙。这样的请求接口叫<strong>系统调用</strong>。先理解过程，再认识它的代码名字：</p><ol><li>程序告诉内核：读哪个已打开的文件，把数据放到哪，最多读多少。</li><li>处理器转入内核入口，内核检查请求，并沿文件读取路径处理。</li><li>数据已准备好时，把数据和读取结果交给程序；需要等待时，当前任务可能先睡眠。</li><li>程序继续统计字数。</li></ol><p>以后看到读取接口 <code>read</code>，就把它理解为这里的“请求读取”。<strong>进入内核处理请求，并不表示一定换成了另一个任务。</strong></p></div>
+<div class="wb-card" id="syscall" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <h3>📨 01.2 发出请求、检查、执行、交回结果</h3>
+  <p>程序想读文件时，不能自己直接去翻硬盘，而是向内核发出请求——这样的请求窗口叫<strong>「系统调用（System Call）」</strong>：</p>
+
+  <!-- 三栏图解：你的程序（用户态） ↔ 操作系统内核（内核态） ↔ 硬盘设备 -->
+  <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:12px 0; box-shadow:2px 3px 0 var(--plop-shadow);">
+    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:10px;">
+      🏦 图解「系统调用」过程：就像在银行柜台外填单，请柜员进金库代办
+    </div>
+    <div style="display:grid; grid-template-columns:1fr auto 1.25fr auto 1fr; gap:8px; align-items:center; text-align:center; font-size:12.4px;">
+      <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:10px;">
+        <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">① 你的程序（用户态）</div>
+        <div style="margin-top:4px; line-height:1.5; color:var(--plop-ink-text);">
+          受限权限（柜台外）<br/>填写请求：读哪个文件、放哪、读多少字节
+        </div>
+      </div>
+
+      <div style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">
+        ──①请求 read──▶<br/>◀──④交回文字──
+      </div>
+
+      <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px;">
+        <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">② 操作系统内核（内核态）</div>
+        <div style="margin-top:4px; line-height:1.5; color:var(--plop-ink-text);">
+          最高权限（柜台内）<br/>检查你有没有权限读该文件 ──▶ 指挥硬件读取
+        </div>
+      </div>
+
+      <div style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">
+        ──②下发读取──▶<br/>◀──③中断通知──
+      </div>
+
+      <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:10px;">
+        <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">③ 物理硬盘与 DMA</div>
+        <div style="margin-top:4px; line-height:1.5; color:var(--plop-ink-text);">
+          把文件数据搬进内存条，完成后通知内核
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p style="margin-bottom:0;">以后在代码里看到读取接口 <code>read</code>，就把它理解为这里的“向内核递交读取申请单”。<strong>进入内核处理请求，只代表切换到了更高权限，并不代表换成了另一个程序。</strong></p>
+</div>
 <div class="wb-card" id="interrupt" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3>🔔 01.3 数据准备好，系统怎么知道？</h3><p>设备可以通过<strong>中断</strong>通知处理器有事情需要处理，例如一次设备读写完成。内核处理通知，更新状态，必要时唤醒等待数据的任务。现代设备还会结合批量处理等机制，不必想成每个字节都通知一次。</p><p>被唤醒表示“现在可以继续竞争执行机会了”，并不保证马上得到处理器。谁接着运行，后面的调度一章会解释。</p><div class="plop-callout tip">把这条关系记住：程序提出请求，内核协调资源，设备报告进展。三者分工不同。</div></div><details class="plop-drawer"><summary><span class="plop-drawer-title">🧩 想一想：调用内核读取文件时，一定会换成另一个程序吗？</span></summary><div class="drawer-body"><p>不一定。请求能立即完成时，当前线程可以完成系统调用并继续执行；需要等待或发生调度时，才可能让其他任务使用处理器。</p></div></details>
-<div class="plop-bridge"><span>接下来：<a href="#process">02 · 程序运行起来以后，系统怎样记住它？ →</a></span></div>

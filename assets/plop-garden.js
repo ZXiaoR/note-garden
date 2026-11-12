@@ -21,12 +21,13 @@
     { path: 'postgres/index.html', title: '🐘 PostgreSQL 进阶', dot: 'periwinkle' },
     { path: 'redis/index.html', title: '🧱 Redis 原理与集群', dot: 'pink' },
     { path: 'go/index.html', title: '🐹 Go GMP 与 GC', dot: 'mustard' },
-    { path: 'os/index.html', title: '🖥️ Linux 操作系统', dot: 'mint' },
+    { path: 'os/index.html', aliases: ['os/principles.html', 'os/principles'], title: '🖥️ Linux 操作系统', dot: 'mint' },
     { path: 'mq/index.html', title: '📨 消息队列对比', dot: '' }
   ];
   window.NOTE_GARDEN_TOPICS = NOTE_GARDEN_TOPICS;
 
-  // 2. 立即恢复用户上次选择的桌面材质，避免首屏闪烁
+  // 2. 立即恢复用户上次选择的桌面材质，并标记章节片段待加载，避免首屏闪烁
+  document.documentElement.classList.add('plop-sections-pending');
   try {
     const savedSurface = localStorage.getItem(STORAGE_SURFACE_KEY);
     if (savedSurface) {
@@ -179,7 +180,9 @@
           !isRootPage &&
           (pathname.endsWith('/' + item.path) ||
             (item.path.endsWith('/index.html') &&
-              pathname.endsWith('/' + item.path.replace('/index.html', '/'))));
+              pathname.endsWith('/' + item.path.replace('/index.html', '/'))) ||
+            (Array.isArray(item.aliases) &&
+              item.aliases.some(alias => pathname.endsWith('/' + alias))));
         const dotClass = item.dot ? `ear-dot ${item.dot}` : 'ear-dot';
         const activeClass = isCurrent ? ' active' : '';
         return `<a href="${prefix}${item.path}" class="plop-ear-tab${activeClass}">
@@ -256,17 +259,112 @@
   }
 
   // 10. 自动并行加载拆分的纯 HTML 章节子文件 ([data-plop-section="sections/01-xxx.html"])
+  const SECTION_CACHE_PREFIX = 'plop-sec-v2:';
+  const prefetchedPages = new Set();
+
+  function getSectionCacheKey(url, baseHref = window.location.href) {
+    try {
+      return SECTION_CACHE_PREFIX + new URL(url, baseHref).pathname;
+    } catch (e) {
+      return SECTION_CACHE_PREFIX + url;
+    }
+  }
+
+  async function prefetchPageSections(pageHref) {
+    if (!pageHref || pageHref.startsWith('#') || pageHref.startsWith('javascript:')) return;
+    let pageUrl;
+    try {
+      pageUrl = new URL(pageHref, window.location.href);
+    } catch (e) {
+      return;
+    }
+    if (pageUrl.origin !== window.location.origin) return;
+    const pageKey = pageUrl.pathname;
+    if (prefetchedPages.has(pageKey)) return;
+    prefetchedPages.add(pageKey);
+
+    try {
+      const pageRes = await fetch(pageUrl.href);
+      if (!pageRes.ok) return;
+      const html = await pageRes.text();
+      const matches = Array.from(html.matchAll(/data-plop-section="([^"]+)"/g));
+      if (!matches.length) return;
+      await Promise.all(
+        matches.map(async m => {
+          const secRelUrl = m[1];
+          const secAbsUrl = new URL(secRelUrl, pageUrl.href).href;
+          const key = getSectionCacheKey(secRelUrl, pageUrl.href);
+          if (sessionStorage.getItem(key)) return;
+          const r = await fetch(secAbsUrl);
+          if (r.ok) {
+            sessionStorage.setItem(key, await r.text());
+          }
+        })
+      );
+    } catch (e) {}
+  }
+
+  function prefetchSiblingEdition() {
+    const editionLink = document.querySelector('[data-edition-target]');
+    if (!editionLink) return;
+    const targetPage = editionLink.getAttribute('data-edition-target');
+    if (!targetPage) return;
+    setTimeout(() => prefetchPageSections(targetPage), 300);
+  }
+
   async function loadPlopSections() {
     const slots = Array.from(document.querySelectorAll('[data-plop-section]'));
-    if (!slots.length) return;
+    if (!slots.length) {
+      document.documentElement.classList.remove('plop-sections-pending');
+      return;
+    }
+
+    const urls = slots.map(slot => slot.getAttribute('data-plop-section'));
+
+    // Fast path: if all fragments are already in sessionStorage, mount them synchronously in 0ms
+    let cachedFragments = null;
+    try {
+      const candidates = urls.map(u => sessionStorage.getItem(getSectionCacheKey(u)));
+      if (candidates.every(Boolean)) {
+        cachedFragments = candidates;
+      }
+    } catch (e) {}
+
+    if (cachedFragments) {
+      slots.forEach((slot, idx) => {
+        slot.outerHTML = cachedFragments[idx];
+      });
+      document.documentElement.classList.remove('plop-sections-pending');
+      refreshScrollSpy();
+      if (window.location.hash) {
+        revealHashTarget(true);
+      }
+      prefetchSiblingEdition();
+      // Silently refresh cache in the background
+      Promise.all(
+        urls.map(async url => {
+          const res = await fetch(url);
+          if (res.ok) {
+            const text = await res.text();
+            try {
+              sessionStorage.setItem(getSectionCacheKey(url), text);
+            } catch (e) {}
+          }
+        })
+      ).catch(() => {});
+      return;
+    }
 
     try {
       const fragments = await Promise.all(
-        slots.map(async slot => {
-          const url = slot.getAttribute('data-plop-section');
-          const res = await fetch(url, { cache: 'no-cache' });
+        urls.map(async url => {
+          const res = await fetch(url);
           if (!res.ok) throw new Error(`HTTP ${res.status} when loading ${url}`);
-          return await res.text();
+          const text = await res.text();
+          try {
+            sessionStorage.setItem(getSectionCacheKey(url), text);
+          } catch (e) {}
+          return text;
         })
       );
 
@@ -274,11 +372,15 @@
         slot.outerHTML = fragments[idx];
       });
 
+      document.documentElement.classList.remove('plop-sections-pending');
       refreshScrollSpy();
       if (window.location.hash) {
         revealHashTarget(true);
       }
+      prefetchSiblingEdition();
     } catch (err) {
+      document.documentElement.classList.remove('plop-sections-pending');
+      document.documentElement.classList.add('plop-sections-failed');
       console.warn('[plop-garden] Section fragment load failed:', err);
       if (slots[0]) {
         const tip = document.createElement('div');
@@ -327,6 +429,18 @@
     initWorkbenchScrollSpy();
     revealHashTarget(false);
     loadPlopSections();
+
+    // 鼠标悬停或触控按下任何站内专题链接时，提前在后台把目标页的章节片段预热进 sessionStorage
+    const onLinkHint = e => {
+      const a = e.target.closest('a[href]');
+      if (!a) return;
+      const href = a.getAttribute('href');
+      if (href && href.includes('.html')) {
+        prefetchPageSections(href);
+      }
+    };
+    document.addEventListener('pointerover', onLinkHint, { passive: true });
+    document.addEventListener('pointerdown', onLinkHint, { passive: true });
 
     // 12. 尚未改造为手账工作台的旧版内页保留手账/暗黑模式切换支持
     const isPlopWorkbenchPage =

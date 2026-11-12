@@ -93,7 +93,7 @@
                 </tr>
                 <tr>
                   <td><strong>⑤ 多级反馈队列 (MLFQ)</strong><br/><span class="plop-tag tomato" style="font-size:10px;">经典集大成者</span></td>
-                  <td>设 $Q_0, Q_1, Q_2$ 多层优先级递减队列，<strong>越往下的队列优先级越低、但单次时间片越长</strong>。</td>
+                  <td>设 <code>Q<sub>0</sub>, Q<sub>1</sub>, Q<sub>2</sub></code> 多层优先级递减队列，<strong>越往下的队列优先级越低、但单次时间片越长</strong>。</td>
                   <td><strong>无需预知运行时间，自动识别并优待短任务/IO任务！</strong></td>
                   <td>需要定期把所有任务提回顶层队列（Priority Boost），防止长任务饿死或恶意程序在时间片耗尽前 1ms 故意发起假 I/O 欺骗调度器。</td>
                 </tr>
@@ -103,8 +103,8 @@
 
           <div class="plop-callout tip">
             <strong>💡 一眼看穿「多级反馈队列 MLFQ」的巧思：</strong><br/>
-            1. <strong>新任务来了先当贵宾：</strong>一律放进最高优先级队列 $Q_0$（时间片短，如 2ms）。如果它是<strong>交互/IO 型短任务</strong>，跑 0.5ms 就去等网络了，下次醒来还留在 $Q_0$ 享受秒级响应！<br/>
-            2. <strong>占满时间片就降级：</strong>如果它在 $Q_0$ 把 2ms 时间片全吃光了还没停，说明它是<strong>CPU 密集型长任务</strong>，立刻把它降级到下一层 $Q_1$（优先级变低，但给它 4ms/8ms 的更长时间片，减少无谓切换）！
+            1. <strong>新任务来了先当贵宾：</strong>一律放进最高优先级队列 <code>Q<sub>0</sub></code>（时间片短，如 2ms）。如果它是<strong>交互/IO 型短任务</strong>，跑 0.5ms 就去等网络了，下次醒来还留在 <code>Q<sub>0</sub></code> 享受秒级响应！<br/>
+            2. <strong>占满时间片就降级：</strong>如果它在 <code>Q<sub>0</sub></code> 把 2ms 时间片全吃光了还没停，说明它是<strong>CPU 密集型长任务</strong>，立刻把它降级到下一层 <code>Q<sub>1</sub></code>（优先级变低，但给它 4ms/8ms 的更长时间片，减少无谓切换）！
           </div>
         </div>
 
@@ -148,11 +148,11 @@
 
               <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:12px;">
                 <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato); margin-bottom:4px;">
-                  ⚡ 源码级细节：取最左节点是 $O(\log N)$ 还是 $O(1)$？
+                  ⚡ 源码级细节：取最左节点是 <code>O(log N)</code> 还是 <code>O(1)</code>？
                 </div>
                 <div style="font-size:12.8px; color:var(--plop-ink-text); line-height:1.58; font-weight:700;">
-                  • <strong>插入/调整红黑树：</strong>复杂度是 <strong>$O(\log N)$</strong>。<br/>
-                  • <strong>挑下一个任务（<code>pick_next_task_fair</code>）：</strong>内核用了一个极巧的 <code>struct rb_root_cached</code>，<strong>专门用一个指针 <code>rb_leftmost</code> 缓存了整棵红黑树最左边的节点</strong>——所以每次调度器挑下一个任务是 <strong>直接读缓存指针 $O(1)$</strong>！<br/>
+                  • <strong>插入/调整红黑树：</strong>复杂度是 <strong><code>O(log N)</code></strong>。<br/>
+                  • <strong>挑下一个任务（<code>pick_next_task_fair</code>）：</strong>内核用了一个极巧的 <code>struct rb_root_cached</code>，<strong>专门用一个指针 <code>rb_leftmost</code> 缓存了整棵红黑树最左边的节点</strong>——所以每次调度器挑下一个任务是 <strong>直接读缓存指针 <code>O(1)</code></strong>！<br/>
                   • <strong>睡眠唤醒补偿（<code>min_vruntime</code>）：</strong>一个睡眠了很久的 I/O 进程醒来时，它原本的 <code>vruntime</code> 比其他进程小很多；如果直接按原值放回红黑树，它会长时间连续占用 CPU 导致其他进程饥饿。因此 CFS 维护了就绪队列单调递增的 <code>min_vruntime</code>，<strong>醒来时把它的 <code>vruntime</code> 更新为 <code>max(原值, min_vruntime - 唤醒补偿半周期)</code></strong>，既让刚唤醒的交互/IO 任务能优先获得 CPU，又避免它长时间独占。
                 </div>
               </div>
@@ -163,10 +163,10 @@
             <summary><span class="plop-drawer-title">🔍 进阶拓展 · Linux 6.6+ 最新的 EEVDF 调度器、CPU 亲和性 / NUMA 与 K8s 容器 CPU 限流 (Throttling)</span></summary>
             <div class="drawer-body">
               <ul>
-                <li><strong>Linux 6.6+ 的演进 —— EEVDF（Earliest Eligible Virtual Deadline First）：</strong>CFS 保证了吞吐公平，但缺少“任务多快必须得到服务”的截止时间概念（早期社区讨论的 <code>latency-nice</code> 补丁最终并未合入主线）。<strong>Linux 6.6 正式用 EEVDF 替换了 CFS 内部挑选逻辑</strong>：保留了 <code>vruntime</code> 与红黑树（增维护子树最小 deadline 增强红黑树），选任务时只从“已欠账（Eligible，<code>lag ≥ 0</code>）”的任务中挑<strong>「虚拟截止时间（$\text{Virtual Deadline} = ve_i + \frac{\text{slice}}{w_i}$）最早」</strong>的任务执行。因此延迟敏感型短任务依靠<strong>更短的请求时间片（slice，后续版本可通过 <code>sched_setattr()</code> 的 <code>sched_runtime</code> 自定义）</strong>即可算出更早的虚拟截止时间，从而更快上 CPU。</li>
+                <li><strong>Linux 6.6+ 的演进 —— EEVDF（Earliest Eligible Virtual Deadline First）：</strong>CFS 保证了吞吐公平，但缺少“任务多快必须得到服务”的截止时间概念（早期社区讨论的 <code>latency-nice</code> 补丁最终并未合入主线）。<strong>Linux 6.6 正式用 EEVDF 替换了 CFS 内部挑选逻辑</strong>：保留了 <code>vruntime</code> 与红黑树（增维护子树最小 deadline 增强红黑树），选任务时只从“已欠账（Eligible，<code>lag ≥ 0</code>）”的任务中挑<strong>「虚拟截止时间（<code>Virtual Deadline = ve<sub>i</sub> + slice / w<sub>i</sub></code>）最早」</strong>的任务执行。因此延迟敏感型短任务依靠<strong>更短的请求时间片（slice，后续版本可通过 <code>sched_setattr()</code> 的 <code>sched_runtime</code> 自定义）</strong>即可算出更早的虚拟截止时间，从而更快上 CPU。</li>
                 <li><strong>多核负载均衡、CPU 亲和性（Affinity）与 NUMA：</strong>每个 CPU 核有自己独立的运行队列 <code>rq</code>，减少多核抢锁；调度器尽量让同一线程留在上次跑过的核上（<strong>软亲和性，保护 L1/L2 Cache 与 TLB 热度</strong>），也可通过 <code>taskset / sched_setaffinity</code> 绑核。多路服务器需注意 <strong>NUMA（非统一内存访问）</strong>，跨 Socket 访问远端节点的内存延迟显著高于本地节点。</li>
                 <li><strong>🐳 K8s / Docker 容器为什么 CPU 利用率才 30%，接口延迟却突然暴增？（CFS Bandwidth Control 限流坑）：</strong><br/>
-                  容器设置的 <code>resources.limits.cpu: "2"</code> 底层对应 <strong>cgroup v2 的 <code>cpu.max = "200000 100000"</code></strong>（或旧版 cgroup v1 的 <code>cpu.cfs_quota_us = 200ms</code> / <code>cpu.cfs_period_us = 100ms</code>）。如果你的服务按宿主机核数开了 <strong>16 个工作线程</strong>，在某个 100ms 周期的前 <strong>12.5ms（$16 \times 12.5 = 200\text{ms}$）</strong> 里就把 200ms 配额全用完了，<strong>剩下的 87.5ms 内整个容器的所有线程会被内核强制节流冻结（Throttled，查 cgroup v2 <code>/sys/fs/cgroup/cpu.stat</code> 或 v1 <code>/sys/fs/cgroup/cpu/cpu.stat</code> 的 <code>nr_throttled</code>）</strong>，导致 P99 延迟毛刺飙升。<strong>解法：</strong>让语言运行时线程数对齐容器 CPU 配额（<strong>Go 1.25+ 的 <code>GOMAXPROCS</code> 已原生自动感知容器 cgroup CPU 配额</strong>；旧版本 Go 可引入 <code>uber-go/automaxprocs</code>，Java 10+ 默认开启 <code>-XX:+UseContainerSupport</code>），或适当放宽 CPU Limit。</li>
+                  容器设置的 <code>resources.limits.cpu: "2"</code> 底层对应 <strong>cgroup v2 的 <code>cpu.max = "200000 100000"</code></strong>（或旧版 cgroup v1 的 <code>cpu.cfs_quota_us = 200ms</code> / <code>cpu.cfs_period_us = 100ms</code>）。如果你的服务按宿主机核数开了 <strong>16 个工作线程</strong>，在某个 100ms 周期的前 <strong>12.5ms（<code>16 × 12.5 = 200ms</code>）</strong> 里就把 200ms 配额全用完了，<strong>剩下的 87.5ms 内整个容器的所有线程会被内核强制节流冻结（Throttled，查 cgroup v2 <code>/sys/fs/cgroup/cpu.stat</code> 或 v1 <code>/sys/fs/cgroup/cpu/cpu.stat</code> 的 <code>nr_throttled</code>）</strong>，导致 P99 延迟毛刺飙升。<strong>解法：</strong>让语言运行时线程数对齐容器 CPU 配额（<strong>Go 1.25+ 的 <code>GOMAXPROCS</code> 已原生自动感知容器 cgroup CPU 配额</strong>；旧版本 Go 可引入 <code>uber-go/automaxprocs</code>，Java 10+ 默认开启 <code>-XX:+UseContainerSupport</code>），或适当放宽 CPU Limit。</li>
               </ul>
             </div>
           </details>
@@ -174,4 +174,3 @@
           <div class="plop-callout tip"><strong>📝 本章先记住：</strong>调度从可运行任务中选择执行者；公平、响应和吞吐需要权衡。</div>
 
         </div>
-<div class="plop-bridge"><span>🧭 下一章：<a href="#fs">07 · 文件系统与高性能读写 →</a></span></div>

@@ -150,7 +150,7 @@
             </div>
           </div>
 
-          <details class="plop-drawer"><summary><span class="plop-drawer-title">📎 进阶阅读 · 分段、分页与碎片</span></summary><div class="drawer-body"><h4>📐 分段 vs 分页 vs 段页式 &amp; 内部碎片 vs 外部碎片</h4>
+          <h4>📐 分段 vs 分页 vs 段页式 &amp; 内部碎片 vs 外部碎片</h4>
           <div class="table-wrap">
             <table class="plop-table">
               <thead>
@@ -158,7 +158,7 @@
                   <th style="width:18%">管理方式</th>
                   <th style="width:32%">切分粒度与寻址思路</th>
                   <th style="width:25%">核心优点</th>
-                  <th>致命缺点（碎片类型）</th>
+                  <th>主要局限（碎片类型）</th>
                 </tr>
               </thead>
               <tbody>
@@ -166,25 +166,24 @@
                   <td><strong>分段 (Segmentation)</strong></td>
                   <td>按<strong>程序逻辑模块</strong>切（代码段、数据段、栈段），<code>段号 + 段内偏移</code>，每段长度不一。</td>
                   <td>符合程序员逻辑直觉，方便按整段设置只读/可执行权限与共享。</td>
-                  <td>段长短不一，反复分配释放后留下一堆夹缝空洞 ──▶ <strong>严重的「外部碎片」</strong>，换入换出整段大内存极慢。</td>
+                  <td>段长短不一，反复分配释放后留下一堆夹缝空洞 ──▶ <strong>产生「外部碎片」</strong>，换入换出整段大内存较慢。</td>
                 </tr>
                 <tr>
                   <td><strong>分页 (Paging)</strong></td>
                   <td>不管逻辑，一律按<strong>固定尺寸（Linux 默认 <code>4 KB</code>）</strong>切块，<code>虚拟页号 + 12位页内偏移</code>。</td>
                   <td><strong>消除外部碎片：</strong>任何空闲物理页帧都能塞进任何一个虚拟页；换页粒度固定为 4KB。</td>
-                  <td>假如你只存 100B 数据也要分一整页 4KB，页内剩余空间浪费 ──▶ <strong>存在少量「内部碎片」（每个单独分配区域的末页都可能有浪费）</strong>。</td>
+                  <td>假如只存 100B 数据也要分一整页 4KB，页内剩余空间浪费 ──▶ <strong>存在少量「内部碎片」（每个单独分配区域的末页可能有剩余空间）</strong>。</td>
                 </tr>
                 <tr>
                   <td><strong>段页式</strong></td>
-                  <td>先按逻辑切成段，每个段内部再按 4KB 切成页（x86 早期做法；<strong>64位 Linux 将所有段基址全设为 0 扁平化，实质上纯用分页！</strong>）</td>
+                  <td>先按逻辑切成段，每个段内部再按 4KB 切成页（x86 早期做法；<strong>64位 Linux 将所有段基址全设为 0 扁平化，实质上主要采用分页管理</strong>）</td>
                   <td>兼具逻辑隔离与物理零外部碎片。</td>
                   <td>硬件地址翻译多一次查段表开销。</td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </div></details>
-</div>
+        </div>
 
 
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
@@ -193,7 +192,7 @@
           <h3 id="pagetable">🗂️ 03.3 多级页表（x86-64 四级页表）与 TLB 快表加速 <span class="plop-tag tomato">重点回顾</span></h3>
           <p>
             <strong>先算一笔账：为什么不能用一张简单的一维数组（单级页表）？</strong><br/>
-            在 32 位系统下（4GB 空间，4KB 一页，共 $2^{20} \approx 100\text{万}$ 个页，每项 4B），单级页表必须连续占 <code>4 MB</code>——如果跑 100 个进程，光页表就吃掉 400MB！到了 <strong>64 位系统（x86-64 使用低 48 位虚拟地址 = 256 TB，共 $2^{36}$ 个 4KB 页，每项 8B）</strong>，如果建单级页表，<strong>光一个进程的页表就要占 $2^{36} \times 8\text{B} = 512\text{ GB}$ 物理内存！</strong>这根本不可能实现！
+            在 32 位系统下（4GB 空间，4KB 一页，共 <code>2<sup>20</sup> ≈ 100 万</code> 个页，每项 4B），单级页表必须连续占 <code>4 MB</code>——如果跑 100 个进程，光页表就吃掉 400MB！到了 <strong>64 位系统（x86-64 使用低 48 位虚拟地址 = 256 TB，共 <code>2<sup>36</sup></code> 个 4KB 页，每项 8B）</strong>，如果建单级页表，<strong>光一个进程的页表就要占 <code>2<sup>36</sup> × 8B = 512 GB</code> 物理内存！</strong>这根本不可能实现！
           </p>
           <p>
             <strong>💡 多级页表的核心思路（按需建表，类似书的「章→节→小节」多级目录）：</strong><br/>
@@ -212,7 +211,7 @@
             </div>
 
 
-            <div class="table-wrap" style="margin:0;"><div style="display:grid; min-width:520px; grid-template-columns:repeat(5, 1fr); gap:6px; text-align:center; font-family:var(--font-mono); margin-bottom:12px;">
+            <div style="overflow-x:auto;"><div style="display:grid; min-width:520px; grid-template-columns:repeat(5, 1fr); gap:6px; text-align:center; font-family:var(--font-mono); margin-bottom:12px;">
               <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 4px;">
                 <div style="font-weight:900; font-size:13.5px; color:var(--plop-ink-text);">PGD (全局目录)</div>
                 <div style="font-size:12px; color:var(--plop-tomato); font-weight:900;">9 bits [47:39]</div>
@@ -346,7 +345,7 @@
                 </div>
                 <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58; margin-bottom:8px;">
                   <strong style="color:var(--plop-ink);">① 伙伴系统 (Buddy System) —— 按「页」管大块，管理连续物理页：</strong><br/>
-                  把所有空闲物理页按 <strong>$2^0, 2^1, 2^2 \dots 2^{10}$ 个连续页（即 4KB, 8KB, 16KB ... 4MB，共 11 条空闲链表）</strong>组织。要 4KB 若没有，就把 8KB 对半劈成两个“伙伴”；释放时若相邻伙伴也空闲，立刻合并回大块，尽量合并空闲块，缓解外部碎片；但无法保证总能分配大块连续内存。
+                  把所有空闲物理页按 <strong><code>2<sup>0</sup>, 2<sup>1</sup>, 2<sup>2</sup> … 2<sup>10</sup></code> 个连续页（即 4KB, 8KB, 16KB ... 4MB，共 11 条空闲链表）</strong>组织。要 4KB 若没有，就把 8KB 对半劈成两个“伙伴”；释放时若相邻伙伴也空闲，立刻合并回大块，尽量合并空闲块，缓解外部碎片；但无法保证总能分配大块连续内存。
                 </div>
                 <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58;">
                   <strong style="color:#15803d;">② Slab / Slub 分配器 —— 按「字节」管内核小对象，防内部碎片：</strong><br/>
@@ -392,4 +391,3 @@
           <div class="plop-callout tip"><strong>📝 本章先记住：</strong>虚拟地址经页表对应物理内存；合法页面未就绪时，缺页处理可以补齐它。</div>
 
         </div>
-<div class="plop-bridge"><span>🧭 下一章：<a href="#pipe">04 · 进程间通信 IPC →</a></span></div>
