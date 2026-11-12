@@ -1,0 +1,189 @@
+<!-- ====================================================================
+     PART 04: Channel 管道底层解剖与 Select 多路复用
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="channel">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">Channel 管道底层解剖与 Select 多路复用</span>
+  <span class="plop-tag tomato">CSP COMMUNICATION × HCHAN</span>
+</div>
+
+<!-- 04.1 · hchan 底层结构与 sendDirect 跨栈直拷 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔄 04.1 · 当已有接收协程阻塞在 <code>&lt;-ch</code> 时，发送者写的数据还会进环形缓冲区 <code>buf</code> 吗？</div>
+  <h3>🧬 04.1 <code>runtime.hchan</code> 底层结构与 <code>sendDirect</code> 跨协程栈直接拷贝优化</h3>
+  <p>
+    Rob Pike 名言：<strong>“不要通过共享内存来通信，而要通过通信来共享内存。”</strong> 调用 <code>make(chan int, 4)</code> 会在堆上分配一个 <code>hchan</code> 结构体并返回指针。它集成了<strong>环形缓冲区 <code>buf</code>、双向阻塞协程队列 <code>sendq/recvq (sudog)</code> 与互斥锁 <code>lock</code></strong>：
+  </p>
+
+  <!-- 手绘 SVG：hchan 底层结构与 sendDirect 跨栈直拷 -->
+  <svg viewBox="0 0 950 280" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Go Channel hchan 底层结构图">
+    <rect x="8" y="8" width="934" height="264" rx="12" fill="#FFFDF7" stroke="var(--plop-ink)" stroke-width="2"/>
+
+    <!-- 左侧 hchan 结构体字段 -->
+    <g transform="translate(22, 22)">
+      <rect x="0" y="0" width="245" height="235" rx="10" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="225" height="26" rx="5" fill="var(--plop-ink)"/>
+      <text x="122" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="12" font-weight="900">runtime.hchan 结构体</text>
+
+      <text x="14" y="54" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.5" font-weight="800">qcount: 2 <tspan fill="var(--plop-ink-soft)">(当前缓冲元素数)</tspan></text>
+      <text x="14" y="74" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.5" font-weight="800">dataqsiz: 4 <tspan fill="var(--plop-ink-soft)">(环形数组容量 cap)</tspan></text>
+      <text x="14" y="94" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">buf: *[4]T <tspan fill="var(--plop-ink-soft)">(环形缓冲区指针)</tspan></text>
+      <text x="14" y="114" fill="#1F8A65" font-family="var(--font-mono)" font-size="11.5" font-weight="900">sendx: 2 / recvx: 0 <tspan fill="var(--plop-ink-soft)">(写/读游标)</tspan></text>
+      <text x="14" y="134" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">closed: 0 <tspan fill="var(--plop-ink-soft)">(0=开启, 1=已关闭)</tspan></text>
+      <text x="14" y="156" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">recvq: waitq <tspan fill="var(--plop-ink-soft)">(阻塞等读的sudog链)</tspan></text>
+      <text x="14" y="176" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">sendq: waitq <tspan fill="var(--plop-ink-soft)">(阻塞等写的sudog链)</tspan></text>
+      <rect x="12" y="190" width="221" height="34" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="20" y="211" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.2" font-weight="900">🔒 lock mutex (保护所有字段并发安全)</text>
+    </g>
+
+    <!-- 中部：环形缓冲区 buf 与 sendq/recvq -->
+    <g transform="translate(290, 22)">
+      <rect x="0" y="0" width="310" height="115" rx="10" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="14" y="22" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="12" font-weight="900">1. 环形缓冲区 buf (有缓冲且未满时走这里)</text>
+      <rect x="16" y="34" width="64" height="44" rx="6" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
+      <text x="48" y="53" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">[0]=10</text>
+      <text x="48" y="70" text-anchor="middle" fill="#1F8A65" font-size="10" font-weight="800">▲ recvx</text>
+
+      <rect x="88" y="34" width="64" height="44" rx="6" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
+      <text x="120" y="53" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">[1]=20</text>
+
+      <rect x="160" y="34" width="64" height="44" rx="6" fill="#FFFFFF" stroke="#D2381E" stroke-width="2" stroke-dasharray="4 2"/>
+      <text x="192" y="53" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">[2] 空</text>
+      <text x="192" y="70" text-anchor="middle" fill="#D2381E" font-size="10" font-weight="800">▲ sendx</text>
+
+      <rect x="232" y="34" width="64" height="44" rx="6" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="264" y="53" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="11">[3] 空</text>
+      <text x="16" y="100" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">游标到尾后自动回绕：(sendx + 1) % dataqsiz</text>
+
+      <rect x="0" y="127" width="310" height="108" rx="10" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="14" y="148" fill="#D2381E" font-family="var(--font-mono)" font-size="12" font-weight="900">2. 阻塞等待队列 sendq / recvq (sudog 双向链表)</text>
+      <rect x="14" y="158" width="136" height="64" rx="6" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="22" y="177" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">sudog (G_recv)</text>
+      <text x="22" y="194" fill="var(--plop-ink-text)" font-size="10.8" font-weight="700">g: *G_recv (_Gwaiting)</text>
+      <text x="22" y="210" fill="#D2381E" font-size="10.8" font-weight="800">elem: &amp;v (接收变量栈址)</text>
+
+      <rect x="160" y="158" width="136" height="64" rx="6" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.5"/>
+      <text x="168" y="177" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">sudog (G_send)</text>
+      <text x="168" y="194" fill="var(--plop-ink-text)" font-size="10.8" font-weight="700">g: *G_send (_Gwaiting)</text>
+      <text x="168" y="210" fill="#D2381E" font-size="10.8" font-weight="800">elem: &amp;x (发送变量栈址)</text>
+    </g>
+
+    <!-- 右侧：sendDirect 跨协程栈直拷优化 -->
+    <g transform="translate(620, 22)">
+      <rect x="0" y="0" width="308" height="235" rx="10" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
+      <rect x="10" y="10" width="288" height="26" rx="5" fill="#1F8A65"/>
+      <text x="154" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.8" font-weight="900">★ 核心考点：sendDirect 跨栈直接拷贝</text>
+
+      <text x="14" y="54" fill="var(--plop-ink-text)" font-size="11.8" font-weight="800">当发送 ch &lt;- x 时，若发现 recvq 里已有等</text>
+      <text x="14" y="71" fill="var(--plop-ink-text)" font-size="11.8" font-weight="800">待的接收者 G_recv，数据还经过 buf 吗？</text>
+      <text x="14" y="91" fill="#D2381E" font-size="12.2" font-weight="900">答：完全不经过 buf！（仅 1 次内存拷贝）</text>
+
+      <rect x="14" y="102" width="122" height="58" rx="6" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="75" y="124" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">G_send 协程栈</text>
+      <text x="75" y="144" text-anchor="middle" fill="var(--plop-ink-text)" font-size="11" font-weight="700">局部变量 x = 42</text>
+
+      <rect x="172" y="102" width="122" height="58" rx="6" fill="#FFFFFF" stroke="#1F8A65" stroke-width="1.6"/>
+      <text x="233" y="124" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">G_recv 协程栈</text>
+      <text x="233" y="144" text-anchor="middle" fill="#D2381E" font-size="11" font-weight="900">sg.elem (直接写入!)</text>
+
+      <path d="M 136 131 L 170 131" stroke="#D2381E" stroke-width="2.5"/>
+      <polygon points="172,131 164,126 164,136" fill="#D2381E"/>
+
+      <text x="14" y="182" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">• 唯一特例：Go 正常禁止一个 G 写另一个 G 的栈；</text>
+      <text x="14" y="199" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">  但此时 G_recv 处于 _Gwaiting 休眠态，栈绝不</text>
+      <text x="14" y="216" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">  会发生扩容移动，因此 memmove 跨栈直写绝对安全！</text>
+    </g>
+  </svg>
+</div>
+
+<!-- 04.2 · 收发关状态真值表与优雅关闭原则 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📊 04.2 · 向 <code>nil</code> channel 和已关闭 channel 进行读写关分别会发生什么？</div>
+  <h3>🚦 04.2 Channel 三种状态的收/发/关完整真值表与优雅关闭黄金法则</h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">操作类型</th>
+          <th style="width:26%">① <code>nil</code> Channel（未 make）</th>
+          <th style="width:24%">② 正常开启的 Channel</th>
+          <th>③ 已关闭的 Channel（<code>close(ch)</code> 后）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>发送 <code>ch &lt;- v</code></strong></td>
+          <td><strong>永久阻塞</strong>（<code>gopark</code> 永不唤醒）</td>
+          <td>成功写入/交接，或满时阻塞</td>
+          <td>💥 <strong>立即 <code>panic: send on closed channel</code></strong></td>
+        </tr>
+        <tr>
+          <td><strong>接收 <code>v, ok := &lt;-ch</code></strong></td>
+          <td><strong>永久阻塞</strong>（常用于 <code>select</code> 中动态置 <code>ch = nil</code> 屏蔽某分支！）</td>
+          <td>成功读取（<code>ok=true</code>），或空时阻塞</td>
+          <td>✅ <strong>永不阻塞</strong>：先读完缓冲剩余元素（<code>ok=true</code>），缓冲排空后<strong>立即返回类型零值且 <code>ok=false</code></strong></td>
+        </tr>
+        <tr>
+          <td><strong>关闭 <code>close(ch)</code></strong></td>
+          <td>💥 <strong>立即 <code>panic: close of nil channel</code></strong></td>
+          <td>成功置 <code>closed=1</code>，唤醒所有等待者</td>
+          <td>💥 <strong>立即 <code>panic: close of closed channel</code></strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout warn">
+    <strong>🚨 Channel 关闭铁律：</strong>永远由<strong>发送方（Sender）</strong>关闭 channel，绝不由接收方关！若有多个发送者协程，由 <code>sync.WaitGroup</code> 等所有发送者全部退出后由协调协程统一关闭，或额外引入信号通道 <code>stopCh</code> 配合 <code>sync.Once</code> 广播停写。
+  </div>
+</div>
+
+<!-- 04.3 · select 多路复用底层实现 -->
+<div class="wb-card" id="select" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill" id="chan-trap">🎲 04.3 · 如果两个协程同时用 <code>select</code> 监听同一对 <code>ch1, ch2</code>，为什么不会发生交叉加锁死锁？</div>
+  <h3>🎛️ 04.3 <code>select</code> 底层实现：<code>pollorder</code> 随机洗牌防饥饿与 <code>lockorder</code> 地址排序防死锁</h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 select_worker.go · 标准超时与优雅取消模板</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-select-worker', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-select-worker"><code><span class="c-kw">func</span> <span class="c-fn">worker</span>(ctx context.Context, jobCh &lt;-<span class="c-kw">chan</span> Job) <span class="c-fn">error</span> {
+    <span class="c-cm">// ★ 用 NewTicker 代替循环内 time.After，防止旧版本 Timer 内存泄漏</span>
+    ticker := time.<span class="c-fn">NewTicker</span>(5 * time.Second)
+    <span class="c-kw">defer</span> ticker.<span class="c-fn">Stop</span>()
+
+    <span class="c-kw">for</span> {
+        <span class="c-kw">select</span> {
+        <span class="c-kw">case</span> job, ok := &lt;-jobCh:
+            <span class="c-kw">if</span> !ok { <span class="c-kw">return</span> <span class="c-kw">nil</span> } <span class="c-cm">// 通道已关闭且排空，优雅退出</span>
+            <span class="c-fn">handle</span>(job)
+        <span class="c-kw">case</span> &lt;-ticker.C:
+            <span class="c-fn">reportHeartbeat</span>()
+        <span class="c-kw">case</span> &lt;-ctx.<span class="c-fn">Done</span>():        <span class="c-cm">// 上游超时或取消（close 广播）</span>
+            <span class="c-kw">return</span> ctx.<span class="c-fn">Err</span>()
+        }
+    }
+}</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin-top:10px;">
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:8px;">🔍 源码级揭秘：<code>runtime.selectgo</code> 四步执行流</div>
+      <ol style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.65;">
+        <li><strong><code>pollorder</code>（随机洗牌防饿死）</strong>：用 <code>fastrandn</code> 随机打乱所有 case 的检查顺序，防止排在前面的高频 case 把后面的 case 饿死。</li>
+        <li><strong><code>lockorder</code>（地址排序防死锁 ★必考）</strong>：将所有 case 涉及的 <code>hchan</code> <strong>按内存虚拟地址从小到大进行堆排序</strong>，严格按此顺序依次加锁（解锁时逆序），彻底消除多协程交叉加锁的 AB-BA 死锁！</li>
+        <li><strong>第一轮非阻塞扫描</strong>：按 <code>pollorder</code> 检查是否有就绪分支，有则立即解锁执行；若全未就绪且有 <code>default</code>，走 <code>default</code>。</li>
+        <li><strong>挂起与唤醒摘除</strong>：将当前 G 挂入所有 case 的等待队列并 <code>gopark()</code>；任一分支唤醒后，再次按 <code>lockorder</code> 加锁并将自己从其余未触发队列中摘除。</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<div class="plop-bridge">
+  🔗 看完了用 Channel 通信，如果我们需要保护高频读写的共享状态，或者排查 GC 内存问题呢？进入 <strong>第 05 章</strong>：拆解 <code>Mutex</code>、TCMalloc 内存分配器与三色标记混合写屏障 GC ➔
+</div>

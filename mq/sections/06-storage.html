@@ -1,0 +1,228 @@
+<!-- ====================================================================
+             PART 06: 底层存储与零拷贝原理（Kafka 为什么快、Segment 稀疏索引 vs RocketMQ CommitLog）
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="storage">
+          <span class="wb-sec-num">06</span>
+          <span class="wb-sec-title">存储与零拷贝原理 · Kafka 为什么能扛百万 TPS？顺序写、零拷贝与 RocketMQ 存储对比</span>
+          <span class="plop-tag tomato">PAGE CACHE · ZERO-COPY · COMMITLOG</span>
+        </div>
+
+        <!-- 06.1 · Kafka 为什么这么快？（5 大核心武器 + 零拷贝深度图解） -->
+        <div class="wb-card" id="fast" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 06.1 · 原理题天花板：“Kafka 明明把消息全写进磁盘，为什么单机还能扛百万级 TPS？”</div>
+          <h3>⚡ 06.1 拆解 Kafka 百万级吞吐的「5 大底层加速引擎」</h3>
+          <p>
+            很多人有个刻板印象觉得“写磁盘一定很慢”。其实<strong>慢的是磁盘随机 I/O（磁头到处寻道），而磁盘顺序追加写的吞吐量高达 600MB/s～数 GB/s，甚至比随机写内存还要快！</strong>Kafka 正是围绕“极致顺序 I/O + 借力操作系统内核”打造了五环相扣的加速体系：
+          </p>
+
+          <!-- 5 大武器卡片网格 -->
+          <div class="wb-grid-3" style="margin:12px 0;">
+            <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:4px;">① 磁盘顺序追加写 (Append-Only)</div>
+              <div style="font-size:12.8px; line-height:1.55;">
+                每个 Partition 都是一个<strong>只允许在文件末尾追加、绝不原地修改</strong>的日志文件，彻底消除磁盘随机寻道开销，把随机写转化为 \(O(1)\) 顺序写。
+              </div>
+            </div>
+
+            <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:4px;">② 借力 OS PageCache（页缓存）</div>
+              <div style="font-size:12.8px; line-height:1.55;">
+                不在 JVM 堆内建大缓存（<strong>避开 Java 对象头膨胀与 Full GC 停顿</strong>），直接读写操作系统内核的 <strong>PageCache</strong>；热消费直接命中内存，且 Broker 进程重启缓存不丢！
+              </div>
+            </div>
+
+            <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:4px;">③ 端到端攒批 + 压缩 + 分区并行</div>
+              <div style="font-size:12.8px; line-height:1.55;">
+                Producer 内存攒成大 <strong>RecordBatch</strong> 并整批压缩（LZ4/Zstd）后发送，Broker 原样落盘，Consumer 批量拉取，将网络 RTT 与系统调用开销摊薄百倍。
+              </div>
+            </div>
+          </div>
+
+          <!-- 核心重头戏：零拷贝 Zero-Copy 图解对比（传统 4拷贝4切换 vs sendfile 2拷贝2切换） -->
+          <div style="background:#FFFDF7; border:2.5px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+              <span style="font-weight:900; font-size:15px; color:var(--plop-ink);">
+                🚀 核心王牌：零拷贝（Zero-Copy）—— 把磁盘/PageCache 里的消息发往网卡，到底省了哪几次拷贝？
+              </span>
+              <span class="plop-tag tomato" style="font-size:11.5px;">零 CPU 拷贝 · FileChannel.transferTo</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(310px, 1fr)); gap:14px;">
+              <!-- 左：传统 read + write -->
+              <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:12px; padding:13px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:8px;">
+                  ❌ 传统 I/O（<code>File.read()</code> + <code>Socket.write()</code>）：<br/>
+                  4 次上下文切换 + 4 次数据拷贝（含 2 次无用 CPU 拷贝）
+                </div>
+                <div style="font-family:var(--font-mono); font-size:12.4px; line-height:1.65; background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:10px;">
+                  1. <strong>磁盘 ──(DMA 拷贝①)──▶ 内核 PageCache</strong><br/>
+                  2. <span style="color:var(--plop-tomato); font-weight:900;">PageCache ──(CPU 拷贝② · 多余!)──▶ JVM 用户态缓冲区</span><br/>
+                  3. <span style="color:var(--plop-tomato); font-weight:900;">JVM 用户缓冲区 ──(CPU 拷贝③ · 多余!)──▶ 内核 Socket 缓冲区</span><br/>
+                  4. <strong>Socket 缓冲区 ──(DMA 拷贝④)──▶ 网卡 NIC 发送</strong>
+                </div>
+                <div style="font-size:12.4px; color:var(--plop-ink-soft); margin-top:6px; font-weight:700;">
+                  痛点：Broker 只是原样转发消息，根本不需要修改数据，却把数据白白搬进 JVM 用户态又搬回内核态！
+                </div>
+              </div>
+
+              <!-- 右：sendfile 零拷贝 -->
+              <div style="background:#F0FDF4; border:2px solid #15803d; border-radius:12px; padding:13px;">
+                <div style="font-weight:900; font-size:14px; color:#15803d; margin-bottom:8px;">
+                  ✅ Kafka 零拷贝（Linux <code>sendfile</code> + 网卡 SG-DMA）：<br/>
+                  仅 2 次上下文切换 + 2 次 DMA 拷贝（0 次 CPU 拷贝！）
+                </div>
+                <div style="font-family:var(--font-mono); font-size:12.4px; line-height:1.65; background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:10px;">
+                  1. <strong>磁盘 ──(DMA 拷贝①)──▶ 内核 PageCache</strong>（若热数据已在 PageCache 则连这步都省了！）<br/>
+                  2. <span style="color:#15803d; font-weight:900;">向 Socket 缓冲区仅追加「文件地址与长度描述符」（零数据拷贝）</span><br/>
+                  3. <strong>PageCache ──(SG-DMA 引擎直读拷贝②)──▶ 网卡 NIC 发送</strong>
+                </div>
+                <div style="font-size:12.4px; color:var(--plop-ink-text); margin-top:6px; font-weight:800;">
+                  💡 <strong>记住定义：</strong>“零拷贝”指的是<strong>「内核态与用户态之间 0 次 CPU 拷贝」</strong>，数据全程不进 JVM 内存！
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 进阶对比：为什么 Kafka 用 sendfile，而 RocketMQ 用 mmap？ -->
+          <details class="plop-drawer" open>
+            <summary>🔍 进阶必问 · 既然 <code>sendfile</code> 比 <code>mmap</code> 少一次 CPU 拷贝，为什么 RocketMQ 不用 <code>sendfile</code> 而偏偏选了 <code>mmap</code>？</summary>
+            <div class="drawer-body">
+              <p>
+                这是区分“背八股”和“真懂架构”的经典追问！两种零拷贝技术的核心差异在于<strong>「应用程序在用户态能不能拿到消息的具体内容」</strong>：
+              </p>
+              <div class="table-wrap">
+                <table class="plop-table">
+                  <thead>
+                    <tr>
+                      <th style="width:22%">零拷贝方式</th>
+                      <th style="width:28%">拷贝与切换次数</th>
+                      <th>核心优缺点与为什么 Kafka / RocketMQ 各自选它？</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong><code>sendfile</code></strong><br/>（Kafka 消费读取使用）</td>
+                      <td><strong>2 次切换 + 0 次 CPU 拷贝</strong><br/>（PageCache 直达网卡）</td>
+                      <td>• <strong>返回值限制：</strong><code>sendfile(out_fd, in_fd, offset, count)</code> 在内核里直接把字节流推给网卡，<strong>只向用户态返回“成功发送了多少字节（int）”</strong>，JVM 代码完全摸不到消息内容！<br/>• <strong>为什么适合 Kafka？</strong>Kafka 的分区文件里存的就是当前 Topic 的纯消息，不需要在 Broker 端解析内容，直接按字节区间吐给网卡即可（<em>注：若 Kafka 开启了 SSL/TLS 加密，因必须在用户态加密，<code>sendfile</code> 零拷贝会自动退化失效</em>）。</td>
+                    </tr>
+                    <tr>
+                      <td><strong><code>mmap + write</code></strong><br/>（RocketMQ CommitLog 读写使用）</td>
+                      <td><strong>4 次切换 + 1 次 CPU 拷贝</strong><br/>（PageCache ──CPU──▶ Socket 缓冲区）</td>
+                      <td>• <strong>核心优势：</strong><code>mmap</code>（Java <code>MappedByteBuffer</code>）把内核 PageCache 直接映射到用户态虚拟地址空间，<strong>Broker 代码可以在不触发额外用户态拷贝的前提下，直接在内存里读取、解析消息头、做 Tag / SQL92 属性过滤，或者在写入前预热页缓存</strong>！<br/>• <strong>为什么适合 RocketMQ？</strong>RocketMQ 所有 Topic 混写在定长 1GB 的 <code>CommitLog</code> 中，且经常需要在服务端读取消息属性或返回具体内容给逻辑层处理，<code>mmap</code> 是最契合的选择。</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <!-- 06.2 · Kafka 分区 Segment 稀疏索引 vs RocketMQ 单一 CommitLog + ConsumeQueue -->
+        <div class="wb-card" id="store" style="background:var(--plop-paper);">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill" id="rocket">❓ 06.2 · 磁盘上的消息文件到底长什么样？Kafka 的「Segment 稀疏索引」和 RocketMQ 的「CommitLog + ConsumeQueue」是怎么权衡的？</div>
+          <h3>💽 06.2 两大存储架构巅峰对决：Kafka 分区独立存储 vs RocketMQ 集中混合存储</h3>
+          <p>
+            同样是顺序写磁盘，Kafka 和 RocketMQ 在底层文件组织上做出了截然不同的设计，这也直接决定了它们在<strong>「少量大吞吐 Topic」</strong>与<strong>「成千上万个业务 Topic」</strong>下的性能表现：
+          </p>
+
+          <div style="display:grid; gap:16px; margin:14px 0;">
+            <!-- 左/上：Kafka Segment 存储结构 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-ink); color:#FFFFFF; font-weight:900; font-size:14.5px; padding:4px 12px; border-radius:8px;">
+                  📂 一、Kafka 存储结构：每个 Partition 独立目录，按 Segment 分段 + 稀疏索引 (.index)
+                </span>
+                <span class="plop-tag mint" style="font-size:11.5px;">文件名二分 + 稀疏索引定位</span>
+              </div>
+              <p style="font-size:13.3px; margin:0 0 10px;">
+                如果一个 Partition 的所有消息存成一个几百 GB 的巨型文件，既没法高效删除过期历史数据，也没法快速定位某个 Offset。因此 Kafka 把每个 Partition 切分成多个固定大小（默认 <code>1GB</code>）的 <strong><code>Segment（日志段）</code></strong>，每个 Segment 包含三胞胎文件（<strong>文件名就是该段第 1 条消息的起始 Offset</strong>）：
+              </p>
+
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px;">
+                <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-family:var(--font-mono); font-size:12.5px; line-height:1.6;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">📁 order-topic-0/（分区目录）</div>
+                  ├── <strong>00000000000000000000.log</strong> <span style="color:var(--plop-ink-soft);">(消息数据)</span><br/>
+                  ├── <strong>00000000000000000000.index</strong> <span style="color:var(--plop-tomato);">(偏移量稀疏索引)</span><br/>
+                  ├── <strong>00000000000000000000.timeindex</strong> <span style="color:var(--plop-ink-soft);">(时间戳索引)</span><br/>
+                  ├── <strong>00000000000000368769.log</strong> <span style="color:#15803d;">(第2段: 368769起)</span><br/>
+                  └── <strong>00000000000000368769.index</strong>
+                </div>
+
+                <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13px; line-height:1.58;">
+                  <div style="font-weight:900; color:var(--plop-ink-text); margin-bottom:4px;">🔎 查 <code>offset = 368800</code> 的三步极速定位：</div>
+                  1. <strong>文件名二分查找：</strong>对比 Segment 文件名，瞬间锁定在 <code>0000...368769</code> 这一段；<br/>
+                  2. <strong><code>.index</code> 稀疏索引二分查找：</strong>因为每隔 <code>4KB</code> 消息才建一条索引项（省内存，通过 <code>mmap</code> 常驻内存），二分找到最接近且 <code>&lt;= 368800</code> 的物理文件字节偏移量（如 <code>offset=368795 → pos=12400</code>）；<br/>
+                  3. <strong><code>.log</code> 小范围顺序扫描：</strong>从物理位置 <code>12400</code> 往后顺序扫几条即可拿到 <code>368800</code>！
+                </div>
+              </div>
+            </div>
+
+            <!-- 右/下：RocketMQ CommitLog + ConsumeQueue + IndexFile -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-mustard); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14.5px; padding:4px 12px; border-radius:8px;">
+                  🚀 二、RocketMQ 存储结构：全机单一 <code>CommitLog</code> 顺序写 + 20字节定长 <code>ConsumeQueue</code> 索引
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">海量 Topic 不退化</span>
+              </div>
+
+              <!-- 三大文件协作流转图 -->
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:10px; margin-bottom:12px;">
+                <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                  <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">① <code>CommitLog</code>（主体数据本）</div>
+                  <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                    整台 Broker 上<strong>所有 Topic、所有队列的消息全部混在一起，顺序追加写入同一个 CommitLog</strong>（每文件定长 <code>1GB</code>）。哪怕有 1 万个 Topic，磁盘磁头也永远只在一个文件末尾顺序写！
+                  </div>
+                </div>
+
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                  <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato);">② <code>ConsumeQueue</code>（20B 消费目录）</div>
+                  <div style="font-size:12.6px; color:var(--plop-ink-soft); margin-top:4px; line-height:1.5; font-weight:700;">
+                    消息写进 CommitLog 后，后台 <code>ReputMessageService</code> 异步分发构建每个 Queue 的轻量索引文件。每条索引严格定长 <strong><code>20 字节</code></strong>：<br/>
+                    <code>[8B CommitLog物理偏移 + 4B 消息长度 + 8B Tag哈希码]</code>。<br/>
+                    👉 <strong>Tag 过滤为什么极快？</strong>消费者拉取时先在内存里比对这 8 字节 <code>Tag HashCode</code>，不匹配连 CommitLog 都不读！
+                  </div>
+                </div>
+
+                <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                  <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">③ <code>IndexFile</code>（按 Key 哈希索引）</div>
+                  <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                    基于磁盘文件实现的哈希表（Header + 500 万个 Hash 槽 + 2000 万个冲突链表条目），专门支持在控制台输入<strong>业务单号 <code>orderId</code>（Message Key）</strong>秒级反查消息轨迹。
+                  </div>
+                </div>
+              </div>
+
+              <!-- 对比总结表 -->
+              <div class="table-wrap" style="margin:0;">
+                <table class="plop-table" style="font-size:12.8px;">
+                  <thead>
+                    <tr>
+                      <th style="width:20%">对比维度</th>
+                      <th style="width:40%">Kafka（分区独立 <code>.log</code> 文件）</th>
+                      <th>RocketMQ（单一 <code>CommitLog</code> + <code>ConsumeQueue</code>）</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>写入特点</strong></td>
+                      <td>每个 Partition 各自顺序写；Topic 少时吞吐极高，但<strong>分区上千时退化为随机写</strong>。</td>
+                      <td>所有 Topic 永远汇聚成<strong>单流顺序写 1 个 CommitLog</strong>，万级 Topic 下写入依然稳如泰山。</td>
+                    </tr>
+                    <tr>
+                      <td><strong>读取特点</strong></td>
+                      <td><strong>一次直读</strong>：定位到 Partition 的 <code>.log</code> 后直接通过 <code>sendfile</code> 顺序流式读出。</td>
+                      <td><strong>两跳读取</strong>：先顺序读 <code>ConsumeQueue</code> 拿到 8B 物理地址，再去 <code>CommitLog</code> 读取消息体（靠定长 20B 索引全进 PageCache 加上 SSD 弥补随机读）。</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：单机存储快如闪电，但如果这台 Broker 突然断电或硬盘报废，分布式集群靠什么机制保证数据不丢且秒级切主？为什么光靠高水位 <code>HW</code> 还不够，必须引入 <code>Leader Epoch</code>？</span>
+          </div>
+        </div>

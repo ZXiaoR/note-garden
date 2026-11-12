@@ -1,0 +1,329 @@
+<!-- ====================================================================
+     PART 06: Context 取消树、泛型原理、内存模型与性能调优实战
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="context">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">Context 取消树、泛型原理、内存模型与性能调优实战</span>
+  <span class="plop-tag tomato">ENGINEERING × GENERICS × PPROF</span>
+</div>
+
+<!-- 06.1 · Context 取消传播树 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🌳 06.1 · 客户端断开连接后，<code>context</code> 是怎么一键通知整棵调用树上的所有子协程停手的？</div>
+  <h3>📡 06.1 <code>context.Context</code>：四类底层实现结构体与 Go 1.21 <code>WithoutCancel</code></h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 context_timeout.go · 标准超时派生与 WithoutCancel</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ctx-demo', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-ctx-demo"><code><span class="c-kw">func</span> <span class="c-fn">HandleOrder</span>(ctx context.Context, req *Req) <span class="c-fn">error</span> {
+    <span class="c-cm">// 1. 派生 800ms 超时子 ctx（若父 ctx 更早到期，以更早者为准）</span>
+    ctx, cancel := context.<span class="c-fn">WithTimeout</span>(ctx, 800*time.Millisecond)
+    <span class="c-kw">defer</span> <span class="c-fn">cancel</span>() <span class="c-cm">// ★ 必须调 cancel() 释放 Timer 并从父节点摘除！</span>
+
+    <span class="c-cm">// 2. Go 1.21+ 神器：剥离父取消信号（用于异步发审计日志/埋点）</span>
+    <span class="c-cm">// 既保留父 ctx 里的 TraceID，又不会因主请求返回 cancel 而中断写日志</span>
+    bgCtx := context.<span class="c-fn">WithoutCancel</span>(ctx)
+    <span class="c-kw">go</span> <span class="c-fn">writeAuditLog</span>(bgCtx, req)
+
+    <span class="c-kw">return</span> rpcClient.<span class="c-fn">Call</span>(ctx, req)
+}</code></pre>
+    </div>
+
+    <div>
+      <div class="table-wrap" style="margin-top:10px;">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:24%">底层结构体</th>
+              <th>对应函数与源码核心机制</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong><code>emptyCtx</code></strong></td>
+              <td><code>Background() / TODO()</code>：空整型，作为全树根节点，永不取消。</td>
+            </tr>
+            <tr>
+              <td><strong><code>cancelCtx</code></strong></td>
+              <td><code>WithCancel</code>：持有一个懒加载的 <code>done chan struct{}</code> 与子节点集合 <code>children map</code>。调 <code>cancel()</code> 时<strong>关闭 <code>done</code> 广播信号，递归取消所有后代，并将自己从父节点摘除</strong>。</td>
+            </tr>
+            <tr>
+              <td><strong><code>timerCtx</code></strong></td>
+              <td><code>WithTimeout / Deadline</code>：内嵌 <code>cancelCtx</code> + <code>time.Timer</code>，到期自动触发取消。</td>
+            </tr>
+            <tr>
+              <td><strong><code>valueCtx</code></strong></td>
+              <td><code>WithValue(p, k, v)</code>：每次存一对 KV 指向上游構成单向链表（$O(N)$ 查找）。<strong>Key 必须用自定义私有类型</strong>防包间冲突！</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 06.2 · 泛型 Generics 与数据竞争 / Happens-Before -->
+<div class="wb-card" id="generics" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill" id="race">🧬 06.2 · Go 泛型为什么既没有 C++ 的模板编译爆炸，也没有 Java 的基本类型装箱开销？</div>
+  <h3>⚙️ 06.2 Go 1.18 泛型 <code>GCShape</code> 编译原理、<code>-race</code> 检测与 Happens-Before 内存模型</h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🧩 generics_shape.go · 类型集合约束 ~T 与 comparable</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-generics', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-generics"><code><span class="c-cm">// ~ 表示匹配【底层类型】为 int64/float64 的所有自定义类型</span>
+<span class="c-kw">type</span> Number <span class="c-kw">interface</span> { ~<span class="c-fn">int64</span> | ~<span class="c-fn">float64</span> }
+
+<span class="c-kw">func</span> <span class="c-fn">Sum</span>[T Number](s []T) T {
+    <span class="c-kw">var</span> total T
+    <span class="c-kw">for</span> _, v := <span class="c-kw">range</span> s { total += v }
+    <span class="c-kw">return</span> total
+}
+<span class="c-cm">// ★ 底层原理：GCShape Stenciling（形状单态化）+ Dictionary（运行时字典）</span>
+<span class="c-cm">// 所有指针类型 (*User, *Order) 内存布局相同，共享同一份机器码</span>
+<span class="c-cm">// fn[gcshape.*uint8] 并传字典查方法表；而 int64/float64 各自生成无装箱机器码！</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin-top:10px;">
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">📜 数据竞争（<code>go test -race</code>）与四大 Happens-Before 铁律</div>
+      <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.65;">
+        <li><strong>Channel</strong>：第 $k$ 次<strong>发送</strong> <em>happens-before</em> 第 $k$ 次<strong>接收完成</strong>；对<strong>无缓冲 channel</strong> 的接收 <em>happens-before</em> 发送返回；<code>close(ch)</code> <em>happens-before</em> 读到零值。</li>
+        <li><strong>Mutex</strong>：第 $n$ 次 <code>Unlock()</code> <em>happens-before</em> 第 $m$ ($m&gt;n$) 次 <code>Lock()</code> 返回。</li>
+        <li><strong>Once / WaitGroup</strong>：<code>once.Do(f)</code> 中 <code>f()</code> 完成 <em>happens-before</em> 任意 <code>Do</code> 返回；<code>wg.Done()</code> <em>happens-before</em> <code>wg.Wait()</code> 返回。</li>
+        <li><strong>竞态检测</strong>：CI 必开 <code>go test -race ./...</code>（内存涨 5~10 倍，勿上生产高压节点）。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 06.3 · 并发模式与坑：Go 1.22 循环变量分水岭、errgroup 与 singleflight -->
+<div class="wb-card" id="concurrency-patterns" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🚀 06.3 · <code>for-range</code> 里起协程打印循环变量为什么是 Go 1.22 的分水岭？如何防缓存击穿？</div>
+  <h3>🛡️ 06.3 Go 1.22 循环变量语义分水岭、<code>errgroup</code> 并发限流与 <code>singleflight</code> 防击穿</h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚠️ loop_var_122.go · Go 1.22 前后的循环变量捕获差异</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-loop-122', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-loop-122"><code><span class="c-kw">for</span> _, v := <span class="c-kw">range</span> []<span class="c-fn">int</span>{10, 20, 30} {
+    <span class="c-kw">go</span> <span class="c-kw">func</span>() { fmt.<span class="c-fn">Println</span>(v) }()
+}
+<span class="c-cm">// ❌ Go 1.21 及以前：v 在整个循环中复用【同一个内存地址】！</span>
+<span class="c-cm">//    等子协程跑起来时循环早已结束，大概率全打 "30 30 30"！</span>
+<span class="c-cm">//    老版修复：循环内加一句 `v := v` 遮蔽拷贝或作参数传入。</span>
+<span class="c-cm">//</span>
+<span class="c-cm">// ✅ Go 1.22 及以后：官方修改语言规范，每轮迭代自动创建【全新变量实例】！</span>
+<span class="c-cm">//    上面的写法在 Go 1.22+ 天然安全，分别打印 10、20、30。</span></code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🧰 errgroup_singleflight.go · 并发编排与防击穿神器</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-errgroup-sf', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-errgroup-sf"><code><span class="c-cm">// 1. errgroup：任意子任务报错自动 cancel 其余任务 + SetLimit 限流</span>
+g, ctx := errgroup.<span class="c-fn">WithContext</span>(parentCtx)
+g.<span class="c-fn">SetLimit</span>(10) <span class="c-cm">// 限制池内最多同时跑 10 个协程</span>
+<span class="c-kw">for</span> _, id := <span class="c-kw">range</span> ids {
+    g.<span class="c-fn">Go</span>(<span class="c-kw">func</span>() <span class="c-fn">error</span> { <span class="c-kw">return</span> <span class="c-fn">fetch</span>(ctx, id) })
+}
+<span class="c-kw">if</span> err := g.<span class="c-fn">Wait</span>(); err != <span class="c-kw">nil</span> { <span class="c-kw">return</span> err }
+
+<span class="c-cm">// 2. singleflight：1000 个并发同时查同一失效 Key，只放 1 个查 DB 并共享结果</span>
+<span class="c-kw">var</span> sf singleflight.Group
+val, err, _ := sf.<span class="c-fn">Do</span>(<span class="c-str">"user:42"</span>, <span class="c-kw">func</span>() (<span class="c-fn">any</span>, <span class="c-fn">error</span>) {
+    <span class="c-kw">return</span> db.<span class="c-fn">QueryUser</span>(42)
+})</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 06.4 · 测试与性能调优（Struct 对齐 / sync.Pool / 零拷贝 / pprof） -->
+<div class="wb-card" id="testing" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill" id="advanced">🔥 06.4 · 调整 <code>struct</code> 字段顺序为什么能省 1/3 内存？<code>sync.Pool</code> 为什么跨两轮 GC 才清？</div>
+  <h3>⚡ 06.4 <code>struct</code> 内存对齐、<code>sync.Pool</code> Victim 缓存、Go 1.20+ 零拷贝与 <code>pprof</code></h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📐 struct_align_zerocopy.go · 内存对齐与 Go 1.20+ 零拷贝</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-align-unsafe', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-align-unsafe"><code><span class="c-cm">// 1. Struct 字段顺序优化（把小字段聚拢，消除对齐 Padding）</span>
+<span class="c-kw">type</span> Bad <span class="c-kw">struct</span> {  <span class="c-cm">// Sizeof = 24 Bytes！(浪费 14B padding)</span>
+    a <span class="c-fn">bool</span>; b <span class="c-fn">int64</span>; c <span class="c-fn">int8</span>
+}
+<span class="c-kw">type</span> Good <span class="c-kw">struct</span> { <span class="c-cm">// Sizeof = 16 Bytes！(立省 33%)</span>
+    b <span class="c-fn">int64</span>; a <span class="c-fn">bool</span>; c <span class="c-fn">int8</span>
+}
+
+<span class="c-cm">// 2. Go 1.20+ 官方安全零拷贝转换（替代已废弃的 reflect.StringHeader）</span>
+<span class="c-kw">func</span> <span class="c-fn">BytesToStr</span>(b []<span class="c-fn">byte</span>) <span class="c-fn">string</span> {
+    <span class="c-kw">return</span> unsafe.<span class="c-fn">String</span>(unsafe.<span class="c-fn">SliceData</span>(b), <span class="c-fn">len</span>(b))
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🔥 pprof_commands.sh · 线上 CPU / 堆内存 / 协程泄漏火焰图</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('cmd-go-pprof', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="cmd-go-pprof"><code><span class="c-cm"># 1. 采集 30 秒 CPU 火焰图（定位死循环、序列化热点）</span>
+go tool pprof -http=:8080 http://127.0.0.1:6060/debug/pprof/profile?seconds=30
+
+<span class="c-cm"># 2. 采集堆内存（inuse_space 查泄漏，alloc_space 查 GC 短命对象分配）</span>
+go tool pprof -http=:8080 http://127.0.0.1:6060/debug/pprof/heap
+
+<span class="c-cm"># 3. 采集存活 Goroutine 栈（一秒定位阻塞泄漏的几万个协程！）</span>
+go tool pprof -http=:8080 http://127.0.0.1:6060/debug/pprof/goroutine</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout tip">
+    <strong>💡 <code>sync.Pool</code> 为什么这么快且不能当连接池用？</strong>每个 P 拥有本地无锁槽位 <code>private + shared</code>，并通过 Go 1.13 引入的 <strong><code>victim</code>（受害者二级缓存）</strong> 让空闲对象至少经历<strong>两轮 GC</strong> 才被彻底清理以平滑毛刺。但因 Pool 中对象随时会被 GC 静默回收，<strong>仅限存放无状态临时对象（如 <code>bytes.Buffer</code>，取出必须调 <code>Reset()</code>），绝不能存长连接！</strong>
+  </div>
+</div>
+
+<!-- 06.5 · 18 道高频面试真题闭卷自测抽屉 -->
+<div class="wb-card" id="cheat" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🎓 06.5 · 闭卷通关检测：先在脑中组织语言，再点开右侧黄色按钮核对标准答案</div>
+  <h3>🏆 Go 高频面试 18 问闭卷自测手账卡</h3>
+
+  <details class="plop-drawer">
+    <summary>01. 为什么 Go 要引入协程？它和操作系统内核线程的核心区别是什么？</summary>
+    <div class="drawer-body">
+      <p>① <strong>栈内存</strong>：OS 线程栈固定 <code>1~8MB</code>，Goroutine 初始仅 <code>2KB</code> 且支持按需动态连续栈扩缩容（最大 1GB），单机可轻松创建百万级协程。② <strong>切换成本</strong>：线程切换需陷入内核态（Ring 0）保存十几个寄存器（<code>1~2μs</code>）；Goroutine 在用户态通过 <code>g0</code> 切换，仅保存 PC/SP/BP 三个核心寄存器（<code>~100-200ns</code>）。③ <strong>IO 阻塞</strong>：Go Runtime 内置 M:N 调度器与 <code>netpoller</code>，网络读写阻塞只挂起 G 而不阻塞底层线程 M。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>02. 详细讲讲 GMP 调度模型。为什么 Go 1.1 要在 G-M 基础上引入 P？</summary>
+    <div class="drawer-body">
+      <p><code>G</code> 是协程任务，<code>M</code> 是 OS 内核线程，<code>P</code> 是逻辑处理器（数量 = <code>GOMAXPROCS</code>）。早期 G-M 模型存在三大顽疾：① 所有 M 争抢唯一全局队列锁竞争激烈；② G 跨 M 频繁传递导致缓存局部性极差；③ 每个 M 都持有一份 <code>mcache</code> 内存池（阻塞 M 一多内存暴涨）。引入 P 后，每个 P 拥有无锁本地队列 <code>runq[256] + runnext</code> 且将 <code>mcache</code> 移交 P 持有，彻底解决了锁竞争与内存膨胀。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>03. M 寻找可执行 G 的完整优先级顺序是什么？为什么要每 61 次查一次全局队列？</summary>
+    <div class="drawer-body">
+      <p>顺序：① 每调度 <strong>61 次</strong>（<code>schedtick % 61 == 0</code>）先加锁从全局队列 <code>sched.runq</code> 拿 1 个 G；② 查本地最高优槽位 <code>P.runnext</code>；③ 查本地环形队列 <code>P.runq</code>；④ 从全局队列批量转移一部分到本地；⑤ 非阻塞检查 <code>netpoller</code> 网络就绪协程；⑥ <strong>Work Stealing</strong>：随机遍历其他 P 四轮，从对方 <code>runq</code> 尾部偷走一半。选 61 是为了防止两个本地协程互相唤醒把全局队列饿死，且质数 61 不会与 2 的幂次业务循环步长共振。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>04. Goroutine 阻塞在 Channel、网络 IO 和系统调用（Syscall）时，M 和 P 分别怎么处理？</summary>
+    <div class="drawer-body">
+      <p>• <strong>Channel / Mutex（用户态阻塞）</strong>：调用 <code>gopark()</code> 把 G 挂入 <code>sudog</code> 链表变 <code>_Gwaiting</code>，M 和 P 完全不阻塞，立刻跑下一个 G。<br>• <strong>网络 IO</strong>：FD 交由 <code>netpoller (epoll/kqueue)</code> 托管，G 挂在 <code>pollDesc</code> 上切走，M 和 P 不阻塞。<br>• <strong>阻塞式系统调用 / CGO</strong>：M 与 G 一起陷入内核阻塞，<strong>P 执行 Handoff 与原 M 解绑</strong>，转投其他空闲 M 继续跑本地队列；原 M 从内核返回后若抢不到空闲 P，则把 G 塞回全局队列，自己休眠。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>05. Go 是如何防止一个纯计算死循环 for {} 霸占 CPU 或卡死 GC STW 的？</summary>
+    <div class="drawer-body">
+      <p>Go 1.13 前采用基于函数头栈扩张检查（<code>morestack</code>）的协作式抢占，无法打断无函数调用的纯算术死循环。<strong>Go 1.14 起引入基于信号的异步抢占</strong>：后台监控线程 <code>sysmon</code> 发现某个 G 连续运行超 <code>10ms</code>（或 GC 需要 STW），直接向对应 M 发送 <strong><code>SIGURG</code> 信号</strong>，内核打断线程进入 <code>sighandler</code>，将 PC 寄存器修改为跳转到 <code>asyncPreempt</code> 注入抢占点，强制让出 CPU。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>06. slice 的底层结构是什么？Go 1.18+ 的扩容规则与内存对齐修正是怎么算的？</summary>
+    <div class="drawer-body">
+      <p><code>slice</code> 是 24 字节表头 <code>{ array unsafe.Pointer, len int, cap int }</code>。扩容分两步：① <strong>预估容量 <code>nextslicecap</code></strong>：若期望长度 <code>newLen &gt; 2*oldCap</code> 则直接取 <code>newLen</code>；否则若 <code>oldCap &lt; 256</code> 则 <code>2 倍</code>扩容；若 <code>oldCap &gt;= 256</code> 则循环按 <code>newcap += (newcap + 3*256) &gt;&gt; 2</code>（约 <code>1.25x + 192</code>）平滑增长。② <strong>内存对齐向上取整 <code>roundupsize</code></strong>：按 <code>newcap * sizeof(T)</code> 查 TCMalloc 67 档规格表向上对齐后再除以元素大小得到最终 <code>cap</code>（故 <code>append([]int{1,2}, 3,4,5)</code> 的 <code>cap</code> 是 <code>48B/8B = 6</code>）。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>07. map 底层是如何存储键值对的？触发扩容的两种条件和渐进式搬迁是什么？</summary>
+    <div class="drawer-body">
+      <p>经典实现由 <code>hmap</code> + 桶数组 <code>bmap</code> 组成，哈希值低 <code>B</code> 位选桶、高 8 位存 <code>tophash[8]</code> 快速比对；每个桶存 8 对 KV（8 个 key 紧凑排列后再排 8 个 value 以消除对齐 padding）。扩容分两种：① <strong>翻倍扩容（<code>B+1</code>）</strong>：负载因子 <code>count / 2^B &gt; 6.5</code>；② <strong>等量扩容（<code>B</code> 不变）</strong>：溢出桶过多（频繁增删导致碎片化），原地紧凑重排。搬迁采用<strong>渐进式驱逐</strong>，每次写/删操作顺带搬迁 1~2 个旧桶。此外 Go 1.24 已升级为基于开放寻址与位运算加速的 <strong>Swiss Table</strong>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>08. 为什么接口值赋了一个值为 nil 的具体类型指针后，err != nil 却为 true？</summary>
+    <div class="drawer-body">
+      <p>Go 接口底层是 16 字节双字结构：空接口 <code>eface { _type, data }</code>，带方法接口 <code>iface { tab, data }</code>。只有当<strong>类型指针（<code>_type/tab</code>）和数据指针（<code>data</code>）同时为 <code>nil</code> 时</strong>，接口才等于 <code>nil</code>。将 <code>(*MyError)(nil)</code> 赋给 <code>error</code> 接口后，<code>tab</code> 指向了 <code>*MyError</code> 的类型元信息（非空），故 <code>err != nil</code> 恒为真。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>09. defer 的执行顺序、参数求值时机以及为什么 Go 1.14 之后 defer 几乎没有性能开销？</summary>
+    <div class="drawer-body">
+      <p>① 多个 <code>defer</code> 按 LIFO 栈序执行；② <code>defer</code> 函数的参数在<strong>执行到 <code>defer</code> 注册语句当场求值复制</strong>（闭包除外）；③ <code>return x</code> 先给返回值赋值、再跑 <code>defer</code>（可修改命名返回值）、最后 RET。Go 1.14 引入<strong>开放编码（Open-coded Defer）</strong>：当函数内 <code>defer &lt;= 8</code> 且不在循环中时，直接用栈上 1 字节位掩码记录并在函数尾部内联展开，耗时从 35ns 降至 ~1ns。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>10. Channel 的底层结构是什么？什么情况下会发生跨协程栈直接拷贝（sendDirect）？</summary>
+    <div class="drawer-body">
+      <p>底层 <code>hchan</code> 包含环形数组 <code>buf</code>、读写游标 <code>sendx/recvx</code>、元素计数 <code>qcount/dataqsiz</code>、阻塞协程双向链表 <code>sendq/recvq (sudog)</code> 与互斥锁 <code>lock</code>。当发送 <code>ch &lt;- x</code> 时，若发现 <code>recvq</code> 中已有阻塞等待的接收协程 <code>G_recv</code>，发送者<strong>完全绕过 <code>buf</code></strong>，直接调用 <code>sendDirect</code> 将数据从发送者栈 <code>memmove</code> 拷贝到接收者栈变量地址 <code>sg.elem</code>，随后唤醒接收者，省去一次进出缓冲区的内存拷贝。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>11. 向 nil channel、正常 channel、已关闭 channel 进行读、写、关闭分别会发生什么？</summary>
+    <div class="drawer-body">
+      <p>• <strong>向 <code>nil</code> channel</strong>：读、写均<strong>永久阻塞</strong>；关闭直接 <strong>panic</strong>。<br>• <strong>向已关闭 channel</strong>：写直接 <strong>panic（send on closed channel）</strong>；再次关闭直接 <strong>panic</strong>；<strong>读永不阻塞</strong>——先读完缓冲区剩余元素（<code>ok=true</code>），随后无限返回类型零值且 <code>ok=false</code>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>12. select 是如何保证公平性（不饿死）以及防止多个协程交叉加锁死锁的？</summary>
+    <div class="drawer-body">
+      <p><code>runtime.selectgo</code> 维护两个数组：① <strong><code>pollorder</code></strong>：每次进入 <code>select</code> 用 <code>fastrandn</code> 洗牌算法随机打乱所有 case 的检查顺序，防止靠前的 case 饿死后面的 case；② <strong><code>lockorder</code></strong>：将所有涉及的 <code>hchan</code> 按<strong>内存虚拟地址从小到大堆排序</strong>后依次加锁（解锁时逆序），彻底杜绝多协程同时监听相同 channel 集合时的 AB-BA 死锁。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>13. sync.Mutex 的正常模式与饥饿模式是如何切换的？自旋需要满足什么条件？</summary>
+    <div class="drawer-body">
+      <p>正常模式下新来协程可先自旋（最多 4 次 × 30 PAUSE）与刚唤醒的老协程抢锁，吞吐高；一旦等待队头的老协程<strong>等待超过 <code>1ms</code></strong>，立即切为<strong>饥饿模式</strong>，<code>Unlock</code> 将锁直接移交队头，新来者禁止自旋直接排入队尾；当持锁者是队列最后一个或等待 <code>&lt; 1ms</code> 时切回正常模式。自旋必须同时满足：正常模式、多核 CPU、自旋 &lt; 4 次、<code>GOMAXPROCS &gt; 1</code> 且当前 <code>P.runq</code> 为空。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>14. 简述 Go 的 TCMalloc 内存分配层级（mspan / mcache / mcentral / mheap）。</summary>
+    <div class="drawer-body">
+      <p>Go 以 8KB 页为单位划分出 67 种大小规格的 <code>mspan</code>（并分为含指针 <code>scan</code> 与无指针 <code>noscan</code> 两类以加速 GC）。每个 P 绑定一个本地无锁缓存 <code>mcache</code>；小对象（<code>16B~32KB</code>）直接从当前 <code>P.mcache</code> 对应规格的 <code>mspan</code> 中零加锁分配；不足时向全局按规格加锁的 <code>mcentral</code> 申请新 <code>mspan</code>；<code>mcentral</code> 不足再向页级堆 <code>mheap</code> 乃至 OS <code>mmap</code> 申请；<code>&gt;32KB</code> 大对象直接走 <code>mheap</code>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>15. 为什么三色标记并发 GC 会出现漏标？Go 1.8 的混合写屏障是如何解决的？</summary>
+    <div class="drawer-body">
+      <p>并发标记期间，若用户协程同时满足<strong>“① 黑色对象新增指向白色对象的引用”</strong>且<strong>“② 灰色对象断开了通往该白色对象的全部路径”</strong>，该存活白对象就会被漏标误删。Go 1.8 引入<strong>混合写屏障（Hybrid Write Barrier）</strong>：在堆指针赋值 <code>*slot = ptr</code> 时，同时将旧引用 <code>*slot</code> 染灰（Yuasa 删除屏障）并将新引用 <code>ptr</code> 染灰（Dijkstra 插入屏障），同时规定 GC 期间栈上所有对象及新建栈对象均为黑色，从而彻底免去了 GC 结束前 STW 重新扫描栈的开销，把 STW 压进亚毫秒级。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>16. 什么是逃逸分析（Escape Analysis）？常见引发变量逃逸到堆上的场景有哪些？</summary>
+    <div class="drawer-body">
+      <p>编译期通过静态数据流分析判断变量生命周期是否超出函数范围：不超出则分配在栈上随函数返回零成本回收；超出则逃逸到堆上由 GC 回收（可用 <code>go build -gcflags="-m"</code> 查看）。常见逃逸场景：① 函数返回局部变量指针；② 赋值给 <code>any / interface{}</code> 接口参数（如 <code>fmt.Println</code>）；③ 被闭包捕获并在外部引用；④ 切片/结构体过大超出栈容量或切片长度在编译期未知；⑤ 向 channel 或切片中发送指针。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>17. context 是如何实现级联取消的？使用 context 有哪四条工程铁律？</summary>
+    <div class="drawer-body">
+      <p>底层 <code>cancelCtx</code> 维护 <code>done chan struct{}</code> 和子节点集合 <code>children map</code>；调用 <code>cancel()</code> 时关闭 <code>done</code> 通道触发一对多广播，并递归取消所有后代节点、将自己从父节点摘除。四条铁律：① 作为函数第一个参数传递，绝不存进 <code>struct</code> 字段；② <code>WithCancel/Timeout/Deadline</code> 返回的 <code>cancel()</code> 必须 <code>defer cancel()</code> 调用防泄漏；③ <code>WithValue</code> 只传请求域元数据（如 TraceID），且 key 必须用自定义私有类型；④ 协程需主动监听 <code>&lt;-ctx.Done()</code> 优雅退出。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>18. sync.Pool 的底层结构和优缺点是什么？能拿它当数据库连接池用吗？</summary>
+    <div class="drawer-body">
+      <p><code>sync.Pool</code> 用于缓存可复用的临时对象（如 <code>bytes.Buffer</code>、切片段）以减轻堆分配与 GC 压力。底层为每个 P 维护无锁的 <code>poolLocal (private + shared)</code> 并通过 <code>victim</code> 受害者缓存跨越两轮 GC 平滑释放。<strong>绝对不能当数据库连接池或带状态缓存用</strong>，因为 Pool 中的对象没有任何生命周期承诺，会在 GC 时被运行时静默回收清理，且取出复用前必须手动调用 <code>Reset()</code> 清空脏数据。</p>
+    </div>
+  </details>
+</div>

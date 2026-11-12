@@ -1,0 +1,188 @@
+<!-- ====================================================================
+             PART 04: 消息顺序性、千万级积压急救与 Push vs Pull 推拉模型
+             ==================================================================== -->
+        <div class="wb-sec-header periwinkle" id="order">
+          <span class="wb-sec-num">04</span>
+          <span class="wb-sec-title">顺序、积压与推拉 · 顺序消息怎么保？千万级积压怎么救火？Push vs Pull 怎么选？</span>
+          <span class="plop-tag tomato">ORDERING · BACKLOG RESCUE · PUSH/PULL</span>
+        </div>
+
+        <!-- 04.1 · 消息顺序性：全局有序 vs 局部有序 & 队头阻塞 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 04.1 · 同一笔订单的「创建 → 支付 → 发货」三条消息为什么会乱序？怎么既保住顺序又不牺牲并发吞吐？</div>
+          <h3>📏 04.1 消息顺序性：放弃“全局有序”，用「同 Key 同分区 + 单线程」实现局部有序</h3>
+          <p>
+            在业务中，像<strong>订单状态流转（创建 → 支付 → 发货）</strong>或<strong>MySQL Binlog 同步（INSERT → UPDATE → DELETE）</strong>，一旦消费顺序颠倒（比如先执行了 <code>DELETE</code> 后执行 <code>INSERT</code>），数据就彻底错乱了。
+          </p>
+
+          <!-- 为什么乱序 vs 怎么保序 全景图解 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-tomato); margin-bottom:10px;">
+              🚨 先找病根：一条消息从发出到被处理，有哪 3 个地方会把顺序打乱？
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:10px; margin-bottom:14px;">
+              <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:10px 12px; font-size:13px;">
+                <strong>乱序源 ①：生产端轮询打散到多分区</strong><br/>
+                默认无 Key 发送时，<code>创建</code> 进了 <code>Partition-0</code>，<code>支付</code> 进了 <code>Partition-1</code>。两个分区被不同消费者各自消费，快慢完全失控！
+              </div>
+              <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:10px 12px; font-size:13px;">
+                <strong>乱序源 ②：生产端异步重试超车</strong><br/>
+                即使发往同一分区，若未开启幂等且 <code>max.in.flight &gt; 1</code>，第 1 条网络超时重试，第 2 条先写成功，顺序瞬间反转！
+              </div>
+              <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:10px 12px; font-size:13px;">
+                <strong>乱序源 ③：消费端开启多线程并发处理</strong><br/>
+                消费者从同一个分区按序拉出 <code>创建</code> 和 <code>支付</code>，却丢进无序的线程池并发跑，结果线程 2 先跑完 <code>支付</code>！
+              </div>
+            </div>
+
+            <!-- 正确解法：局部有序流水线 -->
+            <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:10px; text-align:center;">
+                ✅ 工业界标准解法：「局部有序（Partition Order）」三步锁定法
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:10px; font-size:13px;">
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:9px; padding:10px 12px;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">Step 1 · 生产端：按业务 Key 哈希路由</div>
+                  发消息时指定 <strong><code>key = orderId</code></strong>（RocketMQ 用 <code>MessageQueueSelector</code> 按 <code>orderId.hashCode() % queueSize</code> 取模），保证<strong>同一个订单的所有消息 100% 落入同一个 Partition/Queue</strong>！
+                </div>
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:9px; padding:10px 12px;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">Step 2 · 传输层：开启幂等防重试超车</div>
+                  Kafka 开启 <strong><code>enable.idempotence = true</code></strong>（单连接允许 <code>in.flight &lt;= 5</code> 仍严格保序），或同步顺序发送，杜绝网络重试导致后发先至。
+                </div>
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:9px; padding:10px 12px;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">Step 3 · 消费端：单分区单线程 / 内存Hash队列</div>
+                  单分区由单线程顺序拉取消费（RocketMQ 注册 <code>MessageListenerOrderly</code> 锁定队列）；若嫌单线程慢，可在消费者内部<strong>按 <code>orderId</code> 哈希分发到 N 个内存单线程队列</strong>并行处理！
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="plop-callout warn">
+            <strong>⚠️ 关键权衡：为什么永远优先选「局部有序」而不是「全局有序」？</strong><br/>
+            要做到整个 Topic 所有消息<strong>全局严格有序</strong>，唯一的办法是把 Topic 设为<strong>只有 1 个 Partition + 1 个单线程 Consumer</strong>，这等于彻底废掉了分布式并行能力！而在 99.9% 的业务里，<strong>订单 A 和订单 B 之间谁先处理根本无所谓，只需要保证同一个 <code>orderId</code> 内部有序</strong>——这就是「局部有序」，既有几십个分区的并行高吞吐，又保证了单笔订单严格按序流转。
+          </div>
+
+          <details class="plop-drawer">
+            <summary>🔍 进阶追问 · 顺序消费时，如果中间某一条消息一直处理失败，会发生什么？（队头阻塞问题）</summary>
+            <div class="drawer-body">
+              <p>
+                这是顺序消费最致命的硬伤——<strong>队头阻塞（Head-of-Line Blocking）</strong>：
+              </p>
+              <ul>
+                <li>因为必须严格保序，如果订单 A 的第 1 条消息（创建）处理报错，<strong>绝对不能跳过它去处理第 2 条（支付）</strong>，更不能把它直接扔进异步重试队列让后面的消息先过。</li>
+                <li>因此，RocketMQ 的 <code>MessageListenerOrderly</code> 在消费失败返回 <code>SUSPEND_current_queue_a_moment</code> 时，会<strong>在当前位置原地挂起重试</strong>——这会导致<strong>同一个 Queue 里的其他正常订单也被卡在后面动弹不得</strong>！</li>
+                <li><strong>生产应对策略：</strong>① 顺序消费的业务逻辑必须足够轻量且健壮；② 设置合理的最大本地重试次数（如重试 5~10 次仍失败），将<strong>该 orderId 标记入本地异常表拦截后续同单消息</strong>，然后提交跳过，避免单条坏消息毒死整个分区。</li>
+              </ul>
+            </div>
+          </details>
+        </div>
+
+        <!-- 04.2 · 生产急救室：千万级消息堆积 / 积压处理 -->
+        <div class="wb-card" id="backlog" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 04.2 · 高频线上事故题：“半夜告警 Kafka 积压了 5000 万条消息，按现在速度要跑 10 小时，你怎么在半小时内救回来？”</div>
+          <h3>🚒 04.2 千万级消息积压（Backlog / Lag）三步应急救援指南</h3>
+          <p>
+            <strong>消息积压（Lag = 分区最新写入 LEO − 消费者已提交 Offset）</strong>的本质只有一句话：<strong>生产写入速率 &gt; 消费处理速率</strong>。遇到积压千万别盲目重启，按下面<strong>「先止血排障 → 再看分区扩机器 → 终极拆道转发」</strong>三步走：
+          </p>
+
+          <div style="display:grid; gap:14px; margin:14px 0;">
+            <!-- 第一步：先排查消费端死因 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:14px 16px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">
+                🩺 第一步（前 5 分钟）：先修复消费端 Bug 与慢调用，恢复正常消费速度
+              </div>
+              <div style="font-size:13.2px; color:var(--plop-ink-text); line-height:1.58;">
+                先看监控和日志：是因为下游 MySQL 缺索引/死锁把消费线程卡死了？还是调第三方 HTTP 接口没设超时把线程池耗尽了？还是单次 <code>poll</code> 太多导致频繁触发 <strong>Rebalance 死循环</strong>（消费一直 STW）？先把 Bug 修掉、非核心下游暂时降级，让消费端先跑起来。
+              </div>
+            </div>
+
+            <!-- 第二步：常规扩容（注意分区数铁律） -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:14px 16px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">
+                ⚙️ 第二步（常规积压）：看「当前分区数 vs 消费者实例数」关系扩容
+              </div>
+              <div style="font-size:13.2px; color:var(--plop-ink-text); line-height:1.58;">
+                牢记铁律：<strong>同一个 Consumer Group 内，一个分区同一时刻只能分给 1 个消费者实例（<code>有效消费者数 &lt;= 分区数</code>）！</strong><br/>
+                • <strong>情况 A（原来有 24 个分区，但只开了 4 台消费者）：</strong>直接把消费者 Pod 扩容到 <strong>24 台</strong>（1 台吃 1 个分区），同时把单条 INSERT 改为<strong>批量写库（Batch Insert）</strong>，消费速度立刻翻 6~20 倍。<br/>
+                • <strong>情况 B（原来只有 4 个分区，且开了 4 台消费者）：</strong>光加消费者机器完全没用（第 5 台机器分不到分区，只会原地空转）！若积压的数据已经在旧的 4 个分区里，即使此刻给原 Topic 新增分区，<strong>旧积压数据依然全在老的 4 个分区里</strong>，还是只有 4 台机器能消费它们！这就必须动用下面的<strong>第三步终极救火方案</strong>：
+              </div>
+            </div>
+
+            <!-- 第三步：终极救火方案（搬运工临时 Topic） -->
+            <div style="background:var(--plop-mustard); border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px 16px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="font-weight:900; font-size:15px; color:var(--plop-ink-text);">
+                  🚀 第三步（终极面试杀手锏）：老分区积压数千万条，如何突破分区数上限 10 倍速泄洪？
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">临时搬运工 + 10倍分区新Topic</span>
+              </div>
+              <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:12px; font-size:13.2px; line-height:1.6;">
+                <ol style="margin:0;">
+                  <li><strong>新建一个 10 倍分区的临时 Topic：</strong>比如原 Topic 只有 <code>4 个分区</code>，立刻新建一个 <code>order-topic-temp</code>，设置 <strong><code>40 个分区</code></strong>。</li>
+                  <li><strong>把原生的 4 台消费者改为纯内存“转发搬运工”：</strong>临时改一下这 4 台消费者的代码——它们拉出积压消息后<strong>不做任何耗时的 DB 业务处理，直接原封不动纯内存高速写入那 <code>40 个分区</code> 的临时 Topic</strong>（纯转发每秒可搬运几万~十几万条，几分钟就能把老分区的积压搬空！）。</li>
+                  <li><strong>拉起 40 台消费者实例狂飙消费临时 Topic：</strong>临时申请 <strong>40 台容器实例</strong>同时消费 <code>order-topic-temp</code> 的 40 个分区，相当于把 4 车道瞬间拓宽成 40 车道！原本 10 小时的积压，<strong>半小时内全部消化完毕</strong>；事后恢复原架构即可。</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+
+          <details class="plop-drawer">
+            <summary>🔍 进阶追问 · 如果消息积压太久，把磁盘撑爆或者触发了过期策略被删掉了怎么办？</summary>
+            <div class="drawer-body">
+              <p>
+                Kafka / RocketMQ 的消息都不是永久保存的，受保留时间（如 Kafka <code>log.retention.hours=168</code> 默认 7 天）或保留大小（<code>log.retention.bytes</code>）控制：
+              </p>
+              <ul>
+                <li><strong>预防被删：</strong>发现大积压时，第一时间检查磁盘水位并临时调大 <code>retention</code> 过期时间，防止未消费的积压段（Segment）被后台清理线程当过期文件直接删掉。</li>
+                <li><strong>万一真的因为过期或队列满丢了怎么办？（夜间补偿方案）：</strong>等白天高峰过去后，根据丢消息的时间窗口或日志，写一个离线脚本去上游业务主库（如订单表）查出该时间段内状态未同步的记录，<strong>重新补发消息到 MQ</strong> 完成最终一致修复。</li>
+              </ul>
+            </div>
+          </details>
+        </div>
+
+        <!-- 04.3 · 推 vs 拉（Push vs Pull）与长轮询（Long Polling） -->
+        <div class="wb-card" id="push-pull" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 04.3 · Broker 把消息交给消费者，到底应该用 Push（主动推）还是 Pull（主动拉）？什么是长轮询？</div>
+          <h3>🔄 04.3 推（Push）vs 拉（Pull）：为什么 Kafka 与 RocketMQ 最终都选了「Pull + 长轮询」？</h3>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">模式</th>
+                  <th style="width:28%">核心优势</th>
+                  <th style="width:28%">致命痛点</th>
+                  <th>主流 MQ 怎么扬长避短？</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Push 模式</strong><br/>（Broker 主动推）</td>
+                  <td><strong>实时性极高</strong>：Broker 一收到消息立刻推送给消费者，可达微秒级延迟。</td>
+                  <td><strong>容易压垮慢消费者</strong>：Broker 不知道下游 DB 能不能扛住，洪峰来时猛推会把消费者直接打 OOM！</td>
+                  <td><strong>RabbitMQ 采用 Push</strong>，但必须配合 <strong><code>basicQos(prefetchCount=N)</code></strong> 限流：消费者最多同时持有 N 条未 ACK 消息，没 ACK 完 Broker 暂停推送。</td>
+                </tr>
+                <tr>
+                  <td><strong>Pull 模式</strong><br/>（Consumer 主动拉）</td>
+                  <td><strong>消费速率自主可控（天然背压）</strong>：消费者按自己的能力拉取、攒批处理，绝不会被流量洪峰冲垮。</td>
+                  <td><strong>空轮询浪费 CPU 与网络</strong>：没消息时如果死循环忙轮询，白白空转；若休眠太久又会增加延迟。</td>
+                  <td><strong>Kafka / RocketMQ 采用 Pull + 长轮询（Long Polling）</strong>，兼顾自主控速与毫秒级实时性！</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 长轮询与 RocketMQ 5.0 Pop 模式说明 -->
+          <div class="plop-callout tip">
+            <strong>💡 什么是「长轮询（Long Polling）」？为什么 RocketMQ 的 <code>DefaultMQPushConsumer</code> 名字叫 Push 底层却是 Pull？</strong><br/>
+            1. <strong>长轮询机制：</strong>当消费者发请求去 Broker 拉消息时，如果当前分区恰好没有新消息，Broker <strong>不会立刻返回空结果</strong>，而是把这个拉取请求<strong>挂起（Hold 住，比如最多等 5~15 秒，或直到凑够 <code>fetch.min.bytes</code>）</strong>；一旦这期间有新消息写入，Broker 瞬间唤醒该请求立刻返回！这样既没有死循环空转，又做到了有消息毫秒级响应。<br/>
+            2. <strong>RocketMQ 的“伪 Push”与 5.0 Pop 演进：</strong>RocketMQ 客户端的 <code>DefaultMQPushConsumer</code> 底层依然是<strong>长轮询 Pull</strong>，只是 SDK 帮你在后台封装了循环拉取并回调监听器，用起来像 Push 一样省心。而在 <strong>RocketMQ 5.0</strong> 中，进一步推出了无状态的 <strong><code>Pop 消费模式</code></strong>（不绑定死某个消费者与队列，谁空闲谁拉取并在服务端设不可见时间 <code>InvisibleTime</code>），彻底解决了单台消费者假死卡住整个队列的老顽疾！
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：搞定了单条消息的可靠、顺序与积压，接下来进入面试含金量最高的业务深水区：<strong>怎么保证「写本地数据库」和「发 MQ 消息」的分布式事务一致性？订单 30 分钟超时关单的时间轮又是怎么转的？</strong></span>
+          </div>
+        </div>

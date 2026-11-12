@@ -1,0 +1,230 @@
+<!-- ====================================================================
+             PART 03: 消息不丢失（生产/存储/消费三段论）& 消息不重复（幂等与 Exactly-Once）
+             ==================================================================== -->
+        <div class="wb-sec-header pink" id="reliable">
+          <span class="wb-sec-num">03</span>
+          <span class="wb-sec-title">可靠性生命线 · 怎么保证消息「一分不丢」（三段论）与「绝不重算」（幂等 &amp; EOS）？</span>
+          <span class="plop-tag tomato">ZERO-LOSS · IDEMPOTENCY · EXACTLY-ONCE</span>
+        </div>
+
+        <!-- 03.1 · 消息零丢失：生产 / 存储 / 消费三段防守体系 -->
+        <div class="wb-card" id="lost" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 03.1 · 面试第一必考题：“如何保证消息队列一条消息都不丢？”标准三段论怎么答才滴水不漏？</div>
+          <h3>🛡️ 03.1 消息不丢失：把「生产 → 存储 → 消费」三道关卡逐段焊死</h3>
+          <p>
+            不要笼统地回答“加 ACK 和持久化”。一条消息从诞生到真正落库生效，一共跨越<strong>三个阶段</strong>，任何一个阶段掉链子都会丢数据。满分回答必须沿着<strong>「第一关：生产发送 ──▶ 第二关：Broker 存储 ──▶ 第三关：消费提交」</strong>逐段给出可落地的配置与代码铁律：
+          </p>
+
+          <!-- 三段防丢全宽卡片图 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow); display:grid; gap:14px;">
+
+            <!-- 第一关：生产端 -->
+            <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="font-weight:900; font-size:15px; color:var(--plop-ink-text);">
+                  🚧 第一关：生产端 → Broker（防网络抖动、超时丢包）
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">核心：确认机制 (ACK) + 失败重试/落库兜底</span>
+              </div>
+              <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 13px; font-size:13.3px; color:var(--plop-ink-text); line-height:1.6;">
+                • <strong>严禁使用 <code>oneway</code>（发了不管）或忽略返回结果！</strong>必须同步等待返回，或在异步 <code>Callback</code> 回调里捕获异常并重试。<br/>
+                • <strong>Kafka 生产配置：</strong>必须设置 <strong><code>acks = all</code>（或 <code>-1</code>）</strong>（Kafka 3.0+ 已默认开启），要求 Leader <strong>且所有 ISR 同步副本都写入成功</strong>才回 ACK；同时配好 <code>retries</code> 与 <code>delivery.timeout.ms</code>。<br/>
+                • <strong>RocketMQ 生产配置：</strong>使用同步 <code>producer.send(msg)</code> 并校验 <code>SendStatus.SEND_OK</code>（异步发送必须实现 <code>SendCallback.onException</code> 重试或写本地补偿表），更严谨的跨库场景直接上<strong>事务消息</strong>（第 05 章）。<br/>
+                • <strong>RabbitMQ 生产配置：</strong>开启 <strong><code>Publisher Confirm</code>（发布确认模式）</strong> 确认消息到达 Exchange，并开启 <strong><code>mandatory=true</code> + <code>ReturnsCallback</code></strong> 防止 Exchange 路由不到任何 Queue 时静默丢弃！
+              </div>
+              <div style="margin-top:8px; font-size:12.6px; font-weight:800; color:var(--plop-tomato);">
+                ⚠️ <strong>为什么 <code>acks=1</code> 依然会丢消息？</strong> <code>acks=1</code> 只等 Leader 自己写进 PageCache 就向生产者返回成功；如果此时 Follower 还没来得及拉取，Leader 突然断电宕机，新选出的 Leader 上根本没有这条消息，数据当场蒸发！
+              </div>
+            </div>
+
+            <!-- 第二关：存储端 -->
+            <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="font-weight:900; font-size:15px; color:var(--plop-ink-text);">
+                  🚧 第二关：Broker 存储阶段（防单机掉电丢内存 PageCache、防磁盘物理损坏）
+                </span>
+                <span class="plop-tag" style="background:#FFFFFF; font-size:11.5px;">核心：多副本冗余 + 刷盘策略 + 禁脏选主</span>
+              </div>
+              <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 13px; font-size:13.3px; color:var(--plop-ink-text); line-height:1.6;">
+                为了高吞吐，MQ 收到消息通常先写进操作系统内存（<code>PageCache</code>）再异步刷盘；单机断电或硬盘坏了就会丢内存里的未刷盘数据。生产上靠<strong>「多副本 + 刷盘策略」</strong>双保险兜底：<br/>
+                • <strong>Kafka 零丢失黄金四件套：</strong><br/>
+                  &nbsp;&nbsp;① Topic 副本数 <strong><code>replication.factor &gt;= 3</code></strong>（跨机架部署）；<br/>
+                  &nbsp;&nbsp;② 最小同步副本数 <strong><code>min.insync.replicas &gt;= 2</code></strong>（配合生产端 <code>acks=all</code>，保证每条消息至少同时落进 2 台机器的内存，防止 ISR 缩成只剩 Leader 1 台时单点挂机丢数）；<br/>
+                  &nbsp;&nbsp;③ 严禁非同步副本选主 <strong><code>unclean.leader.election.enable = false</code></strong>（宁可短暂不可写，也绝不选落后副本上来丢数据）。<br/>
+                • <strong>RocketMQ 存储零丢失：</strong>核心资金链路开启 <strong>同步刷盘（<code>flushDiskType = SYNC_FLUSH</code>）</strong> + <strong>主从同步复制（<code>brokerRole = SYNC_MASTER</code>）或 DLedger Raft 多副本</strong>。<br/>
+                • <strong>RabbitMQ 存储零丢失：</strong>Exchange 设 <code>durable=true</code> + Queue 设 <code>durable=true</code> + Message 设 <code>deliveryMode=2</code>（持久化），集群层面直接用基于 Raft 的 <strong><code>Quorum Queue</code>（仲裁队列）</strong>。
+              </div>
+            </div>
+
+            <!-- 第三关：消费端 -->
+            <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="font-weight:900; font-size:15px; color:var(--plop-ink-text);">
+                  🚧 第三关：Broker → 消费端（线上 80% 的丢消息事故都发生在这里！）
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">铁律：关掉自动提交，必须「先完成业务，再手动 ACK」</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+                <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:9px; padding:10px 12px; font-size:13px;">
+                  <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:4px;">❌ 两种典型的消费端自杀式丢消息：</div>
+                  <strong>死法 A（开启自动提交 / 先提交后处理）：</strong>刚拉到消息就提交了 Offset，结果业务写库报错或容器 OOM 重启，Broker 以为你处理完了，永远不再重投！<br/>
+                  <strong>死法 B（拉到消息后丢进自建异步线程池就立刻 ACK）：</strong>主线程立刻回了 ACK，但异步线程池队列满了拒绝，或机器重启导致内存线程池里的消息全丢！
+                </div>
+                <div style="background:#FFFFFF; border:2px solid #15803d; border-radius:9px; padding:10px 12px; font-size:13px;">
+                  <div style="font-weight:900; color:#15803d; margin-bottom:4px;">✅ 唯一正确的姿势（先干完活，再签字画押）：</div>
+                  1. 关闭自动提交（Kafka 设 <code>enable.auto.commit = false</code>；RabbitMQ 设 <code>AcknowledgeMode.MANUAL</code>）；<br/>
+                  2. 在当前消费线程<strong>同步执行完业务逻辑并落库成功</strong>；<br/>
+                  3. 最后一步才调用 <code>commitSync()</code> / <code>basicAck()</code> / 返回 <code>CONSUME_SUCCESS</code>！
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- 03.2 · 为什么会重复？三种投递语义与 Kafka 内部幂等/事务原理 -->
+        <div class="wb-card" id="dup" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 03.2 · 为什么保证了“不丢”就一定会遇到“重复”？Kafka 的幂等生产者（PID + Seq）到底防住了什么？</div>
+          <h3>♻️ 03.2 不丢与不重的博弈：三种投递语义 &amp; Kafka 幂等生产者底层机制</h3>
+          <p>
+            在分布式网络中，当你按 03.1 的要求做到了“不丢消息”（生产超时重试 + 消费先处理后提交），<strong>重复消息就成了必然会发生的物理现象</strong>：
+          </p>
+          <ul>
+            <li><strong>生产端重试导致 Broker 重复写入：</strong>Producer 发消息给 Broker，Broker 已经写盘成功了，但回给 Producer 的 ACK 在半路网络抖动丢了；Producer 超时后重发，Broker 就存了两条一模一样的消息。</li>
+            <li><strong>消费端重启/Rebalance 导致重复投递：</strong>Consumer 业务刚执行成功（比如已经给用户加了 100 积分），正准备调 <code>commitSync()</code> 提交 Offset 时机器突然断电或触发了 Rebalance；新接手的消费者从旧 Offset 重新拉取，又给用户加了一次 100 积分！</li>
+          </ul>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:24%">投递语义</th>
+                  <th style="width:32%">核心含义</th>
+                  <th>工程定位与实现方式</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>① 最多一次</strong><br/><code>At-most-once</code></td>
+                  <td>消息<strong>绝不重复，但可能丢失</strong></td>
+                  <td>生产端 <code>acks=0</code> 发了不管，或消费端先提交 Offset 再处理。仅用于完全不怕丢的监控日志。</td>
+                </tr>
+                <tr>
+                  <td><strong>② 至少一次 ⭐主流基底</strong><br/><code>At-least-once</code></td>
+                  <td>消息<strong>绝不丢失，但可能重复</strong></td>
+                  <td>生产端 <code>acks=all</code> + 重试，消费端先处理后手动提交。<strong>所有主流 MQ 的基础可靠语义。</strong></td>
+                </tr>
+                <tr>
+                  <td><strong>③ 精确一次 ⭐业务目标</strong><br/><code>Exactly-once (EOS)</code></td>
+                  <td>消息<strong>既不丢失，也不重复生效</strong></td>
+                  <td>工业界黄金公式：<strong><code>At-least-once（MQ 保不丢） + 消费端业务幂等（业务防重算） = 端到端 Exactly-Once</code></strong>！</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <details class="plop-drawer" open>
+            <summary>🔍 进阶深挖 · Kafka 的 <code>enable.idempotence=true</code>（PID + Sequence Number）是怎么工作的？它能代替消费端业务幂等吗？</summary>
+            <div class="drawer-body">
+              <p>
+                面试官非常喜欢追问：<em>“既然 Kafka 有幂等生产者（<code>enable.idempotence = true</code>，Kafka 3.0+ 默认开启），是不是消费端就不用写幂等代码了？”</em>——<strong>绝对不能代替！必须搞懂它的工作原理和作用边界：</strong>
+              </p>
+              <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin:10px 0;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">
+                  ⚙️ Kafka 幂等生产者底层机制：<code>PID（Producer ID） + Sequence Number（单调递增序列号）</code>
+                </div>
+                <ol style="margin:0; font-size:13.2px; line-height:1.6;">
+                  <li><strong>分配 PID 与递增序号：</strong>每个开启幂等的 Producer 初始化时，Broker 会为它分配一个全局唯一的 <strong><code>PID</code></strong>。Producer 往每个 <code>(Topic, Partition)</code> 发送的每一批消息，都会附带一个从 <code>0</code> 开始严格递增的 <strong><code>Seq</code> 序列号</strong>。</li>
+                  <li><strong>Broker 端缓存判重与防乱序：</strong>Broker 端在内存中为每个 <code>(PID, Partition)</code> 维护最近 5 个 Batch 的序列号状态：
+                    <ul>
+                      <li>若收到 <code>Seq == Broker期望的 LastSeq + 1</code> 👉 <strong>正常追加写入</strong>；</li>
+                      <li>若收到 <code>Seq &lt;= LastSeq</code> 👉 说明是网络超时引起的<strong>重复重试包，Broker 直接丢弃并返回成功（消除生产端重试造成的重复落盘）</strong>；</li>
+                      <li>若收到 <code>Seq &gt; LastSeq + 1</code> 👉 说明中间有批次没到（乱序），抛出 <code>OutOfOrderSequenceException</code>，这就顺带保证了即使开启管道并发 <strong><code>max.in.flight.requests.per.connection &lt;= 5</code></strong>，重试也绝不会把分区内的消息顺序搞乱！</li>
+                    </ul>
+                  </li>
+                </ol>
+              </div>
+              <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:9px; padding:9px 12px; font-size:13px; color:var(--plop-ink-text);">
+                <strong style="color:var(--plop-tomato);">🚫 为什么它不能代替「消费端业务幂等」？（3 大边界限制）：</strong><br/>
+                1. <strong>仅限单次会话（单 PID）：</strong>如果 Producer 进程重启，Broker 会分配一个新的 <code>PID</code>，旧会话重试的幂等上下文就断了；<br/>
+                2. <strong>仅防网关/网络层重试：</strong>如果上游业务代码自己因为 Bug 调了两次 <code>producer.send()</code>，在 Kafka 看来这是两条合法的新消息（Seq 分别是 1 和 2）；<br/>
+                3. <strong>拦不住消费端重复拉取：</strong>如果 Consumer 已经写完 MySQL，但在提交 Offset 前 Crash 或 Rebalance，重启后依然会再拉取消费一遍！<br/>
+                👉 <strong>结论：无论 MQ 内部多强，消费端落库/扣款时必须实现业务幂等！</strong>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <!-- 03.3 · 消费端幂等 3 大工业级落地方案与 Redis SETNX 致命坑 -->
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill">❓ 03.3 · 消费端业务幂等到底怎么写代码？为什么很多人写的 Redis SETNX 幂等会在崩溃时丢消息？</div>
+          <h3>🛠️ 03.3 消费端幂等 3 大标准落地方案 &amp; 避坑指南</h3>
+          <p>
+            <strong>幂等（Idempotency）</strong>的数学定义是 \(f(f(x)) = f(x)\)——同一条业务消息无论被投递 1 次还是 10 次，对数据库状态的影响完全相同。落地时第一步是确定<strong>「业务唯一幂等键（Idempotent Key）」</strong>（如 <code>order_no</code>、<code>pay_serial_no</code>，<strong>优先用业务唯一单号，不要盲目信 MQ 自动生成的物理 <code>msgId</code></strong>，因为上游业务重发时 <code>msgId</code> 会变）：
+          </p>
+
+          <div style="display:grid; gap:14px; margin:14px 0;">
+            <!-- 方案 1：DB 唯一索引 / 防重表 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:var(--plop-mint); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14.2px; padding:4px 12px; border-radius:8px;">
+                  🥇 方案一：数据库唯一索引 / 本地事务防重表（最稳妥、金融账务首选）
+                </span>
+                <span class="plop-tag mint" style="font-size:11.5px;">100% 物理兜底</span>
+              </div>
+              <div style="font-size:13.3px; color:var(--plop-ink-text); line-height:1.6;">
+                • <strong>做法 A（业务表自带唯一键）：</strong>比如消费“创建订单/支付流水”消息，直接在表中对 <code>order_no</code> 建 <strong><code>UNIQUE KEY uk_order_no (order_no)</code></strong>。重复消息插入时直接触发 <code>DuplicateKeyException</code>，捕获该异常后直接视为消费成功并提交 Offset。<br/>
+                • <strong>做法 B（扣余额/加积分 + 独立防重流水表同事务）：</strong>给用户加积分是 <code>UPDATE points = points + 10</code>，没有天然唯一插入怎么办？在同一个 MySQL 数据库里建一张 <strong><code>mq_consume_log (biz_key PRIMARY KEY, status, create_time)</code></strong>，把<strong>「① 插入 <code>mq_consume_log</code> ──▶ ② <code>UPDATE</code> 加积分」包在同一个本地数据库事务里</strong>！如果重复消息进来，第 ① 步主键冲突直接回滚事务，积分绝不会多加一分！
+              </div>
+            </div>
+
+            <!-- 方案 2：状态机乐观锁 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:var(--plop-mustard); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14.2px; padding:4px 12px; border-radius:8px;">
+                  🥈 方案二：业务状态机 / 乐观锁条件更新（更新类业务最优雅写法）
+                </span>
+                <span class="plop-tag" style="font-size:11.5px;">零额外表开销</span>
+              </div>
+              <div style="font-size:13.3px; color:var(--plop-ink-text); line-height:1.6;">
+                许多业务本身就有严格的单向状态流转：<code>10-待支付 ──▶ 20-已支付 ──▶ 30-已发货</code>。消费“支付成功”消息时，不要裸写 <code>UPDATE</code>，而是把前置状态写进 <code>WHERE</code> 条件里：<br/>
+                <code style="display:block; background:var(--plop-sheet); border:1.5px solid var(--plop-ink); padding:6px 10px; border-radius:6px; margin:6px 0; font-weight:900;">
+                  UPDATE t_order SET status = 20 WHERE order_no = 'ORD_1001' AND status = 10;
+                </code>
+                第一条消息把 <code>status</code> 改成了 <code>20</code>（受影响行数 = 1）；第二条重复消息再来时，因为 <code>status</code> 已经不是 <code>10</code> 了，受影响行数为 <code>0</code>，天然幂等！
+              </div>
+            </div>
+
+            <!-- 方案 3：Redis 三态防重与经典坑 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:#FFF0F5; border:2px solid var(--plop-tomato); color:var(--plop-tomato); font-weight:900; font-size:14.2px; padding:4px 12px; border-radius:8px;">
+                  🥉 方案三：Redis 防重表 —— 警惕面试最爱考的两个「Redis 判重死穴」！
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">高并发前置过滤 + 数据库兜底</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px; font-size:13px; line-height:1.58;">
+                <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:10px 12px;">
+                  <strong style="color:var(--plop-tomato);">❌ 死穴 1：先 <code>GET</code> 查不在，再 <code>SET</code>（非原子并发穿透）</strong><br/>
+                  两条重复消息同时到达两个实例，同时执行 <code>GET</code> 都发现不存在，于是同时去执行业务！<br/>
+                  <strong style="color:var(--plop-tomato);">❌ 死穴 2：一上来就 <code>SETNX</code>，发现存在就直接 <code>ACK</code> 跳过（崩溃丢消息！）</strong><br/>
+                  如果线程 A 刚执行完 <code>SETNX</code> 占位成功，还没来得及写数据库就 OOM 崩溃了；等你重启重投这条消息时，发现 Redis 里已经有这个 Key 了，如果直接跳过并提交 Offset，<strong>这条消息就永远没有写进数据库，彻底丢了！</strong>
+                </div>
+                <div style="background:#F0FDF4; border:1.8px solid #15803d; border-radius:9px; padding:10px 12px;">
+                  <strong style="color:#15803d;">✅ 正确的 Redis「三态状态机 + DB 唯一键」组合拳：</strong><br/>
+                  1. 收到消息执行 <code>SET biz_key "PROCESSING" NX EX 30</code>（原子抢占处理中锁，带 30 秒租约）；<br/>
+                  2. 若抢锁失败：看当前值是 <code>"DONE"</code> 则直接 ACK 跳过；若是 <code>"PROCESSING"</code> 则说明有另一个线程正在跑，<strong>稍后重试（切勿直接 ACK）</strong>；<br/>
+                  3. 抢锁成功后执行 DB 事务（DB 依然保留唯一索引做终极兜底），若报错则在 <code>catch</code> 中主动 <code>DEL biz_key</code> 让下次重试能进来；<br/>
+                  4. DB 成功后将 Redis 值更新为 <code>SET biz_key "DONE" EX 86400</code>，最后提交 Offset！
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：消息不丢也不重了！但如果同一笔订单的「创建 → 付款 → 发货」三条消息由于并发处理，变成了先发货再创建怎么办？线上突然积压了 5000 万条消息报警，又该怎么在半小时内救火？</span>
+          </div>
+        </div>

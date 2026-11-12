@@ -1,0 +1,207 @@
+<!-- ====================================================================
+             PART 05: 事务消息（分布式事务）、延迟/定时消息与死信回溯
+             ==================================================================== -->
+        <div class="wb-sec-header" id="business">
+          <span class="wb-sec-num">05</span>
+          <span class="wb-sec-title">高阶业务特性 · 事务消息（半消息+回查 vs 本地消息表）、延迟消息与死信回溯</span>
+          <span class="plop-tag mint">TX MESSAGE · TIMING WHEEL · DLQ</span>
+        </div>
+
+        <!-- 05.1 · 分布式事务一致性：RocketMQ 半消息回查 vs 本地消息表（Outbox） -->
+        <div class="wb-card" id="tx" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 05.1 · 为什么「写本地 MySQL 数据库」和「发 MQ 消息」无论是谁先谁后都会翻车？怎么做到 100% 原子一致？</div>
+          <h3>🤝 05.1 事务消息（分布式事务）：让「本地数据库修改」与「MQ 消息发送」同生共死</h3>
+          <p>
+            假设用户下单支付：订单服务需要在本地 MySQL 执行 <code>UPDATE 订单状态 = 已支付</code>，同时发一条 MQ 消息通知积分服务加积分。因为这两个动作跨了 <strong>MySQL</strong> 和 <strong>MQ</strong> 两个独立中间件，无论你怎么排先后顺序，普通写法都有致命漏洞：
+          </p>
+
+          <!-- 普通写法 3 种翻车现场对比 -->
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px; margin:12px 0;">
+            <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:11px 13px; font-size:13px; line-height:1.58;">
+              <strong style="color:var(--plop-tomato);">❌ 错误 ①：先写 DB 提交，再发 MQ</strong><br/>
+              本地 DB 刚提交成功，服务突然宕机或网络闪断，MQ 没发出去 👉 <strong>钱扣了，积分永远没加上！</strong>
+            </div>
+            <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:11px 13px; font-size:13px; line-height:1.58;">
+              <strong style="color:var(--plop-tomato);">❌ 错误 ②：先发 MQ，再写 DB 提交</strong><br/>
+              MQ 消息刚发出去就被下游消费了，结果本地 DB 写库报错回滚 👉 <strong>没扣上钱，却白送了积分！</strong>
+            </div>
+            <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:11px 13px; font-size:13px; line-height:1.58;">
+              <strong style="color:var(--plop-tomato);">❌ 错误 ③：把发 MQ 包在 DB 事务里</strong><br/>
+              发 MQ 网络卡顿 3 秒，导致数据库行锁和连接被白白占住 3 秒（拖垮连接池）；且发完 MQ 后若 DB <code>COMMIT</code> 瞬间断电，消息依然撤不回来！
+            </div>
+          </div>
+
+          <p>
+            要彻底解决这个“跨库+跨 MQ”的一致性问题，工业界有<strong>两大标准落地武器</strong>（面试把这两个一起讲出来直接拉满）：
+          </p>
+
+          <!-- 武器一：RocketMQ 半消息 + 事务状态回查 4 步图解 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+              <span style="font-weight:900; font-size:15px; color:var(--plop-ink);">
+                ⚔️ 武器一：RocketMQ 原生事务消息 —— 「两阶段半消息 (Half Message) + 事务状态回查」
+              </span>
+              <span class="plop-tag tomato" style="font-size:11.5px;">核心：先探路暂存，确认后再对消费者可见</span>
+            </div>
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px;">
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">Step ①：发送半消息 (Half Msg)</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                  Producer 先发一条半消息给 Broker。Broker 把它转存进内部系统主题 <strong><code>RMQ_SYS_TRANS_HALF_TOPIC</code></strong>，此时<strong>对下游消费者完全不可见</strong>！
+                </div>
+              </div>
+
+              <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">Step ②：执行本地 DB 事务</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-soft); margin-top:4px; line-height:1.5; font-weight:700;">
+                  收到半消息写入成功的 ACK 后（若连半消息都发不出去，直接终止不写库！），Producer 执行 <code>executeLocalTransaction</code> 改本地数据库。
+                </div>
+              </div>
+
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">Step ③：二阶段 Commit / Rollback</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                  • 本地事务成功 👉 发 <code>COMMIT</code>，Broker 把半消息搬回真正的目标 Topic，<strong>消费者立即可见</strong>；<br/>
+                  • 本地事务失败 👉 发 <code>ROLLBACK</code>，Broker 写入 Op 删除标记丢弃半消息。
+                </div>
+              </div>
+
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato);">Step ④：超时事务回查（灵魂兜底！）</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                  万一 Step ② 写完库正要发 Step ③ 时<strong>机器断电或网络丢包</strong>？Broker 定时扫描未决半消息，主动回调生产者组任一实例的 <code>checkLocalTransaction</code> 查 DB 订单状态来补发 Commit/Rollback！
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 武器二：本地消息表（Transactional Outbox） -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+              <span style="font-weight:900; font-size:15px; color:var(--plop-ink);">
+                ⚔️ 武器二：本地消息表（Transactional Outbox 模式）—— 用的是 Kafka / RabbitMQ 怎么办？
+              </span>
+              <span class="plop-tag mint" style="font-size:11.5px;">任何 MQ 通用 · 跨系统最终一致</span>
+            </div>
+            <div style="font-size:13.3px; color:var(--plop-ink-text); line-height:1.6;">
+              如果公司用的是不支持半消息回查的 <strong>Kafka 或 RabbitMQ</strong>，怎么实现同等可靠的事务消息？答案是<strong>把“跨系统分布式事务”降维转化为“本地单库事务”</strong>：<br/>
+              1. <strong>同库同事务双写：</strong>在订单数据库里建一张本地消息表 <code>local_message_outbox (id, topic, payload, status='PENDING', retry_count)</code>。在同一个 MySQL 本地事务里：<strong><code>BEGIN; ① UPDATE 订单已支付; ② INSERT INTO local_message_outbox; COMMIT;</code></strong>（靠 MySQL 自己的 ACID 保证订单与待发消息 100% 同生共死！）。<br/>
+              2. <strong>异步中继投递（Relay / CDC）：</strong>事务提交后，由后台定时任务轮询 <code>status='PENDING'</code> 的记录（或者用 <strong>Canal / Debezium 实时监听 <code>local_message_outbox</code> 的 Binlog</strong>）把消息发往 Kafka；收到 Kafka 的 <code>acks=all</code> 确认后，再把表里状态改为 <code>SENT</code>。
+            </div>
+          </div>
+
+          <div class="plop-callout warn">
+            <strong>⚠️ 必考误区辨析：事务消息能保证“下游消费者一定消费成功并回滚上游”吗？</strong><br/>
+            <strong>不能！</strong>事务消息（无论是 RocketMQ 半消息还是本地消息表）属于<strong>「最大努力通知 / 最终一致性柔事务」</strong>：它 100% 保证的是<strong>上游本地事务成功 ⇔ 消息一定可靠发进 MQ</strong>。至于下游消费者拿到消息后如果因为 DB 抖动处理失败，<strong>绝不会反过来回滚上游已经提交的订单</strong>，而是靠下游的<strong>消费重试（16次阶梯重试）+ 死信队列人工/自动补偿</strong>来达成最终一致！
+          </div>
+        </div>
+
+        <!-- 05.2 · 延迟 / 定时消息：RocketMQ 4.x 定时等级 vs 5.0 时间轮 vs RabbitMQ 队头阻塞坑 -->
+        <div class="wb-card" id="delay" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 05.2 · “用户下单 30 分钟未支付自动关单”为什么不用定时扫全表，而用延迟消息？底层的时间轮是怎么转的？</div>
+          <h3>⏱️ 05.2 延迟 / 定时消息：从 18 级定时队列到分层时间轮（Timing Wheel）</h3>
+          <p>
+            如果每分钟跑一个定时任务去 <code>SELECT * FROM t_order WHERE status='UNPAID' AND create_time &lt; now()-30m</code> 扫千万级订单表，既会打爆数据库 I/O，又有最高 1 分钟的时间误差。更优雅的做法是在下单瞬间发一条<strong>「30 分钟后才对消费者可见的延迟消息」</strong>，到点精准触发检查关单。三大 MQ 的实现机制与坑点对比如下：
+          </p>
+
+          <div style="display:grid; gap:14px; margin:14px 0;">
+            <!-- RocketMQ 4.x vs 5.0 延迟消息 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:var(--plop-mint); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14.2px; padding:4px 12px; border-radius:8px;">
+                  🚀 RocketMQ 延迟消息：4.x 内部 18 级队列 ──▶ 5.0 分层时间轮（任意毫秒级定时）
+                </span>
+                <span class="plop-tag mint" style="font-size:11.5px;">原生支持 · 最成熟</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px; font-size:13.2px; line-height:1.58;">
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px;">
+                  <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">🕰️ RocketMQ 4.x：18 个固定延迟等级</div>
+                  • 为什么不支持任意时间？如果每条消息过期时间都不同，Broker 就要对千万条消息做全局排序（内存和 CPU 会炸）。<br/>
+                  • <strong>巧妙解法：</strong>限制只支持 <strong>18 个固定档位（<code>1s / 5s / 10s / ... / 30m / 2h</code>）</strong>。Broker 收到带 <code>delayLevel=16 (30m)</code> 的消息后，先修改 Topic 暂存进内部系统主题 <strong><code>SCHEDULE_TOPIC_XXXX</code> 的第 16 号队列</strong>（同一个队列内延迟时长相同，天然按到达顺序到期！）；后台 <code>Timer</code> 线程按序扫描队列头部，到期后再还原真实 Topic 写回 <code>CommitLog</code> 投递给消费者。
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px;">
+                  <div style="font-weight:900; color:#15803d; margin-bottom:4px;">⚙️ RocketMQ 5.0：<code>TimerWheel + TimerLog</code> 时间轮</div>
+                  • 为了支持<strong>任意时刻定时消息</strong>（如指定明天上午 <code>10:08:23</code> 触发），RocketMQ 5.0 引入了<strong>时间轮（Timing Wheel）</strong>存储引擎：<br/>
+                  • 就像钟表表盘有 3600 个秒针槽位（Slot），每个槽位只存一个指向磁盘 <strong><code>TimerLog</code></strong> 链表头的指针。写入任意定时消息都是 <strong>\(O(1)\) 定位槽位 + 顺序追加写 <code>TimerLog</code></strong>；指针每秒走一格，把当前格子里到期的消息链表捞出来投递（若超过一圈则通过多级时间轮或卷动重入），彻底突破了 18 级限制！
+                </div>
+              </div>
+            </div>
+
+            <!-- RabbitMQ TTL + DLX 与队头阻塞大坑 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                <span style="background:#FFF0F5; border:2px solid var(--plop-tomato); color:var(--plop-tomato); font-weight:900; font-size:14.2px; padding:4px 12px; border-radius:8px;">
+                  🐰 RabbitMQ 延迟消息：警惕「TTL + 死信队列 (DLX)」的必考队头阻塞大坑！
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">面试高频踩坑点</span>
+              </div>
+              <div style="font-size:13.2px; color:var(--plop-ink-text); line-height:1.6;">
+                • <strong>方式 A（<code>TTL + 死信交换机 DLX</code>）：</strong>建一个<strong>没有任何消费者监听的普通缓冲队列</strong>，给队列或消息设置过期时间 <code>TTL = 30分钟</code>，并绑定死信交换机（<code>x-dead-letter-exchange</code>）。30 分钟后消息过期变成“死信”，被自动路由到真正的关单消费队列。<br/>
+                • <strong style="color:var(--plop-tomato);">⚠️ 致命陷阱（队头阻塞 Head-of-Line Blocking）：</strong>RabbitMQ <strong>只会检查队列最头部（第 1 条）消息是否过期</strong>！假如你在同一个队列里先发了一条 <code>TTL = 30分钟</code> 的消息 A，紧接着又发了一条 <code>TTL = 1分钟</code> 的消息 B——<strong>1 分钟到点时消息 B 绝对不会触发过期，它会一直被前面的消息 A 死死堵住，直到 30 分钟后跟 A 一起出来！</strong><br/>
+                • <strong>✅ 破局方案：</strong>① 要么像 RocketMQ 4.x 一样<strong>按固定延迟时长拆分成多个独立队列</strong>（30 分钟一个队列，1 分钟一个队列）；② 要么安装官方 <strong><code>rabbitmq_delayed_message_exchange</code> 延迟插件</strong>，让消息暂存在交换机的 Mnesia 表中按时投递，不再被队列头部阻塞。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 05.3 · 消费重试、死信队列（DLQ）与消息回溯 -->
+        <div class="wb-card" id="dead" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 05.3 · 下游数据库报错导致消费失败时，消息去哪儿了？什么是死信队列（DLQ）与消息回溯？</div>
+          <h3>🛟 05.3 最后一道防线：阶梯退避重试、死信队列（DLQ）与历史回溯重放</h3>
+          <p>
+            当消费者执行业务抛异常时，不能直接把消息扔掉，也不能原地每秒重试一万次把本来就抖动的下游彻底打死。一套成熟的消费容错闭环包含 <strong>3 个机制</strong>：
+          </p>
+
+          <!-- 重试 -> 死信流转卡片图 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:1fr auto 1.2fr auto 1fr; gap:8px; align-items:center; text-align:center;">
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">① 正常消费失败</div>
+                <div style="font-size:12px; color:var(--plop-ink-soft); font-weight:700; margin-top:4px;">返回 <code>RECONSUME_LATER</code> 或抛异常</div>
+              </div>
+              <div style="font-weight:900; color:var(--plop-tomato); font-size:13px;">──发回重试队列──▶</div>
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:10px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">② 阶梯退避重试队列</div>
+                <div style="font-family:var(--font-mono); font-size:12px; font-weight:800; color:var(--plop-ink); margin-top:4px;">
+                  %RETRY%+消费者组名<br/>
+                  (10s → 30s → 1m ... 最多16次)
+                </div>
+              </div>
+              <div style="font-weight:900; color:var(--plop-tomato); font-size:13px;">──超16次仍败──▶</div>
+              <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:10px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato);">③ 死信队列 (DLQ)</div>
+                <div style="font-family:var(--font-mono); font-size:12px; font-weight:800; color:var(--plop-ink); margin-top:4px;">
+                  %DLQ%+消费者组名<br/>
+                  (告警 + 人工/脚本补偿)
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="wb-grid-2">
+            <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:11px; padding:12px 14px; font-size:13.2px; line-height:1.58;">
+              <h4 style="margin:0 0 6px;">📮 死信队列（Dead Letter Queue）的三大工程价值</h4>
+              <ol style="margin:0;">
+                <li><strong>隔离坏消息（防阻塞）：</strong>把脏数据、代码 Bug 无法处理的“毒丸消息（Poison Pill）”挪走，绝不卡死正常业务消息的消费流水线。</li>
+                <li><strong>兜底防丢失：</strong>重试达到上限（如 RocketMQ 默认 16 次，约经历 4 小时 46 分钟）后不丢弃，持久化保存在专属死信 Topic 中。</li>
+                <li><strong>可观测与重放修复：</strong>线上必须对 <code>%DLQ%</code> 配置<strong>监控告警</strong>；研发修复 Bug 后，可在控制台一键将死信重发回正常队列。</li>
+              </ol>
+            </div>
+
+            <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:11px; padding:12px 14px; font-size:13.2px; line-height:1.58;">
+              <h4 style="margin:0 0 6px;">⏪ 消息回溯（Message Replay / Offset Reset）</h4>
+              <p style="margin:0;">
+                与传统队列“消费完立刻物理删除消息”不同，Kafka 和 RocketMQ <strong>消费完消息后文件依然保留在磁盘上，消费只是把游标 <code>Offset</code> 往右挪了一格</strong>。<br/>
+                <strong>实战威力：</strong>如果今天下午上线了一个消费端 Bug，导致下午 2:00～3:00 的积分全算错了，你只需要修好代码，然后通过命令行或控制台<strong>把该消费者组的 Offset 重置回下午 2:00 的时间戳（<code>--to-datetime</code>）</strong>，就能把这 1 小时的历史消息完完整整重跑一遍！
+              </p>
+            </div>
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：业务特性全拿下了！现在揭开最硬核的底层黑盒：<strong>既然 Kafka 和 RocketMQ 都把消息存在慢速磁盘上，凭什么单机能飙到几十万甚至上百万 TPS？零拷贝 <code>sendfile</code> 和 <code>mmap</code> 到底差在哪？</strong></span>
+          </div>
+        </div>

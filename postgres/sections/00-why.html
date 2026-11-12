@@ -1,0 +1,176 @@
+<!-- ====================================================================
+             PART 00: 第一性原理导读 · 为什么有了 MySQL 还要学 PostgreSQL？
+             ==================================================================== -->
+        <div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+          <span class="wb-sec-num">00</span>
+          <span class="wb-sec-title">第一性原理导读 · 为什么有了 MySQL 还要学 PostgreSQL？入门懂什么、进阶在解决什么？</span>
+          <span class="plop-tag tomato">FIRST PRINCIPLES · 必读心法</span>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🧭 先抓底层设计哲学 · MySQL 与 PostgreSQL 的一切差异，都源自「一张表在磁盘上怎么放、改一行数据旧版本往哪塞」</div>
+          <h3>💡 从第一性原理出发：同样是关系型数据库，PostgreSQL 和 MySQL 到底分道扬镳在哪里？</h3>
+          <p>
+            很多同学学完 MySQL 再看 PostgreSQL（简称 PG），会觉得：“不都是建表、写 SQL、建 B+ 树索引、开事务么？为什么要多学一套？”<br>
+            但只要进入复杂业务、AI 向量检索、GIS 地理空间、海量 JSON 文档或高并发更新场景，你会发现两者的底层脾气截然不同——因为它们在设计之初做出了<strong>三个最根本的底层架构抉择</strong>：
+          </p>
+          <ul>
+            <li><strong>抉择一：表数据怎么存？（堆表 Heap vs 索引组织表 IOT）</strong><br>
+              MySQL InnoDB 的表本身就是一棵<strong>主键 B+ 树（聚簇索引）</strong>，数据行按主键顺序存在叶子节点里，二级索引存的是主键值（查二级索引要再查一遍主键树，即回表）；而 PostgreSQL 的表是<strong>无序追加的堆表（Heap Table）</strong>，每一行有一个物理坐标 <code>ctid = (页号, 页内槽位号)</code>，<strong>主键和普通索引平起平坐，统统直接存 <code>ctid</code> 指向堆表物理位置</strong>。</li>
+            <li><strong>抉择二：改一行数据时，旧版本放哪？（追加新元组 vs Undo Log 回滚段）</strong><br>
+              MySQL InnoDB 原地修改数据页，把旧版本写进独立的 <strong>Undo Log</strong>；而 PostgreSQL 采用<strong>追加写多版本（Append-Only MVCC）</strong>：<code>UPDATE = 把旧行标上失效事务号 xmax + 在堆表里直接插入一条新版本行 (xmin)</code>！这样事务回滚几乎是 <code>O(1)</code> 瞬间完成（不用重放 Undo），但也直接导致了 PG 最具辨识度的运维核心：<strong>死元组（Dead Tuple）堆积 → 表膨胀（Bloat）→ 必须靠 VACUUM 清道夫回收与 Freeze 防事务 ID 回卷</strong>。</li>
+            <li><strong>抉择三：数据库只存简单标量，还是允许扩展一切？（ORDBMS 对象-关系型底座）</strong><br>
+              PostgreSQL 把自己设计成一个<strong>可扩展的类型与索引框架</strong>：原生内置 <code>JSONB</code>、数组、范围类型，提供 <strong>6 大索引引擎（B-tree / GIN / GiST / SP-GiST / BRIN / Hash）</strong>，还能通过扩展（<code>PostGIS</code> 空间地理、<code>pgvector</code> 向量数据库）直接生长出新物种。</li>
+          </ul>
+
+          <!-- 手绘 SVG：从第一性原理推导 PostgreSQL 全景知识体系 -->
+          <svg viewBox="0 0 880 398" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="PostgreSQL 第一性原理推导全景图">
+            <defs>
+              <marker id="pg-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
+              </marker>
+              <marker id="pg-arr-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="#D2381E" stroke="#D2381E" stroke-linejoin="round"/>
+              </marker>
+            </defs>
+
+            <!-- 左侧：入门起点 -->
+            <rect x="14" y="16" width="204" height="366" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <rect x="26" y="28" width="180" height="28" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2"/>
+            <text x="116" y="47" text-anchor="middle" font-size="12.2" font-weight="900" fill="var(--plop-ink-text)">🌱 入门阶段（起点）</text>
+
+            <text x="116" y="78" text-anchor="middle" font-size="13" font-weight="900" fill="var(--plop-ink)">更强大的「标准 SQL 库」</text>
+            <text x="116" y="96" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--plop-ink-soft)">(建模 + 强类型 + 高级查询)</text>
+
+            <rect x="28" y="112" width="176" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="116" y="132" text-anchor="middle" font-size="10.8" font-weight="800" fill="var(--plop-ink-text)">① 理解四级结构与强类型</text>
+            <text x="116" y="149" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">库→Schema→表 / text·numeric·jsonb</text>
+
+            <rect x="28" y="174" width="176" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="116" y="194" text-anchor="middle" font-size="10.8" font-weight="800" fill="var(--plop-ink-text)">② 事务性 DDL 与表间关系</text>
+            <text x="116" y="211" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">IDENTITY 自增 / 1:1·1:N·M:N 外键</text>
+
+            <rect x="28" y="236" width="176" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="116" y="256" text-anchor="middle" font-size="10.8" font-weight="800" fill="var(--plop-ink-text)">③ 王牌 SQL 生产力语法</text>
+            <text x="116" y="273" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">RETURNING / ON CONFLICT / 窗口函数</text>
+
+            <rect x="28" y="298" width="176" height="68" rx="8" fill="#FFF6F4" stroke="#D2381E" stroke-width="1.8" stroke-dasharray="4 3"/>
+            <text x="116" y="318" text-anchor="middle" font-size="10.5" font-weight="900" fill="#D2381E">⚠️ 上生产后会撞上什么墙？</text>
+            <text x="116" y="335" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">连接数爆内存、高频更新导致</text>
+            <text x="116" y="352" text-anchor="middle" font-size="9.6" font-weight="800" fill="#D2381E">表膨胀 10 倍、XID 回卷停库 ➔</text>
+
+            <!-- 分叉箭头 -->
+            <path d="M218 90 L252 60" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pg-arr-red)"/>
+            <path d="M218 165 L252 152" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pg-arr-red)"/>
+            <path d="M218 235 L252 246" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pg-arr-red)"/>
+            <path d="M218 308 L252 338" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pg-arr-red)"/>
+
+            <!-- 右侧四大进阶主线 -->
+            <!-- 主线 1 -->
+            <rect x="256" y="16" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <rect x="268" y="24" width="182" height="64" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="359" y="45" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🏛️ 主线一：多进程与特色类型</text>
+            <text x="359" y="62" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 01～02 章 · 架构与建模）</text>
+            <text x="359" y="77" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">postmaster + JSONB + 事务 DDL</text>
+            <text x="466" y="46" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 进程模型：每连接 fork 独立 backend 进程（崩溃隔离好，但生产必配 PgBouncer）</text>
+            <text x="466" y="66" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 特色类型：JSONB 二进制解析树 + 数组 + TOAST 大字段切片 + 可回滚的事务性 DDL</text>
+            <text x="466" y="83" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 明白为什么 PG 不用拆表也能高效查复杂 JSON，以及大表加列怎么避免全表重写锁死</text>
+
+            <!-- 主线 2 -->
+            <rect x="256" y="108" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <rect x="268" y="116" width="182" height="64" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="359" y="137" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🚀 主线二：高级 SQL 武器库</text>
+            <text x="359" y="154" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 03 章 · DML 与分析查询）</text>
+            <text x="359" y="169" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">一条 SQL 顶十行应用层循环</text>
+            <text x="466" y="138" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 原子写入：RETURNING 直接返回修改行 + ON CONFLICT DO UPDATE 原子 UPSERT</text>
+            <text x="466" y="158" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 分析王牌：OVER(PARTITION BY...) 窗口函数排名/环比 + WITH RECURSIVE 递归查树</text>
+            <text x="466" y="175" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 彻底掌握“取每组最新一条”、“无限级部门树”、“执行顺序陷阱”等高频 SQL 题</text>
+
+            <!-- 主线 3 -->
+            <rect x="256" y="200" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <rect x="268" y="208" width="182" height="64" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="359" y="229" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🔒 主线三：堆表 MVCC 与并发锁</text>
+            <text x="359" y="246" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 04 章 · xmin/xmax 与 SSI）</text>
+            <text x="359" y="261" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">PG 区别于 MySQL 的灵魂机制</text>
+            <text x="466" y="230" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 多版本元组：每行带 xmin/xmax，UPDATE = 标旧行 xmax + 插新行版本（留在堆表里）</text>
+            <text x="466" y="250" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 隔离与锁：默认 RC、RR 快照防幻读、SSI 可串行化快照 + FOR UPDATE SKIP LOCKED 抢单</text>
+            <text x="466" y="267" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 看懂为什么 PG 没有脏读、为什么 RR 下更新同一行会直接报错要求客户端重试</text>
+
+            <!-- 主线 4 -->
+            <rect x="256" y="292" width="610" height="88" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <rect x="268" y="300" width="182" height="72" rx="8" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="359" y="321" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🧹 主线四：六大索引与 VACUUM</text>
+            <text x="359" y="338" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 05～06 章 · 调优与防膨胀）</text>
+            <text x="359" y="355" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">面试与生产事故最高频考点</text>
+            <text x="466" y="320" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 索引与计划：B-tree / GIN(倒排) / GiST / BRIN(块范围) + INCLUDE 覆盖索引 + EXPLAIN</text>
+            <text x="466" y="340" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 膨胀与清道夫：VACUUM 回收死元组 + Freeze 冻结防 32位 XID 回卷 + HOT 页内更新优化</text>
+            <text x="466" y="359" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 为什么删了数据磁盘不减小？为什么没跑 VACUUM 连 Index Only Scan 都会退化回表？</text>
+          </svg>
+
+          <!-- PostgreSQL vs MySQL (InnoDB) 10 大维度对比总表 -->
+          <h3 style="margin-top:18px;">⚔️ 一表打通：PostgreSQL vs MySQL (InnoDB) 10 大核心架构差异对照</h3>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:16%;">对比维度</th>
+                  <th style="width:43%;">🐘 PostgreSQL (14 / 16 / 17)</th>
+                  <th style="width:41%;">🐬 MySQL (8.0 / 8.4 InnoDB)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>1. 并发连接模型</strong></td>
+                  <td><strong>多进程模型</strong>：主进程 <code>postmaster</code> 为每个连接 <code>fork</code> 独立 <code>backend</code> 进程；隔离性极强，但高并发需配 <strong>PgBouncer</strong> 连接池</td>
+                  <td><strong>多线程模型</strong>：单进程内每个连接对应一个线程（企业版/Percona 支持线程池），单连接内存开销较小</td>
+                </tr>
+                <tr>
+                  <td><strong>2. 表存储结构</strong></td>
+                  <td><strong>堆表（Heap Table，无序组织）</strong>：数据行按追加写入位置存放，靠物理坐标 <code>ctid=(页号,槽位)</code> 寻址；无聚簇索引</td>
+                  <td><strong>索引组织表（IOT，聚簇索引）</strong>：表本身就是按主键排序的 B+ 树，主键叶子节点直接存完整数据行</td>
+                </tr>
+                <tr>
+                  <td><strong>3. 二级索引与回表</strong></td>
+                  <td>所有索引（含主键）都是二级索引，叶子存 <code>ctid</code> <strong>直接一步跳回堆表物理页</strong>；但未命中的 HOT 更新需额外更新全表所有索引</td>
+                  <td>二级索引叶子存<strong>主键值</strong>，回表需拿主键值再去主键 B+ 树做二次树搜索；但非主键列更新若不改该二级索引列则无需动它</td>
+                </tr>
+                <tr>
+                  <td><strong>4. MVCC 多版本实现</strong></td>
+                  <td><strong>页内追加新版本（<code>xmin/xmax</code>）</strong>：<code>UPDATE = 旧行标 xmax + 插新行</code>，旧版本留在堆表里 → 回滚极快（<code>O(1)</code>），但产生<strong>死元组与表膨胀</strong>，靠 <code>VACUUM</code> 回收</td>
+                  <td><strong>原地更新 + Undo Log 回滚段</strong>：数据页只留最新版本，旧版本通过 <code>roll_pointer</code> 串在独立 Undo Log 中，由后台 Purge 线程清理</td>
+                </tr>
+                <tr>
+                  <td><strong>5. 默认页大小</strong></td>
+                  <td>默认 <strong>8 KiB</strong>（编译期可配，常见 8KB）</td>
+                  <td>默认 <strong>16 KiB</strong></td>
+                </tr>
+                <tr>
+                  <td><strong>6. 默认隔离级别与实现</strong></td>
+                  <td>默认 <strong>Read Committed (RC)</strong>；RR 级别直接靠事务级快照挡掉幻读；<code>Serializable</code> 采用无读锁的 <strong>SSI（可串行化快照隔离）</strong></td>
+                  <td>默认 <strong>Repeatable Read (RR)</strong>；快照读靠 MVCC ReadView，当前读靠 <strong>Next-Key Lock（记录锁 + 间隙锁 Gap Lock）</strong>防幻读</td>
+                </tr>
+                <tr>
+                  <td><strong>7. 索引丰富度</strong></td>
+                  <td><strong>6 大原生索引引擎</strong>：<code>B-tree</code>、<code>GIN</code>（JSONB/数组/全文倒排）、<code>GiST</code>（空间/范围排他）、<code>SP-GiST</code>、<code>BRIN</code>（超小块范围）、<code>Hash</code>；支持部分索引与表达式索引</td>
+                  <td>以 <code>B+ 树</code> 为绝对主力（另支持全文索引与 R-Tree 空间索引；8.0+ 支持函数索引，但不支持 <code>WHERE</code> 部分索引）</td>
+                </tr>
+                <tr>
+                  <td><strong>8. DDL 事务安全性</strong></td>
+                  <td><strong>支持事务性 DDL</strong>：绝大多数 <code>CREATE / ALTER / DROP</code> 可包裹在 <code>BEGIN ... ROLLBACK</code> 中原子回滚，迁移脚本极安全</td>
+                  <td><strong>DDL 隐式提交（Implicit Commit）</strong>：执行 DDL 会强制提交当前事务，无法通过 <code>ROLLBACK</code> 回滚</td>
+                </tr>
+                <tr>
+                  <td><strong>9. 复杂查询与优化器</strong></td>
+                  <td>支持 <code>Hash Join / Merge Join / Nested Loop</code> 全套连接算法、并行查询、完整窗口函数、递归 CTE、<code>RETURNING</code>、物化视图</td>
+                  <td>8.0 才补齐窗口函数、CTE 与 <code>Hash Join</code>，复杂多表分析查询与统计成本估算相比 PG 略逊一筹</td>
+                </tr>
+                <tr>
+                  <td><strong>10. 杀手级扩展生态</strong></td>
+                  <td><strong>插件化内核扩展</strong>：<code>PostGIS</code>（行业标准 GIS）、<code>pgvector</code>（AI 向量检索）、<code>TimescaleDB</code>（时序）、<code>Citus</code>（分布式分片）</td>
+                  <td>架构相对封闭，侧重传统 OLTP 稳定读写与主从高可用生态（MHA / Orchestrator / MGR / Canal）</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>

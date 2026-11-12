@@ -1,0 +1,243 @@
+<!-- ====================================================================
+     PART 03: 为什么引入协程 & GMP 调度器底层全景
+     ==================================================================== -->
+<div class="wb-sec-header" id="gmp" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">为什么引入协程 &amp; GMP 调度器底层全景</span>
+  <span class="plop-tag tomato">M:N SCHEDULER × SIGURG PREEMPTION</span>
+</div>
+
+<!-- 03.1 · 为什么引入协程 & 连续栈演进 -->
+<div class="wb-card" id="why-go" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill" id="goroutine">❓ 03.1 · 既然操作系统已经有内核线程了，为什么 Go 还要自己造一套 Goroutine？</div>
+  <h3>🚀 03.1 OS 内核线程三大痛点 vs Goroutine 2KB 动态连续栈</h3>
+  <p>
+    在互联网高并发服务中，95% 的时间都花在<strong>等待网络 IO（查 DB、调 RPC、读 Redis）</strong>上。如果采用传统的“一请求一 OS 线程（1:1 模型）”，会在<strong>栈内存占用、内核态上下文切换、阻塞线程挂起</strong>三大物理瓶颈上迅速撞墙：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">核心维度</th>
+          <th style="width:28%">OS 内核线程（Thread · 1:1）</th>
+          <th style="width:30%">Go 协程（Goroutine · M:N）</th>
+          <th>数量级差距与工程意义</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>初始栈内存</strong></td>
+          <td>固定 <strong>1 MB ~ 8 MB</strong>（含 Guard Page，不可缩容）</td>
+          <td>仅 <strong>2 KB</strong> 起步，按需 2 倍动态扩容（最大 1GB）、GC 时自动缩容</td>
+          <td>10 万并发：线程需 <code>100GB+</code> 直接 OOM；Goroutine 仅需 <code>~200MB</code>，轻松开百万级</td>
+        </tr>
+        <tr>
+          <td><strong>创建与切换成本</strong></td>
+          <td><strong>陷入内核态（Ring 3 → Ring 0）</strong>，保存 16+ 通用/SIMD 寄存器，耗时 <strong>1 ~ 2 μs</strong></td>
+          <td><strong>纯用户态切换（经 <code>g0</code> 调度栈）</strong>，仅保存 PC/SP/BP 三个核心寄存器，耗时 <strong>~100 ~ 200 ns</strong></td>
+          <td>上下文切换快 <strong>10 倍以上</strong>，CPU 算力真正花在业务代码上</td>
+        </tr>
+        <tr>
+          <td><strong>IO 阻塞代价</strong></td>
+          <td>调阻塞 read 时整条 OS 线程被挂起，大栈白白占着</td>
+          <td>底层集成 <strong>netpoller（epoll/kqueue）</strong>：G 挂起让出，<strong>M 立刻切换跑下一个 G</strong></td>
+          <td>用<strong>同步顺序代码的直观心智</strong>，跑出<strong>异步非阻塞事件驱动的极致吞吐</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip">
+    <strong>💡 进阶考点：为什么 Go 1.4 把协程栈从“分段栈”改成了“连续栈”？</strong><br>
+    • <strong>Go 1.3 分段栈痛点——热分裂（Hot Split）</strong>：用链表拼接多个小栈块；若在一个 <code>for</code> 循环内恰好处于栈满临界点调函数，每次迭代都会触发“分配新栈块 → 返回立即释放”，性能雪崩！<br>
+    • <strong>Go 1.4+ 连续栈</strong>：栈满时直接<strong>分配一块 2 倍大的连续新内存，把旧栈完整拷贝过去并修正栈内指针偏移量</strong>，后续循环调用零分裂开销！
+  </div>
+</div>
+
+<!-- 03.2 · GMP 四大组件与全景手绘 SVG -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">⚙️ 03.2 · 早期 Go 1.0 只有 G 和 M，为什么要大动干戈引入中间层 P？</div>
+  <h3>🗺️ 03.2 GMP 四大核心组件、为什么需要 P 与调度流转全景图</h3>
+  <p>
+    在 Go 1.0 的 <code>G-M</code> 模型中，所有线程 M 争抢<strong>唯一一把全局队列锁</strong>，且<strong>每个 M 都背着一个约 2MB 的无锁内存池 <code>mcache</code></strong>（一旦系统调用阻塞产生上千个 M，光闲置 <code>mcache</code> 就吃掉数 GB 内存）。Go 1.1 引入了<strong>逻辑处理器 <code>P</code>（数量 = <code>GOMAXPROCS</code>）</strong>，规定 <strong>M 必须绑定 P 才能执行 G</strong>，一举赋予每个 P 独立的<strong>无锁本地队列 <code>runq[256]</code></strong> 并把 <code>mcache</code> 锁死在 P 上！
+  </p>
+
+  <!-- 手绘 SVG：GMP 调度模型全景图 -->
+  <svg viewBox="0 0 960 360" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Go GMP 调度器全景图">
+    <rect x="8" y="8" width="944" height="344" rx="12" fill="#FFFDF7" stroke="var(--plop-ink)" stroke-width="2"/>
+
+    <!-- 顶部：全局队列 sched.runq 与 Netpoller -->
+    <g transform="translate(24, 22)">
+      <rect x="0" y="0" width="530" height="68" rx="10" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="16" y="24" fill="#D2381E" font-family="var(--font-mono)" font-size="12" font-weight="900">Global Queue (sched.runq · 需加锁)</text>
+      <text x="16" y="44" fill="var(--plop-ink-text)" font-size="11" font-weight="700">★ 每调度 61 次先查全局队列，防本地协程把全局 G 饿死</text>
+      <text x="16" y="60" fill="var(--plop-ink-soft)" font-size="10.8" font-weight="700">来源：本地队列满 256 迁入一半(128个) / Syscall 返回无 P 的 G</text>
+      <circle cx="435" cy="30" r="14" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="2"/><text x="435" y="34" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="900" fill="var(--plop-ink)">G8</text>
+      <circle cx="470" cy="30" r="14" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="2"/><text x="470" y="34" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="900" fill="var(--plop-ink)">G9</text>
+      <circle cx="505" cy="30" r="14" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="2"/><text x="505" y="34" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="900" fill="var(--plop-ink)">...</text>
+    </g>
+
+    <g transform="translate(574, 22)">
+      <rect x="0" y="0" width="360" height="68" rx="10" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="16" y="24" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="12" font-weight="900">Netpoller 网络轮询器 (epoll / kqueue)</text>
+      <text x="16" y="44" fill="var(--plop-ink-text)" font-size="11" font-weight="700">网络读写未就绪的 G 挂在此处，绝不占用 M 线程！</text>
+      <text x="16" y="60" fill="#1F8A65" font-size="10.8" font-weight="800">FD 就绪后自动变回 _Grunnable 注入 P 或全局队列</text>
+    </g>
+
+    <!-- 中部左：P0 + M0 正常高速运行 -->
+    <g transform="translate(24, 114)">
+      <rect x="0" y="0" width="445" height="220" rx="12" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
+      <rect x="14" y="12" width="160" height="26" rx="6" fill="#1F8A65"/>
+      <text x="94" y="29" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="12" font-weight="900">P0 (Processor #0)</text>
+      <text x="186" y="29" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.5" font-weight="800">+ mcache (无锁内存池)</text>
+
+      <!-- runnext 槽位 -->
+      <rect x="14" y="48" width="145" height="54" rx="8" fill="#FFE8E5" stroke="#D2381E" stroke-width="2"/>
+      <text x="20" y="67" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">★ runnext(VIP)</text>
+      <text x="20" y="85" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">新 G 优先进这里</text>
+      <circle cx="135" cy="75" r="14" fill="#D2381E"/><text x="135" y="79" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11" font-weight="900">G1</text>
+
+      <!-- 本地队列 runq[256] -->
+      <rect x="170" y="48" width="260" height="54" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="182" y="67" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.2" font-weight="900">Local runq [256] (无锁环形队列)</text>
+      <circle cx="198" cy="86" r="11" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="1.6"/><text x="198" y="90" text-anchor="middle" font-size="10" font-weight="900" fill="var(--plop-ink)">G2</text>
+      <circle cx="226" cy="86" r="11" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="1.6"/><text x="226" y="90" text-anchor="middle" font-size="10" font-weight="900" fill="var(--plop-ink)">G3</text>
+      <circle cx="254" cy="86" r="11" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="1.6"/><text x="254" y="90" text-anchor="middle" font-size="10" font-weight="900" fill="var(--plop-ink)">G4</text>
+      <circle cx="282" cy="86" r="11" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="1.6"/><text x="282" y="90" text-anchor="middle" font-size="10" font-weight="900" fill="var(--plop-ink)">G5</text>
+
+      <!-- 下方绑定的 M0 -->
+      <rect x="14" y="118" width="416" height="88" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="24" y="142" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="12" font-weight="900">M0 (OS 内核线程) ── 绑定 P0 正在运行 G0</text>
+      <text x="24" y="164" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">• 自带 g0 调度栈：每次切协程经 G_cur → g0 → G_next</text>
+      <text x="24" y="184" fill="#D2381E" font-size="11" font-weight="800">• 顺序：61次全局 → runnext → 本地runq → 全局 → netpoll → 偷P</text>
+    </g>
+
+    <!-- 中部右：P1 空闲偷取 Work Stealing & Syscall Handoff -->
+    <g transform="translate(490, 114)">
+      <rect x="0" y="0" width="444" height="220" rx="12" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="14" y="12" width="160" height="26" rx="6" fill="var(--plop-ink)"/>
+      <text x="94" y="29" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="12" font-weight="900">P1 (Processor #1)</text>
+
+      <!-- Work Stealing 说明 -->
+      <rect x="14" y="48" width="416" height="68" rx="8" fill="#FFFFFF" stroke="#D2381E" stroke-width="2" stroke-dasharray="5 3"/>
+      <text x="24" y="70" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">⚡ Work Stealing (工作窃取)：本地队列空了怎么办？</text>
+      <text x="24" y="90" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">随机遍历所有 P（最多 4 轮），发现 P0 有 G，直接从 P0.runq</text>
+      <text x="24" y="106" fill="#D2381E" font-size="11.2" font-weight="900">尾部一次性偷走【一半 (Half)】的 G，实现多核无锁均衡！</text>
+
+      <!-- Syscall Handoff 说明 -->
+      <rect x="14" y="126" width="416" height="80" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="24" y="147" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">🔄 Syscall Handoff (系统调用解绑移交)：</text>
+      <text x="24" y="167" fill="var(--plop-ink-text)" font-size="11" font-weight="700">• M1 陷入阻塞式 Syscall/CGO：P1 立即与 M1 解绑，转投空闲</text>
+      <text x="24" y="184" fill="var(--plop-ink-text)" font-size="11" font-weight="700">  线程 M2 继续跑其他 G，绝不浪费一颗 CPU 核心算力！</text>
+      <text x="24" y="200" fill="var(--plop-ink-soft)" font-size="10.8" font-weight="700">• M1 返回后：抢空闲 P 继续跑；抢不到则把 G 放全局队列休眠。</text>
+    </g>
+
+    <path d="M 432 190 L 502 190" stroke="#D2381E" stroke-width="3"/>
+    <polygon points="504,190 494,184 494,196" fill="#D2381E"/>
+  </svg>
+</div>
+
+<!-- 03.3 · schedule() 找 G 顺序与三大阻塞场景 -->
+<div class="wb-card" id="schedule" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🔍 03.3 · 为什么要每 61 次调度查一次全局队列？Channel 阻塞和系统调用阻塞有什么本质区别？</div>
+  <h3>🧭 03.3 <code>runtime.schedule()</code> 找 G 优先级与三大阻塞场景对比</h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 runtime/proc.go · schedule() 寻找可执行 G 的真实顺序</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-gmp-sched', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-gmp-sched"><code><span class="c-kw">func</span> <span class="c-fn">schedule</span>() {
+    <span class="c-kw">var</span> gp *g
+    <span class="c-cm">// ★ 1. 每调度 61 次，优先去全局队列拿 1 个 G（防本地乒乓协程饿死全局 G）</span>
+    <span class="c-kw">if</span> _g_.m.p.<span class="c-fn">ptr</span>().schedtick%61 == 0 &amp;&amp; sched.runqsize &gt; 0 {
+        <span class="c-fn">lock</span>(&amp;sched.lock)
+        gp = <span class="c-fn">globrunqget</span>(_g_.m.p.<span class="c-fn">ptr</span>(), 1)
+        <span class="c-fn">unlock</span>(&amp;sched.lock)
+    }
+    <span class="c-cm">// ★ 2. 查 P 本地队列（先取 VIP 槽 runnext，再取 runq 环形队头）</span>
+    <span class="c-kw">if</span> gp == <span class="c-kw">nil</span> {
+        gp, _ = <span class="c-fn">runqget</span>(_g_.m.p.<span class="c-fn">ptr</span>())
+    }
+    <span class="c-cm">// ★ 3. findrunnable() 兜底：全局队列批量拿 → netpoller → Work Stealing 偷一半</span>
+    <span class="c-kw">if</span> gp == <span class="c-kw">nil</span> {
+        gp, _ = <span class="c-fn">findrunnable</span>()
+    }
+    <span class="c-fn">execute</span>(gp)
+}</code></pre>
+    </div>
+
+    <div>
+      <div class="table-wrap" style="margin-top:10px;">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">阻塞类型</th>
+              <th>底层动作与 M / P 状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>① 用户态同步阻塞</strong><br>(Channel / Mutex / Sleep)</td>
+              <td>调 <code>gopark()</code> 把 G 挂入等待链表变 <code>_Gwaiting</code>；<strong>M 和 P 完全不阻塞</strong>，百纳秒内切去跑下一个 G。</td>
+            </tr>
+            <tr>
+              <td><strong>② 网络 IO 阻塞</strong><br>(TCP / HTTP / DB 读写)</td>
+              <td>FD 交由 <code>netpoller (epoll)</code> 监听，G 挂在 <code>pollDesc</code> 上让出；<strong>M 和 P 完全不阻塞</strong>。</td>
+            </tr>
+            <tr>
+              <td><strong>③ 阻塞式系统调用</strong><br>(磁盘文件 IO / CGO)</td>
+              <td><strong>M 与 G 一起陷入内核阻塞</strong>；<strong>P 执行 Handoff 与 M 解绑</strong>，换新 M 继续跑队列里其他 G。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 03.4 · 抢占式调度（协作式 vs 1.14 信号异步抢占）与 sysmon -->
+<div class="wb-card" id="preempt" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">⚡ 03.4 · 如果一个协程写了个纯算术死循环 <code>for { i++ }</code>，Go 怎么把它从 CPU 上轰下来？</div>
+  <h3>🛡️ 03.4 抢占式调度演进（Go 1.14 <code>SIGURG</code> 信号异步抢占）与 <code>sysmon</code> 后台巡警</h3>
+
+  <div class="wb-grid-2">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">① Go 1.13 前：基于栈扩张点的【协作式抢占】</div>
+      <p style="font-size:13.3px; margin:0; line-height:1.62;">
+        编译器在每个非内联函数开头插入栈空间检查指令（<code>morestack</code>）。当后台线程 <code>sysmon</code> 发现某个 G 运行超 <code>10ms</code>，将其栈边界设为 <code>stackPreempt</code>，等它<strong>下次调用函数</strong>时触发栈检查让出。<br>
+        <strong>致命死穴</strong>：若是一个<strong>内部没有任何函数调用的纯算术死循环 <code>for {}</code></strong>，永远走不到检查点，会永久霸占 P 甚至导致 GC STW 挂死全进程！
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-tomato); margin-bottom:6px;">② Go 1.14+：基于 <code>SIGURG</code> 信号的【异步抢占】</div>
+      <p style="font-size:13.3px; margin:0; line-height:1.62;">
+        <code>sysmon</code> 发现 G 运行超过 <strong><code>10ms</code></strong>（或 GC 请求 STW）时，直接调用 OS 接口向该线程 M 发送一个 <strong><code>SIGURG</code> 信号</strong>。OS 内核强制中断 M 进入 Go 的信号处理函数 <code>sighandler</code>，将寄存器 PC 修改为跳转到 <code>runtime.asyncPreempt</code>，保存上下文后调用 <code>gopreempt_m</code> 把死循环 G 强行塞回全局队列！
+      </p>
+    </div>
+  </div>
+
+  <div class="plop-callout info" style="margin-top:12px;">
+    <strong>🚓 幕后巡警 <code>sysmon</code> 后台监控线程的四大职责：</strong><code>sysmon</code> 直接运行在独立 M 上（无需绑定 P）：① <strong>抢占运行超 10ms 的 G</strong>；② <strong>剥离陷入 Syscall 阻塞的 P（Retake）</strong>；③ <strong>超过 10ms 无人轮询网络时兜底 poll <code>netpoller</code></strong>；④ <strong>超过 2 分钟未 GC 则强制触发一轮 GC，并调 <code>madvise</code> 归还闲置物理内存</strong>。
+  </div>
+
+  <details class="plop-drawer">
+    <summary>🎯 面试追问：GOMAXPROCS 在 Docker / K8s 容器里有什么著名大坑？</summary>
+    <div class="drawer-body">
+      <p>
+        <code>GOMAXPROCS</code> 默认读取宿主机物理节点的逻辑 CPU 核数（如 64 核），在 Go 1.24 之前<strong>不感知容器的 cgroup CPU Quota（如 K8s 限制 Pod 只能用 2 核）</strong>！这会导致 2 核容器创建 64 个 P，引发严重的 CFS 周期限流（Throttling）与上下文切换，接口延迟暴增数倍。生产容器环境务必引入 <code>go.uber.org/automaxprocs</code> 自动对齐容器配额（注：Go 1.25+ 已原生支持 cgroup CPU 感知）。
+      </p>
+    </div>
+  </details>
+</div>
+
+<div class="plop-bridge">
+  🔗 搞懂了 Goroutine 是如何被 GMP 调度的，接下来进入 <strong>第 04 章</strong>：多个 Goroutine 之间如何通过 <code>Channel</code> 与 <code>select</code> 安全高效地通信？ ➔
+</div>

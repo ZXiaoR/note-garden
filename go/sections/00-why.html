@@ -1,0 +1,196 @@
+<!-- ====================================================================
+     PART 00: 第一性原理导读 · 为什么有了 C++/Java/Python，Google 还要造 Go？
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">第一性原理导读 · 为什么有了 C++、Java 和 Python，Google 还要造一门 Go？</span>
+  <span class="plop-tag tomato">FIRST PRINCIPLES · 必读心法</span>
+</div>
+
+<!-- 00.1 · 三大历史痛点与全景演进图 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧭 00.1 · 别把 Go 当成一堆孤立的源码结构体来背，先看它在解决什么痛点</div>
+  <h3>💡 从第一性原理出发：2007 年 Google 机房里的三堵高墙</h3>
+  <p>
+    学习一门语言最忌讳一上来就死背语法糖和源码字段。先回到 2007 年 Google 的机房现场：面对千万行级代码库、多核时代的百万级网络并发、以及跨团队微服务协作，传统语言依次撞上了<strong>三堵逃不掉的高墙（工程编译墙 → C100K/C10M 并发墙 → 内存停顿墙）</strong>。Go 的所有设计取舍——<strong>“少即是多（25 个关键字） + 原生 CSP 协程调度（GMP） + 亚毫秒级非移动并发 GC + 工具链大一统”</strong>——全是被这三大痛点一步步逼出来的：
+  </p>
+
+  <div class="wb-grid-3" style="margin:14px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag tomato">痛点 ① · 编译与协作</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Ch.01~02</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">C++ 编译动辄半小时 vs 秒级编译大一统</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        C++ 头文件递归展开与模板膨胀让大型编译痛苦不堪，且十个程序员写出十种 C++ 子集。Go 砍掉宏、继承、隐式转换与重载，强制 <code>gofmt</code> 与无循环依赖，让<strong>万人团队写出的代码像同一个人写的</strong>。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag periwinkle">痛点 ② · 百万级并发</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Ch.03~04</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">OS 线程太重 vs 回调地狱 → GMP + netpoller</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        OS 线程栈占 <code>1~8MB</code>、内核切换微秒级；异步回调又把逻辑割裂得支离破碎。Go 在 Runtime 内置 <strong>2KB 动态栈 Goroutine + GMP 调度器 + epoll 网络轮询器</strong>，让你<strong>用同步直白的代码跑出异步非阻塞的百万并发</strong>。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag mint">痛点 ③ · 内存与低延迟</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Ch.05~06</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">手动 free 易崩 vs 长 STW → 逃逸 + 混合写屏障</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        C/C++ 手动管理内存易出悬垂指针；早期 JVM 分代压缩 GC 在大堆下易出现数十毫秒 STW。Go 采用<strong>Struct 连续内存 + 编译期逃逸分析（短命对象留栈上零 GC） + 混合写屏障并发 GC</strong>，将 STW 压在 <strong>0.5ms 以内</strong>。
+      </p>
+    </div>
+  </div>
+
+  <!-- 手绘 SVG：Go 知识体系全景演进地图 -->
+  <svg viewBox="0 0 960 365" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Go 语言知识体系全景手绘图">
+    <rect x="8" y="8" width="944" height="349" rx="12" fill="#FFFDF7" stroke="var(--plop-ink)" stroke-width="2"/>
+
+    <!-- 阶段一：左侧底座（Ch.01 - Ch.02） -->
+    <g transform="translate(20, 22)">
+      <rect x="0" y="0" width="268" height="320" rx="12" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2.2"/>
+      <rect x="12" y="12" width="244" height="28" rx="7" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="134" y="30" text-anchor="middle" fill="var(--plop-ink-text)" font-size="12.2" font-weight="900">🌱 阶段一：语言底座与数据结构</text>
+
+      <!-- Ch.01 -->
+      <rect x="12" y="50" width="244" height="114" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="22" y="71" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.01 基础语法与 Go Modules</text>
+      <text x="22" y="90" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• 变量/iota · string(UTF-8) · rune</text>
+      <text x="22" y="108" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• 100% 值传递本质 · make vs new</text>
+      <text x="22" y="126" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Struct 组合 · 值/指针接收者法则</text>
+      <text x="22" y="144" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• go.mod / internal / MVS 算法</text>
+
+      <!-- Ch.02 -->
+      <rect x="12" y="176" width="244" height="130" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="22" y="197" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.02 内置类型底层内存布局</text>
+      <text x="22" y="216" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• slice：24B表头 + 平滑扩容与对齐</text>
+      <text x="22" y="234" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• map：hmap/bmap · Swiss Table</text>
+      <text x="22" y="252" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• defer：开放编码 · panic/recover</text>
+      <text x="22" y="270" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• interface：eface/iface · nil 坑</text>
+      <text x="22" y="288" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• error：%w 包装链 · errors.Is/As</text>
+    </g>
+
+    <!-- 连接箭头 Stage 1 -> Stage 2 -->
+    <path d="M 291 182 L 313 182" stroke="#D2381E" stroke-width="3" stroke-dasharray="4 3"/>
+    <polygon points="318,182 309,176 309,188" fill="#D2381E"/>
+
+    <!-- 阶段二：中部 Runtime 并发与内存双引擎（Ch.03 - Ch.05） -->
+    <g transform="translate(321, 22)">
+      <rect x="0" y="0" width="338" height="320" rx="12" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2.2"/>
+      <rect x="12" y="12" width="314" height="28" rx="7" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="169" y="30" text-anchor="middle" fill="var(--plop-ink-text)" font-size="12.2" font-weight="900">🚀 阶段二：Runtime 调度、并发与 GC 引擎</text>
+
+      <!-- Ch.03 GMP -->
+      <rect x="12" y="50" width="314" height="82" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="22" y="70" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.03 协程原理与 GMP 调度器</text>
+      <text x="22" y="88" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• 2KB 动态连续栈 · M:N 复用 · P 本地队列</text>
+      <text x="22" y="105" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• runnext → 本地环 → 61次全局 → Work Stealing</text>
+      <text x="22" y="122" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Syscall Handoff · Netpoller · SIGURG 抢占</text>
+
+      <!-- Ch.04 Channel -->
+      <rect x="12" y="142" width="314" height="76" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="22" y="162" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.04 Channel 通信与 Select 多路复用</text>
+      <text x="22" y="180" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• hchan 环形缓冲 + sendq/recvq 等待队列</text>
+      <text x="22" y="196" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• sendDirect 跨栈直拷 · 读写关状态真值表</text>
+      <text x="22" y="212" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• select 随机 pollorder + 加锁序 lockorder</text>
+
+      <!-- Ch.05 Sync & GC -->
+      <rect x="12" y="228" width="314" height="78" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="22" y="247" fill="#1F8A65" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.05 锁、TCMalloc 分配器与混合写屏障 GC</text>
+      <text x="22" y="265" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Mutex 正常/饥饿(1ms) · Once · sync.Map</text>
+      <text x="22" y="281" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• mspan / mcache / mcentral / mheap 分配</text>
+      <text x="22" y="297" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• 三色标记 + 混合写屏障 · 逃逸分析 · GOMEMLIMIT</text>
+    </g>
+
+    <!-- 连接箭头 Stage 2 -> Stage 3 -->
+    <path d="M 662 182 L 684 182" stroke="#1F8A65" stroke-width="3" stroke-dasharray="4 3"/>
+    <polygon points="689,182 680,176 680,188" fill="#1F8A65"/>
+
+    <!-- 阶段三：右侧工程实战与性能调优（Ch.06） -->
+    <g transform="translate(692, 22)">
+      <rect x="0" y="0" width="248" height="320" rx="12" fill="#E9F9F1" stroke="var(--plop-ink)" stroke-width="2.2"/>
+      <rect x="12" y="12" width="224" height="28" rx="7" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="124" y="30" text-anchor="middle" fill="var(--plop-ink-text)" font-size="12.2" font-weight="900">🛡️ 阶段三：工程架构与调优</text>
+
+      <rect x="12" y="50" width="224" height="256" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="22" y="72" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.06 工程化、泛型与调优</text>
+      <text x="22" y="95" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Context 取消树底层与铁律</text>
+      <text x="22" y="117" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Generics 泛型 GCShape 字典</text>
+      <text x="22" y="139" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• -race 竞态与 Happens-Before</text>
+      <text x="22" y="161" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Go 1.22 循环变量分水岭</text>
+      <text x="22" y="183" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• errgroup 与 singleflight</text>
+      <text x="22" y="205" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• 表驱动测试 / Benchmark</text>
+      <text x="22" y="227" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Struct 对齐 · sync.Pool 复用</text>
+      <text x="22" y="249" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• unsafe 零拷贝 · pprof 火焰图</text>
+      <text x="22" y="278" fill="#D2381E" font-size="11.8" font-weight="900">★ 18 道高频真题闭卷抽屉</text>
+    </g>
+  </svg>
+</div>
+
+<!-- 00.2 · Go 与主流后端语言底层定位对照卡 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📊 00.2 · 横向坐标：Go 在现代后端技术栈中处于什么位置？</div>
+  <h3>⚖️ Go vs Java vs C++/Rust vs Python 核心取舍对照表</h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:15%">核心维度</th>
+          <th style="width:26%">Go (Golang)</th>
+          <th style="width:21%">Java (JVM 21+)</th>
+          <th style="width:20%">C++ / Rust</th>
+          <th style="width:18%">Python / Node.js</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>编译产物与部署</strong></td>
+          <td><strong>AOT 静态编译单二进制</strong>，无虚拟机依赖，容器镜像可小至 <code>10~20MB</code>，冷启动毫秒级</td>
+          <td>字节码 + JIT 预热（或 GraalVM），镜像体积与基础内存占用较大</td>
+          <td>AOT 原生机器码，极致性能，但编译慢、心智负担高（Rust 借用检查 / C++ 手动管理）</td>
+          <td>解释执行 / V8 JIT，依赖运行环境，动态类型重构风险高</td>
+        </tr>
+        <tr>
+          <td><strong>并发模型</strong></td>
+          <td><strong>原生 Goroutine (2KB 栈) + GMP + Channel (CSP)</strong>，语言级一等公民</td>
+          <td>传统 OS 线程（JDK 21 引入 Virtual Threads 虚拟线程追赶 Go 模式）</td>
+          <td>OS 线程 + <code>async/await</code> 无栈协程（Tokio / C++20 Coroutines）</td>
+          <td>单线程事件循环（Event Loop）+ 多进程（受 GIL 限制或回调传染）</td>
+        </tr>
+        <tr>
+          <td><strong>内存管理与 GC</strong></td>
+          <td><strong>逃逸分析（优先栈分配） + 非移动并发三色标记 GC</strong>（STW &lt; 0.5ms，吞吐略低于分代 GC）</td>
+          <td>分代/分区移动式 GC（G1 / ZGC），高吞吐但内存元数据开销较高</td>
+          <td>无 GC（RAII / Ownership 编译期零成本抽象），延迟最稳定</td>
+          <td>引用计数 + 分代回收（Python）/ V8 分代 GC</td>
+        </tr>
+        <tr>
+          <td><strong>最擅长战场</strong></td>
+          <td><strong>云原生基础设施（K8s/Docker/etcd）、高并发微服务网关、RPC 中间件、AI Agent 编排后端</strong></td>
+          <td>超大型复杂业务域建模（DDD）、金融核心交易、大数据生态（Flink/Kafka）</td>
+          <td>操作系统内核、数据库存储引擎、游戏引擎、音视频与高频交易</td>
+          <td>AI 模型训练/推理胶水层、快速原型验证、BFF 轻量聚合层</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip">
+    <strong>💡 一句话记住 Go 的哲学：</strong>Go 从不追求语言特性的“炫技”，而是把<strong>编译速度、并发心智负担、GC 尾延迟与团队可维护性</strong>的乘积做到了工业界最优解。
+  </div>
+</div>
+
+<div class="plop-bridge">
+  🔗 搞懂了 Go 为什么这样设计，接下来进入 <strong>第 01 章</strong>：用 10 分钟扫清 Go 的极简语法、<code>string/byte/rune</code> 编码真相、<strong>100% 值传递铁律</strong>与 Go Modules 包管理机制 ➔
+</div>

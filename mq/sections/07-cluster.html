@@ -1,0 +1,225 @@
+<!-- ====================================================================
+             PART 07: 分布式高可用副本机制（ISR / HW / LEO / Leader Epoch）与消费者组 Rebalance
+             ==================================================================== -->
+        <div class="wb-sec-header periwinkle" id="cluster">
+          <span class="wb-sec-num">07</span>
+          <span class="wb-sec-title">高可用与协调 · 副本机制 ISR / HW / LEO、Leader Epoch 防丢与消费者组 Rebalance</span>
+          <span class="plop-tag tomato">ISR · LEADER EPOCH · REBALANCE</span>
+        </div>
+
+        <!-- 07.1 · Kafka 副本机制：ISR / HW / LEO 协同演进 -->
+        <div class="wb-card" id="isr" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 07.1 · Kafka 的多副本是怎么同步数据的？ISR、LEO 和 HW（高水位）这三个缩写到底管什么？</div>
+          <h3>🛡️ 07.1 副本机制核心：<code>ISR</code> 同步集合、<code>LEO</code> 日志末端与 <code>HW</code> 高水位</h3>
+          <p>
+            为了防止单台 Broker 宕机导致服务中断或数据丢失，Kafka 为每个 Partition 配置了 <strong>1 个 <code>Leader</code> 副本 + N 个 <code>Follower</code> 副本</strong>，分布在不同物理节点上。<strong>所有生产写入和消费读取默认都只跟 Leader 交互</strong>，Follower 唯一的工作就是像普通消费者一样不断发 <code>FetchRequest</code> 从 Leader 拉取新消息写入本地日志。
+          </p>
+          <p>
+            为了精确衡量“哪些 Follower 跟得上节奏”以及“哪条消息才算真正安全、允许被消费者看见”，Kafka 定义了 <strong>3 个核心标尺</strong>：
+          </p>
+
+          <!-- ISR / LEO / HW 大字号可视化图解 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:10px;">
+              📏 一图看懂 <code>ISR</code> 副本集内 <code>HW（木桶短板）</code> 与 <code>LEO（各自进度）</code> 的关系
+            </div>
+
+            <div style="display:grid; gap:10px; font-family:var(--font-mono); font-size:12.8px; margin-bottom:12px;">
+              <!-- Leader -->
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                <span style="font-weight:900; color:var(--plop-ink-text);">👑 Broker-1 (Leader · 在 ISR 中)</span>
+                <div style="display:flex; gap:5px; flex-wrap:wrap; align-items:center;">
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); padding:3px 7px; border-radius:5px;">0</span>
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); padding:3px 7px; border-radius:5px;">1</span>
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); padding:3px 7px; border-radius:5px;">2</span>
+                  <span style="background:var(--plop-mustard); border:2px solid var(--plop-tomato); padding:3px 7px; border-radius:5px; color:var(--plop-tomato); font-weight:900;">↑ HW=3</span>
+                  <span style="background:#F8FAFC; border:1.5px dashed var(--plop-ink); padding:3px 7px; border-radius:5px;">3 (未全同步)</span>
+                  <span style="background:#F8FAFC; border:1.5px dashed var(--plop-ink); padding:3px 7px; border-radius:5px;">4 (未全同步)</span>
+                  <span style="background:#1E293B; color:#FFFFFF; padding:3px 7px; border-radius:5px; font-weight:900;">LEO=5</span>
+                </div>
+              </div>
+
+              <!-- Follower 1 -->
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                <span style="font-weight:900; color:var(--plop-ink-text);">🤝 Broker-2 (Follower-1 · 在 ISR 中)</span>
+                <div style="display:flex; gap:5px; flex-wrap:wrap; align-items:center;">
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); padding:3px 7px; border-radius:5px;">0</span>
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); padding:3px 7px; border-radius:5px;">1</span>
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); padding:3px 7px; border-radius:5px;">2</span>
+                  <span style="background:#F8FAFC; border:1.5px dashed var(--plop-ink); padding:3px 7px; border-radius:5px;">3</span>
+                  <span style="background:#1E293B; color:#FFFFFF; padding:3px 7px; border-radius:5px; font-weight:900;">LEO=4</span>
+                </div>
+              </div>
+
+              <!-- Follower 2 -->
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                <span style="font-weight:900; color:var(--plop-ink-text);">🐢 Broker-3 (Follower-2 · 在 ISR 中，最慢短板)</span>
+                <div style="display:flex; gap:5px; flex-wrap:wrap; align-items:center;">
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); padding:3px 7px; border-radius:5px;">0</span>
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); padding:3px 7px; border-radius:5px;">1</span>
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); padding:3px 7px; border-radius:5px;">2</span>
+                  <span style="background:#1E293B; color:#FFFFFF; padding:3px 7px; border-radius:5px; font-weight:900;">LEO=3 (决定全局 HW=3!)</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:9px; padding:9px 12px; font-size:13px; color:var(--plop-ink-text); line-height:1.58;">
+              💡 <strong>木桶短板法则：</strong>上图中 <code>Leader LEO=5</code>、<code>Follower-1 LEO=4</code>、<code>Follower-2 LEO=3</code>。因为所有 ISR 副本里最小的 LEO 是 <code>3</code>，所以高水位 <strong><code>HW = min(ISR 的 LEO) = 3</code></strong>——<strong>此时消费者最多只能读到 <code>offset 0, 1, 2</code>（即 HW 之前）的消息！</strong><code>offset 3, 4</code> 虽然已经写进 Leader 了，但在所有 ISR 副本都追平之前，对消费者隐身！
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">核心缩写</th>
+                  <th style="width:32%">全称与定义</th>
+                  <th>核心作用与高频面试追问细节</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong><code>ISR</code></strong></td>
+                  <td><strong>In-Sync Replicas（同步副本集合）</strong><br/>包含 Leader 本身 + 所有没掉队的 Follower</td>
+                  <td>• <strong>怎么判断 Follower 掉队被踢出 ISR？</strong>早期 Kafka 0.9 前同时看落后条数和落后时间（导致大批量写入瞬间 Follower 全被误踢出 ISR 抖动！）；<strong>现代 Kafka 彻底移除了条数参数，只看时间参数 <code>replica.lag.time.max.ms</code>（默认 30s）</strong>——只要 Follower 超过 30s 没来拉取或没追上 Leader 最新进度，就踢出 ISR，追平后再加回。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>LEO</code></strong></td>
+                  <td><strong>Log End Offset（日志末端偏移量）</strong><br/>当前副本<strong>下一条待写入消息</strong>的 Offset</td>
+                  <td>每个副本（无论 Leader 还是 Follower）都各自维护自己的 <code>LEO</code>。如果副本刚写入了 <code>offset=2</code>，那它的 <code>LEO</code> 就是 <code>3</code>。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>HW</code></strong></td>
+                  <td><strong>High Watermark（高水位线）</strong><br/>等于 <code>ISR</code> 集合中<strong>所有副本最小的 LEO</strong></td>
+                  <td>• <strong>作用 ①（定义消费者可见性边界）：</strong>消费者只能读到 <code>HW</code> 之前的消息，防止读到“还没同步给备机、一旦切主就消失”的脏数据。<br/>• <strong>作用 ②（配合 <code>acks=all</code>）：</strong>当所有 ISR 副本都拉取了某条消息后，<code>HW</code> 向右推进，Leader 才向 <code>acks=all</code> 的生产者返回成功！</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 07.2 · 进阶杀手锏：为什么光靠 HW 截断日志会丢数据？Leader Epoch 是怎么破局的？ -->
+        <div class="wb-card" id="leader-epoch" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 07.2 · 高阶面试必问：“既然有了 HW，为什么 Kafka 0.11 还要专门引入 Leader Epoch？光靠 HW 截断日志有什么致命漏洞？”</div>
+          <h3>🔬 07.2 为什么光靠 <code>HW</code> 会丢已提交数据？<code>Leader Epoch</code> 破局原理</h3>
+          <p>
+            在旧版 Kafka 中，当一个副本崩溃重启回来时，为了跟当前 Leader 保持一致，它会无脑执行一步操作：<strong>把自己的本地日志截断到自己记录的 <code>HW</code> 位置（<code>Log Truncation</code>），再去向 Leader 拉取</strong>。
+          </p>
+          <p>
+            但这有一个致命的<strong>「一轮 RPC 延迟时间差」漏洞</strong>：Follower 的 <code>LEO</code> 是拉到消息瞬间就更新的，但 <strong>Follower 的 <code>HW</code> 必须等下一轮去向 Leader 拉取时，Leader 才会在响应里告诉它“全局 HW 已经涨了”</strong>（即 Follower 的 HW 永远比 Leader 慢半拍）！
+          </p>
+
+          <!-- HW 截断丢数据 vs Leader Epoch 修复 对比图 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px;">
+              <!-- 左：旧版仅靠 HW 的丢数现场 -->
+              <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:12px; padding:13px; font-size:13px; line-height:1.6;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;">
+                  💥 旧版死穴：Follower 重启截断 + Leader 瞬间宕机 = 已提交数据永久丢失！
+                </div>
+                1. <strong>初始已同步：</strong>Leader A 和 Follower B 都已经写入了消息 <code>m1 (offset=1)</code>。Leader A 已知 <code>LEO=2, HW=2</code>（已向客户端返回提交成功）；但 Follower B 还没发起下一轮 Fetch，所以 B 本地的 <strong><code>LEO=2</code>，而旧 <code>HW 仍停留在 1</code></strong>！<br/>
+                2. <strong>B 重启自我阉割：</strong>此时 Follower B 重启，它按老规矩把高于自己本地 <code>HW=1</code> 的日志砍掉——<strong>B 把千辛万苦同步过来的已提交消息 <code>m1</code> 给删了（<code>LEO 退回 1</code>）！</strong><br/>
+                3. <strong>A 紧跟着宕机：</strong>就在 B 还没来得及从 A 重新拉回 <code>m1</code> 的这一毫秒，<strong>Leader A 突然断电挂了！</strong><br/>
+                4. <strong>惨剧发生：</strong>B 当选新 Leader，但 B 上已经没有 <code>m1</code> 了！等 A 恢复变 Follower 时反过来向 B 看齐，<strong>已向用户确认成功的 <code>m1</code> 彻底人间蒸发！</strong>
+              </div>
+
+              <!-- 右：Leader Epoch 解决方案 -->
+              <div style="background:#F0FDF4; border:2px solid #15803d; border-radius:12px; padding:13px; font-size:13px; line-height:1.6;">
+                <div style="font-weight:900; font-size:14px; color:#15803d; margin-bottom:6px;">
+                  ✅ 破局神器：引入 <code>Leader Epoch [epoch任期号, start_offset]</code>
+                </div>
+                为了彻底治好“盲目按本地滞后 HW 自刀”的毛病，Kafka 0.11+ 为每次 Leader 换届分配一个单调递增的任期号 <strong><code>Epoch</code></strong>，并在每个副本本地维护一张 <code>leader-epoch-checkpoint</code> 映射表：<br/>
+                1. <strong>重启不再盲目自砍：</strong>当 Follower B 重启恢复时，<strong>严禁直接按本地旧 <code>HW=1</code> 截断日志</strong>！<br/>
+                2. <strong>先发请求问 Leader：</strong>B 先向当前 Leader A 发送一个 <code>OffsetsForLeaderEpochRequest(epoch=0)</code>，问：“在第 0 任期里，你的最大有效 Offset（LEO）是多少？”<br/>
+                3. <strong>精准截断不丢数：</strong>Leader A 回答：“我的 <code>LEO 是 2</code>！” B 对比发现自己的 <code>LEO=2</code> 并没有超出 A 的 <code>2</code>，于是<strong>一字节都不删，完整保住了 <code>m1</code></strong>！即使下一毫秒 A 宕机、B 升任新主，<code>m1</code> 也稳如泰山！
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 07.3 · 消费者组 Rebalance（重平衡）：为什么会 STW？怎么排查与规避？ -->
+        <div class="wb-card" id="group" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 07.3 · 什么是消费者组 Rebalance（重平衡）？为什么线上最怕频繁 Rebalance？怎么调参和用协作式重平衡解决？</div>
+          <h3>⚖️ 07.3 消费者组 Rebalance（重平衡）：触发条件、STW 痛点与调优实战</h3>
+          <p>
+            在同一个 <code>Consumer Group</code> 中，当发生以下 <strong>3 件事之一</strong>时，就会触发 <strong>Rebalance（分区所有权重新分配）</strong>：<br/>
+            ① <strong>组内消费者实例数量变化</strong>（新机器上线扩容、旧机器宕机/滚动发版重启、或消费卡顿超时被踢出组）；<br/>
+            ② <strong>订阅的 Topic 分区数发生变化</strong>（运维扩了分区）；<br/>
+            ③ <strong>正则订阅匹配到了新创建的 Topic</strong>。
+          </p>
+
+          <!-- Rebalance 两阶段协议与为什么 STW -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:10px;">
+              🔄 GroupCoordinator 与 Consumer Leader 是怎么配合完成 Rebalance 的？（两阶段握手）
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; font-size:12.8px;">
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                <strong>① FindCoordinator（找协调官）</strong><br/>
+                按 <code>hash(group.id) % 50</code> 找到负责管理本组的 Broker 协调者 <code>GroupCoordinator</code>。
+              </div>
+              <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                <strong>② JoinGroup（入组选班长）</strong><br/>
+                所有消费者交回当前分区并向 Coordinator 报到；Coordinator 选出第 1 个报到的消费者当 <strong><code>Consumer Leader（班长）</code></strong>，把全组名单交给班长。
+              </div>
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                <strong>③ SyncGroup（班长算方案下发）</strong><br/>
+                <strong>由客户端班长（而非 Broker）在本地算出“谁分哪几个分区”的方案</strong>发给 Coordinator，Coordinator 再广播给全组成员生效！
+              </div>
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                <strong>④ Heartbeat（独立心跳保活）</strong><br/>
+                分配完成后恢复消费，后台独立心跳线程定时发心跳续命。
+              </div>
+            </div>
+            <div style="margin-top:10px; font-size:12.8px; color:var(--plop-ink-soft); font-weight:700;">
+              💡 <strong>为什么让客户端 Consumer Leader 算分配方案，而不是让 Broker Coordinator 直接算？</strong> 一是为了<strong>分担 Broker 的 CPU 开销</strong>；二是让客户端可以<strong>自由编写自定义分区分配策略（Assignor）</strong>，升级分配算法时完全不需要重启 Broker 集群！
+            </div>
+          </div>
+
+          <div class="plop-callout warn">
+            <strong>🚨 为什么生产环境视频繁 Rebalance 为洪水猛兽？</strong><br/>
+            在传统的 <code>Eager（全量重平衡）</code> 模式下，一旦触发 Rebalance，<strong>组内所有消费者必须立刻停止消费、交出名下全部 Partition 所有权，等所有人重新 Join + Sync 完毕后才能继续干活——这相当于整个消费组的「Stop The World (STW)」！</strong>而且交出分区前若来不及提交 Offset，重新分配后还会引发大面积<strong>重复消费与消费积压</strong>。
+          </div>
+
+          <h4 style="margin-top:14px;">🛠️ 生产防踢与 Rebalance 优化四板斧（必记参数）</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:28%">故障原因 / 优化维度</th>
+                  <th style="width:32%">关键参数与默认值</th>
+                  <th>生产调优与根治方案</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>原因 ①：单批消费太慢被踢</strong><br/>（最常见的意外 Rebalance！）</td>
+                  <td><code>max.poll.interval.ms</code>（默认 <code>5分钟</code>）<br/><code>max.poll.records</code>（默认 <code>500条</code>）</td>
+                  <td>如果一次拉了 500 条消息，因下游 DB 慢处理了 5 分 01 秒还没调下一次 <code>poll()</code>，Coordinator 就会认为消费线程卡死，把它踢出组触发 Rebalance！<br/>👉 <strong>调优：调小 <code>max.poll.records = 50~100</code>，并适当调大 <code>max.poll.interval.ms</code>。</strong></td>
+                </tr>
+                <tr>
+                  <td><strong>原因 ②：网络抖动 / Full GC 导致心跳失联被踢</strong></td>
+                  <td><code>session.timeout.ms</code>（默认 <code>45s</code>）<br/><code>heartbeat.interval.ms</code>（默认 <code>3s</code>）</td>
+                  <td>遵循 <strong><code>heartbeat &lt;= 1/3 * session.timeout</code></strong> 原则（如心跳 <code>3s</code>，会话超时设 <code>15s~45s</code>），避免偶发几秒 GC 就误判宕机。</td>
+                </tr>
+                <tr>
+                  <td><strong>优化 ③：开启「静态成员资格」防滚动重启抖动</strong></td>
+                  <td><code>group.instance.id = "固定实例ID"</code><br/>（Kafka 2.3+ 引入）</td>
+                  <td>配置固定的 <code>group.instance.id</code> 后，容器滚动发版重启时，只要在 <code>session.timeout.ms</code> 内重新连上，Coordinator <strong>不会触发 Rebalance</strong>，直接把原分区无缝还给它！</td>
+                </tr>
+                <tr>
+                  <td><strong>优化 ④：开启「增量协作式重平衡」告别全组 STW</strong></td>
+                  <td><code>partition.assignment.strategy = CooperativeStickyAssignor</code></td>
+                  <td>不再一言不合没收全组所有分区，而是<strong>仅剥离需要迁移的那一两个分区</strong>，其余不需要变动的分区<strong>全程继续正常消费，不发生全局 STW</strong>（Kafka 3.x+ 强烈推荐）！</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：所有核心原理已经全部打通！最后一章我们用一张图把<strong>「一条消息从诞生到消亡的 7 步完整一生」</strong>串起来，附上可直接复制的 Java/Go 生产级代码模板与 10 道深度闭卷自测！</span>
+          </div>
+        </div>

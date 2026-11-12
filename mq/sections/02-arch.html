@@ -1,0 +1,225 @@
+<!-- ====================================================================
+             PART 02: 三大主流 MQ 架构拆解、RabbitMQ 交换机路由与选型对比
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="arch">
+          <span class="wb-sec-num">02</span>
+          <span class="wb-sec-title">三大 MQ 架构与选型 · Kafka、RocketMQ、RabbitMQ 架构拆解与交换机路由</span>
+          <span class="plop-tag">KAFKA · ROCKETMQ · RABBITMQ</span>
+        </div>
+
+        <!-- 02.1 · 三大主流 MQ 架构速览与设计哲学 -->
+        <div class="wb-card" id="three" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 02.1 · Kafka、RocketMQ、RabbitMQ 为什么同时存在？它们各自的架构基因差在哪？</div>
+          <h3>🏗️ 02.1 三大主流 MQ 架构基因拆解：它们不是互相替代，而是各有所长</h3>
+          <p>
+            市面上没有一款“全能第一”的消息队列，因为<strong>「极致吞吐量」「复杂业务特性（事务/定时/海量 Topic）」「微秒级低延迟与花式路由」</strong>在底层存储和网络模型上天然存在取舍：
+          </p>
+
+          <div style="display:grid; gap:14px; margin:14px 0;">
+            <!-- ① Kafka -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-ink); color:#FFFFFF; font-weight:900; font-size:14.5px; padding:4px 12px; border-radius:8px;">
+                  ① Apache Kafka —— 「为百万级极致吞吐与大数据流处理而生」
+                </span>
+                <span class="plop-tag mint" style="font-size:11.5px;">Scala/Java · 单机百万 TPS · KRaft 架构</span>
+              </div>
+              <div style="font-size:13.4px; color:var(--plop-ink-text); line-height:1.6; margin-bottom:10px;">
+                • <strong>核心理念：</strong>LinkedIn 出品，彻底把消息当成<strong>分布式追加日志（Append-Only Commit Log）</strong>来存。依靠<strong>分区独立文件顺序写 + OS PageCache + <code>sendfile</code> 零拷贝 + 批量压缩</strong>，把单机吞吐拉满到百万级/秒，且磁盘堆积 TB 级数据毫无压力。<br/>
+                • <strong>元数据演进（高频考点）：</strong>早期版本依赖外部 <code>ZooKeeper</code> 存元数据和选 Controller；<strong>Kafka 3.3+ 正式生产可用、4.0 彻底移除 ZooKeeper</strong>，改用内置基于 Raft 协议的 <strong><code>KRaft</code> 控制平面</strong>，分区切主速度提升十倍以上。
+              </div>
+              <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:9px; padding:9px 12px; font-family:var(--font-mono); font-size:12.8px; font-weight:800; text-align:center;">
+                Producer ──(Batch+压缩)──▶ Broker 集群 [Topic 拆多 Partition · Leader/Follower ISR 副本] ──(Zero-Copy Pull)──▶ Consumer Group
+              </div>
+            </div>
+
+            <!-- ② RocketMQ -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-mustard); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14.5px; padding:4px 12px; border-radius:8px;">
+                  ② Apache RocketMQ —— 「为金融级交易、电商订单与丰富业务特性而生」
+                </span>
+                <span class="plop-tag tomato" style="font-size:11.5px;">Java · 十万级 TPS · 原生事务/定时/Tag过滤</span>
+              </div>
+              <div style="font-size:13.4px; color:var(--plop-ink-text); line-height:1.6; margin-bottom:10px;">
+                • <strong>核心理念：</strong>阿里出品（历经双十一万亿级消息锤炼）。它发现了 Kafka 在电商场景下的两个痛点：一是<strong>当业务 Topic 多达几千个时，Kafka 分区文件过多导致顺序写退化为随机写</strong>；二是<strong>缺少业务急需的分布式事务消息、任意定时消息、Tag 二级过滤与死信重试队列</strong>。<br/>
+                • <strong>架构破局：</strong>用极简无状态的 <strong><code>NameServer</code> 集群</strong>（节点间互不通信，Broker 每 30s 向所有 NameServer 发心跳）替代笨重的 ZK；存储上全 Broker <strong>所有 Topic 共享唯一一个 <code>CommitLog</code> 顺序写 + 轻量 <code>ConsumeQueue</code> 索引</strong>（第 06 章详解）；RocketMQ 5.0 更引入了 <code>Proxy</code> 无状态代理与存算分离。
+              </div>
+              <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:9px; padding:9px 12px; font-family:var(--font-mono); font-size:12.8px; font-weight:800; text-align:center;">
+                NameServer (轻量路由注册中心) ◀──心跳/拉路由──▶ Producer ──▶ Broker [单一 CommitLog + 多 ConsumeQueue] ──▶ Consumer
+              </div>
+            </div>
+
+            <!-- ③ RabbitMQ -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14.5px; padding:4px 12px; border-radius:8px;">
+                  ③ RabbitMQ —— 「为微秒级超低延迟与复杂灵活路由而生」
+                </span>
+                <span class="plop-tag periwinkle" style="font-size:11.5px;">Erlang · 万级 TPS · µs 级微秒延迟 · AMQP</span>
+              </div>
+              <div style="font-size:13.4px; color:var(--plop-ink-text); line-height:1.6; margin-bottom:10px;">
+                • <strong>核心理念：</strong>基于标准 <strong>AMQP 协议</strong>，用天生高并发低延迟的 Erlang 语言编写。它的灵魂不是“分区大日志”，而是<strong>在 Broker 内部加了一层极其灵活的 <code>Exchange（交换机）</code></strong>——生产者只管把消息带着 <code>Routing Key</code> 发给交换机，交换机按绑定规则（<code>Binding</code>）实时路由到不同队列。
+              </div>
+              <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:9px; padding:9px 12px; font-family:var(--font-mono); font-size:12.8px; font-weight:800; text-align:center;">
+                Producer ──(带 RoutingKey)──▶ Exchange 交换机 ──(按 Binding 规则匹配分发)──▶ Queue 队列 ──(Push + QoS)──▶ Consumer
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 02.2 · RabbitMQ 交换机路由原理与高可用演进（原 §20 提前合并至此，架构一气呵成） -->
+        <div class="wb-card" id="rabbit" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 02.2 · RabbitMQ 的生产者为什么从不直接发消息给 Queue？4 种 Exchange 交换机怎么选？</div>
+          <h3>🔀 02.2 RabbitMQ 路由原理：4 种 Exchange 交换机与 Quorum 队列高可用</h3>
+          <p>
+            在 RabbitMQ 中，<strong>生产者永远只把消息发给 <code>Exchange（交换机）</code></strong>。交换机本身不存消息，它就像快递分拣中心，根据消息携带的 <code>Routing Key</code>（路由键）和队列绑定的 <code>Binding Key</code>，按以下 <strong>4 种交换机类型</strong>决定把消息塞进哪些队列：
+          </p>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">Exchange 类型</th>
+                  <th style="width:38%">路由匹配规则</th>
+                  <th>典型业务场景举例</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>① <code>Direct</code></strong><br/><span style="font-size:11.5px; color:var(--plop-ink-soft);">直连交换机</span></td>
+                  <td><code>Routing Key == Binding Key</code> <strong>一字不差完全相等</strong>时，才投递到对应队列。</td>
+                  <td>按明确标识精准分流（如把 <code>error</code> 日志路由给告警队列，把 <code>info</code> 路由给归档队列）。</td>
+                </tr>
+                <tr>
+                  <td><strong>② <code>Fanout</code></strong><br/><span style="font-size:11.5px; color:var(--plop-ink-soft);">扇出广播交换机</span></td>
+                  <td><strong>完全无视 <code>Routing Key</code>！</strong>只要绑定在该交换机上的队列，<strong>每个队列无条件复制一份</strong>（最快）。</td>
+                  <td>标准的<strong>发布/订阅广播</strong>（如用户注册成功，同时广播给发券队列、欢迎信队列、风控队列）。</td>
+                </tr>
+                <tr>
+                  <td><strong>③ <code>Topic</code> ⭐最常用</strong><br/><span style="font-size:11.5px; color:var(--plop-tomato);">主题通配符交换机</span></td>
+                  <td>Key 用点号 <code>.</code> 分词（如 <code>order.pay.shanghai</code>），支持通配符：<br/>• <strong><code>*</code> 匹配恰好 1 个词</strong>；<br/>• <strong><code>#</code> 匹配 0 个或多个词</strong>。</td>
+                  <td>多维灵活订阅：绑定 <code>order.#</code> 的数仓队列收所有订单事件；绑定 <code>*.pay.*</code> 的财务队列只收支付事件。</td>
+                </tr>
+                <tr>
+                  <td><strong>④ <code>Headers</code></strong><br/><span style="font-size:11.5px; color:var(--plop-ink-soft);">头部属性交换机</span></td>
+                  <td>不看 <code>Routing Key</code>，而是匹配消息头 <code>Headers</code> 里的键值对属性（支持 <code>x-match: all / any</code>）。</td>
+                  <td>极少使用（性能较差，基本都可被 <code>Topic</code> 替代）。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-callout info">
+            <strong>🛡️ RabbitMQ 集群高可用演进（普通集群 → 镜像队列 → Quorum 队列）：</strong><br/>
+            • <strong>普通集群模式：</strong>各节点只同步元数据（队列名和交换机定义），队列里的消息实体只存在创建它的那 1 台节点上；如果该节点宕机，队列消息暂时不可用。<br/>
+            • <strong>经典镜像队列（Classic Mirrored Queue）：</strong>把队列主从复制到多台节点，但在 RabbitMQ 3.x 后期已标记废弃（全量同步阻塞大、脑裂风险高）。<br/>
+            • <strong>现代标准 —— 仲裁队列（Quorum Queue，RabbitMQ 3.8+ / 4.0 主推）：</strong>基于 <strong>Raft 一致性协议</strong>的多副本持久化队列，过半节点写入即确认，彻底解决脑裂与数据丢失问题！
+          </div>
+        </div>
+
+        <!-- 02.3 · 三大 MQ 全维度选型对比表与决策速查 -->
+        <div class="wb-card" id="compare" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill" id="choose">❓ 02.3 · 面试与架构评审必考：Kafka、RocketMQ、RabbitMQ 全维度对比，到底怎么选？</div>
+          <h3>📊 02.3 三大主流 MQ 全维度选型对比表</h3>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:17%">对比维度</th>
+                  <th style="width:27%">Apache Kafka</th>
+                  <th style="width:29%">Apache RocketMQ</th>
+                  <th>RabbitMQ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>单机吞吐量</strong></td>
+                  <td><strong style="color:#15803d;">🏆 极高（百万级/s）</strong><br/>顺序写 + PageCache + <code>sendfile</code> 零拷贝</td>
+                  <td><strong>高（十万级/s）</strong><br/>单一 <code>CommitLog</code> + <code>mmap</code> 零拷贝</td>
+                  <td><strong>万级~数万级/s</strong><br/>Erlang 内存/队列路由开销较大</td>
+                </tr>
+                <tr>
+                  <td><strong>端到端延迟</strong></td>
+                  <td><strong>毫秒级（几 ms）</strong><br/>因攒批（Batch）换吞吐，延迟略高</td>
+                  <td><strong>毫秒级（1~5 ms）</strong><br/>兼顾低延迟与高吞吐</td>
+                  <td><strong style="color:var(--plop-tomato);">🏆 微秒级（µs 级，最低）</strong><br/>实时 Push 分发，不攒大包</td>
+                </tr>
+                <tr>
+                  <td><strong>Topic 数量规模</strong></td>
+                  <td><strong>几十~几百个最佳</strong><br/>分区过多会导致磁盘顺序写退化为随机 I/O</td>
+                  <td><strong style="color:#15803d;">🏆 支持几千~上万个 Topic</strong><br/>所有 Topic 共写 1 个 CommitLog，不退化</td>
+                  <td><strong>支持上千个队列</strong><br/>但队列过多会消耗较多 Erlang 内存</td>
+                </tr>
+                <tr>
+                  <td><strong>分布式事务消息</strong></td>
+                  <td>仅支持流处理内部事务（<code>读-处理-写</code>），不支持业务本地 DB 事务回查</td>
+                  <td><strong style="color:var(--plop-tomato);">🏆 原生支持（半消息 + 事务回查）</strong><br/>电商/金融分布式事务教科书实现</td>
+                  <td><strong>不支持分布式事务消息</strong><br/>需业务自建本地消息表（Outbox）</td>
+                </tr>
+                <tr>
+                  <td><strong>延迟 / 定时消息</strong></td>
+                  <td><strong>不原生支持</strong><br/>需业务自建时间轮或多档位 Topic 搬运</td>
+                  <td><strong style="color:#15803d;">🏆 原生支持</strong><br/>4.x 支持 18 级延迟；5.0 时间轮支持任意毫秒定时</td>
+                  <td>靠 <code>TTL + 死信交换机</code>（注意队头阻塞坑）或官方 <code>delayed_message</code> 插件</td>
+                </tr>
+                <tr>
+                  <td><strong>消息失败重试与死信</strong></td>
+                  <td>Broker 无内置重试/死信队列，需客户端框架（如 Spring Kafka）自建重试 Topic</td>
+                  <td><strong style="color:#15803d;">🏆 原生内置</strong><br/>16 级阶梯退避重试队列 <code>%RETRY%</code> + 自动转入 <code>%DLQ%</code></td>
+                  <td>支持 Nack 重回队列，或配 <code>x-dead-letter-exchange</code> 转入死信队列</td>
+                </tr>
+                <tr>
+                  <td><strong>消息堆积与回溯</strong></td>
+                  <td><strong style="color:#15803d;">🏆 极强（TB 级磁盘堆积无压力）</strong><br/>支持按 Offset / 时间戳任意回溯重放</td>
+                  <td><strong>强（磁盘持久化）</strong><br/>支持按时间或 Offset 回溯重放历史消息</td>
+                  <td><strong>较弱</strong>（传统队列消费即删，大量堆积会显著拖慢性能；Stream 队列有所改善）</td>
+                </tr>
+                <tr>
+                  <td><strong>消费推送模式</strong></td>
+                  <td><strong>Pull（消费者主动拉）+ 长轮询</strong></td>
+                  <td><strong>Pull + 长轮询</strong>（5.0 新增无状态 <strong>Pop 模式</strong>）</td>
+                  <td><strong>Push 为主</strong>（配合 <code>basicQos(prefetch)</code> 限流防压垮），也支持 Pull</td>
+                </tr>
+                <tr>
+                  <td><strong>高可用与协调</strong></td>
+                  <td>ISR 副本机制 + <strong>KRaft</strong>（3.3+/4.0 去 ZK）</td>
+                  <td>NameServer + 主从同步 / <strong>DLedger (Raft)</strong></td>
+                  <td>镜像队列（旧） / <strong>Quorum 仲裁队列（Raft）</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 三句话拍板选型卡片 -->
+          <div class="wb-grid-3" style="margin-top:14px;">
+            <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text); margin-bottom:4px;">📈 选 Kafka 的场景</div>
+              <div style="font-size:12.8px; line-height:1.55;">
+                <strong>日志采集、用户行为埋点、监控指标管道、Flink/Spark 实时流计算</strong>——追求百万级吞吐、TB 级堆积与大数据生态无缝对接。
+              </div>
+            </div>
+
+            <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text); margin-bottom:4px;">🛒 选 RocketMQ 的场景</div>
+              <div style="font-size:12.8px; line-height:1.55;">
+                <strong>电商订单、金融支付、核心交易中台</strong>——Topic 数量多，重度依赖<strong>事务消息、定时关单、顺序消费、Tag 过滤与死信兜底</strong>。
+              </div>
+            </div>
+
+            <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text); margin-bottom:4px;">⚡ 选 RabbitMQ 的场景</div>
+              <div style="font-size:12.8px; line-height:1.55;">
+                <strong>中小型业务系统、企业内部微服务、需要复杂通配符/多维路由或微秒级极低延迟通知</strong>，开箱即用、运维省心。
+              </div>
+            </div>
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：选好了 MQ 并上线后，老板立刻拍桌子问你第一个生死问题：<strong>“一笔 10 万块的订单消息，怎么保证绝对不丢、也绝对不被扣款两次？”</strong></span>
+          </div>
+        </div>

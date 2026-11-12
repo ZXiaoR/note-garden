@@ -1,884 +1,247 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-plop-surface="poster">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>消息队列 知识体系笔记</title>
-  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
-<style>
-  :root{
-    --bg:#0f1419; --panel:#1a2028; --panel2:#222b36; --text:#d7dde5; --muted:#8b97a6;
-    --accent:#4aa8ff; --accent2:#38c172; --warn:#ffb454; --danger:#ff6b6b; --purple:#c792ea;
-    --border:#2c3742; --code-bg:#11161c; --mq:#e0648c;
-  }
-  *{box-sizing:border-box;}
-  html{scroll-behavior:smooth;}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
-    background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;}
-  a{color:var(--accent);text-decoration:none;}
-  a:hover{text-decoration:underline;}
-
-  /* layout */
-  .wrap{display:flex;max-width:1400px;margin:0 auto;}
-  nav{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;width:290px;
-    padding:24px 16px;border-right:1px solid var(--border);background:var(--bg);font-size:13.5px;flex-shrink:0;}
-  nav h2{font-size:14px;color:var(--mq);margin:18px 0 8px;letter-spacing:.5px;}
-  nav a{display:block;color:var(--muted);padding:3px 8px;border-radius:6px;margin:1px 0;}
-  nav a:hover{background:var(--panel);color:var(--text);text-decoration:none;}
-  nav .sub{padding-left:18px;font-size:12.5px;}
-  main{flex:1;min-width:0;padding:36px 44px 120px;}
-
-  h1{font-size:30px;margin:0 0 6px;background:linear-gradient(90deg,#e0648c,#c792ea,#4aa8ff);
-    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
-  .lead{color:var(--muted);margin:0 0 28px;font-size:15px;}
-  section{margin-bottom:52px;scroll-margin-top:20px;}
-  h2.sec{font-size:24px;border-left:5px solid var(--mq);padding-left:14px;margin:44px 0 20px;}
-  h3{font-size:19px;color:#eaf0f6;margin:32px 0 12px;border-bottom:1px solid var(--border);padding-bottom:6px;}
-  h4{font-size:16px;color:var(--accent);margin:22px 0 8px;}
-  p{margin:10px 0;}
-  ul,ol{padding-left:24px;}
-  li{margin:5px 0;}
-  code{background:var(--code-bg);padding:2px 6px;border-radius:4px;font-family:"SF Mono",Menlo,Consolas,monospace;
-    font-size:13px;color:var(--purple);}
-  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
-    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;line-height:1.6;color:#c8d3de;}
-  pre code{background:none;padding:0;color:inherit;}
-
-  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13.5px;}
-  th,td{border:1px solid var(--border);padding:9px 12px;text-align:left;vertical-align:top;}
-  th{background:var(--panel2);color:#eaf0f6;font-weight:600;}
-  tr:nth-child(even) td{background:rgba(255,255,255,.015);}
-  table.rowh th{white-space:nowrap;width:1%;}
-
-  .box{border-radius:10px;padding:14px 18px;margin:16px 0;border-left:4px solid;}
-  .warn{background:rgba(255,180,84,.08);border-color:var(--warn);}
-  .warn b{color:var(--warn);}
-  .danger{background:rgba(255,107,107,.08);border-color:var(--danger);}
-  .danger b{color:var(--danger);}
-  .tip{background:rgba(56,193,114,.08);border-color:var(--accent2);}
-  .tip b{color:var(--accent2);}
-  .info{background:rgba(74,168,255,.08);border-color:var(--accent);}
-  .info b{color:var(--accent);}
-
-  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:20px;margin-left:6px;vertical-align:middle;
-    background:var(--panel2);color:var(--muted);border:1px solid var(--border);}
-  .tag.hi{color:#ff6b6b;border-color:#6b2b2b;}
-  .tag.kf{color:#e0648c;border-color:#6b3347;}
-
-  .diagram{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:18px;margin:16px 0;
-    font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;white-space:pre;overflow-x:auto;color:#a9c7e8;}
-
-  /* HTML 结构化流程图 */
-  .hd{margin:16px 0;background:var(--code-bg);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
-  .hd .lane{display:flex;gap:16px;flex-wrap:wrap;align-items:center;}
-  .hd .grp2{flex:1;min-width:200px;border:1px solid rgba(74,168,255,.28);border-radius:10px;padding:12px 14px;
-    background:rgba(74,168,255,.06);}
-  .hd .grp2.g-green{border-color:rgba(56,193,114,.3);background:rgba(56,193,114,.07);}
-  .hd .grp2.g-blue{border-color:rgba(74,168,255,.3);background:rgba(74,168,255,.08);}
-  .hd .grp2.g-pink{border-color:rgba(224,100,140,.35);background:rgba(224,100,140,.08);}
-  .hd .grp2 > .cap{font-weight:600;color:var(--accent);font-size:13px;margin-bottom:8px;text-align:center;
-    padding-bottom:6px;border-bottom:1px dashed var(--border);}
-  .hd .grp2.g-green > .cap{color:#38c172;}
-  .hd .grp2.g-pink > .cap{color:var(--mq);}
-  .hd .node{border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin:7px 0;background:var(--panel2);
-    font-size:13px;line-height:1.5;}
-  .hd .node .em{color:#eaf0f6;font-weight:600;}
-  .hd .node .sub{color:var(--muted);font-size:12px;}
-  .hd .node.accent{border-color:var(--accent);}
-  .hd .arrow-d{text-align:center;color:var(--muted);font-size:13px;line-height:1.2;margin:3px 0;}
-  .hd .arrow-r{color:var(--purple);font-weight:700;white-space:nowrap;font-size:12.5px;text-align:center;padding:0 2px;}
-  .hd .note{color:var(--muted);font-size:12px;text-align:center;margin-top:6px;}
-
-  .q{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px 18px;margin:14px 0;}
-  .q summary{cursor:pointer;font-weight:600;color:var(--warn);padding:8px 0;list-style:none;}
-  .q summary::before{content:"❓ ";}
-  .q[open] summary{color:var(--accent);}
-  .q .a{padding:4px 0 12px;border-top:1px dashed var(--border);margin-top:4px;}
-
-  .split{display:flex;gap:20px;align-items:flex-start;margin:16px 0;flex-wrap:wrap;}
-  .split > .col{flex:1;min-width:300px;}
-
-  .toc-top{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 24px;margin-bottom:32px;}
-  hr{border:none;border-top:1px solid var(--border);margin:32px 0;}
-  .kbd{font-size:12px;color:var(--muted);}
-  footer{color:var(--muted);font-size:13px;border-top:1px solid var(--border);padding-top:20px;margin-top:60px;}
-  ::-webkit-scrollbar{width:9px;height:9px;}
-  ::-webkit-scrollbar-thumb{background:#2c3742;border-radius:6px;}
-  ::-webkit-scrollbar-track{background:transparent;}
-</style>
-<script defer src="../assets/analytics.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="由浅入深的消息队列学习手账：从解耦/异步/削峰到 Kafka、RocketMQ、RabbitMQ 架构选型，深挖消息不丢、幂等、顺序、积压、事务消息、零拷贝、ISR/Leader Epoch 与 Rebalance。" />
+  <title>消息队列：从解耦削峰，到百万吞吐与零丢失 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
 </head>
 <body>
-<div class="wrap">
-<nav>
-  <h2>一、入门：MQ 是什么</h2>
-  <a href="#what">0 · 消息队列是什么</a>
-  <a href="#why">1 · 为什么要用 MQ（解耦/异步/削峰）</a>
-  <a href="#cost">2 · 用了 MQ 会带来什么问题</a>
-  <h2>二、核心模型与概念</h2>
-  <a href="#model">3 · 两种模型：队列 vs 发布订阅</a>
-  <a href="#concept">4 · 核心概念全景（Topic/分区/Offset…）</a>
-  <h2>三、三大主流 MQ</h2>
-  <a href="#three">5 · Kafka / RocketMQ / RabbitMQ 架构速览</a>
-  <a href="#compare">6 · 选型对比表</a>
-  <h2>四、核心问题（面试重灾区）</h2>
-  <a href="#lost">7 · 消息不丢：生产/存储/消费三段</a>
-  <a href="#dup">8 · 消息不重复 &amp; 幂等 &amp; Exactly-once</a>
-  <a href="#order">9 · 消息顺序性</a>
-  <a href="#backlog">10 · 消息堆积 / 积压处理</a>
-  <a href="#delay">11 · 延迟 / 定时消息</a>
-  <a href="#tx">12 · 事务消息（分布式事务）</a>
-  <a href="#dead">13 · 死信队列 · 重试 · 回溯</a>
-  <a href="#push-pull">14 · 推 vs 拉（Push / Pull）</a>
-  <h2>五、原理深入</h2>
-  <a href="#fast">15 · Kafka 为什么这么快</a>
-  <a href="#store">16 · Kafka 存储结构（Segment/索引）</a>
-  <a href="#isr">17 · 副本机制 ISR / HW / LEO</a>
-  <a href="#group">18 · 消费者组 &amp; Rebalance</a>
-  <a href="#rocket">19 · RocketMQ 存储原理</a>
-  <a href="#rabbit">20 · RabbitMQ 路由原理</a>
-  <h2>附</h2>
-  <a href="#code">实战代码片段（Java/Go）</a>
-  <a href="#link">一图串联：一条消息的一生</a>
-  <a href="#choose">选型决策速查</a>
-  <a href="#cheat">高频面试速记</a>
-</nav>
 
-<main>
-<h1>消息队列 知识体系笔记</h1>
-<p class="lead">按「MQ 到底是什么、解决什么问题 → 核心模型和黑话 → 三大主流长什么样 → 用起来会踩哪些坑（不丢/不重/有序/堆积/延迟/事务）→ 底层为什么能这么快/这么稳」一条主线，<b>由浅入深</b>。前面零基础也能看懂，后面 <span class="tag kf">原理</span> 章节深入 Kafka/RocketMQ/RabbitMQ 的内部实现；<span class="tag hi">高频</span> 标记面试重点。</p>
-
-<div class="toc-top">
-  <b>阅读主线（问题驱动，每一步都在回答上一步冒出的新问题）：</b>
-  <ol style="margin:10px 0 2px">
-    <li><b>MQ 到底是个啥、我为什么要多引一个中间件？</b> 一个"消息中转站"，换来解耦、异步、削峰三大好处。<span class="kbd">（<a href="#what">§0-2</a>）</span></li>
-    <li><b>那它内部怎么组织消息？</b> 队列模型 vs 发布订阅，Topic/分区/Offset/消费者组这套黑话。<span class="kbd">（<a href="#model">§3-4</a>）</span></li>
-    <li><b>市面上都有啥、我该选哪个？</b> Kafka / RocketMQ / RabbitMQ 三家的定位与取舍。<span class="kbd">（<a href="#three">§5-6</a>）</span></li>
-    <li><b>用起来会出什么事？</b> 消息会丢、会重、会乱序、会堆积——这几问几乎必考。<span class="kbd">（<a href="#lost">§7-14</a>）</span></li>
-    <li><b>凭什么它能扛百万 TPS、挂了不丢数据？</b> 顺序写 + 页缓存 + 零拷贝 + 分区副本，扒开看。<span class="kbd">（<a href="#fast">§15-20</a>）</span></li>
-  </ol>
-  <span class="kbd">💡 带 ❓ 的折叠块是高频面试问答，可展开自测；标<span style="color:var(--danger)"> 红框 </span>的是易错/高频陷阱。</span>
-</div>
-
-<!-- ============ 0 MQ 是什么 ============ -->
-<section id="what">
-<h2 class="sec">0 · 消息队列是什么</h2>
-<p>消息队列（Message Queue，MQ）就是一个<b>专门用来存放和转发"消息"的中间件</b>。一句话类比：它就是应用之间的<b>快递驿站</b>——发送方（<b>生产者 Producer</b>）把包裹（<b>消息 Message</b>）放进驿站，接收方（<b>消费者 Consumer</b>）有空了再来取，两边不用同时在场、不用互相等。</p>
-<div class="hd">
-  <div class="lane">
-    <div class="grp2 g-green"><div class="cap">生产者 Producer</div><div class="note">订单服务</div></div>
-    <div class="arrow-r">──发送 send──▶</div>
-    <div class="grp2 g-pink"><div class="cap">消息队列 Broker</div><div class="note">暂存消息，先进先出</div></div>
-    <div class="arrow-r">──消费 poll──▶</div>
-    <div class="grp2 g-blue"><div class="cap">消费者 Consumer</div><div class="note">积分/短信/物流服务</div></div>
-  </div>
-  <div class="note">生产者只管"发出去就走"，消费者按自己节奏"来拿"，中间靠 Broker 解耦</div>
-</div>
-<p>它最本质的能力，就是把一次<b>「你调我、我调你」的同步调用</b>，变成<b>「我把事情写进队列就返回，别人自己去队列里取」的异步流转</b>。就这一个动作的转变，撑起了后面所有的好处和麻烦。</p>
-<div class="info box"><b>MQ 的三大要素：</b>① <b>消息 Message</b>：要传递的数据（一般 = 消息头 + 消息体 body）；② <b>Broker</b>：MQ 服务器本体，负责收、存、发消息；③ <b>Topic / 队列</b>：Broker 内部对消息的逻辑分类，生产者往某个 Topic 发，消费者从某个 Topic 收。</div>
-</section>
-
-<!-- ============ 1 为什么用 MQ ============ -->
-<section id="why">
-<h2 class="sec">1 · 为什么要用 MQ <span class="tag hi">高频</span></h2>
-<p>这是最经典的开场面试题。答案就三个词：<b>解耦、异步、削峰</b>。用一个"用户下单"的例子从头串一遍最清楚。</p>
-
-<h3>好处一：解耦（Decoupling）</h3>
-<p>下单成功后，要做的事越来越多：加积分、发短信、通知物流、写数据仓库…… 如果订单服务<b>直接一个个去调</b>这些下游：</p>
-<div class="split">
-  <div class="col">
-    <h4>❌ 没有 MQ（强耦合）</h4>
-    <div class="diagram">下单 ──▶ 调积分服务
-      ──▶ 调短信服务
-      ──▶ 调物流服务
-      ──▶ 调风控服务
-新增一个"优惠券服务"？
-→ 改订单服务代码、重新上线
-某个下游挂了？
-→ 下单跟着报错</div>
-  </div>
-  <div class="col">
-    <h4>✅ 用 MQ（解耦）</h4>
-    <div class="diagram">下单 ──▶ 发一条"订单已创建"消息 ──▶ 返回
-                    │
-   ┌────────┬───────┼────────┬────────┐
-  积分     短信    物流     风控    优惠券
-（谁关心谁自己来订阅，订单服务完全不认识它们）</div>
-  </div>
-</div>
-<p>订单服务只负责"广播一件事发生了"，<b>不关心谁在听、有几个在听</b>。新增下游只要去订阅这个 Topic，订单服务一行代码都不用改。这就是解耦。</p>
-
-<h3>好处二：异步（Asynchronization）</h3>
-<p>还是上面的例子，假设各步骤耗时：下单 20ms、积分 50ms、短信 300ms、物流 100ms。</p>
-<table class="rowh">
-<tr><th>串行同步</th><td>用户要等 20+50+300+100 = <b>470ms</b> 才看到"下单成功"</td></tr>
-<tr><th>用 MQ 异步</th><td>下单 20ms + 发消息 5ms ≈ <b>25ms</b> 就返回，积分/短信/物流在后台慢慢消费</td></tr>
-</table>
-<p>把<b>非核心、能容忍延迟</b>的流程丢进 MQ 异步做，主链路响应时间大幅缩短，用户体验直接起飞。</p>
-<div class="warn box"><b>注意区分核心链路：</b>"扣库存、扣款"这种<b>必须实时、必须成功</b>的步骤不能异步化（用户得当场知道成没成）。只有"发短信、加积分"这种<b>失败了也能补、晚一点也没关系</b>的才适合丢 MQ。别把主链路也异步了。</div>
-
-<h3>好处三：削峰 / 削峰填谷（Peak Shaving）</h3>
-<p>秒杀场景：某一秒涌入 1 万个请求，但数据库每秒只能扛 2 千次写。直接打过去，数据库瞬间被打垮。</p>
-<div class="hd">
-  <div class="lane">
-    <div class="grp2 g-green"><div class="cap">洪峰流量</div><div class="note">1s 内 10000 请求</div></div>
-    <div class="arrow-r">──全丢进队列──▶</div>
-    <div class="grp2 g-pink"><div class="cap">MQ 缓冲池</div><div class="note">先攒着，10000 条排队</div></div>
-    <div class="arrow-r">──匀速拉取──▶</div>
-    <div class="grp2 g-blue"><div class="cap">消费者/DB</div><div class="note">稳定按 2000/s 处理</div></div>
-  </div>
-  <div class="note">MQ 像水库：上游洪水先蓄起来，下游按能力匀速放水，5 秒消化完，DB 全程不崩</div>
-</div>
-<p>MQ 把<b>瞬时高峰</b>用队列缓冲成<b>平缓的匀速流</b>，代价是下游处理有一点延迟（几秒），但换来系统<b>不被打垮</b>。这就是削峰。</p>
-
-<details class="q"><summary>一句话总结解耦/异步/削峰的区别？</summary><div class="a"><b>解耦</b>关注的是"服务之间不再互相依赖"（架构灵活性）；<b>异步</b>关注的是"主链路响应更快"（用户体验/性能）；<b>削峰</b>关注的是"扛住瞬时高并发"（系统稳定性）。三者其实是同一个"中间加一层缓冲队列"动作在不同视角下的收益。</div></details>
-</section>
-
-<!-- ============ 2 代价 ============ -->
-<section id="cost">
-<h2 class="sec">2 · 用了 MQ 会带来什么问题</h2>
-<p>MQ 不是银弹。引入它等于往系统里加了一个<b>重量级中间件</b>，随之而来的新问题，恰好就是后面第四章要逐个攻克的面试考点：</p>
-<table class="rowh">
-<tr><th>系统可用性下降</th><td>MQ 一旦挂了，整条链路瘫痪。所以 MQ 自己必须<b>高可用</b>（集群 + 副本，§17）。</td></tr>
-<tr><th>系统复杂度上升</th><td>要考虑<b>消息丢失</b>（§7）、<b>重复消费</b>（§8）、<b>顺序错乱</b>（§9）、<b>消息堆积</b>（§10）——本来没有的问题，全冒出来了。</td></tr>
-<tr><th>一致性问题</th><td>下单成功但消息没发出去、或消息发了但下游处理失败，数据就不一致了。需要<b>事务消息</b>（§12）等手段兜底。</td></tr>
-</table>
-<div class="tip box"><b>面试话术：</b>"引入 MQ 带来了解耦、异步、削峰三大收益，但也引入了可用性、复杂度、一致性三大挑战。所以选型和使用时要针对性地解决<b>不丢、不重、有序、不堆积</b>这几个核心问题。" —— 这句话能把整个 MQ 面试串起来。</div>
-</section>
-
-<!-- ============ 3 两种模型 ============ -->
-<section id="model">
-<h2 class="sec">3 · 两种模型：队列 vs 发布订阅 <span class="tag hi">高频</span></h2>
-<p>所有 MQ 的消费模式，本质都是这两种模型的组合。搞懂它俩，再看任何 MQ 都不迷糊。</p>
-
-<h3>① 点对点（Point-to-Point，队列模型）</h3>
-<p>一条消息<b>只会被一个消费者处理掉</b>。多个消费者监听同一个队列，就是在<b>抢</b>消息，抢到的处理完消息就没了。适合<b>任务分发 / 负载均衡</b>。</p>
-<div class="diagram">Producer ──▶ [ 队列 Queue ] ──▶ Consumer A （抢到 msg1）
-                          └─▶ Consumer B （抢到 msg2）
-                          └─▶ Consumer C （抢到 msg3）
-每条消息只被一个人拿走，处理越快的拿得越多 → 天然负载均衡</div>
-
-<h3>② 发布/订阅（Publish/Subscribe，主题模型）</h3>
-<p>一条消息<b>会被所有订阅者各收到一份</b>。生产者发到 Topic，每个订阅者都拿到<b>完整的一份拷贝</b>，互不影响。适合<b>一份数据多方消费</b>（积分、短信、风控都要这条下单消息）。</p>
-<div class="diagram">Producer ──▶ [ Topic ] ──▶ 订阅者A：收到完整一份
-                     ├─▶ 订阅者B：收到完整一份
-                     └─▶ 订阅者C：收到完整一份
-一发多收，每个订阅方都是全量</div>
-
-<div class="info box"><b>现代 MQ 怎么统一这两种模型？</b>用<b>消费者组（Consumer Group）</b>这个概念一网打尽（Kafka/RocketMQ 都这么干）：
-<ul style="margin:6px 0 0">
-  <li><b>组内</b>：一条消息只发给组里的一个消费者 → 表现为<b>点对点</b>（负载均衡）。</li>
-  <li><b>组间</b>：每个组都能各收到一份完整数据 → 表现为<b>发布订阅</b>。</li>
-</ul>
-所以"下单消息"发一次，"积分组""短信组"各收到一份（组间=发布订阅）；而积分组内 3 个实例分摊消费（组内=点对点）。一套机制满足两种需求。</div>
-<details class="q"><summary>RabbitMQ 里没有"消费者组"，它怎么实现发布订阅？</summary><div class="a">RabbitMQ 靠 <b>Exchange（交换机）+ 多个 Queue</b> 实现：生产者发到 Exchange，Exchange 按规则把消息<b>复制</b>路由到 N 个绑定的队列，每个下游服务用自己的队列消费——一个队列 = 一个"订阅者"。而队列内多个消费者是抢消息（点对点）。详见 §20。这和 Kafka 用"分区+消费者组"是两种不同的实现思路，但达到的效果一样。</div></details>
-</section>
-
-<!-- ============ 4 核心概念 ============ -->
-<section id="concept">
-<h2 class="sec">4 · 核心概念全景 <span class="tag hi">高频</span></h2>
-<p>这些术语是看懂后面所有内容的基础。以 Kafka 为主线（最具代表性），先建立一张全景图：</p>
-<div class="hd">
-  <div class="lane">
-    <div class="grp2 g-pink" style="flex:2">
-      <div class="cap">Broker（一台 Kafka 服务器）</div>
-      <div class="node"><span class="em">Topic: order（逻辑主题）</span>
-        <div class="sub" style="margin-top:6px">├ Partition-0：msg0 msg1 msg2 …（一个有序的追加日志）</div>
-        <div class="sub">├ Partition-1：msg0 msg1 msg2 …</div>
-        <div class="sub">└ Partition-2：msg0 msg1 msg2 …</div>
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+        <span class="plop-tag tomato">📨 KAFKA · ROCKETMQ · RABBITMQ 全览</span>
       </div>
     </div>
-  </div>
-  <div class="note">Topic 逻辑上是一个主题，物理上被拆成多个 Partition 分散到不同 Broker → 这就是水平扩展的关键</div>
-</div>
-<table>
-<tr><th>概念</th><th>是什么</th><th>为什么需要它</th></tr>
-<tr><td><b>Topic 主题</b></td><td>消息的逻辑分类，一类业务一个 Topic（订单、支付…）</td><td>让生产/消费按业务隔离</td></tr>
-<tr><td><b>Partition 分区</b></td><td>Topic 的物理切片，每个分区是一个<b>只能往后追加、内部严格有序</b>的日志文件</td><td>一个 Topic 拆多片分到多台机器，<b>并行读写 → 高吞吐</b>；也是并行度上限</td></tr>
-<tr><td><b>Offset 偏移量</b></td><td>消息在<b>分区内</b>的唯一递增编号（第几条）</td><td>消费者靠记住"我消费到哪个 offset 了"来续传</td></tr>
-<tr><td><b>Producer 生产者</b></td><td>发消息的一方，决定消息进哪个分区（按 key 哈希 / 轮询）</td><td>—</td></tr>
-<tr><td><b>Consumer 消费者</b></td><td>收消息的一方，主动拉取（pull）并提交 offset</td><td>—</td></tr>
-<tr><td><b>Consumer Group 消费者组</b></td><td>一组消费者共同消费一个 Topic，<b>组内一个分区只能被一个消费者消费</b></td><td>组内负载均衡 + 组间发布订阅（§3）</td></tr>
-<tr><td><b>Replica 副本</b></td><td>每个分区有 1 个 Leader + N 个 Follower 副本，分散在不同 Broker</td><td>Broker 挂了数据不丢 → <b>高可用</b>（§17）</td></tr>
-<tr><td><b>Broker</b></td><td>一个 Kafka 进程/节点，多个 Broker 组成集群</td><td>—</td></tr>
-<tr><td><b>ZooKeeper / KRaft</b></td><td>集群元数据管理、Controller 选举（新版 Kafka 用自研 KRaft 替代 ZK）</td><td>谁是 Leader、集群有哪些节点，得有地方记</td></tr>
-</table>
-<div class="danger box"><b>最容易记混的一句话：</b>Kafka 的<b>顺序性只保证在单个分区内</b>（分区是个有序日志），<b>跨分区不保证顺序</b>。所以"要求全局有序"和"分区"天生矛盾——这是 §9 顺序性问题的根子。</div>
-<details class="q"><summary>分区数是不是越多越好？</summary><div class="a">不是。分区多 → 并行度高、吞吐大，但也有代价：① 每个分区是若干文件，分区太多导致<b>打开的文件句柄多、磁盘随机 I/O 变多</b>；② Leader 选举、Rebalance（§18）时要协调的分区更多，<b>故障恢复更慢</b>；③ 端到端延迟可能升高。经验值：单 Topic 分区数一般设为消费者实例数的整数倍，几十到几百量级，而非上万。</div></details>
-</section>
 
-<!-- ============ 5 三大主流 ============ -->
-<section id="three">
-<h2 class="sec">5 · Kafka / RocketMQ / RabbitMQ 架构速览</h2>
-
-<h3>Kafka —— 为吞吐量而生</h3>
-<p>LinkedIn 出品，Scala 编写。核心理念：<b>把消息当日志（Log）来存</b>，顺序写磁盘 + 分区并行 + 零拷贝，把吞吐量做到极致（百万级 TPS）。天生为<b>大数据管道、日志采集、流处理</b>设计。</p>
-<div class="diagram">Producer → Broker 集群（Topic 拆成多 Partition，每 Partition 多副本）→ Consumer Group
-元数据：早期靠 ZooKeeper，新版用 KRaft（去 ZK）</div>
-
-<h3>RocketMQ —— 为业务而生</h3>
-<p>阿里出品，Java 编写，从早期 Kafka 思想演化而来，但更贴合<b>电商/金融业务</b>：原生支持<b>事务消息、延迟消息、消息回溯、顺序消息</b>，运维友好。存储上用<b>一个 CommitLog 顺序写所有消息 + ConsumeQueue 做索引</b>（§19）。</p>
-<div class="diagram">NameServer（轻量注册中心，替代 ZK）
-Producer → Broker（Master/Slave 主从）→ Consumer
-特色：Topic 下是 Queue（类比 Kafka 的 Partition）</div>
-
-<h3>RabbitMQ —— 为灵活路由而生</h3>
-<p>基于 <b>AMQP 协议</b>，Erlang 编写（天生适合高并发网络）。最大特点是<b>灵活的路由</b>：靠 <b>Exchange（交换机）</b> 按各种规则把消息分发到队列（§20）。吞吐量不如前两者（万级 TPS），但<b>延迟低、功能成熟、中小项目开箱即用</b>。</p>
-<div class="diagram">Producer → Exchange（direct/topic/fanout/headers 四种路由）→ Queue → Consumer
-不分区，靠 Exchange+Binding 做灵活分发</div>
-</section>
-
-<!-- ============ 6 对比表 ============ -->
-<section id="compare">
-<h2 class="sec">6 · 选型对比表 <span class="tag hi">高频</span></h2>
-<table>
-<tr><th>维度</th><th>Kafka</th><th>RocketMQ</th><th>RabbitMQ</th></tr>
-<tr><td><b>单机吞吐</b></td><td>极高（百万级/s）</td><td>高（十万级/s）</td><td>一般（万级/s）</td></tr>
-<tr><td><b>延迟</b></td><td>ms 级（毫秒）</td><td>ms 级</td><td><b>µs 级（微秒，最低）</b></td></tr>
-<tr><td><b>可靠性</b></td><td>副本机制，可配 0 丢失</td><td>同步刷盘+主从，很高</td><td>镜像队列，高</td></tr>
-<tr><td><b>功能丰富度</b></td><td>基础，流处理生态强</td><td><b>最丰富</b>（事务/延迟/顺序原生）</td><td>路由灵活，插件多</td></tr>
-<tr><td><b>事务消息</b></td><td>支持（偏流处理语义）</td><td><b>原生支持，最成熟</b></td><td>不支持（只有本地事务）</td></tr>
-<tr><td><b>延迟消息</b></td><td>不原生支持</td><td><b>原生支持</b>（固定18级/任意时间）</td><td>靠插件/TTL+死信实现</td></tr>
-<tr><td><b>消息堆积能力</b></td><td><b>极强</b>（磁盘存，TB 级无压力）</td><td>强</td><td>较弱（堆积影响性能）</td></tr>
-<tr><td><b>语言</b></td><td>Scala/Java</td><td>Java</td><td>Erlang</td></tr>
-<tr><td><b>典型场景</b></td><td>日志/大数据/流计算</td><td>电商/金融/订单交易</td><td>中小业务/复杂路由/低延迟</td></tr>
-</table>
-<div class="tip box"><b>一句话选型：</b>要<b>超高吞吐、做数据管道/日志</b> → Kafka；要<b>业务功能全（事务/延迟/顺序）、扛得住金融级可靠</b> → RocketMQ；<b>体量不大、要灵活路由或极低延迟、想省心</b> → RabbitMQ。</div>
-</section>
-
-<!-- ============ 7 消息不丢 ============ -->
-<section id="lost">
-<h2 class="sec">7 · 消息不丢：生产 / 存储 / 消费三段 <span class="tag hi">高频</span></h2>
-<p>"如何保证消息不丢失"是 MQ 第一考题。答题框架就一句：一条消息从生产到消费要过<b>三道关</b>，<b>每一道都可能丢，逐段兜住就不丢</b>。</p>
-<div class="hd">
-  <div class="lane">
-    <div class="grp2 g-green"><div class="cap">① 生产端 → Broker</div><div class="note">网络丢包 / 没到</div></div>
-    <div class="arrow-r">▶</div>
-    <div class="grp2 g-pink"><div class="cap">② Broker 存储</div><div class="note">还在内存没落盘就宕机</div></div>
-    <div class="arrow-r">▶</div>
-    <div class="grp2 g-blue"><div class="cap">③ Broker → 消费端</div><div class="note">还没处理完就提交了</div></div>
-  </div>
-</div>
-
-<h3>第一段：生产者发送丢失</h3>
-<p>消息发出去，可能因网络问题根本没到 Broker，或到了 Broker 还没存好。对策：<b>用带确认（ack）的可靠发送，别用"发了不管"的模式</b>。</p>
-<ul>
-  <li><b>Kafka</b>：设置 <code>acks=all</code>（或 <code>-1</code>），要求 Leader <b>和所有 ISR 副本都写入</b>后才返回成功；配合失败<b>重试 retries</b>。<code>acks=0</code>（发了不等）和 <code>acks=1</code>（只等 Leader）都可能丢。</li>
-  <li><b>RocketMQ</b>：用<b>同步发送</b> <code>send()</code> 并检查返回的 <code>SendStatus</code>，失败重试；别用 oneway。</li>
-  <li>通用：能用<b>事务消息</b>（§12）就能彻底解决"本地操作成功但消息没发出去"的问题。</li>
-</ul>
-<div class="danger box"><b>坑：</b><code>acks=1</code> 看似安全，但如果 Leader 刚写完还没同步给 Follower 就宕机，新选出的 Leader 上就没这条消息 → 丢了。要"零丢失"必须 <code>acks=all</code> + <code>min.insync.replicas≥2</code>（§17）。</div>
-
-<h3>第二段：Broker 存储丢失</h3>
-<p>消息到了 Broker，但为了性能，MQ 通常<b>先写内存页缓存（PageCache），异步刷盘</b>。如果刷盘前机器断电/宕机，内存里的消息就没了。两个对策：</p>
-<ul>
-  <li><b>刷盘策略</b>：改成<b>同步刷盘</b>（写完落到磁盘才返回）。可靠但性能降。RocketMQ 有 <code>SYNC_FLUSH</code>/<code>ASYNC_FLUSH</code> 配置。</li>
-  <li><b>多副本</b>（更关键）：一份消息在多台 Broker 上有副本（Kafka ISR / RocketMQ 主从），单机磁盘坏了/宕机，别的副本还在。这是比同步刷盘更实际的"不丢"手段。</li>
-</ul>
-
-<h3>第三段：消费者消费丢失 <span class="tag hi">最常丢</span></h3>
-<p>消费端最容易丢的坑：<b>拿到消息后先提交了 offset（告诉 Broker"我消费完了"），结果业务还没处理完就崩了</b> → 这条消息 Broker 认为已消费，不会再投递 → 丢失。</p>
-<div class="split">
-  <div class="col">
-    <div class="danger box" style="margin:0"><b>❌ 错误：自动提交 / 先提交后处理</b>
-    <pre style="margin:8px 0 0">poll(msg)
-commitOffset()   // 先提交
-process(msg)     // 处理时崩了 → 消息丢</pre></div>
-  </div>
-  <div class="col">
-    <div class="tip box" style="margin:0"><b>✅ 正确：处理完再手动提交</b>
-    <pre style="margin:8px 0 0">poll(msg)
-process(msg)     // 先处理
-commitOffset()   // 成功后才提交</pre></div>
-  </div>
-</div>
-<p>关掉自动提交（Kafka <code>enable.auto.commit=false</code>），<b>业务处理成功后再手动提交 offset</b>。这样即使处理到一半崩了，offset 没提交，重启后会<b>重新拉到这条消息再处理一遍</b>。</p>
-<div class="warn box"><b>注意这会带来"重复消费"：</b>先处理后提交，万一处理成功了、提交前崩了，重启会再消费一次。所以<b>"不丢"和"不重"是一对权衡</b>——绝大多数系统选择"宁可重复也不丢失"，然后用<b>幂等</b>（§8）来解决重复。</div>
-<details class="q"><summary>用一句话概括消息零丢失的完整方案？</summary><div class="a">生产端 <b>acks=all + 重试</b>（确保到 Broker）→ Broker <b>多副本 + 同步刷盘/min.insync.replicas≥2</b>（确保存住）→ 消费端 <b>手动提交、处理成功后再提交 offset</b>（确保处理完）。三段全兜住，再叠加幂等兜重复，就是生产级可靠方案。</div></details>
-</section>
-
-<!-- ============ 8 不重复 ============ -->
-<section id="dup">
-<h2 class="sec">8 · 消息不重复 &amp; 幂等 &amp; Exactly-once <span class="tag hi">高频</span></h2>
-<p>上一节说了，为了不丢消息，我们宁可重复。那消息为什么会重复、又怎么处理重复？</p>
-<h3>为什么会重复</h3>
-<ul>
-  <li><b>生产端重复</b>：发送成功了但 ack 因网络超时没收到，生产者以为失败 → <b>重试再发一条</b>。</li>
-  <li><b>消费端重复</b>：消费成功但提交 offset 前崩了/超时，重启后 <b>Broker 重投</b>（§7 的先处理后提交）。</li>
-</ul>
-<h3>三种投递语义</h3>
-<table class="rowh">
-<tr><th>At-most-once<br>最多一次</th><td>可能丢，不会重。对应"发了不管"。几乎没人用于重要业务。</td></tr>
-<tr><th>At-least-once<br>至少一次</th><td>不会丢，可能重。<b>绝大多数 MQ 的默认保证</b>。配合幂等使用。</td></tr>
-<tr><th>Exactly-once<br>精确一次</th><td>不丢不重，理想态。<b>端到端实现代价很大</b>，Kafka 靠幂等生产者+事务在其内部流处理场景支持，但跨到外部系统仍需业务幂等兜底。</td></tr>
-</table>
-<div class="info box"><b>结论：</b>不要幻想 MQ 帮你做到完美的 Exactly-once。工程上的标准答案是 <b>「At-least-once（不丢）+ 消费端幂等」≈ 业务层面的 Exactly-once</b>。重点全在<b>消费端幂等</b>。</div>
-
-<h3>消费端幂等怎么做（重点）</h3>
-<p>幂等 = <b>同一条消息处理一次和处理多次，结果一样</b>。核心思路：给每条消息一个<b>全局唯一 ID（业务唯一键 / MsgId）</b>，处理前先判重。</p>
-<table>
-<tr><th>方案</th><th>做法</th><th>适用</th></tr>
-<tr><td><b>数据库唯一索引</b></td><td>把唯一 ID 建唯一约束，重复插入直接报唯一键冲突，捕获后忽略</td><td>写库类操作，最稳</td></tr>
-<tr><td><b>Redis 去重表</b></td><td>处理前 <code>SETNX msgId</code>，已存在则说明处理过，跳过</td><td>高并发、可容忍极小概率误差</td></tr>
-<tr><td><b>状态机 / 乐观锁</b></td><td>用业务状态兜底，如"待支付→已支付"，重复的支付消息发现已是"已支付"直接返回</td><td>有明确状态流转的业务</td></tr>
-</table>
-<div class="warn box"><b>用 Redis 判重的经典坑：</b>"先查 Redis 有没有 → 没有则处理 → 处理完写 Redis"这三步非原子，并发下两条重复消息可能都查到"没有"。要用 <code>SETNX</code>（原子的"不存在才设置"）把判重和占位合成一步，或直接依赖数据库唯一索引。</div>
-<details class="q"><summary>唯一 ID 用什么生成？用 MQ 自带的 MsgId 行不行？</summary><div class="a">优先用<b>业务唯一键</b>（如订单号、"用户ID+操作类型+业务时间"），因为它在业务上天然唯一、跨重发也不变。MQ 自带的 MsgId 有时在生产者重试时会变（生成新消息），不一定可靠。RocketMQ 提供了可自定义的 Key，可用作幂等键。总之：<b>幂等键要能唯一标识"这次业务操作"，而不是"这条物理消息"。</b></div></details>
-</section>
-
-<!-- ============ 9 顺序性 ============ -->
-<section id="order">
-<h2 class="sec">9 · 消息顺序性 <span class="tag hi">高频</span></h2>
-<p>场景：一个订单的三条消息"创建 → 支付 → 发货"必须<b>按顺序</b>被消费，如果"发货"先于"创建"被处理就乱套了。</p>
-<h3>为什么会乱序</h3>
-<ol>
-  <li><b>分区打散</b>：同一订单的三条消息被发到了<b>不同分区</b>，不同分区被不同消费者并行消费，先后无法保证。</li>
-  <li><b>消费端并发</b>：即使消息按序到了，消费者用<b>多线程</b>处理，也会乱。</li>
-</ol>
-<h3>解决：把"要保序的消息"锁进同一条流水线</h3>
-<div class="hd">
-  <div class="lane">
-    <div class="grp2 g-green"><div class="cap">生产端</div>
-      <div class="node">同一 orderId 的消息<br>用 <span class="em">orderId 做 key</span> 哈希</div>
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
     </div>
-    <div class="arrow-r">──同 key 同分区──▶</div>
-    <div class="grp2 g-pink"><div class="cap">Broker</div>
-      <div class="node">全进 <span class="em">Partition-2</span><br>分区内严格有序</div>
-    </div>
-    <div class="arrow-r">──单线程──▶</div>
-    <div class="grp2 g-blue"><div class="cap">消费端</div>
-      <div class="node">该分区<span class="em">单线程顺序消费</span></div>
-    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + MQ 核心速查小票 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与参数速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="消息队列章节书签">
+          <a href="#why" class="plop-ear-tab active" data-toc="why">
+            <span class="ear-dot"></span>
+            <span>00 第一性原理导读</span>
+          </a>
+          <a href="#model" class="plop-ear-tab" data-toc="model">
+            <span class="ear-dot mustard"></span>
+            <span>01 收益、模型与概念</span>
+          </a>
+          <a href="#arch" class="plop-ear-tab" data-toc="arch">
+            <span class="ear-dot mint"></span>
+            <span>02 三大 MQ 架构选型</span>
+          </a>
+          <a href="#reliable" class="plop-ear-tab" data-toc="reliable">
+            <span class="ear-dot pink"></span>
+            <span>03 不丢、幂等与 EOS</span>
+          </a>
+          <a href="#order" class="plop-ear-tab" data-toc="order">
+            <span class="ear-dot periwinkle"></span>
+            <span>04 顺序、积压与推拉</span>
+          </a>
+          <a href="#business" class="plop-ear-tab" data-toc="business">
+            <span class="ear-dot mustard"></span>
+            <span>05 事务、延迟与死信</span>
+          </a>
+          <a href="#storage" class="plop-ear-tab" data-toc="storage">
+            <span class="ear-dot mint"></span>
+            <span>06 存储与零拷贝原理</span>
+          </a>
+          <a href="#cluster" class="plop-ear-tab" data-toc="cluster">
+            <span class="ear-dot periwinkle"></span>
+            <span>07 ISR 副本与重平衡</span>
+          </a>
+          <a href="#advanced" class="plop-ear-tab" data-toc="advanced">
+            <span class="ear-dot pink"></span>
+            <span>08 串联、代码与自测</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：MQ 关键机制与参数速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>MQ 核心机制速查</span>
+            <span>#PROD</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>三大收益</span>
+            <span>解耦 · 异步 · 削峰</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>Kafka 零丢失</span>
+            <span>acks=all &amp; min.isr≥2</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>业务不重标准</span>
+            <span>At-least-once + 幂等</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>顺序保证边界</span>
+            <span>单 Partition/Queue 内</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>零拷贝区别</span>
+            <span>Kafka=sendfile / RMQ=mmap</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>组内并行上限</span>
+            <span>消费者数 ≤ 分区数</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#why" class="active">00 第一性原理</a>
+        <a href="#model">01 模型与概念</a>
+        <a href="#arch">02 三大MQ选型</a>
+        <a href="#reliable">03 不丢与幂等</a>
+        <a href="#order">04 顺序与积压</a>
+        <a href="#business">05 事务与延迟</a>
+        <a href="#storage">06 存储与零拷贝</a>
+        <a href="#cluster">07 副本与重平衡</a>
+        <a href="#advanced">08 串联与自测</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape"></div>
+
+        <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三遍读法车票 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card" style="background:var(--plop-bubblegum);">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">MIDDLEWARE / 02</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:34px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">MQ</div>
+            <span style="font-family:var(--font-mono); font-size:11px; font-weight:800; color:var(--plop-ink-text);">KAFKA · ROCKET · RABBIT</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag tomato">MESSAGE QUEUE GUIDE</span>
+              <span class="plop-tag mint">ZERO-LOSS · IDEMPOTENCY · TX</span>
+              <span class="plop-tag periwinkle">PAGE CACHE · ZERO-COPY · ISR</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              消息队列：从解耦削峰，到百万吞吐与零丢失
+            </h1>
+            <p style="font-size:14.8px; color:var(--plop-ink-soft); margin:0; font-weight:600;">
+              按「为什么要引 MQ → 内部怎么组织消息 → 三大主流怎么选 → 线上怎么解决不丢/不重/有序/积压/事务/延迟 → 底层凭什么百万吞吐且挂机不丢」一条问题链由浅入深推导。兼顾零基础建立直觉与高阶生产/面试深水区。
+            </p>
+
+            <!-- 三遍读法手账小票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#model" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 第一遍：建立直觉</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—02：搞懂解耦/异步/削峰、消费者组统一模型与三大 MQ 选型</div>
+              </a>
+              <a href="#reliable" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 第二遍：攻克痛点</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 03—05：掌握三段防丢、幂等、局部保序、积压急救与事务/延迟消息</div>
+              </a>
+              <a href="#storage" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 第三遍：深挖底层</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 06—08：扒开顺序写、零拷贝、CommitLog、ISR/Leader Epoch 与 Rebalance</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <!-- ====================================================================
+             9 大章节纯 HTML 子模块（由 assets/plop-garden.js 自动并行加载拼装）
+             平时修改某个章节，直接编辑 mq/sections/ 下的对应小文件即可
+             ==================================================================== -->
+        <div data-plop-section="sections/00-why.html"></div>
+        <div data-plop-section="sections/01-model.html"></div>
+        <div data-plop-section="sections/02-arch.html"></div>
+        <div data-plop-section="sections/03-reliable.html"></div>
+        <div data-plop-section="sections/04-order.html"></div>
+        <div data-plop-section="sections/05-business.html"></div>
+        <div data-plop-section="sections/06-storage.html"></div>
+        <div data-plop-section="sections/07-cluster.html"></div>
+        <div data-plop-section="sections/08-advanced.html"></div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：代码/命令速拷贴 + 跨专题切换耳标 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 毛线帽吉祥物 + 快捷复制代码/排障命令便签 -->
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>📋 实战模板速拷</span>
+            </span>
+            <span>COPY</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
+            <button type="button" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('code-kafka-reliable', this)">
+              📨 复制 Kafka 零丢失模板
+            </button>
+            <button type="button" class="plop-pill-sticker mustard" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('code-rmq-tx', this)">
+              🚀 复制 RocketMQ 事务模板
+            </button>
+            <button type="button" class="plop-pill-sticker paper" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('code-mq-ops', this)">
+              🔎 复制积压排障与重置命令
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
   </div>
-</div>
-<ul>
-  <li><b>生产端保证同一分区</b>：发送时用<b>业务键（如 orderId）做分区 key</b>，Kafka/RocketMQ 会把相同 key 哈希到同一分区，天然有序进入。</li>
-  <li><b>消费端保证顺序处理</b>：一个分区只被一个消费者、且<b>单线程</b>处理（或按 key 把消息路由到同一个线程的队列里）。RocketMQ 提供 <code>MessageListenerOrderly</code> 顺序消费监听器。</li>
-</ul>
-<div class="danger box"><b>关键权衡：全局有序 vs 分区有序。</b>要<b>全局严格有序</b>，就只能用<b>单分区 + 单消费者</b>，等于放弃了并行，吞吐大跌。所以实践中几乎都用<b>「局部有序」——只保证同一业务实体（同一订单）内有序</b>，不同订单之间无所谓顺序。这样既保序又能并行。<b>能接受局部有序就别追求全局有序。</b></div>
-<details class="q"><summary>顺序消费时，中间一条消息处理失败了怎么办？</summary><div class="a">这是顺序消费的硬伤：为了保序，<b>不能跳过</b>失败消息去处理后面的（否则顺序就断了）。通常做法是<b>阻塞重试当前消息</b>（RocketMQ 顺序消费失败会返回 SUSPEND，稍后重试同一条），直到成功或到达重试上限再进死信。代价是<b>队头阻塞</b>——一条卡住，后面全等着。所以顺序消费要特别注意消费逻辑的健壮性。</div></details>
-</section>
-
-<!-- ============ 10 堆积 ============ -->
-<section id="backlog">
-<h2 class="sec">10 · 消息堆积 / 积压处理 <span class="tag hi">高频</span></h2>
-<p>消息堆积 = <b>生产速度 &gt; 消费速度</b>，消息在 Broker 里越攒越多（几百万上千万条）。常见于消费端变慢（下游 DB 慢、消费逻辑重）或流量突增。</p>
-<h3>先定位原因，再对症下药</h3>
-<table class="rowh">
-<tr><th>消费者挂了/变慢</th><td>看消费端日志、监控 <b>消费延迟（Lag = 最新 offset − 已消费 offset）</b>。是 bug 就修，是慢就优化。</td></tr>
-<tr><th>消费能力不足</th><td>正常流量就是大 → 需要扩容消费能力。</td></tr>
-</table>
-<h3>紧急扩容的标准套路</h3>
-<div class="warn box"><b>核心约束：</b>Kafka/RocketMQ 里<b>一个分区最多被消费者组内一个消费者消费</b>。所以<b>消费者实例数 ≤ 分区数</b>，光加消费者、分区不够也没用。</div>
-<ol>
-  <li><b>分区够 → 直接加消费者</b>：消费者实例数加到接近分区数，并行度立刻上去。</li>
-  <li><b>分区不够 → 加分区 + 加消费者</b>：临时扩分区，同时扩消费者。</li>
-  <li><b>终极方案（分区来不及加时）</b>：临时写一个<b>"搬运"消费者</b>，它不处理业务，只飞快地把积压消息<b>转发到一个分区数更多的新 Topic</b>，再用大量消费者去消费新 Topic。相当于给积压消息临时开了个"多车道"。</li>
-</ol>
-<div class="tip box"><b>预防 &gt; 救火：</b>① 监控消费 Lag，设告警；② 消费端做好批量处理、异步化；③ Kafka 天生磁盘存储、堆积能力极强（TB 级不慌），选型时若预期会有大堆积，优先 Kafka。</div>
-<details class="q"><summary>消息堆积久了会因为过期被删掉吗？</summary><div class="a">会。MQ 消息不是永久保留的，有<b>保留策略（retention）</b>：Kafka 默认保留 7 天或到达大小上限就删（无论是否被消费）。所以堆积如果超过保留期，<b>还没消费的消息会被清理掉 → 丢数据</b>。处理积压要抢在保留期内，必要时临时调大 retention。</div></details>
-</section>
-
-<!-- ============ 11 延迟消息 ============ -->
-<section id="delay">
-<h2 class="sec">11 · 延迟 / 定时消息</h2>
-<p>需求：下单后<b>30 分钟未支付则自动取消</b>。做法是下单时发一条"延迟 30 分钟"的消息，到点了消费者才收到，去检查订单状态。</p>
-<table>
-<tr><th>MQ</th><th>延迟消息实现</th></tr>
-<tr><td><b>RocketMQ</b></td><td><b>原生支持</b>。老版支持 18 个固定延迟等级（1s/5s/…/2h）；新版支持任意时刻定时消息。发送时设 <code>setDelayTimeLevel</code> 即可。</td></tr>
-<tr><td><b>RabbitMQ</b></td><td>两种：① <b>TTL + 死信队列</b>（消息设过期时间，过期后进死信队列被消费）；② 官方 <b>延迟插件</b> <code>rabbitmq_delayed_message_exchange</code>。</td></tr>
-<tr><td><b>Kafka</b></td><td><b>不原生支持</b>。需自己实现：如按延迟档位建多个 Topic + 定时任务轮询搬运，或消费到未到期消息时 sleep/重新入队。较麻烦。</td></tr>
-</table>
-<div class="info box"><b>RocketMQ 延迟消息原理（简版）：</b>发送时若带延迟等级，Broker 会把消息<b>暂存到一个内部的 <code>SCHEDULE_TOPIC_XXXX</code> 定时主题</b>（按等级分队列），由一个定时任务扫描，到期后再把消息<b>投递回真正的目标 Topic</b>，消费者这才收到。本质是"先存到一边，到点再搬回来"。</div>
-</section>
-
-<!-- ============ 12 事务消息 ============ -->
-<section id="tx">
-<h2 class="sec">12 · 事务消息（分布式事务）<span class="tag hi">高频</span></h2>
-<p>经典难题：<b>本地数据库操作</b> 和 <b>发送 MQ 消息</b> 要么都成功、要么都失败。比如"扣款成功"必须保证"通知积分服务的消息"也发出去，不能扣了款消息却丢了，也不能没扣款却发了消息。</p>
-<div class="danger box"><b>为什么普通写法会出问题？</b>
-<pre style="margin:8px 0 0">// 顺序一：先写库后发消息
-扣款();           // 成功
-sendMQ();         // ❌ 这步失败/宕机 → 扣了款但下游收不到
-
-// 顺序二：先发消息后写库
-sendMQ();         // 成功
-扣款();           // ❌ 这步失败 → 消息发了但其实没扣款</pre>
-两个操作跨了数据库和 MQ 两个系统，<b>没法用本地事务包住</b>。</div>
-
-<h3>RocketMQ 事务消息：两阶段 + 回查</h3>
-<p>RocketMQ 用<b>半消息（Half Message）+ 事务回查</b>优雅地解决了它：</p>
-<div class="hd">
-  <div class="node accent"><span class="em">① 发送半消息</span> <span class="sub">生产者先发一条"半消息"到 Broker。半消息对消费者<b>不可见</b>（存着但不投递）。</span></div>
-  <div class="arrow-d">▼</div>
-  <div class="node accent"><span class="em">② 执行本地事务</span> <span class="sub">Broker 回 ack 后，生产者执行本地事务（扣款）。</span></div>
-  <div class="arrow-d">▼</div>
-  <div class="node accent"><span class="em">③ 提交 / 回滚</span> <span class="sub">本地事务成功 → 告诉 Broker <b>Commit</b>（半消息转为正式消息，投递给消费者）；失败 → <b>Rollback</b>（删除半消息）。</span></div>
-  <div class="arrow-d">▼ 若第③步的通知也丢了呢？</div>
-  <div class="node accent"><span class="em">④ 事务回查</span> <span class="sub">Broker 迟迟收不到半消息的 Commit/Rollback，会<b>主动回调生产者</b>问："这个本地事务到底成没成？"生产者查一下本地状态再答复。彻底兜底。</span></div>
-</div>
-<div class="tip box"><b>本质：</b>把"发消息"这个动作也变成一个<b>可提交/可回滚的两阶段操作</b>，并用<b>回查</b>机制解决"提交通知丢失"的极端情况，从而让本地事务和消息发送达成<b>最终一致</b>。这是分布式事务里"可靠消息最终一致性"方案的教科书实现。</div>
-<details class="q"><summary>事务消息保证了"消费者一定成功消费"吗？</summary><div class="a">不保证。事务消息只解决<b>发送端</b>的"本地事务与消息发送的原子性"（消息一定发得出去）。消费端处理失败是另一回事，靠<b>消费重试 + 幂等 + 死信队列</b>解决。别把两件事混为一谈。</div></details>
-</section>
-
-<!-- ============ 13 死信 ============ -->
-<section id="dead">
-<h2 class="sec">13 · 死信队列 · 重试 · 消息回溯</h2>
-<h3>消费重试</h3>
-<p>消费失败（抛异常/返回失败）时，MQ 不会立刻丢弃，而是<b>过一会儿重新投递</b>。RocketMQ 有<b>阶梯式重试</b>（重试间隔逐次拉长，默认最多 16 次）。给下游一个"缓过来"的机会（如 DB 短暂抖动）。</p>
-<h3>死信队列（Dead Letter Queue, DLQ）</h3>
-<p>如果重试到达上限还是失败（如消息本身格式错误、永远处理不了），继续重试没意义，就把它<b>移到一个专门的"死信队列"</b>里，不再自动投递。</p>
-<div class="diagram">正常消费 ──失败──▶ 重试1 ──失败──▶ 重试2 ... ──▶ 重试到上限
-                                              │
-                                              ▼
-                                      【死信队列 DLQ】
-                          （人工介入排查 / 后续补偿处理）</div>
-<div class="info box"><b>死信队列的价值：</b>① <b>不阻塞</b>正常消息（坏消息挪走，别卡住队列）；② <b>不丢失</b>（存起来而非直接扔）；③ 便于<b>人工排查和补偿</b>。RabbitMQ 靠 <code>x-dead-letter-exchange</code> 配置，RocketMQ 有自动生成的 <code>%DLQ%</code> 死信 Topic。</div>
-<h3>消息回溯 / 重放</h3>
-<p>因为 Kafka/RocketMQ 消息消费后<b>不立即删除</b>（保留一段时间），消费者只是移动 offset。所以可以<b>把 offset 往回调</b>，<b>重新消费历史消息</b>——用于消费逻辑有 bug 修复后重跑、或新加一个下游要补历史数据。这是"日志型" MQ 相比传统队列的一大优势。</p>
-</section>
-
-<!-- ============ 14 推拉 ============ -->
-<section id="push-pull">
-<h2 class="sec">14 · 推 vs 拉（Push / Pull）</h2>
-<p>消息从 Broker 到消费者，有两种驱动方式：</p>
-<table>
-<tr><th></th><th>Push（Broker 主动推）</th><th>Pull（消费者主动拉）</th></tr>
-<tr><td><b>实时性</b></td><td>高，有消息立刻推</td><td>取决于拉取频率</td></tr>
-<tr><td><b>问题</b></td><td>推太快<b>压垮</b>慢消费者（无法按消费能力调节）</td><td>没消息时<b>空轮询</b>浪费资源</td></tr>
-<tr><td><b>批量/速率控制</b></td><td>难由消费者控制</td><td>消费者自己决定拉多少、多快 → <b>天然限流</b></td></tr>
-</table>
-<div class="tip box"><b>主流选择：Pull 为主。</b>Kafka、RocketMQ 都用<b>消费者主动拉</b>，因为能让消费者<b>按自己的处理能力</b>取消息，不会被压垮（对削峰至关重要）。为了解决 Pull 的"空轮询"，用<b>长轮询（Long Polling）</b>：拉取时如果没消息，Broker <b>先 hold 住这个请求一小段时间</b>，期间来了消息立刻返回，兼顾实时性和低空耗。RabbitMQ 则默认 Push（basic.consume），靠 QoS <code>prefetch</code> 限制未确认消息数来防止压垮。</div>
-</section>
-
-<!-- ============ 15 Kafka 为什么快 ============ -->
-<section id="fast">
-<h2 class="sec">15 · Kafka 为什么这么快 <span class="tag kf">原理</span> <span class="tag hi">高频</span></h2>
-<p>Kafka 单机能扛几十万甚至百万级 TPS，靠的是几个环环相扣的设计。这几乎是 MQ 原理题的天花板考点。</p>
-
-<h3>① 顺序写磁盘（而非随机写）</h3>
-<p>直觉里"磁盘慢"，但那是<b>随机 I/O</b>慢。Kafka 每个分区是一个<b>只追加（append-only）的日志文件</b>，消息永远往文件末尾顺序写。<b>顺序写磁盘的速度接近甚至超过随机写内存</b>（省去了磁盘寻道时间）。这是它敢用磁盘做存储还这么快的根基。</p>
-
-<h3>② 利用操作系统页缓存（PageCache）</h3>
-<p>Kafka <b>不自己在 JVM 堆里维护缓存</b>，而是直接读写<b>操作系统的 PageCache</b>（内核内存）。写消息先进 PageCache（由 OS 择机刷盘），读消息大概率直接命中 PageCache。好处：① 避开 JVM <b>GC 压力</b>和对象开销；② 进程重启缓存还在（PageCache 属于内核，不随进程走）。</p>
-
-<h3>③ 零拷贝（Zero-Copy）<span class="tag hi">高频</span></h3>
-<p>消费者读消息时，要把磁盘文件数据发到网卡。传统方式要在<b>内核态和用户态之间来回拷贝 4 次、切换 4 次</b>：</p>
-<div class="diagram">传统：磁盘→内核PageCache→用户缓冲区→内核Socket缓冲区→网卡  （4 次拷贝，2 次多余）
-零拷贝：磁盘→内核PageCache──────────────────▶网卡  （sendfile，数据不进用户态）</div>
-<p>Kafka 用 <code>sendfile</code> 系统调用（Java 的 <code>FileChannel.transferTo</code>），让数据<b>直接从 PageCache 送到网卡</b>，<b>不经过用户态、不做多余拷贝</b>。省掉的拷贝和上下文切换，在高吞吐下是巨大的性能提升。</p>
-
-<h3>④ 批量 + 压缩</h3>
-<p>生产者<b>攒一批消息</b>（batch）一次性发送，而不是一条一发，摊薄网络和系统调用开销；还可对整批<b>压缩</b>（gzip/snappy/lz4），减少网络和磁盘 I/O。消费端也批量拉取。</p>
-
-<h3>⑤ 分区并行</h3>
-<p>Topic 拆成多个分区分散在多台 Broker，<b>读写天然并行</b>，吞吐随分区数水平扩展。</p>
-<div class="tip box"><b>一句话背诵：</b>Kafka 快 = <b>顺序写</b>（磁盘当顺序日志用）+ <b>页缓存</b>（借 OS 内存、避 GC）+ <b>零拷贝</b>（sendfile 省拷贝）+ <b>批量压缩</b>（摊薄开销）+ <b>分区并行</b>（水平扩展）。</div>
-<details class="q"><summary>零拷贝为什么能"零"？到底省了哪几次？</summary><div class="a">传统 read+write 流程：① 磁盘→内核 PageCache（DMA 拷贝，省不掉）② PageCache→用户缓冲区（CPU 拷贝，<b>多余</b>）③ 用户缓冲区→Socket 缓冲区（CPU 拷贝，<b>多余</b>）④ Socket→网卡（DMA，省不掉）。<code>sendfile</code> 直接让数据在内核内部从 PageCache 送到网卡（新版网卡支持 DMA gather 后连 PageCache→Socket 的 CPU 拷贝都省了），砍掉了②③两次<b>用户态-内核态之间的 CPU 拷贝</b>和相应的上下文切换。"零"指的是<b>零 CPU 拷贝到用户态</b>，不是字面上一次拷贝都没有。</div></details>
-</section>
-
-<!-- ============ 16 存储结构 ============ -->
-<section id="store">
-<h2 class="sec">16 · Kafka 存储结构（Segment / 索引）<span class="tag kf">原理</span></h2>
-<p>一个分区是一个"无限长"的日志，但不可能存成一个巨大文件（没法删旧的、没法快速定位）。Kafka 把每个分区切成多个<b>段（Segment）</b>：</p>
-<div class="diagram">Partition 目录/
- ├── 00000000000000000000.log     ← 消息数据（Segment 1，从 offset 0 开始）
- ├── 00000000000000000000.index   ← 偏移量索引（offset → 文件物理位置）
- ├── 00000000000000000000.timeindex← 时间索引（时间戳 → offset）
- ├── 00000000000000368769.log     ← Segment 2（从 offset 368769 开始）
- ├── 00000000000000368769.index
- └── ...</diagram>
-<ul>
-  <li><b>.log</b>：真正的消息，顺序追加。写满（默认 1GB）就新开一个 Segment。</li>
-  <li><b>.index</b>：<b>稀疏偏移量索引</b>，记录"某个 offset → 在 .log 文件里的物理字节位置"。不是每条都记（稀疏），省空间。</li>
-  <li><b>文件名 = 该 Segment 第一条消息的 offset</b>，所以查某个 offset 时，先<b>二分查找</b>定位到哪个 Segment，再查 .index 找到大致位置，最后在 .log 里顺序扫一小段。</li>
-</ul>
-<div class="info box"><b>分段的两大好处：</b>① <b>方便删除过期数据</b>——直接删掉整个旧 Segment 文件即可（顺序删，不用在大文件里抠）；② <b>方便快速定位</b>——文件名有序 + 稀疏索引，查任意 offset 都很快（O(log n) 定位段 + 小范围顺序扫）。</div>
-</section>
-
-<!-- ============ 17 副本 ISR ============ -->
-<section id="isr">
-<h2 class="sec">17 · 副本机制 ISR / HW / LEO <span class="tag kf">原理</span> <span class="tag hi">高频</span></h2>
-<p>Broker 会宕机，磁盘会坏。Kafka 靠<b>多副本</b>保证分区数据不丢、服务不断：每个分区有 <b>1 个 Leader + N 个 Follower</b>，分散在不同 Broker。</p>
-<div class="hd">
-  <div class="lane">
-    <div class="grp2 g-pink"><div class="cap">Broker1</div><div class="node accent"><span class="em">P0-Leader</span><br><span class="sub">读写都走它</span></div></div>
-    <div class="grp2 g-blue"><div class="cap">Broker2</div><div class="node"><span class="em">P0-Follower</span><br><span class="sub">只同步，不对外</span></div></div>
-    <div class="grp2 g-blue"><div class="cap">Broker3</div><div class="node"><span class="em">P0-Follower</span><br><span class="sub">只同步</span></div></div>
-  </div>
-  <div class="note">生产/消费只和 Leader 交互；Follower 不停从 Leader 拉消息保持同步。Leader 挂了从 Follower 里选新 Leader</div>
-</div>
-<h3>三个关键概念</h3>
-<table class="rowh">
-<tr><th>LEO</th><td>Log End Offset，副本<b>下一条要写入</b>的 offset，即当前最新位置。</td></tr>
-<tr><th>HW</th><td>High Watermark 高水位，= 所有 ISR 副本中<b>最小的 LEO</b>。<b>消费者只能看到 HW 之前的消息</b>（保证读到的消息一定已在所有同步副本上都有备份）。</td></tr>
-<tr><th>ISR</th><td>In-Sync Replicas 同步副本集合，指<b>跟 Leader 保持同步</b>的副本（含 Leader）。落后太多的 Follower 会被<b>踢出 ISR</b>；追上了再回来。</td></tr>
-</table>
-<div class="info box"><b>HW 保证了"读一致性"：</b>只有当一条消息被<b>所有 ISR 副本都复制</b>后，HW 才前移、这条消息才对消费者可见。这样即使 Leader 挂了，新 Leader（从 ISR 里选）上也一定有这条消息，消费者<b>不会读到"后来消失"的消息</b>。</div>
-<h3>它和"不丢消息"怎么联动</h3>
-<ul>
-  <li>生产者 <code>acks=all</code>：要求消息写入<b>所有 ISR 副本</b>才算成功。</li>
-  <li><code>min.insync.replicas=2</code>：ISR 里至少要有 2 个副本存活，否则生产者报错拒绝写入——防止"ISR 只剩 Leader 一个时还在写，Leader 一挂就丢"。</li>
-  <li>二者配合 = <b>Kafka 零丢失的标准配置</b>。</li>
-</ul>
-<details class="q"><summary>为什么 Kafka 选 Leader 时优先从 ISR 里选，而不是所有副本里选？</summary><div class="a">因为 ISR 里的副本是<b>跟 Leader 数据同步的</b>，选它们当 Leader 数据最全、丢失最少。如果允许从<b>落后的非 ISR 副本</b>里选（叫 <code>unclean.leader.election</code>，默认关闭），虽然能在 ISR 全挂时快速恢复<b>可用性</b>，但那个副本落后的数据就<b>永久丢了</b>——这是典型的<b>可用性 vs 一致性（CAP）权衡</b>：默认关闭 = 优先保证不丢数据（宁可分区暂时不可用）。</div></details>
-</section>
-
-<!-- ============ 18 消费者组 rebalance ============ -->
-<section id="group">
-<h2 class="sec">18 · 消费者组 &amp; Rebalance <span class="tag kf">原理</span> <span class="tag hi">高频</span></h2>
-<p>消费者组是 Kafka 实现"负载均衡 + 发布订阅"的核心（§3）。规则：<b>一个分区在同一个组内只能分给一个消费者</b>，一个消费者可以吃多个分区。</p>
-<div class="diagram">Topic 有 4 个分区 P0 P1 P2 P3，消费者组内：
- 2 个消费者 → C0 吃 P0 P1，C1 吃 P2 P3      （均分）
- 4 个消费者 → 一人一个，正好                  （最优）
- 5 个消费者 → 有 1 个分不到分区，空闲          （消费者 > 分区，多的没用）</diagram>
-
-<h3>什么是 Rebalance（重平衡）</h3>
-<p>当组内<b>消费者数量变化</b>（新增/宕机/超时）、<b>分区数量变化</b>、<b>订阅的 Topic 变化</b>时，需要<b>重新分配"谁消费哪些分区"</b>，这个过程叫 Rebalance。</p>
-<div class="danger box"><b>Rebalance 的痛点——"消费世界暂停"（Stop The World）：</b>重平衡期间，<b>整个组的所有消费者都要暂停消费</b>，等重新分配完才恢复。如果频繁 Rebalance，消费就一直断断续续，甚至可能引发重复消费。所以<b>要尽量避免不必要的 Rebalance</b>。</div>
-<h3>常见的"意外 Rebalance"及规避</h3>
-<table class="rowh">
-<tr><th>消费超时被踢</th><td>消费者两次 poll 间隔超过 <code>max.poll.interval.ms</code>（默认 5 分钟）→ 被判定死亡触发 Rebalance。<b>规避：</b>别一次 poll 太多消息导致处理超时，或调大该值 / 减小 <code>max.poll.records</code>。</td></tr>
-<tr><th>心跳超时</th><td>消费者后台心跳超过 <code>session.timeout.ms</code> 没到 → 被踢。<b>规避：</b>合理设置心跳与超时时间。</td></tr>
-<tr><td colspan="2">GC 停顿过长、网络抖动，也会导致心跳/poll 超时触发 Rebalance。</td></tr>
-</table>
-<div class="info box"><b>分区分配策略：</b>Range（按范围，可能不均）、RoundRobin（轮询，较均）、<b>Sticky（粘性，尽量保持原有分配、减少变动，推荐）</b>。新版还有<b>增量协作式 Rebalance（Cooperative）</b>，只调整发生变化的部分分区，不再全组 STW，大幅降低影响。</div>
-</section>
-
-<!-- ============ 19 RocketMQ ============ -->
-<section id="rocket">
-<h2 class="sec">19 · RocketMQ 存储原理 <span class="tag kf">原理</span></h2>
-<p>RocketMQ 的存储和 Kafka 思路不同，是理解"另一种权衡"的好例子。核心是三个文件：</p>
-<div class="hd">
-  <div class="node accent"><span class="em">CommitLog</span> <span class="sub">所有 Topic、所有队列的消息<b>混在一起，顺序写入同一个 CommitLog</b>（一个 Broker 就一份）。这保证了<b>极致的顺序写</b>。</span></div>
-  <div class="arrow-d">▼ 但消费时要按 Topic/Queue 读，混在一起怎么找？</div>
-  <div class="node accent"><span class="em">ConsumeQueue</span> <span class="sub">每个 Topic 的每个 Queue 一个，是<b>消息在 CommitLog 里位置的索引</b>（存 offset+size+tag hash）。消费者读它，按图索骥去 CommitLog 取消息。相当于"目录"。</span></div>
-  <div class="arrow-d">▼</div>
-  <div class="node accent"><span class="em">IndexFile</span> <span class="sub">按<b>消息 Key</b> 建的哈希索引，支持按 key 快速查消息（用于消息查询/排查），非消费必需。</span></div>
-</div>
-<h3>Kafka vs RocketMQ 存储对比</h3>
-<table>
-<tr><th></th><th>Kafka</th><th>RocketMQ</th></tr>
-<tr><td>数据文件</td><td><b>每个分区一个</b> .log（分散）</td><td><b>全 Broker 一个</b> CommitLog（集中）</td></tr>
-<tr><td>写入</td><td>分区各自顺序写（分区多时=多个顺序写，趋于随机）</td><td>永远只往一个 CommitLog 顺序写（<b>更纯粹的顺序写</b>）</td></tr>
-<tr><td>读取</td><td>直接读分区文件</td><td>先读 ConsumeQueue 索引，再回 CommitLog 取（<b>多一次跳转</b>，靠 PageCache 缓解）</td></tr>
-<tr><td>Topic/分区多时</td><td>性能<b>下降明显</b>（文件多、随机 I/O）</td><td>性能<b>更稳</b>（写入始终集中顺序）</td></tr>
-</table>
-<div class="tip box"><b>取舍总结：</b>Kafka 分区独立存储，<b>少量 Topic 时吞吐更高</b>，但 Topic/分区非常多时性能下滑；RocketMQ 用"集中 CommitLog + 索引"换来<b>海量 Topic 下依然稳定</b>，更契合电商那种 Topic 成百上千的业务场景。没有绝对优劣，是场景取舍。</div>
-</section>
-
-<!-- ============ 20 RabbitMQ ============ -->
-<section id="rabbit">
-<h2 class="sec">20 · RabbitMQ 路由原理 <span class="tag kf">原理</span></h2>
-<p>RabbitMQ 的灵魂是 <b>Exchange（交换机）</b>。生产者<b>从不直接把消息发给队列</b>，而是发给 Exchange，由 Exchange 按<b>路由规则 + 绑定（Binding）</b>决定消息进哪些队列。</p>
-<div class="hd">
-  <div class="lane">
-    <div class="grp2 g-green"><div class="cap">Producer</div><div class="note">带 routing key 发送</div></div>
-    <div class="arrow-r">▶</div>
-    <div class="grp2 g-pink"><div class="cap">Exchange 交换机</div><div class="note">按类型+绑定路由</div></div>
-    <div class="arrow-r">▶</div>
-    <div class="grp2 g-blue"><div class="cap">Queue(s)</div><div class="note">Consumer 从队列取</div></div>
-  </div>
-</div>
-<h3>四种 Exchange 类型</h3>
-<table>
-<tr><th>类型</th><th>路由规则</th><th>典型用途</th></tr>
-<tr><td><b>Direct</b></td><td>routing key <b>完全匹配</b>绑定的 key 才进队列</td><td>精确点对点分发（按日志级别 error/info 分流）</td></tr>
-<tr><td><b>Fanout</b></td><td><b>广播</b>：无视 key，发给<b>所有</b>绑定的队列</td><td>发布订阅（一份消息多方消费）</td></tr>
-<tr><td><b>Topic</b></td><td>routing key <b>按通配符匹配</b>（<code>*</code> 一个词、<code>#</code> 多个词，如 <code>order.*</code>）</td><td>灵活的多维度分发（最常用）</td></tr>
-<tr><td><b>Headers</b></td><td>按消息 <b>header 属性</b>匹配（不看 routing key）</td><td>少用，规则复杂时</td></tr>
-</table>
-<div class="info box"><b>RabbitMQ 高可用——镜像队列（Mirrored Queue）：</b>普通队列只在一个节点上，节点挂了队列就没了。镜像队列把队列<b>在多个节点上各存一份镜像</b>（一主多从），主挂了从顶上，保证队列数据不丢。新版推荐用更现代的 <b>Quorum Queue</b>（基于 Raft 一致性协议）替代镜像队列。</div>
-<details class="q"><summary>RabbitMQ 靠什么保证消息可靠不丢？</summary><div class="a">三管齐下，和 §7 三段论一致：① 生产端 <b>Publisher Confirm（发布确认）</b>——Broker 收到消息后回 ack，没收到就重发；② Broker 端 <b>队列和消息都设持久化（durable + persistent）</b> + 镜像/Quorum 队列，防宕机丢；③ 消费端 <b>手动 ack（manual acknowledgment）</b>——处理成功才 ack，失败/宕机则消息重新入队。</div></details>
-</section>
-
-<!-- ============ 附 实战代码 ============ -->
-<section id="code">
-<h2 class="sec">附 · 实战代码片段（Java / Go）</h2>
-<p>把前面讲的可靠性要点落到代码上——每段都对应正文的一个结论，注释里标了对应章节。</p>
-
-<h3>Kafka 生产者（Java）—— 对应 §7 不丢 / §9 顺序</h3>
-<pre><code>Properties props = new Properties();
-props.put("bootstrap.servers", "broker1:9092,broker2:9092");
-props.put("key.serializer",   "org.apache.kafka.common.serialization.StringSerializer");
-props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-
-// —— 不丢消息的关键配置（§7）——
-props.put("acks", "all");            // 所有 ISR 副本都写入才算成功
-props.put("retries", 3);            // 发送失败自动重试
-props.put("enable.idempotence", true); // 幂等生产者：重试也不会在 Broker 端产生重复
-
-KafkaProducer&lt;String, String&gt; producer = new KafkaProducer&lt;&gt;(props);
-
-// key = orderId：相同订单哈希到同一分区 → 分区内有序（§9）
-String orderId = "ORDER_1001";
-ProducerRecord&lt;String, String&gt; record =
-    new ProducerRecord&lt;&gt;("order-topic", orderId, "订单已创建");
-
-// 同步发送并检查结果（异步则在 callback 里判断 exception）
-try {
-    RecordMetadata meta = producer.send(record).get();
-    System.out.printf("发送成功 partition=%d offset=%d%n",
-        meta.partition(), meta.offset());
-} catch (Exception e) {
-    // 记录 + 重发 / 落库补偿，别静默吞掉
-}
-producer.close();</code></pre>
-
-<h3>Kafka 消费者（Java）—— 对应 §7 手动提交 / §8 幂等</h3>
-<pre><code>Properties props = new Properties();
-props.put("bootstrap.servers", "broker1:9092");
-props.put("group.id", "points-group");        // 消费者组（§3/§18）
-props.put("key.deserializer",   "org.apache.kafka.common.serialization.StringDeserializer");
-props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-
-// —— 不丢消息的关键：关闭自动提交，处理完再手动提交（§7）——
-props.put("enable.auto.commit", "false");
-props.put("max.poll.records", 100);           // 一次别拉太多，避免处理超时触发 Rebalance（§18）
-
-KafkaConsumer&lt;String, String&gt; consumer = new KafkaConsumer&lt;&gt;(props);
-consumer.subscribe(Collections.singletonList("order-topic"));
-
-while (true) {
-    ConsumerRecords&lt;String, String&gt; records = consumer.poll(Duration.ofMillis(500));
-    for (ConsumerRecord&lt;String, String&gt; r : records) {
-        // 幂等：先按业务唯一键判重（§8），已处理过就跳过
-        if (alreadyHandled(r.key())) continue;
-        process(r.value());       // 真正的业务处理
-        markHandled(r.key());     // 落库/写 Redis 标记
-    }
-    consumer.commitSync();        // ✅ 处理成功后才提交 offset
-}</code></pre>
-
-<h3>Kafka 生产 + 消费（Go，segmentio/kafka-go）</h3>
-<pre><code>// 生产者
-w := &amp;kafka.Writer{
-    Addr:         kafka.TCP("broker1:9092"),
-    Topic:        "order-topic",
-    Balancer:     &amp;kafka.Hash{},   // 按 key 哈希分区 → 同 key 同分区（§9）
-    RequiredAcks: kafka.RequireAll, // acks=all，不丢（§7）
-}
-err := w.WriteMessages(context.Background(), kafka.Message{
-    Key:   []byte("ORDER_1001"),   // orderId 做 key
-    Value: []byte("订单已创建"),
-})
-
-// 消费者：手动提交
-r := kafka.NewReader(kafka.ReaderConfig{
-    Brokers: []string{"broker1:9092"},
-    GroupID: "points-group",       // 消费者组
-    Topic:   "order-topic",
-})
-for {
-    m, err := r.FetchMessage(context.Background()) // 拉取但不自动提交
-    if err != nil { break }
-    if alreadyHandled(string(m.Key)) { r.CommitMessages(context.Background(), m); continue }
-    process(m.Value)                               // 先处理
-    r.CommitMessages(context.Background(), m)       // ✅ 成功后再提交（§7）
-}</code></pre>
-
-<h3>RocketMQ 生产者（Java）—— 含事务消息 §12 / 延迟消息 §11</h3>
-<pre><code>// 普通同步发送：检查 SendStatus 才算可靠（§7）
-DefaultMQProducer producer = new DefaultMQProducer("order-producer-group");
-producer.setNamesrvAddr("namesrv:9876");
-producer.start();
-
-Message msg = new Message("OrderTopic", "TagA", "ORDER_1001",
-                          "订单已创建".getBytes());
-// 延迟消息：延迟等级 3 ≈ 10s（§11），到点消费者才收到
-msg.setDelayTimeLevel(3);
-SendResult result = producer.send(msg);
-assert result.getSendStatus() == SendStatus.SEND_OK;
-
-// —— 事务消息（§12）：半消息 + 本地事务 + 回查 ——
-TransactionMQProducer txProducer = new TransactionMQProducer("tx-group");
-txProducer.setTransactionListener(new TransactionListener() {
-    @Override public LocalTransactionState executeLocalTransaction(Message m, Object arg) {
-        try { deduct(); return LocalTransactionState.COMMIT_MESSAGE; }   // 本地事务成功→提交
-        catch (Exception e) { return LocalTransactionState.ROLLBACK_MESSAGE; }
-    }
-    @Override public LocalTransactionState checkLocalTransaction(MessageExt m) {
-        // Broker 回查：查本地事务到底成没成（§12 第④步）
-        return isDeducted(m.getKeys()) ? LocalTransactionState.COMMIT_MESSAGE
-                                       : LocalTransactionState.ROLLBACK_MESSAGE;
-    }
-});</code></pre>
-
-<h3>RocketMQ 消费者（Java）—— 并发 vs 顺序 §9 / 幂等 §8</h3>
-<pre><code>DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("points-consumer-group");
-consumer.setNamesrvAddr("namesrv:9876");
-consumer.subscribe("OrderTopic", "*");
-
-// 顺序消费：MessageListenerOrderly，同一队列单线程按序处理（§9）
-consumer.registerMessageListener((MessageListenerOrderly) (msgs, ctx) -&gt; {
-    for (MessageExt m : msgs) {
-        if (alreadyHandled(m.getKeys())) continue; // 幂等判重（§8）
-        process(m.getBody());
-        markHandled(m.getKeys());
-    }
-    return ConsumeOrderlyStatus.SUCCESS;           // 失败返回 SUSPEND → 阻塞重试当前队列
-});
-consumer.start();</code></pre>
-<div class="info box"><b>并发消费</b>把监听器换成 <code>MessageListenerConcurrently</code>、返回 <code>ConsumeConcurrentlyStatus.RECONSUME_LATER</code> 触发重试；多次失败自动进 <b>%DLQ% 死信 Topic</b>（§13）。<b>要顺序就用 Orderly，要吞吐就用 Concurrently</b>——这正是 §9 里"顺序 vs 并行"权衡的代码体现。</div>
-</section>
-
-<!-- ============ 附 一图串联 ============ -->
-<section id="link">
-<h2 class="sec">附 · 一图串联：一条消息的一生</h2>
-<div class="hd">
-  <div class="node"><span class="em">1. 生产</span> <span class="sub">Producer 攒批 → 按 key 选分区 → 带 acks=all 发送，失败重试（§7）</span></div>
-  <div class="arrow-d">▼</div>
-  <div class="node"><span class="em">2. 到达 Broker</span> <span class="sub">写入 Leader 分区的 PageCache（顺序写 .log），Follower 从 Leader 同步（§16/17）</span></div>
-  <div class="arrow-d">▼</div>
-  <div class="node"><span class="em">3. 提交可见</span> <span class="sub">所有 ISR 都复制后 HW 前移，消息对消费者可见（§17）</span></div>
-  <div class="arrow-d">▼</div>
-  <div class="node"><span class="em">4. 消费者拉取</span> <span class="sub">Consumer Group 里对应分区的消费者长轮询拉取（§14/18），零拷贝 sendfile 送出（§15）</span></div>
-  <div class="arrow-d">▼</div>
-  <div class="node"><span class="em">5. 处理 + 幂等</span> <span class="sub">按唯一键判重（§8），业务处理；顺序消息单线程处理（§9）</span></div>
-  <div class="arrow-d">▼</div>
-  <div class="node"><span class="em">6. 提交 offset</span> <span class="sub">处理成功后手动提交 offset（§7）；失败则重试→死信（§13）</span></div>
-  <div class="arrow-d">▼</div>
-  <div class="node"><span class="em">7. 保留 / 清理</span> <span class="sub">消息不立即删，保留期内可回溯重放（§13）；过期按 Segment 整体删除（§16）</span></div>
-</div>
-</section>
-
-<!-- ============ 附 选型决策 ============ -->
-<section id="choose">
-<h2 class="sec">附 · 选型决策速查</h2>
-<div class="hd">
-  <div class="node accent"><span class="em">要极致吞吐、日志采集、大数据/流处理？</span> <span class="sub">→ <b>Kafka</b>（顺序写+零拷贝+堆积能力强）</span></div>
-  <div class="node accent"><span class="em">电商/金融业务，要事务消息、延迟消息、顺序消息、海量 Topic？</span> <span class="sub">→ <b>RocketMQ</b>（业务功能最全，金融级可靠）</span></div>
-  <div class="node accent"><span class="em">体量不大、要灵活路由或极低延迟、想开箱即用？</span> <span class="sub">→ <b>RabbitMQ</b>（Exchange 路由灵活，µs 级延迟）</span></div>
-</div>
-</section>
-
-<!-- ============ 速记 ============ -->
-<section id="cheat">
-<h2 class="sec">高频面试速记</h2>
-<table>
-<tr><th>问题</th><th>一句话答案</th></tr>
-<tr><td>为什么用 MQ？</td><td>解耦（服务不互相依赖）、异步（主链路更快）、削峰（缓冲高并发）。</td></tr>
-<tr><td>用 MQ 有什么缺点？</td><td>可用性下降、复杂度上升、一致性变难（丢/重/乱序都得处理）。</td></tr>
-<tr><td>如何保证消息不丢？</td><td>三段：生产 acks=all+重试 → Broker 多副本+同步刷盘 → 消费手动提交(处理完再提交)。</td></tr>
-<tr><td>如何保证不重复消费？</td><td>做不到绝对不重，用<b>At-least-once + 消费端幂等</b>（唯一键判重/DB 唯一索引/SETNX）。</td></tr>
-<tr><td>如何保证顺序？</td><td>同一业务键→同一分区（生产端 key 哈希）+ 该分区单线程消费。追求局部有序而非全局有序。</td></tr>
-<tr><td>消息堆积怎么办？</td><td>先定位原因；分区够就加消费者，不够就加分区/搬到多分区新 Topic 加速消费。</td></tr>
-<tr><td>Kafka 为什么快？</td><td>顺序写 + 页缓存 + 零拷贝(sendfile) + 批量压缩 + 分区并行。</td></tr>
-<tr><td>零拷贝省了什么？</td><td>省掉内核↔用户态之间 2 次多余 CPU 拷贝和上下文切换，数据从 PageCache 直达网卡。</td></tr>
-<tr><td>ISR / HW / LEO？</td><td>ISR=同步副本集；LEO=下条写入位置；HW=所有 ISR 最小 LEO，消费者只能看到 HW 之前。</td></tr>
-<tr><td>什么是 Rebalance？危害？</td><td>组内消费者/分区变化时重新分配分区；期间全组停止消费(STW)，要尽量避免频繁触发。</td></tr>
-<tr><td>事务消息原理？</td><td>RocketMQ 半消息(不可见)→执行本地事务→Commit/Rollback→Broker 回查兜底，达成最终一致。</td></tr>
-<tr><td>延迟消息谁支持？</td><td>RocketMQ 原生；RabbitMQ 靠 TTL+死信/插件；Kafka 不原生需自实现。</td></tr>
-<tr><td>死信队列作用？</td><td>重试到上限仍失败的消息挪到 DLQ，不阻塞正常消息、不丢失、便于人工补偿。</td></tr>
-<tr><td>Push 还是 Pull？</td><td>Kafka/RocketMQ 用 Pull（消费者按能力拉，防压垮）+ 长轮询解决空转；RabbitMQ 默认 Push。</td></tr>
-<tr><td>三大 MQ 怎么选？</td><td>吞吐/日志→Kafka；业务功能全/金融→RocketMQ；灵活路由/低延迟/小项目→RabbitMQ。</td></tr>
-</table>
-</section>
-
-<footer>
-🌱 note-garden · 消息队列篇 · 由浅入深，从"为什么用"到"为什么快"。内容按自己的理解梳理，持续修正生长。
-</footer>
-</main>
-</div>
 </body>
 </html>

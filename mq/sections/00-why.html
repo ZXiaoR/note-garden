@@ -1,0 +1,178 @@
+<!-- ====================================================================
+             PART 00: 第一性原理导读 · 为什么要学消息队列？入门懂什么、进阶在解决什么？
+             ==================================================================== -->
+        <div class="wb-sec-header tomato" id="why" style="background:var(--plop-mustard);">
+          <span class="wb-sec-num">00</span>
+          <span class="wb-sec-title">第一性原理导读 · 我们为什么需要消息队列？入门懂什么就够、进阶到底在解决什么？</span>
+          <span class="plop-tag tomato">FIRST PRINCIPLES · 必读心法</span>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill" id="what">🧭 先搞清楚目的 · 别把 MQ 当成孤立的参数和黑话来死记硬背</div>
+          <h3>💡 从第一性原理出发：如果服务之间全部用「同步 RPC 直接调用」，会死在哪里？</h3>
+          <p>
+            很多同学刚学消息队列（Message Queue，简称 MQ）时，容易直接掉进 <code>Topic / Partition / Offset</code>、<code>ISR / HW / LEO / Leader Epoch</code>、<code>sendfile vs mmap</code>、<code>半消息回查</code> 的细节泥潭里。其实 MQ 的所有复杂设计，都源自一个最朴素的起点：<strong>把一次「你调我、我干完才回你」的同步强绑定调用，变成「我把消息丢进中转驿站就走，你按自己的节奏来取」的异步流转</strong>。
+          </p>
+          <p>
+            假设你在做一个电商系统的「用户下单」接口。最开始只有订单和数据库，同步调用完全没问题；但随着业务膨胀、大促流量涌入，如果不引入 MQ，你会立刻撞上<strong>三堵让系统崩溃的高墙</strong>，而引入 MQ 后为了填平新冒出来的坑，又自然演化出<strong>三大进阶主线</strong>：
+          </p>
+
+          <!-- 手绘 SVG：从第一性原理推导消息队列三大进阶主线的全景导图 -->
+          <svg viewBox="0 0 880 420" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="消息队列第一性原理推导全景图">
+            <defs>
+              <marker id="mq-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
+              </marker>
+              <marker id="mq-arr-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="#D2381E" stroke="#D2381E" stroke-linejoin="round"/>
+              </marker>
+            </defs>
+
+            <!-- 左侧：入门起点 -->
+            <rect x="14" y="18" width="196" height="384" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <rect x="26" y="30" width="172" height="28" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2"/>
+            <text x="112" y="49" text-anchor="middle" font-size="12.5" font-weight="900" fill="var(--plop-ink-text)">🌱 入门阶段（起点）</text>
+
+            <text x="112" y="80" text-anchor="middle" font-size="13.2" font-weight="900" fill="var(--plop-ink)">应用间的「快递驿站」</text>
+            <text x="112" y="98" text-anchor="middle" font-size="10.8" font-weight="700" fill="var(--plop-ink-soft)">(Producer → Broker → Consumer)</text>
+
+            <rect x="28" y="114" width="168" height="50" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="112" y="134" text-anchor="middle" font-size="11.2" font-weight="800" fill="var(--plop-ink-text)">① 搞懂三大核心收益</text>
+            <text x="112" y="152" text-anchor="middle" font-size="10" font-weight="700" fill="var(--plop-ink-soft)">解耦下游 · 异步提速 · 削峰填谷</text>
+
+            <rect x="28" y="174" width="168" height="50" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="112" y="194" text-anchor="middle" font-size="11.2" font-weight="800" fill="var(--plop-ink-text)">② 掌握核心模型与黑话</text>
+            <text x="112" y="212" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">Topic / 分区 / Offset / 消费者组</text>
+
+            <rect x="28" y="234" width="168" height="50" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="112" y="254" text-anchor="middle" font-size="11.2" font-weight="800" fill="var(--plop-ink-text)">③ 基础收发与手动 ACK</text>
+            <text x="112" y="272" text-anchor="middle" font-size="10" font-weight="700" fill="var(--plop-ink-soft)">发消息带确认 · 处理完再提交</text>
+
+            <rect x="28" y="298" width="168" height="90" rx="8" fill="#FFF6F4" stroke="#D2381E" stroke-width="1.8" stroke-dasharray="4 3"/>
+            <text x="112" y="319" text-anchor="middle" font-size="10.8" font-weight="900" fill="#D2381E">⚠️ 引入 MQ 的新代价！</text>
+            <text x="112" y="337" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">多一层中间件 = 多一层故障点：</text>
+            <text x="112" y="353" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">消息丢了、重了、乱了、积压了</text>
+            <text x="112" y="369" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">怎么办？直接逼出</text>
+            <text x="112" y="383" text-anchor="middle" font-size="10" font-weight="900" fill="#D2381E">右侧三大工程主线 ➔</text>
+
+            <!-- 三条分叉箭头 -->
+            <path d="M210 105 L248 72" stroke="#D2381E" stroke-width="2.4" marker-end="url(#mq-arr-red)"/>
+            <path d="M210 205 L248 205" stroke="#D2381E" stroke-width="2.4" marker-end="url(#mq-arr-red)"/>
+            <path d="M210 305 L248 345" stroke="#D2381E" stroke-width="2.4" marker-end="url(#mq-arr-red)"/>
+
+            <!-- 右上：进阶主线一（模型统一与三大主流 MQ 架构选型） -->
+            <rect x="254" y="18" width="612" height="108" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <rect x="266" y="26" width="588" height="24" rx="7" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="278" y="42" font-size="11.6" font-weight="900" fill="var(--plop-ink-text)">🧭 进阶主线一：消息怎么分发？三大主流 MQ 该怎么选？（第 01～02 章 · 模型与架构选型）</text>
+
+            <rect x="268" y="58" width="184" height="56" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="360" y="76" text-anchor="middle" font-size="10.8" font-weight="900" fill="#D2381E">模型统一：Consumer Group</text>
+            <text x="360" y="92" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">组内抢消息 = 点对点负载均衡</text>
+            <text x="360" y="106" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-soft)">组间各自收 = 发布订阅广播</text>
+
+            <line x1="452" y1="86" x2="472" y2="86" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#mq-arr)"/>
+
+            <rect x="476" y="58" width="184" height="56" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="568" y="76" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">架构分化：日志型 vs 路由型</text>
+            <text x="568" y="92" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">Kafka / RocketMQ（分区追加日志）</text>
+            <text x="568" y="106" text-anchor="middle" font-size="9.6" font-weight="800" fill="#D2381E">RabbitMQ（Exchange 4种交换机）</text>
+
+            <line x1="660" y1="86" x2="680" y2="86" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#mq-arr)"/>
+
+            <rect x="684" y="58" width="168" height="56" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="768" y="76" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">精准选型：看业务画像</text>
+            <text x="768" y="92" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">百万吞吐/大数据 → Kafka</text>
+            <text x="768" y="106" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">金融电商/事务延迟 → RocketMQ</text>
+
+            <!-- 右中：进阶主线二（生产可靠性与业务痛点：不丢、不重、有序、积压、事务、延迟） -->
+            <rect x="254" y="138" width="612" height="138" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <rect x="266" y="146" width="588" height="24" rx="7" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="278" y="162" font-size="11.6" font-weight="900" fill="var(--plop-ink-text)">🛡️ 进阶主线二：生产环境「六大可靠性与业务难题」怎么破？（第 03～05 章 · 面试核心重灾区）</text>
+
+            <rect x="268" y="178" width="136" height="86" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="336" y="196" text-anchor="middle" font-size="10.6" font-weight="900" fill="#D2381E">① 消息不丢（三段论）</text>
+            <text x="336" y="212" text-anchor="middle" font-size="9.4" font-weight="700" fill="var(--plop-ink-text)">生产：acks=all + 重试</text>
+            <text x="336" y="227" text-anchor="middle" font-size="9.4" font-weight="700" fill="var(--plop-ink-text)">存储：多副本 min.isr≥2</text>
+            <text x="336" y="244" text-anchor="middle" font-size="9.4" font-weight="800" fill="var(--plop-ink)">消费：处理完再手动提交</text>
+
+            <line x1="404" y1="221" x2="418" y2="221" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#mq-arr)"/>
+
+            <rect x="422" y="178" width="136" height="86" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="490" y="196" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink-text)">② 幂等与不重复</text>
+            <text x="490" y="212" text-anchor="middle" font-size="9.4" font-weight="800" fill="#D2381E">At-least-once + 幂等</text>
+            <text x="490" y="227" text-anchor="middle" font-size="9.4" font-weight="700" fill="var(--plop-ink-text)">PID+Seq 内部防重乱序</text>
+            <text x="490" y="244" text-anchor="middle" font-size="9.4" font-weight="800" fill="var(--plop-ink)">唯一键 / 状态机 / 防重表</text>
+
+            <line x1="558" y1="221" x2="572" y2="221" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#mq-arr)"/>
+
+            <rect x="576" y="178" width="132" height="86" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="642" y="196" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink-text)">③ 顺序与积压救援</text>
+            <text x="642" y="212" text-anchor="middle" font-size="9.4" font-weight="800" fill="var(--plop-leaf)">同业务Key进同分区单线程</text>
+            <text x="642" y="227" text-anchor="middle" font-size="9.4" font-weight="700" fill="var(--plop-ink-text)">积压：扩分区转发新Topic</text>
+            <text x="642" y="244" text-anchor="middle" font-size="9.4" font-weight="800" fill="#D2381E">Pull + 长轮询防压垮</text>
+
+            <line x1="708" y1="221" x2="722" y2="221" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#mq-arr)"/>
+
+            <rect x="726" y="178" width="126" height="86" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="789" y="196" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink-text)">④ 事务/延迟/死信</text>
+            <text x="789" y="212" text-anchor="middle" font-size="9.4" font-weight="800" fill="#D2381E">半消息 + 事务状态回查</text>
+            <text x="789" y="227" text-anchor="middle" font-size="9.4" font-weight="700" fill="var(--plop-ink-text)">分层时间轮 vs TTL+DLX</text>
+            <text x="789" y="244" text-anchor="middle" font-size="9.4" font-weight="800" fill="var(--plop-ink)">阶梯重试 → 死信队列</text>
+
+            <!-- 右下：进阶主线三（底层百万吞吐存储原理与分布式高可用） -->
+            <rect x="254" y="288" width="612" height="114" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <rect x="266" y="296" width="588" height="24" rx="7" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="278" y="312" font-size="11.6" font-weight="900" fill="var(--plop-ink-text)">⚡ 进阶主线三：底层凭什么扛百万 TPS 且宕机不丢？（第 06～07 章 · 存储、零拷贝、ISR 与 Rebalance）</text>
+
+            <rect x="268" y="328" width="286" height="62" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="411" y="346" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink)">🚀 磁盘百万 TPS 的秘密（存储与零拷贝）</text>
+            <text x="411" y="362" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">顺序写磁盘 + OS PageCache + 零拷贝 (sendfile vs mmap)</text>
+            <text x="411" y="378" text-anchor="middle" font-size="9.4" font-weight="800" fill="#D2381E">Kafka 分区独立 Segment 稀疏索引 vs RMQ 单一 CommitLog</text>
+
+            <line x1="554" y1="359" x2="570" y2="359" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#mq-arr)"/>
+
+            <rect x="574" y="328" width="278" height="62" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="713" y="346" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink-text)">🌐 分布式高可用与协调（ISR &amp; Rebalance）</text>
+            <text x="713" y="362" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">ISR 同步副本 + HW 高水位读一致 + Leader Epoch 防截断丢数</text>
+            <text x="713" y="378" text-anchor="middle" font-size="9.4" font-weight="800" fill="var(--plop-ink)">Rebalance 为什么会 STW？静态成员与协作式重平衡怎么破</text>
+          </svg>
+
+          <!-- 入门 vs 进阶双栏拆解 -->
+          <div class="wb-grid-2" style="margin-top:14px;">
+            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
+              <span class="plop-tag mint" style="margin-bottom:8px;">STAGE 1 · 入门阶段我们懂什么就够了？</span>
+              <h4>🎯 目标：看懂业务为什么要引 MQ，能正确收发消息（应对日常业务开发）</h4>
+              <p>
+                在入门阶段，你只需要围绕<strong>「一个电商下单流程」</strong>搞懂下面 <strong>3 件事</strong>，就能写出合格的业务代码：
+              </p>
+              <ol>
+                <li><strong>分清什么逻辑该放进 MQ（第 01 章）：</strong>“扣库存、创建订单”这种用户必须当场知道结果的<strong>核心链路同步做</strong>；“发短信、加积分、通知物流”这种允许慢几秒的<strong>非核心下游丢进 MQ 异步解耦</strong>；秒杀洪峰用 MQ 当水库蓄水削峰。</li>
+                <li><strong>看懂 Topic、分区与消费者组（第 01～02 章）：</strong>知道消息发往逻辑主题 <code>Topic</code>，内部切成多个有序的 <code>Partition / Queue</code>；知道同一个 <code>Consumer Group</code> 内是在分摊抢消息（负载均衡），不同组之间是各自收全量（广播订阅）。</li>
+                <li><strong>养成两条保命编码习惯（第 03 章）：</strong>生产端发消息一定要<strong>检查确认结果（ACK / SendStatus）</strong>；消费端一定要<strong>先执行完业务逻辑并做幂等判断，最后再手动提交 Offset</strong>。</li>
+              </ol>
+            </div>
+
+            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
+              <span class="plop-tag tomato" style="margin-bottom:8px;">STAGE 2 · 进阶在干什么？为什么要了解进阶？</span>
+              <h4>🔥 目标：解决「丢消息/重算/乱序/积压/跨系统事务」与「百万吞吐底层原理」（应对生产与面试）</h4>
+              <p>
+                <strong>入门解决的是“消息发得出去、收得回来”，进阶解决的是“机器挂了不丢单、网络抖了不重扣、流量炸了不雪崩”。</strong>具体对应 4 类必考追问：
+              </p>
+              <ul>
+                <li><strong>追问 ①（可靠性闭环）：怎么保证消息绝对不丢、不重复消费？</strong><br/>
+                  👉 对应 <strong>第 03 章（生产/存储/消费三段防丢 + Kafka <code>PID+Seq</code> 幂等 + 业务唯一键/三态防重表）</strong>。</li>
+                <li><strong>追问 ②（顺序与急救）：同一订单消息乱序怎么办？线上积压 5000 万条怎么半小时消化完？</strong><br/>
+                  👉 对应 <strong>第 04 章（同 Key 哈希进同分区单线程 + 队头阻塞权衡 + 临时扩 10 倍分区 Topic 搬运救火）</strong>。</li>
+                <li><strong>追问 ③（分布式事务与定时）：写库成功但发消息失败怎么破？订单 30 分钟超时关单怎么做？</strong><br/>
+                  👉 对应 <strong>第 05 章（RocketMQ 半消息与回查 vs 本地消息表 + 5.0 分层时间轮 vs RabbitMQ TTL 队头阻塞坑）</strong>。</li>
+                <li><strong>追问 ④（底层架构内功）：Kafka 凭什么单机百万 TPS？挂了怎么选主且不丢数？</strong><br/>
+                  👉 对应 <strong>第 06～07 章（顺序写 + PageCache + <code>sendfile vs mmap</code> 零拷贝 + <code>ISR/HW/Leader Epoch</code> + Rebalance 防 STW）</strong>。</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="plop-bridge">
+            <span>👇 现在带着这张全景图出发：我们先在 <strong>01 章</strong> 用「用户下单」串起解耦/异步/削峰，并用一套消费者组模型打通所有 MQ 的核心黑话！</span>
+          </div>
+        </div>

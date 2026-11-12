@@ -18,89 +18,102 @@
             答案藏在<strong>计算机硬件的物理极限与架构分工</strong>里：MySQL 的首要使命是<strong>“数据绝对可靠、支持复杂关系查询（JOIN/排序/聚合）与严格事务 ACID”</strong>，每次写操作都要维护 B+ 树页、写 Redo/Undo/Binlog 日志，单机能抗住几千 QPS 就已经很吃力；而当面对秒杀抢购、热点商品详情、排行榜、分布式锁这种<strong>每秒几万到几十万次的极高频简单读写</strong>时，必须把数据直接放在<strong>纯内存 + 极致简单的数据结构</strong>里——这就是 Redis 诞生的第一性原理。
           </p>
 
-          <!-- 手绘 SVG：从第一性原理推导 Redis 全景知识体系 -->
-          <svg viewBox="0 0 880 390" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="Redis 第一性原理推导全景图">
-            <defs>
-              <marker id="rd-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
-              </marker>
-              <marker id="rd-arr-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 1 1 L 9 5 L 1 9 z" fill="#D2381E" stroke="#D2381E" stroke-linejoin="round"/>
-              </marker>
-            </defs>
+          <!-- 大字号手账卡片图解：从第一性原理推导 Redis 全景知识体系（自适应换行，绝不溢出） -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:250px 1fr; gap:16px; align-items:stretch;">
+              <!-- 左侧：入门阶段（起点） -->
+              <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:10px;">
+                <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:8px; padding:6px 10px; text-align:center; font-weight:900; font-size:14px; color:var(--plop-ink-text);">
+                  🌱 入门阶段（起点）
+                </div>
+                <div style="text-align:center;">
+                  <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink);">拿来当「高速字典」用</div>
+                  <div style="font-size:12.2px; font-weight:700; color:var(--plop-ink-soft);">（选对类型 + 设好过期时间）</div>
+                </div>
 
-            <!-- 左侧：入门起点 -->
-            <rect x="14" y="16" width="202" height="358" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
-            <rect x="26" y="28" width="178" height="28" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2"/>
-            <text x="115" y="47" text-anchor="middle" font-size="12.2" font-weight="900" fill="var(--plop-ink-text)">🌱 入门阶段（起点）</text>
+                <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 10px; text-align:center;">
+                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">① 掌握 5 大基础数据类型</div>
+                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">String / Hash / List / Set / ZSet</div>
+                </div>
 
-            <text x="115" y="78" text-anchor="middle" font-size="13.2" font-weight="900" fill="var(--plop-ink)">拿来当「高速字典」用</text>
-            <text x="115" y="96" text-anchor="middle" font-size="10.8" font-weight="700" fill="var(--plop-ink-soft)">(选对类型 + 设好过期时间)</text>
+                <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 10px; text-align:center;">
+                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">② 旁路缓存读写套路</div>
+                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">先查 Redis → 未命中查 DB 回填</div>
+                </div>
 
-            <rect x="28" y="112" width="174" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="115" y="132" text-anchor="middle" font-size="11" font-weight="800" fill="var(--plop-ink-text)">① 掌握 5 大基础数据类型</text>
-            <text x="115" y="149" text-anchor="middle" font-size="9.2" font-weight="700" fill="var(--plop-ink-soft)">String/Hash/List/Set/ZSet</text>
+                <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 10px; text-align:center;">
+                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">③ 基础过期与原子操作</div>
+                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">EXPIRE 过期 / INCR 计数 / SETNX</div>
+                </div>
 
-            <rect x="28" y="174" width="174" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="115" y="194" text-anchor="middle" font-size="11" font-weight="800" fill="var(--plop-ink-text)">② 旁路缓存读写套路</text>
-            <text x="115" y="211" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">先查 Redis → 未命中查 DB 回填</text>
+                <div style="background:#FFF0F5; border:2px dashed var(--plop-tomato); border-radius:9px; padding:9px 10px; text-align:center; margin-top:auto;">
+                  <div style="font-weight:900; font-size:12.8px; color:var(--plop-tomato);">⚠️ 只会调命令为什么不够？</div>
+                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin-top:3px; line-height:1.45;">
+                    内存会满、断电会丢、高并发会击穿 DB 👉 <strong style="color:var(--plop-tomato);">引出右侧四大进阶主线 ➔</strong>
+                  </div>
+                </div>
+              </div>
 
-            <rect x="28" y="236" width="174" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="115" y="256" text-anchor="middle" font-size="11" font-weight="800" fill="var(--plop-ink-text)">③ 基础过期与原子操作</text>
-            <text x="115" y="273" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">EXPIRE 过期 / INCR 计数 / SETNX</text>
+              <!-- 右侧：四大进阶主线（由上到下 4 张横向卡片，自动换行绝不超出） -->
+              <div style="display:grid; gap:12px;">
+                <!-- 主线 1 -->
+                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:grid; grid-template-columns:210px 1fr; gap:12px; align-items:center;">
+                  <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:9px; padding:10px; text-align:center;">
+                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">⚡ 主线一：它凭什么这么快？</div>
+                    <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin:3px 0;">（第 01～02 章 · 线程与编码）</div>
+                    <div style="font-size:12px; font-weight:900; color:var(--plop-tomato);">单核每秒十万级 QPS 的秘密</div>
+                  </div>
+                  <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
+                    • <strong>网络与执行：</strong>纯内存 + 单线程免锁免切换 + <code>epoll</code> 多路复用 + 6.0 多线程 IO<br/>
+                    • <strong>底层数据结构：</strong><code>SDS</code> / <code>intset</code> / <code>dict</code>（渐进式 rehash）/ <code>listpack</code>（消除连锁更新）/ 跳表<br/>
+                    <span style="color:var(--plop-ink-soft); font-weight:700;">👉 明白为什么一个大 Key 会卡死整个单线程、为什么小集合比大集合省几倍内存</span>
+                  </div>
+                </div>
 
-            <rect x="28" y="298" width="174" height="62" rx="8" fill="#FFF6F4" stroke="#D2381E" stroke-width="1.8" stroke-dasharray="4 3"/>
-            <text x="115" y="318" text-anchor="middle" font-size="10.5" font-weight="900" fill="#D2381E">⚠️ 只会调命令为什么不够？</text>
-            <text x="115" y="334" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">内存会满、断电会丢、高并发</text>
-            <text x="115" y="349" text-anchor="middle" font-size="9.8" font-weight="800" fill="#D2381E">会击穿 DB → 引出四大进阶主线 ➔</text>
+                <!-- 主线 2 -->
+                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:grid; grid-template-columns:210px 1fr; gap:12px; align-items:center;">
+                  <div style="background:var(--plop-bubblegum); border:2px solid var(--plop-ink); border-radius:9px; padding:10px; text-align:center;">
+                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">🛡️ 主线二：做缓存会踩什么坑？</div>
+                    <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin:3px 0;">（第 03 章 · 异常与同步）</div>
+                    <div style="font-size:12px; font-weight:900; color:var(--plop-tomato);">保护背后的 MySQL 不被打穿</div>
+                  </div>
+                  <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
+                    • <strong>三大异常：</strong>穿透（查不存在→布隆/空值）/ 击穿（单热 Key 失效→互斥锁）/ 雪崩（大批同时失效）<br/>
+                    • <strong>双写一致性：</strong><code>Cache-Aside</code> 先更 DB 再删缓存 + 延迟双删 + Canal 订阅 <code>binlog</code><br/>
+                    <span style="color:var(--plop-ink-soft); font-weight:700;">👉 加上大 Key 拆分（<code>UNLINK</code>）与热 Key 多级缓存分流，构筑完整生产防线</span>
+                  </div>
+                </div>
 
-            <!-- 分叉箭头 -->
-            <path d="M216 90 L252 60" stroke="#D2381E" stroke-width="2.2" marker-end="url(#rd-arr-red)"/>
-            <path d="M216 165 L252 152" stroke="#D2381E" stroke-width="2.2" marker-end="url(#rd-arr-red)"/>
-            <path d="M216 235 L252 245" stroke="#D2381E" stroke-width="2.2" marker-end="url(#rd-arr-red)"/>
-            <path d="M216 305 L252 336" stroke="#D2381E" stroke-width="2.2" marker-end="url(#rd-arr-red)"/>
+                <!-- 主线 3 -->
+                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:grid; grid-template-columns:210px 1fr; gap:12px; align-items:center;">
+                  <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:9px; padding:10px; text-align:center;">
+                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">💾 主线三：数据会丢、内存会满</div>
+                    <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin:3px 0;">（第 04 章 · 持久化与淘汰）</div>
+                    <div style="font-size:12px; font-weight:900; color:var(--plop-tomato);">内存有限且易失，怎么兜底？</div>
+                  </div>
+                  <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
+                    • <strong>断电不丢：</strong>RDB 快照（<code>fork</code> + COW 写时复制）+ AOF 命令日志 + 4.0 混合持久化<br/>
+                    • <strong>空间清理：</strong>过期删除（惰性 + 定期抽样）+ 内存满了触发 8 种 <code>maxmemory</code> 淘汰策略<br/>
+                    <span style="color:var(--plop-ink-soft); font-weight:700;">👉 理解近似 LRU / LFU 为什么不用全局双向链表，而是靠 24-bit 字段抽样淘汰</span>
+                  </div>
+                </div>
 
-            <!-- 右侧四大进阶主线 -->
-            <!-- 主线 1 -->
-            <rect x="256" y="16" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="268" y="24" width="182" height="64" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="359" y="45" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">⚡ 主线一：它凭什么这么快？</text>
-            <text x="359" y="62" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 01～02 章 · 线程与编码）</text>
-            <text x="359" y="77" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">单核每秒十万级 QPS 的秘密</text>
-            <text x="466" y="46" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 网络与执行：纯内存 + 单线程免锁免切换 + epoll 多路复用 + 6.0 多线程 IO</text>
-            <text x="466" y="66" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 底层数据结构：SDS / intset / dict(渐进式rehash) / listpack(消除连锁更新) / 跳表</text>
-            <text x="466" y="83" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 明白为什么一个大 Key 会卡死整个单线程、为什么小集合比大集合省几倍内存</text>
-
-            <!-- 主线 2 -->
-            <rect x="256" y="108" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="268" y="116" width="182" height="64" rx="8" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="359" y="137" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🛡️ 主线二：做缓存会踩什么坑？</text>
-            <text x="359" y="154" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 03 章 · 异常与同步）</text>
-            <text x="359" y="169" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">保护背后的 MySQL 不被打穿</text>
-            <text x="466" y="138" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 三大异常：穿透(查不存在→布隆/空值) / 击穿(单热Key失效→互斥锁) / 雪崩(大批失效)</text>
-            <text x="466" y="158" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 双写一致性：Cache-Aside 先更 DB 再删缓存 + 延迟双删 + Canal 订阅 binlog</text>
-            <text x="466" y="175" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 加上大 Key 拆分 (UNLINK) 与热 Key 多级缓存分流，构筑完整生产防线</text>
-
-            <!-- 主线 3 -->
-            <rect x="256" y="200" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="268" y="208" width="182" height="64" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="359" y="229" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">💾 主线三：数据会丢、内存会满</text>
-            <text x="359" y="246" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 04 章 · 持久化与淘汰）</text>
-            <text x="359" y="261" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">内存有限且易失，怎么兜底？</text>
-            <text x="466" y="230" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 断电不丢：RDB 快照 (fork + COW 写时复制) + AOF 命令日志 + 4.0 混合持久化</text>
-            <text x="466" y="250" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 空间清理：过期删除 (惰性 + 定期抽样) + 内存满了触发 8 种 maxmemory 淘汰策略</text>
-            <text x="466" y="267" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 理解近似 LRU / LFU 为什么不用全局双向链表，而是靠 24-bit 字段抽样淘汰</text>
-
-            <!-- 主线 4 -->
-            <rect x="256" y="292" width="610" height="82" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="268" y="300" width="182" height="66" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="359" y="321" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🌐 主线四：单机挂了/装不下</text>
-            <text x="359" y="338" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 05～06 章 · 集群与分布式锁）</text>
-            <text x="359" y="354" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">高可用演进与跨进程协调</text>
-            <text x="466" y="322" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 高可用三级跳：主从复制 (RDB+repl_backlog) → 哨兵 Sentinel (自动选主) → Cluster (16384槽)</text>
-            <text x="466" y="342" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 分布式能力：分布式锁 (SET NX EX + Lua + Watchdog) + Stream 消息队列 + Lua/Pipeline</text>
-            <text x="466" y="359" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 看懂主从切换为什么会导致分布式锁丢锁（RedLock 争议）与脑裂怎么防护</text>
-          </svg>
+                <!-- 主线 4 -->
+                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:grid; grid-template-columns:210px 1fr; gap:12px; align-items:center;">
+                  <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:9px; padding:10px; text-align:center;">
+                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">🌐 主线四：单机挂了 / 装不下</div>
+                    <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin:3px 0;">（第 05～06 章 · 集群与分布式锁）</div>
+                    <div style="font-size:12px; font-weight:900; color:var(--plop-tomato);">高可用演进与跨进程协调</div>
+                  </div>
+                  <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
+                    • <strong>高可用三级跳：</strong>主从复制（RDB + <code>repl_backlog</code>）→ 哨兵 Sentinel（自动选主）→ Cluster（16384 槽）<br/>
+                    • <strong>分布式能力：</strong>分布式锁（<code>SET NX EX</code> + Lua + Watchdog）+ Stream 消息队列 + Lua / Pipeline<br/>
+                    <span style="color:var(--plop-ink-soft); font-weight:700;">👉 看懂主从切换为什么会导致分布式锁丢锁（RedLock 争议）与脑裂怎么防护</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <!-- 入门 vs 进阶双栏对照 -->
           <div class="wb-grid-2" style="margin-top:14px;">

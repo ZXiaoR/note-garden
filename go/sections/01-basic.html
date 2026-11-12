@@ -1,0 +1,308 @@
+<!-- ====================================================================
+     PART 01: 基础语法全览与 Go Modules 工程包管理
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="basic">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">基础语法全览与 Go Modules 工程包管理</span>
+  <span class="plop-tag tomato">25 KEYWORDS × VALUE SEMANTICS</span>
+</div>
+
+<!-- 01.1 · 程序最小骨架、变量声明与常量 iota -->
+<div class="wb-card" id="syntax" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">❓ 01.1 · Go 为什么只有 25 个关键字？变量和常量怎么写最地道？</div>
+  <h3>📋 01.1 程序最小骨架、四种变量声明与 <code>iota</code> 枚举生成器</h3>
+  <p>
+    Go 的设计哲学是<strong>“一件事尽量只有一种标准写法”</strong>：没有三元运算符 <code>?:</code>、没有 <code>while/do-while</code>（循环只有 <code>for</code>）、没有隐式类型转换，且<strong>所有声明的变量若未显式赋值，100% 自动初始化为对应类型的零值（Zero Value）</strong>，绝不存在 C/C++ 的未初始化野内存。
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 main_and_vars.go · 四种变量声明形态</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-vars', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-vars"><code><span class="c-kw">package</span> main            <span class="c-cm">// 可执行程序必须属于 main 包</span>
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {           <span class="c-cm">// 程序唯一入口（无参数、无返回值）</span>
+    <span class="c-kw">var</span> a <span class="c-fn">int</span> = 10      <span class="c-cm">// ① 完整声明（显式指定类型）</span>
+    <span class="c-kw">var</span> b = 20          <span class="c-cm">// ② 类型推导（自动识别为 int）</span>
+    c := 30             <span class="c-cm">// ③ 短变量声明（最常用，★仅限函数内部！）</span>
+    <span class="c-kw">var</span> d <span class="c-fn">int</span>           <span class="c-cm">// ④ 零值初始化：默认就是 0</span>
+    fmt.<span class="c-fn">Println</span>(a, b, c, d)
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🔢 const_iota.go · 常量与 iota 位掩码实战</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-iota', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-iota"><code><span class="c-cm">// iota：每个 const 块从 0 开始逐行自增 1 的行计数器</span>
+<span class="c-kw">type</span> State <span class="c-fn">int</span>
+<span class="c-kw">const</span> (
+    StateInit    State = <span class="c-kw">iota</span> <span class="c-cm">// 0</span>
+    StateRunning              <span class="c-cm">// 1（沿用上一行表达式）</span>
+    _                         <span class="c-cm">// 2（用 _ 跳过废弃枚举值）</span>
+    StateStopped              <span class="c-cm">// 3</span>
+)
+
+<span class="c-cm">// 经典技巧：配合左移位生成权限位掩码（Bitmask）或容量单位</span>
+<span class="c-kw">const</span> (
+    PermRead  = 1 &lt;&lt; <span class="c-kw">iota</span> <span class="c-cm">// 1 &lt;&lt; 0 = 1 (0b001)</span>
+    PermWrite             <span class="c-cm">// 1 &lt;&lt; 1 = 2 (0b010)</span>
+    PermExec              <span class="c-cm">// 1 &lt;&lt; 2 = 4 (0b100)</span>
+)</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout warn">
+    <strong>⚠️ 短变量声明 <code>:=</code> 的“变量遮蔽（Variable Shadowing）”陷阱：</strong>当 <code>:=</code> 左边同时包含旧变量与至少一个新变量且在<strong>同一作用域</strong>时，旧变量会被直接修改；但如果写在<strong>内层代码块（如 <code>if res, err := call(); err != nil</code>）</strong>中，内层的同名变量会<strong>完全遮蔽外层变量</strong>，导致外层变量保持零值不变！
+  </div>
+</div>
+
+<!-- 01.2 · 基本数据类型、零值契约与 string/byte/rune -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🔤 01.2 · 为什么对中文字符串调 <code>len("Go语言")</code> 返回的是 8 而不是 4？</div>
+  <h3>🧬 01.2 基本类型零值表、<code>string / byte / rune</code> UTF-8 底层与高性能拼接</h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">类型分类</th>
+          <th style="width:30%">内置类型</th>
+          <th style="width:14%">默认零值</th>
+          <th>底层说明与避坑要点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>整数类型</strong></td>
+          <td><code>int, int8, int16, int32, int64</code><br><code>uint, uint8..uint64, uintptr</code></td>
+          <td><code>0</code></td>
+          <td><code>int / uint</code> 在 64 位架构下占 <strong>8 字节（64 位）</strong>。<strong>禁止任何隐式数值类型转换</strong>，<code>int32 + int64</code> 必须显式强转。</td>
+        </tr>
+        <tr>
+          <td><strong>字符别名</strong></td>
+          <td><code>byte</code>（即 <code>uint8</code>）<br><code>rune</code>（即 <code>int32</code>）</td>
+          <td><code>0</code></td>
+          <td><code>byte</code> 代表 1 个原始字节（ASCII）；<code>rune</code> 代表 1 个 <strong>Unicode 码点（Code Point）</strong>，可装下任意汉字或 Emoji。</td>
+        </tr>
+        <tr>
+          <td><strong>字符串</strong></td>
+          <td><code>string</code></td>
+          <td><code>""</code>（空串）</td>
+          <td>底层是 <strong>16 字节只读结构体 <code>{ Data *byte, Len int }</code></strong>，UTF-8 编码，<strong>天生不可变（Immutable）</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>指针 / 引用语义</strong></td>
+          <td><code>*T</code>、<code>slice</code>、<code>map</code>、<code>chan</code>、<code>func</code>、<code>interface</code></td>
+          <td><code>nil</code></td>
+          <td>注意：<code>struct</code> 和固定数组 <code>[N]T</code> 是纯值类型，零值是各字段零值的组合，绝不是 <code>nil</code>！</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🔍 utf8_rune.go · 下标取字节 vs range 解码 rune</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-rune', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-rune"><code>s := <span class="c-str">"Go语言"</span>
+fmt.<span class="c-fn">Println</span>(<span class="c-fn">len</span>(s))                    <span class="c-cm">// 8（UTF-8 每个汉字占 3 字节：2+3+3）</span>
+fmt.<span class="c-fn">Println</span>(utf8.<span class="c-fn">RuneCountInString</span>(s)) <span class="c-cm">// 4（真实字符数，等价于 len([]rune(s))）</span>
+
+<span class="c-cm">// ① s[i] 按【字节 byte】取，中文会被截断成乱码</span>
+<span class="c-cm">// ② for i, r := range s 自动按【UTF-8 码点 rune】解码！</span>
+<span class="c-kw">for</span> i, r := <span class="c-kw">range</span> s {
+    fmt.<span class="c-fn">Printf</span>(<span class="c-str">"byteIdx=%d, char=%c\n"</span>, i, r)
+    <span class="c-cm">// 输出下标：0('G'), 1('o'), 2('语'), 5('言')</span>
+}</code></pre>
+    </div>
+
+    <div>
+      <div class="table-wrap" style="margin-top:10px;">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:32%">字符串拼接方式</th>
+              <th>性能与适用场景</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>strings.Builder</code></td>
+              <td><strong>最快（首选）</strong>：底层 <code>[]byte</code> + <code>unsafe.String</code> 零拷贝返回，配合 <code>b.Grow(n)</code> 仅 1 次分配</td>
+            </tr>
+            <tr>
+              <td><code>strings.Join</code></td>
+              <td><strong>极快</strong>：预计算总长度一次性分配，适合合并现成 <code>[]string</code></td>
+            </tr>
+            <tr>
+              <td><code>+</code> 运算符</td>
+              <td>少量固定字面量可编译优化；<strong>循环内累加会产生 $O(N^2)$ 内存拷贝！</strong></td>
+            </tr>
+            <tr>
+              <td><code>fmt.Sprintf</code></td>
+              <td><strong>最慢</strong>：解析格式串 + <code>any</code> 接口装箱逃逸，仅用于格式化消息</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 01.3 · 流程控制、函数与 Struct 面向对象（值接收者 vs 指针接收者） -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🧱 01.3 · 没有 class 和 extends，Go 怎么实现面向对象？接收者该选值还是指针？</div>
+  <h3>⚙️ 01.3 结构体匿名组合（Embedding）与方法接收者选择法则</h3>
+  <p>
+    Go 推崇<strong>“组合优于继承（Composition over Inheritance）”</strong>：通过在 <code>struct</code> 中匿名嵌入另一个结构体，直接“提升（Promote）”其字段和方法。在为结构体定义方法时，<strong>值接收者 <code>(u User)</code> 与指针接收者 <code>(u *User)</code> 的区别</strong>是面试高频考点：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🏗️ struct_embed.go · 结构体 Tag、方法与匿名嵌入</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-struct', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-struct"><code><span class="c-kw">type</span> User <span class="c-kw">struct</span> {
+    ID   <span class="c-fn">int</span>    <span class="c-str">`json:"id"`</span>            <span class="c-cm">// 大写导出(Public) + JSON 反射标签</span>
+    Name <span class="c-fn">string</span> <span class="c-str">`json:"name,omitempty"`</span>
+    age  <span class="c-fn">int</span>                           <span class="c-cm">// 小写包内私有(Private)</span>
+}
+
+<span class="c-cm">// 值接收者：操作的是副本，外部原对象不受影响</span>
+<span class="c-kw">func</span> (u User) <span class="c-fn">Greeting</span>() <span class="c-fn">string</span> { <span class="c-kw">return</span> <span class="c-str">"Hi "</span> + u.Name }
+
+<span class="c-cm">// 指针接收者：直接修改原结构体，且仅传递 8B 地址</span>
+<span class="c-kw">func</span> (u *User) <span class="c-fn">Birthday</span>() { u.age++ }
+
+<span class="c-cm">// 匿名嵌入（组合继承）：Admin 直接获得 User 的字段与方法</span>
+<span class="c-kw">type</span> Admin <span class="c-kw">struct</span> {
+    User        <span class="c-cm">// 匿名字段提升：可直接调 admin.Birthday()</span>
+    Level <span class="c-fn">int</span>
+}</code></pre>
+    </div>
+
+    <div>
+      <div class="table-wrap" style="margin-top:10px;">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:24%">对比维度</th>
+              <th style="width:36%">值接收者 <code>(t T)</code></th>
+              <th>指针接收者 <code>(t *T)</code>（★主流）</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>修改字段</strong></td>
+              <td>仅改栈内副本，<strong>外部不可见</strong></td>
+              <td>直接改原对象，<strong>外部可见</strong></td>
+            </tr>
+            <tr>
+              <td><strong>传参开销</strong></td>
+              <td>拷贝整个 <code>struct</code></td>
+              <td>仅拷贝 8 字节指针</td>
+            </tr>
+            <tr>
+              <td><strong>接口方法集（★必考）</strong></td>
+              <td><code>T</code> 和 <code>*T</code> <strong>都能</strong>赋值给该接口</td>
+              <td><strong>只有 <code>*T</code> 能</strong>赋值给接口，<code>T</code> 值本身<strong>未实现</strong>该接口！</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="plop-callout tip">
+        <strong>💡 为什么 <code>T</code> 值不能调 <code>*T</code> 的接口方法？</strong>平时写 <code>u.Birthday()</code> 编译器会自动帮你取地址转成 <code>(&amp;u).Birthday()</code>；但一旦把 <code>u</code> 塞进 <code>interface</code>，接口内部持有的值是<strong>不可寻址（Unaddressable）的副本</strong>，没法自动取地址！
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 01.4 · 灵魂二问：make vs new 与 100% 值传递本质 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🎯 01.4 · 面试开场灵魂二问：<code>make</code> 和 <code>new</code> 有什么区别？Go 有引用传递吗？</div>
+  <h3>🔑 01.4 <code>make vs new</code> 对照与“Go 只有值传递”底层拆解</h3>
+
+  <div class="wb-grid-2">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+      <div style="font-weight:900; font-size:15px; color:var(--plop-tomato); margin-bottom:8px;">① <code>new(T)</code> vs <code>make(T, args...)</code></div>
+      <ul style="margin:0; padding-left:18px; font-size:13.5px; line-height:1.68;">
+        <li><strong><code>new(T)</code>（适用任意类型）</strong>：只做一件事——分配一块 <code>T</code> 类型的内存并<strong>清零（Zero Value）</strong>，返回指向它的指针 <code>*T</code>（等价于 <code>&amp;T{}</code>）。</li>
+        <li><strong><code>make(T, ...)</code>（仅限 <code>slice / map / chan</code> 三种内置引用类型）</strong>：这三种类型本身是带内部指针的运行时描述符（<code>sliceHeader / hmap / hchan</code>），只清零无法使用。<code>make</code> 负责<strong>分配并初始化底层数组/哈希桶/环形缓冲</strong>，直接返回初始化好的 <strong><code>T</code> 值本身</strong>（而非指针）。</li>
+      </ul>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:8px;">② 为什么说 Go 100% 只有【值传递（Pass-by-Value）】？</div>
+      <ul style="margin:0; padding-left:18px; font-size:13.5px; line-height:1.68;">
+        <li>传 <code>int / [4]int / struct</code>：拷贝整块数据，函数内修改与外部完全隔离。</li>
+        <li>传 <code>*T</code> 指针：拷贝的是 <strong>8 字节内存地址值</strong>，指向同一个堆/栈对象。</li>
+        <li>传 <code>slice</code>：拷贝的是 <strong>24 字节 <code>{ptr, len, cap}</code> 表头</strong>（改元素可见，扩容换底层数组外部不可见）。</li>
+        <li>传 <code>map / chan</code>：它们在底层就是指向 <code>hmap / hchan</code> 的<strong>8 字节指针包装</strong>，拷贝指针值，所以函数内增删 key 外部直接可见。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 01.5 · 包管理与 Go Modules -->
+<div class="wb-card" id="pkg" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📦 01.5 · <code>internal</code> 目录为什么外部引不了？<code>init()</code> 按什么顺序跑？</div>
+  <h3>🛠️ 01.5 Go Modules 工程结构、<code>init()</code> 初始化流与 MVS 最小版本选择算法</h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📂 go.mod &amp; 标准项目目录规范</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-mod', this)">复制配置</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-mod"><code><span class="c-cm">// 1. 标准目录边界：internal/ 受编译器强制保护，仅父目录内部可 import！</span>
+<span class="c-cm">// myapp/</span>
+<span class="c-cm">// ├── cmd/server/main.go   (入口 main 包)</span>
+<span class="c-cm">// ├── internal/order/      (私有业务包，外部仓库强行 import 直接编译报错)</span>
+<span class="c-cm">// └── pkg/httpx/           (允许外部复用的公共库)</span>
+
+<span class="c-kw">module</span> github.com/me/myapp
+
+<span class="c-kw">go</span> 1.22
+
+<span class="c-kw">require</span> (
+    github.com/gin-gonic/gin v1.9.1
+    golang.org/x/sync v0.6.0 <span class="c-cm">// indirect 传递依赖</span>
+    github.com/foo/bar/v2 v2.1.0 <span class="c-cm">// ★ v2+ 大版本模块路径必须带 /v2 后缀</span>
+)
+
+<span class="c-cm">// 本地调试或替换私有源</span>
+<span class="c-kw">replace</span> github.com/old/pkg =&gt; ../local-pkg</code></pre>
+    </div>
+
+    <div>
+      <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; margin-top:10px;">
+        <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;">🔄 包加载与 <code>init()</code> 执行铁律（深度优先）</div>
+        <div style="font-family:var(--font-mono); font-size:12px; font-weight:900; color:var(--plop-ink); background:var(--plop-sheet); padding:7px 10px; border-radius:8px; border:1.5px solid var(--plop-ink); margin-bottom:8px;">
+          递归 import 子包 → const 常量 → var 全局变量 → init() → main()
+        </div>
+        <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.6;">
+          <li>匿名导入 <code>import _ "github.com/lib/pq"</code>：仅触发该包的 <code>init()</code>（常用于注册 SQL 驱动或监控插件）。</li>
+          <li><strong>MVS（Minimal Version Selection 最小版本选择）</strong>：若包 A 依赖 <code>D &gt;= 1.1</code>，包 B 依赖 <code>D &gt;= 1.3</code>，Go 确定性地选择满足所有约束的<strong>最老版本 <code>1.3</code></strong>（而非自动拉取最新版 <code>1.9</code>），保证 100% 可重现构建。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="plop-bridge">
+  🔗 掌握了基础语法与“100% 值传递”原则后，进入 <strong>第 02 章</strong>：扒开 <code>slice / map / defer / interface / error</code> 的底层 Runtime 结构体，彻底搞懂扩容内存对齐与 <code>nil</code> 接口大坑 ➔
+</div>

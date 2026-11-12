@@ -49,48 +49,43 @@
               <strong>💡 核心认知：</strong>Redis 的性能瓶颈从来在<strong>内存容量与网络 IO</strong>，而<strong>不在 CPU</strong>——单核每秒就能跑十万级内存指令，所以命令执行用“单线程”不但不拖后腿，反而省掉了多线程加锁的一切麻烦。
             </div>
 
-            <!-- 手绘 SVG：文件事件处理器（单线程 Reactor 模型） -->
+            <!-- 大字号手账卡片图解：文件事件处理器（单线程 Reactor 模型） -->
             <h4>🔌 文件事件处理器（单线程 Reactor + epoll）</h4>
-            <svg viewBox="0 0 520 205" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:10px; margin:8px 0;" aria-label="Redis 单线程 Reactor 文件事件处理器">
-              <defs>
-                <marker id="re-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                  <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
-                </marker>
-              </defs>
-              <!-- 海量客户端 Socket -->
-              <rect x="12" y="16" width="118" height="145" rx="8" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-              <text x="71" y="36" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink)">海量并发连接</text>
-              <rect x="24" y="46" width="94" height="28" rx="6" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.5"/>
-              <text x="71" y="64" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">Socket A (可读)</text>
-              <rect x="24" y="82" width="94" height="28" rx="6" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.5"/>
-              <text x="71" y="100" text-anchor="middle" font-size="10" font-weight="700" fill="var(--plop-ink-soft)">Socket B (空闲)</text>
-              <rect x="24" y="118" width="94" height="28" rx="6" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.5"/>
-              <text x="71" y="136" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">Socket C (可写)</text>
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:12px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; align-items:stretch;">
+                <!-- 1. 海量客户端 Socket -->
+                <div style="background:var(--plop-paper); border:2px solid var(--plop-ink); border-radius:12px; padding:12px; text-align:center;">
+                  <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">① 海量并发客户端连接</div>
+                  <div style="display:grid; gap:6px; font-size:13px; font-weight:800;">
+                    <div style="background:var(--plop-periwinkle); border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px;">Socket A（可读就绪 ⚡）</div>
+                    <div style="background:var(--plop-sheet); border:1.8px dashed var(--plop-ink); border-radius:7px; padding:6px; color:var(--plop-ink-soft);">Socket B（空闲等待…）</div>
+                    <div style="background:var(--plop-periwinkle); border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px;">Socket C（可写就绪 ⚡）</div>
+                  </div>
+                </div>
 
-              <line x1="130" y1="88" x2="160" y2="88" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#re-arr)"/>
+                <!-- 2. IO 多路复用 epoll -->
+                <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px; text-align:center; display:flex; flex-direction:column; justify-content:center;">
+                  <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:6px;">② IO 多路复用（内核 epoll）</div>
+                  <div style="font-size:13px; font-weight:800; color:var(--plop-tomato);">红黑树管全量 fd · 就绪链表回调 O(1)</div>
+                  <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px; margin-top:8px; font-family:var(--font-mono); font-size:13px; font-weight:900; color:var(--plop-ink);">
+                    就绪事件队列：[ Socket A, Socket C ]
+                  </div>
+                </div>
 
-              <!-- IO 多路复用 epoll -->
-              <rect x="164" y="32" width="142" height="114" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="2"/>
-              <text x="235" y="54" text-anchor="middle" font-size="11.2" font-weight="900" fill="var(--plop-ink-text)">IO 多路复用 (epoll)</text>
-              <text x="235" y="74" text-anchor="middle" font-size="9.6" font-weight="800" fill="#D2381E">红黑树管全量 fd</text>
-              <text x="235" y="92" text-anchor="middle" font-size="9.6" font-weight="800" fill="var(--plop-ink-text)">就绪链表回调 O(1)</text>
-              <rect x="176" y="104" width="118" height="30" rx="6" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
-              <text x="235" y="123" text-anchor="middle" font-size="9.6" font-weight="800" fill="var(--plop-ink)">事件队列: [A, C]</text>
-
-              <line x1="306" y1="88" x2="336" y2="88" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#re-arr)"/>
-
-              <!-- 文件事件分派器与处理器 -->
-              <rect x="340" y="16" width="168" height="145" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2"/>
-              <text x="424" y="36" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">文件事件分派器 (单线程)</text>
-              <rect x="352" y="46" width="144" height="30" rx="6" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
-              <text x="424" y="65" text-anchor="middle" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">① 连接应答处理器 (accept)</text>
-              <rect x="352" y="83" width="144" height="30" rx="6" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
-              <text x="424" y="102" text-anchor="middle" font-size="9.8" font-weight="900" fill="#D2381E">② 命令请求处理器 (读+执行)</text>
-              <rect x="352" y="120" width="144" height="30" rx="6" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.5"/>
-              <text x="424" y="139" text-anchor="middle" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">③ 命令回复处理器 (写回)</text>
-
-              <text x="260" y="186" text-anchor="middle" font-size="9.8" font-weight="800" fill="var(--plop-ink-soft)">epoll 相比 select/poll：不用每次把全部 fd 线性扫描 O(n)，而是只交付真正就绪的 fd (O(1))</text>
-            </svg>
+                <!-- 3. 文件事件分派器与处理器 -->
+                <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px; text-align:center;">
+                  <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:8px;">③ 文件事件分派器（单线程）</div>
+                  <div style="display:grid; gap:6px; font-size:12.8px; font-weight:800;">
+                    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px;">连接应答处理器（accept 新连接）</div>
+                    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px; color:var(--plop-tomato); font-weight:900;">命令请求处理器（读命令 + 执行）</div>
+                    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px;">命令回复处理器（将结果写回）</div>
+                  </div>
+                </div>
+              </div>
+              <div style="margin-top:10px; text-align:center; font-size:13px; font-weight:800; color:var(--plop-ink-soft);">
+                💡 <strong><code>epoll</code> 相比 <code>select / poll</code>：</strong>不用每次把成千上万个 fd 线性扫描一遍 $O(N)$，而是由内核只交付真正就绪的 fd（$O(1)$ 触发）！
+              </div>
+            </div>
         </div>
 
         <!-- 02 · 线程模型演进 (4.0 bio 后台线程 & 6.0 多线程 IO)（由上到下顺序排列） -->
@@ -126,39 +121,43 @@
               </table>
             </div>
 
-            <!-- 手绘 SVG：Redis 6.0 多线程 IO 流水线 -->
-            <svg viewBox="0 0 520 198" style="width:100%; height:auto; display:block; background:var(--plop-paper); border:2px solid var(--plop-ink); border-radius:10px; margin:12px 0;" aria-label="Redis 6.0 多线程 IO 模型">
-              <rect x="12" y="16" width="152" height="132" rx="9" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="2"/>
-              <text x="88" y="38" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">① 读 Socket + 解析协议</text>
-              <rect x="24" y="48" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
-              <text x="88" y="64" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 1 (并行读)</text>
-              <rect x="24" y="78" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
-              <text x="88" y="94" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 2 (并行读)</text>
-              <rect x="24" y="108" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
-              <text x="88" y="124" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 3 (并行读)</text>
+            <!-- 大字号手账卡片图解：Redis 6.0 多线程 IO 流水线 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:12px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; align-items:stretch;">
+                <!-- 阶段 1 -->
+                <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px; text-align:center;">
+                  <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:8px;">① 读 Socket + 解析协议</div>
+                  <div style="display:grid; gap:6px; font-size:12.8px; font-weight:800; color:var(--plop-ink);">
+                    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px;">IO Thread 1（并行读）</div>
+                    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px;">IO Thread 2（并行读）</div>
+                    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px;">IO Thread 3（并行读）</div>
+                  </div>
+                </div>
 
-              <line x1="164" y1="82" x2="188" y2="82" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#re-arr)"/>
+                <!-- 阶段 2 -->
+                <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px; text-align:center; display:flex; flex-direction:column; justify-content:center;">
+                  <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:8px;">② 执行内存命令</div>
+                  <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:9px; padding:10px;">
+                    <div style="font-weight:900; font-size:14px; color:var(--plop-tomato);">主线程单线程串行执行</div>
+                    <div style="font-size:12.5px; font-weight:800; color:var(--plop-ink-text); margin-top:3px;">✅ 免加锁 · 零竞态冲突</div>
+                  </div>
+                  <div style="font-size:12.2px; font-weight:800; color:var(--plop-ink-soft); margin-top:6px;">顺序操作内存 dict / skiplist</div>
+                </div>
 
-              <rect x="192" y="16" width="136" height="132" rx="9" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-              <text x="260" y="42" text-anchor="middle" font-size="11.2" font-weight="900" fill="var(--plop-ink-text)">② 执行内存命令</text>
-              <rect x="204" y="56" width="112" height="52" rx="7" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-              <text x="260" y="78" text-anchor="middle" font-size="10.5" font-weight="900" fill="#D2381E">主线程单线程串行</text>
-              <text x="260" y="96" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink-text)">✅ 免加锁 · 零竞态</text>
-              <text x="260" y="130" text-anchor="middle" font-size="9.2" font-weight="800" fill="var(--plop-ink-soft)">操作内存 dict/skiplist</text>
-
-              <line x1="328" y1="82" x2="352" y2="82" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#re-arr)"/>
-
-              <rect x="356" y="16" width="152" height="132" rx="9" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="2"/>
-              <text x="432" y="38" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">③ 写回结果到 Socket</text>
-              <rect x="368" y="48" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
-              <text x="432" y="64" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 1 (并行写)</text>
-              <rect x="368" y="78" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
-              <text x="432" y="94" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 2 (并行写)</text>
-              <rect x="368" y="108" width="128" height="24" rx="5" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.4"/>
-              <text x="432" y="124" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">IO Thread 3 (并行写)</text>
-
-              <text x="260" y="176" text-anchor="middle" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">结论：只有阶段 ① 和 ③（读写网络 Socket）是多线程并行，阶段 ②（执行命令）始终单线程！</text>
-            </svg>
+                <!-- 阶段 3 -->
+                <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px; text-align:center;">
+                  <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:8px;">③ 写回结果到 Socket</div>
+                  <div style="display:grid; gap:6px; font-size:12.8px; font-weight:800; color:var(--plop-ink);">
+                    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px;">IO Thread 1（并行写）</div>
+                    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px;">IO Thread 2（并行写）</div>
+                    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:5px;">IO Thread 3（并行写）</div>
+                  </div>
+                </div>
+              </div>
+              <div style="margin-top:10px; text-align:center; font-size:13px; font-weight:800; color:var(--plop-ink-text);">
+                🎯 <strong>结论：</strong>只有阶段 ① 和 ③（读写网络 Socket）是多线程并行，阶段 ②（执行命令操作内存）始终单线程！
+              </div>
+            </div>
 
             <div class="plop-callout tip">
               <strong>⚙️ 生产配置细节：</strong><code>io-threads</code> 默认为 <code>1</code>（即默认关闭多线程 IO），需手动开启（官方建议 4 核以上机器再开）；且默认只多线程化<strong>写回响应</strong>，若要连<strong>读取+解析请求</strong>也开启多线程，需额外配置 <code>io-threads-do-reads yes</code>。

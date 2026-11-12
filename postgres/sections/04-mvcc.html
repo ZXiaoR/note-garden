@@ -1,0 +1,297 @@
+<!-- ====================================================================
+             PART 04: 事务、堆表 MVCC (xmin/xmax)、隔离级别与并发锁机制
+             ==================================================================== -->
+        <div class="wb-sec-header" id="trx">
+          <span class="wb-sec-num">04</span>
+          <span class="wb-sec-title">事务、MVCC 与锁机制 · 堆表多版本 (xmin/xmax)、SSI 隔离级别与行锁</span>
+          <span class="plop-tag mustard">HEAP MVCC · XMIN/XMAX · SSI · SKIP LOCKED</span>
+        </div>
+
+        <!-- 04.1 ACID 与 PG 堆表 MVCC 底层机制 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;" id="mvcc">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 04.1 · 为什么 PostgreSQL 更新一行数据时“不改原地，而是直接再插一行新版本”？它的 MVCC 和 MySQL 到底差在哪？</div>
+          <h3>🧬 04.1 核心必考：PostgreSQL 堆表多版本并发控制（Append-Only MVCC）</h3>
+          <p>
+            MVCC（Multi-Version Concurrency Control）的核心目标是实现<strong>“读不阻塞写，写不阻塞读”</strong>。与 MySQL InnoDB 将旧版本剥离到独立的 <code>Undo Log</code> 不同，<strong>PostgreSQL 直接把同一行数据的多个历史版本并排存放在主数据表（Heap Table 8KB 数据页）里</strong>，每个元组（Tuple）头部自带以下关键隐藏系统列（你可以直接 <code>SELECT ctid, xmin, xmax, * FROM account;</code> 看到它们！）：
+          </p>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:16%;">隐藏系统列</th>
+                  <th style="width:26%;">物理含义</th>
+                  <th>在 INSERT / UPDATE / DELETE 中的状态变化</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>ctid</code></td>
+                  <td><strong>物理坐标 <code>(页号, 页内槽位号)</code></strong></td>
+                  <td>例如 <code>(0, 1)</code> 代表第 0 号 8KB 页的第 1 条记录。<strong>注意：只要发生非原地更新，这行的 <code>ctid</code> 就会改变！</strong>旧版本的头部指针 <code>t_ctid</code> 会指向新版本的 <code>ctid</code> 形成版本链。</td>
+                </tr>
+                <tr>
+                  <td><code>xmin</code></td>
+                  <td><strong>创建该版本的事务 ID (XID)</strong></td>
+                  <td>事务 <code>100</code> 执行 <code>INSERT</code> 时，新元组的 <code>xmin = 100</code>。</td>
+                </tr>
+                <tr>
+                  <td><code>xmax</code></td>
+                  <td><strong>删除/更新使该版本失效的事务 ID</strong></td>
+                  <td>当前最新有效行 <code>xmax = 0</code>；当事务 <code>105</code> 执行 <code>DELETE</code> 时，把该行 <code>xmax</code> 设为 <code>105</code>；当事务 <code>105</code> 执行 <code>UPDATE</code> 时，<strong>把旧版本 <code>xmax</code> 设为 <code>105</code>，同时插入一条 <code>xmin = 105, xmax = 0</code> 的新版本元组！</strong></td>
+                </tr>
+                <tr>
+                  <td><code>t_infomask</code><br>(Hint Bits)</td>
+                  <td><strong>事务提交状态提示位</strong></td>
+                  <td>判断 <code>xmin/xmax</code> 对应事务是已提交还是已回滚，本来要查全局提交日志 <code>pg_xact (CLOG)</code>；第一个查完 CLOG 的会话会顺手把结果标在元组头的 <strong>Hint Bits</strong> 上，后续查询直接看元组头即可，免去反复查 CLOG！</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 手绘 SVG：PG 堆表内多版本链 (xmin/xmax/ctid) vs 快照可见性图解 -->
+          <svg viewBox="0 0 880 285" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="PostgreSQL 堆表 MVCC xmin xmax 版本链图解">
+            <defs>
+              <marker id="mv-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="#D2381E" stroke="#D2381E" stroke-linejoin="round"/>
+              </marker>
+            </defs>
+
+            <rect x="14" y="14" width="852" height="257" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.3"/>
+            <text x="440" y="38" text-anchor="middle" font-size="13" font-weight="900" fill="var(--plop-ink)">📄 8KB 堆表数据页 (Heap Page #0) · 同一行 id=1 经历两次 UPDATE 后的物理存储状态</text>
+
+            <!-- 版本 V1 -->
+            <rect x="28" y="54" width="252" height="122" rx="10" fill="#FFF6F4" stroke="#D2381E" stroke-width="2" stroke-dasharray="5 3"/>
+            <rect x="38" y="64" width="232" height="24" rx="6" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="154" y="80" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">💀 版本 V1 (死元组 Dead Tuple)</text>
+            <text x="44" y="104" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 物理坐标: ctid = (0, 1)</text>
+            <text x="44" y="122" font-size="10.5" font-weight="900" fill="var(--plop-ink)">• xmin = 100 (由 T100 插入)</text>
+            <text x="44" y="140" font-size="10.5" font-weight="900" fill="#D2381E">• xmax = 105 (被 T105 改掉失效)</text>
+            <text x="44" y="160" font-size="10.5" font-weight="800" fill="var(--plop-ink-soft)">• 数据: id=1, bal=1000  |  t_ctid➔(0,2)</text>
+
+            <path d="M280 115 L312 115" stroke="#D2381E" stroke-width="2.4" marker-end="url(#mv-arr)"/>
+
+            <!-- 版本 V2 -->
+            <rect x="316" y="54" width="252" height="122" rx="10" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="2"/>
+            <rect x="326" y="64" width="232" height="24" rx="6" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="442" y="80" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-ink-text)">⏳ 版本 V2 (旧版本 · 供老快照读)</text>
+            <text x="332" y="104" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 物理坐标: ctid = (0, 2)</text>
+            <text x="332" y="122" font-size="10.5" font-weight="900" fill="var(--plop-ink)">• xmin = 105 (由 T105 更新产生)</text>
+            <text x="332" y="140" font-size="10.5" font-weight="900" fill="#D2381E">• xmax = 108 (被 T108 改掉)</text>
+            <text x="332" y="160" font-size="10.5" font-weight="800" fill="var(--plop-ink-soft)">• 数据: id=1, bal=900   |  t_ctid➔(0,3)</text>
+
+            <path d="M568 115 L600 115" stroke="#D2381E" stroke-width="2.4" marker-end="url(#mv-arr)"/>
+
+            <!-- 版本 V3 -->
+            <rect x="604" y="54" width="248" height="122" rx="10" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2.3"/>
+            <rect x="614" y="64" width="228" height="24" rx="6" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="728" y="80" text-anchor="middle" font-size="10.8" font-weight="900" fill="var(--plop-leaf)">✅ 版本 V3 (当前最新活元组 Live)</text>
+            <text x="620" y="104" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 物理坐标: ctid = (0, 3)</text>
+            <text x="620" y="122" font-size="10.5" font-weight="900" fill="var(--plop-ink)">• xmin = 108 (由 T108 更新产生)</text>
+            <text x="620" y="140" font-size="10.5" font-weight="900" fill="var(--plop-leaf)">• xmax = 0 (当前有效，未被覆盖)</text>
+            <text x="620" y="160" font-size="10.5" font-weight="900" fill="var(--plop-ink-text)">• 数据: id=1, bal=800   |  t_ctid➔(0,3)</text>
+
+            <!-- 底部：快照可见性判定说明 -->
+            <rect x="28" y="190" width="824" height="66" rx="9" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="44" y="212" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🔍 快照 (Snapshot) 可见性标尺：</text>
+            <text x="44" y="230" font-size="10.3" font-weight="700" fill="var(--plop-ink-text)">• 若老事务 T106 的快照只能看到 &lt;108 的已提交事务 ➔ V1 的 xmax=105 已提交(不可见)，V2 的 xmin=105 已提交且 xmax=108 对它不可见 ➔ 读到 V2 (bal=900)</text>
+            <text x="44" y="247" font-size="10.3" font-weight="800" fill="#D2381E">• 当所有活跃事务快照都已经 &gt;108 时，V1 与 V2 对全世界都不再可见，彻底沦为「死元组 (Dead Tuple)」，等待 VACUUM 回收空间！</text>
+          </svg>
+
+          <div class="plop-callout warn">
+            <strong>⚖️ 架构权衡：PG 堆表追加写 MVCC 的优缺点</strong>
+            <ul style="margin:6px 0 0; padding-left:18px;">
+              <li><strong>两大优势：</strong>① <strong>无论多大的事务，<code>ROLLBACK</code> 回滚都是瞬间完成的</strong>（只需在 <code>pg_xact</code> 里把该事务 ID 标为 <code>ABORTED</code>，无需像 MySQL 那样逐行重放 Undo Log）；② 不会发生 Undo Log 撑爆回滚段的问题。</li>
+              <li><strong>两大代价：</strong>① <strong>表膨胀（Table Bloat）</strong>：高频 <code>UPDATE/DELETE</code> 的表会在数据页里堆积大量死元组，必须依靠 <code>VACUUM / autovacuum</code> 及时清理；② 若更新修改了索引列（未能触发同页 <code>HOT</code> 优化），则该表上的<strong>所有索引都要追加一条指向新 <code>ctid</code> 的索引项</strong>，写放大比 InnoDB 更明显。</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 04.2 四种隔离级别、SSI 与写写冲突 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;" id="isolation">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 04.2 · 为什么说 PG 的 Repeatable Read 连幻读都防住了？更新同一行时 RC 和 RR 的行为有什么不同？</div>
+          <h3>🛡️ 04.2 四种事务隔离级别、SSI 可串行化快照与写写冲突</h3>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%;">隔离级别</th>
+                  <th style="width:12%;">脏读</th>
+                  <th style="width:14%;">不可重复读</th>
+                  <th style="width:12%;">幻读</th>
+                  <th style="width:14%;">序列化异常</th>
+                  <th>PG 底层实现机制</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Read Uncommitted</strong></td>
+                  <td>❌ <strong>不会</strong></td>
+                  <td>可能</td>
+                  <td>可能</td>
+                  <td>可能</td>
+                  <td>PG 中直接映射为 <code>Read Committed</code>，<strong>从根本上不存在脏读</strong>。</td>
+                </tr>
+                <tr>
+                  <td><strong>⭐ Read Committed</strong><br>（PG 默认级别）</td>
+                  <td>❌ 不会</td>
+                  <td>可能</td>
+                  <td>可能</td>
+                  <td>可能</td>
+                  <td><strong>语句级快照（Statement-level Snapshot）</strong>：事务内每条 SQL 开始执行时重新获取一次最新快照。</td>
+                </tr>
+                <tr>
+                  <td><strong>Repeatable Read</strong></td>
+                  <td>❌ 不会</td>
+                  <td>❌ 不会</td>
+                  <td>❌ <strong>不会*</strong></td>
+                  <td>可能（写偏序）</td>
+                  <td><strong>事务级快照（Transaction-level Snapshot）</strong>：事务第一条语句执行时固定快照，全程只看这一刻之前已提交的数据，<strong>不用加间隙锁就天然防住了幻读！</strong></td>
+                </tr>
+                <tr>
+                  <td><strong>Serializable</strong></td>
+                  <td>❌ 不会</td>
+                  <td>❌ 不会</td>
+                  <td>❌ 不会</td>
+                  <td>❌ 不会</td>
+                  <td><strong>SSI（可串行化快照隔离）</strong>：在事务级快照基础上加轻量级 <code>SIREAD</code> 谓词锁跟踪读写依赖环（<code>rw-antidependency</code>），发现危险环则回滚其一。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="wb-grid-2" style="margin-top:12px;">
+            <div class="plop-callout info" style="margin:0;">
+              <strong>🔥 面试高频：两个并发事务同时 <code>UPDATE</code> 同一行会怎样？（First-Updater-Wins）</strong><br>
+              假设事务 A 已执行 <code>UPDATE account SET bal = bal - 100 WHERE id = 1;</code> 但尚未提交，此时事务 B 也来更新 <code>id = 1</code>：
+              <ol style="margin:6px 0 0; padding-left:18px;">
+                <li>事务 B 会因为等待事务 A 的行锁而<strong>阻塞</strong>。</li>
+                <li>若事务 A 回滚，事务 B 立即拿到锁继续更新。</li>
+                <li><strong>若事务 A 提交：</strong>
+                  <ul>
+                    <li>在默认 <strong>Read Committed (RC)</strong> 下：事务 B 顺着 <code>ctid</code> 链找到 A 刚提交的最新版本行，重新评估 <code>WHERE</code> 条件，若仍满足则基于新行继续更新（不报错）。</li>
+                    <li>在 <strong>Repeatable Read (RR) / Serializable</strong> 下：为了防止丢失更新（Lost Update），PG <strong>立刻中断事务 B 并抛出错误</strong>：<code>ERROR: could not serialize access due to concurrent update</code>，要求客户端捕获异常并重试整个事务！</li>
+                  </ul>
+                </li>
+              </ol>
+            </div>
+
+            <div class="plop-code-box" style="margin:0;">
+              <div class="plop-code-head">
+                <span>🐘 transaction_and_savepoint.sql</span>
+              </div>
+              <pre class="plop-code-pre"><code><span class="c-cmt">-- 1. 显式指定隔离级别开启事务</span>
+<span class="c-kw">BEGIN ISOLATION LEVEL</span> REPEATABLE READ;
+  <span class="c-kw">UPDATE</span> account <span class="c-kw">SET</span> bal = bal - 100 <span class="c-kw">WHERE</span> id = 1;
+
+  <span class="c-cmt">-- 2. 保存点 (Savepoint)：支持局部回滚（子事务 Subtransaction）</span>
+  <span class="c-kw">SAVEPOINT</span> sp_bonus;
+  <span class="c-kw">UPDATE</span> account <span class="c-kw">SET</span> bal = bal + 50 <span class="c-kw">WHERE</span> id = 2;
+  <span class="c-kw">ROLLBACK TO SAVEPOINT</span> sp_bonus; <span class="c-cmt">-- 仅撤销上一句，事务继续有效</span>
+<span class="c-kw">COMMIT</span>;
+
+<span class="c-cmt">-- ⚠️ 注意：PG 中只要事务内任意一条 SQL 报错，整个事务即进入</span>
+<span class="c-cmt">-- ABORTED 状态（后续任何 SQL 均报 current transaction is aborted），</span>
+<span class="c-cmt">-- 除非提前打了 SAVEPOINT，否则必须 ROLLBACK！</span></code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- 04.3 行级锁、SKIP LOCKED 抢单队列与表锁/死锁 -->
+        <div class="wb-card" style="background:var(--plop-paper);" id="lock">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 04.3 · 为什么 PG 锁住 100 万行也不会撑爆内存锁表？如何用 FOR UPDATE SKIP LOCKED 写出高并发任务抢单队列？</div>
+          <h3>🔐 04.3 行级锁四模式、<code>SKIP LOCKED</code> 任务队列、表锁与死锁</h3>
+          <p>
+            PostgreSQL 的行级锁有一个极其精妙的设计：<strong>行锁并不存在共享内存的全局锁表里，而是直接把加锁事务 ID 写进磁盘/缓冲池数据行头部的 <code>xmax</code> + <code>infomask</code> 标记位中！</strong>这意味着即使一个事务锁住 1000 万行，也不会像其他数据库那样发生“锁升级（Lock Escalation）”或撑爆内存锁表。
+          </p>
+
+          <div class="wb-grid-2">
+            <div>
+              <h4>1. 显式行锁语法与并发抢单选项</h4>
+              <div class="table-wrap">
+                <table class="plop-table">
+                  <thead>
+                    <tr>
+                      <th>行锁语法</th>
+                      <th>锁强度与适用场景</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>FOR UPDATE</code></td>
+                      <td><strong>最强排他行锁</strong>：阻塞其他事务的 <code>UPDATE / DELETE / FOR UPDATE / FOR SHARE</code>。用于先查后改防并发覆盖。</td>
+                    </tr>
+                    <tr>
+                      <td><code>FOR NO KEY UPDATE</code></td>
+                      <td><strong>非主键排他锁</strong>：<code>UPDATE</code> 未改主键/唯一键时自动加此锁，允许子表外键检查的 <code>FOR KEY SHARE</code> 并发通过！</td>
+                    </tr>
+                    <tr>
+                      <td><code>FOR SHARE</code> / <code>FOR KEY SHARE</code></td>
+                      <td><strong>共享行锁</strong>：多个会话可同时持有，阻止别人修改或删除该行。</td>
+                    </tr>
+                    <tr>
+                      <td>⭐ <code>FOR UPDATE SKIP LOCKED</code></td>
+                      <td><strong>跳过已锁定的行，绝不阻塞等待</strong>：多个 Worker 并发从表中抢待处理任务的神器！</td>
+                    </tr>
+                    <tr>
+                      <td><code>FOR UPDATE NOWAIT</code></td>
+                      <td>若目标行已被锁，不等待、<strong>立即抛错返回</strong>，避免连接堆积。</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <h4>2. 经典实战：基于 <code>SKIP LOCKED</code> 的高并发抢单/任务出队</h4>
+              <div class="plop-code-box">
+                <div class="plop-code-head">
+                  <span>🐘 skip_locked_queue.sql · 并发安全抢任务</span>
+                  <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-skip-locked', this)">复制 SQL</button>
+                </div>
+                <pre class="plop-code-pre" id="pg-skip-locked"><code><span class="c-cmt">-- 多个 Worker 并发执行：锁住 1 条未被别人锁住的 pending 任务，</span>
+<span class="c-cmt">-- 原子改为 running 并直接返回任务详情（吞吐量极高且零冲突等待）</span>
+<span class="c-kw">UPDATE</span> job_queue
+<span class="c-kw">SET</span> status = <span class="c-str">'running'</span>,
+    worker_id = <span class="c-str">'worker-01'</span>,
+    started_at = now()
+<span class="c-kw">WHERE</span> id = (
+  <span class="c-kw">SELECT</span> id <span class="c-kw">FROM</span> job_queue
+  <span class="c-kw">WHERE</span> status = <span class="c-str">'pending'</span>
+  <span class="c-kw">ORDER BY</span> priority <span class="c-kw">DESC</span>, created_at <span class="c-kw">ASC</span>
+  <span class="c-kw">FOR UPDATE SKIP LOCKED</span>
+  <span class="c-kw">LIMIT</span> 1
+)
+<span class="c-kw">RETURNING</span> *;</code></pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="wb-grid-2" style="margin-top:12px;">
+            <div class="plop-callout warn" style="margin:0;">
+              <strong>⚠️ 表级锁与死锁（Deadlock）排查：</strong><br>
+              • <strong>表级锁最高等级 <code>ACCESS EXCLUSIVE</code>：</strong>由 <code>DROP TABLE</code>、<code>TRUNCATE</code>、<code>VACUUM FULL</code>、改列类型触发，<strong>连普通 <code>SELECT</code> 都会被阻塞</strong>！<br>
+              • <strong>死锁检测：</strong>当事务等待锁超过 <code>deadlock_timeout</code>（默认 <code>1s</code>）时，PG 才启动等待图环路检测（因为平时没阻塞没必要耗 CPU 检环），发现死锁环则自动回滚其中一个事务并报错 <code>ERROR: deadlock detected</code>。<br>
+              • <strong>防死锁三铁律：</strong>① 批量更新按主键升序排序（<code>ORDER BY id</code>）再加锁；② 保持小事务，严禁在事务内夹杂外部 RPC 调用；③ 并发低冲突场景优先用乐观锁（<code>UPDATE t SET val=..., ver=ver+1 WHERE id=1 AND ver=3</code>）。
+            </div>
+
+            <div class="plop-code-box" style="margin:0;">
+              <div class="plop-code-head">
+                <span>🔎 线上锁等待与阻塞源头一键排查 SQL</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-lock-inspect', this)">复制 SQL</button>
+              </div>
+              <pre class="plop-code-pre" id="pg-lock-inspect"><code><span class="c-cmt">-- 一键查出“谁阻塞了谁”以及双方正在执行的 SQL</span>
+<span class="c-kw">SELECT</span>
+  blocked.pid <span class="c-kw">AS</span> blocked_pid,
+  blocked.query <span class="c-kw">AS</span> blocked_sql,
+  <span class="c-fn">pg_blocking_pids</span>(blocked.pid) <span class="c-kw">AS</span> blocker_pids,
+  now() - blocked.query_start <span class="c-kw">AS</span> wait_duration
+<span class="c-kw">FROM</span> pg_stat_activity blocked
+<span class="c-kw">WHERE</span> <span class="c-fn">cardinality</span>(<span class="c-fn">pg_blocking_pids</span>(blocked.pid)) &gt; 0;</code></pre>
+            </div>
+          </div>
+        </div>

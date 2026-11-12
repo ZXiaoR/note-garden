@@ -1,0 +1,338 @@
+<!-- ====================================================================
+     PART 02: 核心内置类型底层解剖 · slice / map / defer / interface / error
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="slice">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">核心内置类型底层解剖 · slice / map / defer / interface / error</span>
+  <span class="plop-tag tomato">RUNTIME MEMORY LAYOUT · 必考核心</span>
+</div>
+
+<!-- 02.1 · Slice 切片底层、扩容两步法与内存对齐 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">📐 02.1 · 为什么 <code>append([]int{1, 2}, 3, 4, 5)</code> 的最终 <code>cap</code> 是 6 而不是 4 或 5？</div>
+  <h3>🔪 02.1 <code>slice</code> 切片：24 字节描述符、1.18 平滑扩容与 TCMalloc 内存对齐取整</h3>
+  <p>
+    固定长度数组 <code>[4]int</code> 是纯值类型（传参整块拷贝 32B）；而日常使用的 <strong><code>[]int</code> 切片（Slice）</strong>本质上只是一个指向底层连续数组的<strong>24 字节轻量级视图表头（<code>runtime.slice { array unsafe.Pointer, len int, cap int }</code>）</strong>：
+  </p>
+
+  <!-- 手绘 SVG：Slice 24B 表头 + 子切片共享底层与三索引切片 -->
+  <svg viewBox="0 0 940 230" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Go slice 底层内存布局手绘图">
+    <rect x="8" y="8" width="924" height="214" rx="12" fill="#FFFDF7" stroke="var(--plop-ink)" stroke-width="2"/>
+
+    <!-- 左侧 slice a 表头 -->
+    <g transform="translate(24, 24)">
+      <rect x="0" y="0" width="215" height="82" rx="8" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="12" y="20" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="12" font-weight="900">a := []int{10, 20, 30, 40}</text>
+      <rect x="12" y="28" width="60" height="42" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="42" y="45" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">array*</text>
+      <text x="42" y="61" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">8B 指针</text>
+
+      <rect x="77" y="28" width="60" height="42" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="107" y="45" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">len = 4</text>
+      <text x="107" y="61" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">8B 长度</text>
+
+      <rect x="142" y="28" width="60" height="42" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="172" y="45" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">cap = 4</text>
+      <text x="172" y="61" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">8B 容量</text>
+    </g>
+
+    <!-- 左侧 slice b 表头 -->
+    <g transform="translate(24, 122)">
+      <rect x="0" y="0" width="215" height="82" rx="8" fill="#FFF3E0" stroke="#D2381E" stroke-width="2"/>
+      <text x="12" y="20" fill="#D2381E" font-family="var(--font-mono)" font-size="12" font-weight="900">b := a[1:3] (共享底层!)</text>
+      <rect x="12" y="28" width="60" height="42" rx="5" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.6"/>
+      <text x="42" y="45" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">array*</text>
+      <text x="42" y="61" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">指向 [1]</text>
+
+      <rect x="77" y="28" width="60" height="42" rx="5" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.6"/>
+      <text x="107" y="45" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">len = 2</text>
+      <text x="107" y="61" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">可见 2 个</text>
+
+      <rect x="142" y="28" width="60" height="42" rx="5" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.6"/>
+      <text x="172" y="45" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">cap = 3</text>
+      <text x="172" y="61" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">从[1]到尾</text>
+    </g>
+
+    <!-- 底层连续数组 -->
+    <g transform="translate(310, 48)">
+      <text x="0" y="-10" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="12.5" font-weight="900">堆/栈上的底层连续数组 [4]int （共 32 Bytes）</text>
+      <rect x="0" y="0" width="95" height="68" rx="6" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="47" y="26" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="11">idx [0]</text>
+      <text x="47" y="50" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="17" font-weight="900">10</text>
+
+      <rect x="95" y="0" width="95" height="68" rx="6" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="142" y="26" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="800">idx [1] (b[0])</text>
+      <text x="142" y="50" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="17" font-weight="900">20</text>
+
+      <rect x="190" y="0" width="95" height="68" rx="6" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="237" y="26" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="800">idx [2] (b[1])</text>
+      <text x="237" y="50" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="17" font-weight="900">30</text>
+
+      <rect x="285" y="0" width="95" height="68" rx="6" fill="#FFE8E5" stroke="#D2381E" stroke-width="2.2" stroke-dasharray="5 3"/>
+      <text x="332" y="24" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.5" font-weight="900">idx [3] (a[3])</text>
+      <text x="332" y="48" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="14.5" font-weight="900">40 → 被篡改!</text>
+      <text x="332" y="62" text-anchor="middle" fill="#D2381E" font-size="10">append(b, 99) 写这里</text>
+
+      <rect x="0" y="88" width="600" height="62" rx="8" fill="#E9F9F1" stroke="#1F8A65" stroke-width="1.8"/>
+      <text x="14" y="110" fill="#1F8A65" font-family="var(--font-mono)" font-size="12" font-weight="900">★ 防篡改武器：三索引切片 Full Slice Expression —— b := a[1:3:3]</text>
+      <text x="14" y="132" fill="var(--plop-ink-text)" font-size="11.5" font-weight="700">语法 a[low:high:max] 限定 cap = max - low = 2，此时 append(b, 99) 必触发扩容分配新数组，绝不污染 a[3]！</text>
+    </g>
+
+    <!-- 指针连线 -->
+    <path d="M 80 65 C 190 65, 250 75, 308 75" fill="none" stroke="var(--plop-ink)" stroke-width="2.2"/>
+    <polygon points="310,75 301,70 301,80" fill="var(--plop-ink)"/>
+
+    <path d="M 80 165 C 210 165, 360 145, 435 120" fill="none" stroke="#D2381E" stroke-width="2.2" stroke-dasharray="4 3"/>
+    <polygon points="440,117 430,117 434,126" fill="#D2381E"/>
+  </svg>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🔥 runtime/slice.go · 真实扩容两步曲（含内存对齐取整）</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-grow', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-slice-grow"><code><span class="c-cm">// 面试真题：为什么下面输出 cap=6 而不是 4 或 5？</span>
+s := []<span class="c-fn">int</span>{1, 2}       <span class="c-cm">// oldLen=2, oldCap=2</span>
+s = <span class="c-fn">append</span>(s, 3, 4, 5) <span class="c-cm">// 期望 newLen=5</span>
+
+<span class="c-cm">// 【第①步：预估容量 nextslicecap (Go 1.18+)】</span>
+<span class="c-cm">// 1. 若 newLen &gt; 2*oldCap (5 &gt; 4)：直接令 newcap = newLen = 5</span>
+<span class="c-cm">// 2. 若 oldCap &lt; 256：newcap = 2 * oldCap（翻倍）</span>
+<span class="c-cm">// 3. 若 oldCap &gt;= 256：循环 newcap += (newcap + 3*256) &gt;&gt; 2</span>
+<span class="c-cm">//    (即 1.25*newcap + 192，从 2.0x 平滑过渡到 1.25x)</span>
+
+<span class="c-cm">// 【第②步：TCMalloc 内存规格向上对齐 roundupsize (★决定最终 cap)】</span>
+<span class="c-cm">// 所需字节 = newcap * 8B = 5 * 8 = 40 Bytes</span>
+<span class="c-cm">// 查规格表 [8, 16, 24, 32, 48, 64...] → 40B 向上对齐到 48B</span>
+<span class="c-cm">// 最终真实容量 cap = 48B / 8B = 6！</span></code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚠️ slice_traps.go · nil 切片 vs 空切片 &amp; 大切片内存泄漏</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-trap', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-slice-trap"><code><span class="c-cm">// 1. nil 切片 vs 空切片（JSON 序列化行为不同！）</span>
+<span class="c-kw">var</span> s1 []<span class="c-fn">int</span>         <span class="c-cm">// nil 切片 (ptr=nil)     → JSON: null</span>
+s2 := []<span class="c-fn">int</span>{}        <span class="c-cm">// 空切片 (ptr=zerobase)  → JSON: []</span>
+s3 := <span class="c-fn">make</span>([]<span class="c-fn">int</span>, 0) <span class="c-cm">// 空切片 (ptr=zerobase)  → JSON: []</span>
+
+<span class="c-cm">// 2. 大切片截取小片段导致 10MB 底层数组无法被 GC 回收！</span>
+<span class="c-kw">func</span> <span class="c-fn">readHeader</span>(huge10MB []<span class="c-fn">byte</span>) []<span class="c-fn">byte</span> {
+    <span class="c-cm">// ❌ 错误：直接 return huge10MB[:16] 会钉死整块 10MB 数组</span>
+    <span class="c-cm">// ✅ 正确：拷贝出独立的 16 字节新切片，释放大数组</span>
+    <span class="c-kw">return</span> bytes.<span class="c-fn">Clone</span>(huge10MB[:16])
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 02.2 · Map 哈希表底层、双模扩容与 Go 1.24 Swiss Table -->
+<div class="wb-card" id="map" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🗂️ 02.2 · <code>map</code> 的桶里为什么把 8 个 Key 和 8 个 Value 分开存？Go 1.24 又改了什么？</div>
+  <h3>🧭 02.2 <code>map</code> 哈希表：<code>hmap + bmap</code>、翻倍/等量渐进扩容与 Go 1.24 Swiss Table</h3>
+  <p>
+    Go 的 <code>map</code> 底层是指向 <code>runtime.hmap</code> 的指针。在 Go 1.0~1.23 中采用<strong>拉链法变体（每个桶 <code>bmap</code> 装 8 对 KV + 溢出桶链表）</strong>；而在 <strong>Go 1.24+</strong> 中正式升级为基于开放寻址与位运算加速的 <strong>Swiss Table（<code>runtime/maps</code>）</strong>：
+  </p>
+
+  <!-- 手绘 SVG：hmap + bmap 内存布局 -->
+  <svg viewBox="0 0 940 250" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Go map hmap 与 bmap 结构手绘图">
+    <rect x="8" y="8" width="924" height="234" rx="12" fill="#FFFDF7" stroke="var(--plop-ink)" stroke-width="2"/>
+
+    <!-- 左侧 hmap -->
+    <g transform="translate(22, 22)">
+      <rect x="0" y="0" width="230" height="205" rx="8" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="210" height="26" rx="5" fill="var(--plop-ink)"/>
+      <text x="115" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="12" font-weight="900">runtime.hmap (描述符)</text>
+
+      <text x="14" y="55" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.5" font-weight="800">count: 18 <tspan fill="var(--plop-ink-soft)">(len(m) 元素个数)</tspan></text>
+      <text x="14" y="75" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">flags: hashWriting <tspan fill="var(--plop-ink-soft)">(并发写检测)</tspan></text>
+      <text x="14" y="95" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.5" font-weight="800">B: 2 <tspan fill="var(--plop-ink-soft)">(桶数 = 2^B = 4 个)</tspan></text>
+      <text x="14" y="115" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.5" font-weight="800">hash0: 0x9f3a... <tspan fill="var(--plop-ink-soft)">(随机哈希种子)</tspan></text>
+      <text x="14" y="135" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">buckets: *[2^B]bmap <tspan fill="var(--plop-ink-soft)">(现役桶数组)</tspan></text>
+      <text x="14" y="155" fill="#1F8A65" font-family="var(--font-mono)" font-size="11.5" font-weight="900">oldbuckets <tspan fill="var(--plop-ink-soft)">(扩容中指向旧桶)</tspan></text>
+      <text x="14" y="175" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.5" font-weight="800">nevacuate <tspan fill="var(--plop-ink-soft)">(渐进搬迁进度下标)</tspan></text>
+      <text x="14" y="195" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.5" font-weight="800">noverflow <tspan fill="var(--plop-ink-soft)">(溢出桶近似计数)</tspan></text>
+    </g>
+
+    <!-- 中部 Hash 切分与桶数组 -->
+    <g transform="translate(285, 22)">
+      <rect x="0" y="0" width="230" height="72" rx="8" fill="#FFF6E5" stroke="#D2381E" stroke-width="1.8"/>
+      <text x="12" y="20" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">64-bit Hash(key, hash0) 切分：</text>
+      <rect x="12" y="28" width="95" height="32" rx="4" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.5"/>
+      <text x="59" y="48" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">高 8 位: tophash</text>
+      <rect x="115" y="28" width="103" height="32" rx="4" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="166" y="48" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">低 B 位: 选桶号</text>
+
+      <!-- buckets 数组 -->
+      <rect x="0" y="88" width="230" height="117" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="12" y="108" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">buckets 连续数组 (len = 2^B)</text>
+      <rect x="12" y="116" width="206" height="24" rx="4" fill="#EEF3FF" stroke="var(--plop-ink)"/>
+      <text x="20" y="132" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11" font-weight="800">bucket[0]</text>
+      <rect x="12" y="144" width="206" height="24" rx="4" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.8"/>
+      <text x="20" y="160" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">bucket[1] (低 B 位命中!) →</text>
+      <rect x="12" y="172" width="206" height="24" rx="4" fill="#EEF3FF" stroke="var(--plop-ink)"/>
+      <text x="20" y="188" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11" font-weight="800">bucket[2..2^B-1]</text>
+    </g>
+
+    <!-- 右侧单个 bmap 内部解剖 -->
+    <g transform="translate(545, 22)">
+      <rect x="0" y="0" width="370" height="205" rx="8" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
+      <rect x="10" y="10" width="350" height="26" rx="5" fill="#1F8A65"/>
+      <text x="185" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="12" font-weight="900">单个桶 bmap 内部布局 (容量 = 8 个槽位)</text>
+
+      <rect x="12" y="44" width="346" height="32" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="18" y="64" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">tophash[8]：</text>
+      <text x="108" y="64" fill="var(--plop-ink-text)" font-size="11" font-weight="700">先比对高 8 位指纹，不等直接跳过 key 比较</text>
+
+      <rect x="12" y="84" width="168" height="44" rx="5" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="96" y="103" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">keys: [k0, k1 ... k7]</text>
+      <text x="96" y="120" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">8 个 Key 紧挨着存</text>
+
+      <rect x="190" y="84" width="168" height="44" rx="5" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="274" y="103" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11.5" font-weight="900">elems: [v0, v1 ... v7]</text>
+      <text x="274" y="120" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">8 个 Value 紧挨着存</text>
+
+      <rect x="12" y="136" width="346" height="30" rx="5" fill="#FFFFFF" stroke="#1F8A65" stroke-width="1.4"/>
+      <text x="18" y="155" fill="var(--plop-ink-text)" font-size="10.8" font-weight="700">★ 为什么分离排？如 map[int64]int8 交错排每对补 7B，分离省 56B！</text>
+
+      <rect x="12" y="172" width="346" height="24" rx="5" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.5"/>
+      <text x="20" y="188" fill="#D2381E" font-family="var(--font-mono)" font-size="11.2" font-weight="900">overflow *bmap ──► 满 8 个后挂接溢出桶链表</text>
+    </g>
+  </svg>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">核心机制 / 陷阱</th>
+          <th>底层根因与面试标准回答</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 翻倍扩容 vs 等量扩容</strong></td>
+          <td>• <strong>翻倍扩容（<code>B → B+1</code>）</strong>：当负载因子 <code>count / 2^B &gt; 6.5</code> 时触发，旧桶按第 <code>B+1</code> 位 bit 分流到 X/Y 两个新桶。<br>• <strong>等量扩容（<code>sameSizeGrow</code>，<code>B</code> 不变）</strong>：负载因子未超 6.5，但溢出桶过多（<code>noverflow &gt;= 2^min(B,15)</code>，因大量增删导致空洞碎片），原地紧凑重排斩断长溢出链。</td>
+        </tr>
+        <tr>
+          <td><strong>② 渐进式驱逐搬迁</strong></td>
+          <td>绝不一次性搬完所有桶：每次执行写或删操作时<strong>顺带搬迁 1~2 个旧桶</strong>，分摊延迟毛刺；扩容期间读操作先查新桶，未搬完则去 <code>oldbuckets</code> 查。</td>
+        </tr>
+        <tr>
+          <td><strong>③ Go 1.24+ Swiss Table</strong></td>
+          <td>Go 1.24 将底层更换为 <strong>Swiss Table</strong>（开放寻址 + 每组 8 槽配备 64-bit <code>ctrl</code> 控制字，用位运算单指令并行比对 8 个哈希指纹），消除溢出桶指针，综合提速 20%~50%。</td>
+        </tr>
+        <tr>
+          <td><strong>④ 四大必背陷阱</strong></td>
+          <td>1. 向 <code>nil map</code> 读返回零值，<strong>写直接 panic</strong>；2. <strong>不可取地址 <code>&amp;m[k]</code></strong>（扩容后地址会变，且不能直接写 <code>m[k].Field = x</code>）；3. 遍历起点每次<strong>随机化</strong>；4. 并发读写触发 <code>fatal("concurrent map writes")</code>，<strong>无法被 <code>recover()</code> 捕获！</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 02.3 · defer / panic / recover -->
+<div class="wb-card" id="defer" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">⏱️ 02.3 · <code>defer</code> 为什么能改命名返回值？Go 1.14 又是怎么把 <code>defer</code> 提速 20 倍的？</div>
+  <h3>🪃 02.3 <code>defer / panic / recover</code>：三大执行铁律与开放编码（Open-coded Defer）</h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🎯 defer_rules.go · LIFO 栈序、参数即时求值与改返回值</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-defer-rules', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-defer-rules"><code><span class="c-cm">// 铁律①：多个 defer 按【后进先出 LIFO】执行</span>
+<span class="c-cm">// 铁律②：函数参数在【注册 defer 当场】求值；闭包则捕获变量引用</span>
+<span class="c-kw">func</span> <span class="c-fn">demoParam</span>() {
+    x := 10
+    <span class="c-kw">defer</span> fmt.<span class="c-fn">Println</span>(<span class="c-str">"A(当场求值):"</span>, x)            <span class="c-cm">// 固定打 10</span>
+    <span class="c-kw">defer</span> <span class="c-kw">func</span>() { fmt.<span class="c-fn">Println</span>(<span class="c-str">"B(闭包引用):"</span>, x) }() <span class="c-cm">// 打 20</span>
+    x = 20
+}
+
+<span class="c-cm">// 铁律③：return a 拆解为三步：</span>
+<span class="c-cm">//   Step 1: 给返回值变量赋值 (res = 1)</span>
+<span class="c-cm">//   Step 2: 执行 defer（若为【命名返回值】，defer 可直接篡改它！）</span>
+<span class="c-cm">//   Step 3: 汇编 RET 指令返回</span>
+<span class="c-kw">func</span> <span class="c-fn">calc</span>() (res <span class="c-fn">int</span>) {
+    <span class="c-kw">defer</span> <span class="c-kw">func</span>() { res += 100 }()
+    <span class="c-kw">return</span> 1 <span class="c-cm">// 最终返回 101！</span>
+}</code></pre>
+    </div>
+
+    <div>
+      <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; margin-top:10px;">
+        <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">⚡ <code>defer</code> 三代性能演进（从 35ns 到 ~1ns）</div>
+        <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.62;">
+          <li><strong>Go 1.12 前（堆分配 <code>~35ns</code>）</strong>：每次 <code>defer</code> 在堆上分配 <code>_defer</code> 结构体挂入协程链表。</li>
+          <li><strong>Go 1.13（栈分配 <code>~25ns</code>）</strong>：非循环内的 <code>_defer</code> 改为在当前函数栈帧分配。</li>
+          <li><strong>Go 1.14+（开放编码 Open-coded Defer <code>~1.5ns</code>）</strong>：当函数内 <code>defer &lt;= 8</code> 且不在循环内时，编译器直接在栈上用 1 字节位掩码 <code>deferBits</code> 记录激活状态，并在 <code>return</code> 前<strong>直接内联展开函数调用</strong>，开销等同普通函数！</li>
+        </ul>
+      </div>
+      <div class="plop-callout warn">
+        <strong>🚨 <code>recover()</code> 两条保命边界：</strong>① 必须在 <code>defer func() { recover() }()</code> 匿名函数内<strong>直接调用</strong>；② <strong>不能跨协程捕获</strong>——每个新建的 <code>go func()</code> 必须自带独立的 <code>defer-recover</code> 保护罩，否则子协程 panic 会直接带崩整个进程！
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 02.4 · Interface 接口与 error 错误链 -->
+<div class="wb-card" id="interface" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill" id="error">🧩 02.4 · 为什么函数返回了值为 <code>nil</code> 的错误指针，外层 <code>if err != nil</code> 却恒为真？</div>
+  <h3>🎭 02.4 <code>interface</code> 双结构（<code>eface vs iface</code>）、<code>nil</code> 接口大坑与 <code>%w</code> 错误链</h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🚨 nil_interface_trap.go · eface/iface 与 nil 判等大坑</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-nil-iface', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-nil-iface"><code><span class="c-cm">// 1. 空接口 any       → eface { _type *_type, data unsafe.Pointer } (16B)</span>
+<span class="c-cm">// 2. 带方法接口 error → iface { tab   *itab,  data unsafe.Pointer } (16B)</span>
+<span class="c-cm">// ★ 判等铁律：只有当【类型指针 _type/tab】和【数据指针 data】双双为 nil 时，接口才 == nil！</span>
+
+<span class="c-kw">type</span> MyError <span class="c-kw">struct</span>{ Msg <span class="c-fn">string</span> }
+<span class="c-kw">func</span> (e *MyError) <span class="c-fn">Error</span>() <span class="c-fn">string</span> { <span class="c-kw">return</span> e.Msg }
+
+<span class="c-kw">func</span> <span class="c-fn">badCall</span>() <span class="c-fn">error</span> {
+    <span class="c-kw">var</span> p *MyError = <span class="c-kw">nil</span>
+    <span class="c-kw">return</span> p   <span class="c-cm">// ❌ 大坑！返回 iface{ tab: *MyError, data: nil } != nil！</span>
+}
+<span class="c-kw">func</span> <span class="c-fn">goodCall</span>() <span class="c-fn">error</span> {
+    <span class="c-kw">return</span> <span class="c-kw">nil</span> <span class="c-cm">// ✅ 正确：无错误时永远显式 return nil (tab=nil, data=nil)</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🔗 error_wrapping.go · %w 错误包装链与 errors.Is / As</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-err-wrap', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-err-wrap"><code><span class="c-kw">var</span> ErrNotFound = errors.<span class="c-fn">New</span>(<span class="c-str">"record not found"</span>)
+
+<span class="c-kw">func</span> <span class="c-fn">QueryOrder</span>(id <span class="c-fn">int</span>) <span class="c-fn">error</span> {
+    <span class="c-cm">// 用 %w 包装底层错误（自动实现 Unwrap() 链；若不想暴露底层改用 %v）</span>
+    <span class="c-kw">return</span> fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"query order %d: %w"</span>, id, ErrNotFound)
+}
+
+<span class="c-cm">// 消费端判断：</span>
+err := <span class="c-fn">QueryOrder</span>(99)
+<span class="c-cm">// ① errors.Is：递归沿 Unwrap() 链比对是否等于目标【哨兵错误值】</span>
+<span class="c-kw">if</span> errors.<span class="c-fn">Is</span>(err, ErrNotFound) { ... }
+
+<span class="c-cm">// ② errors.As：递归沿 Unwrap() 链提取匹配的【自定义错误结构体指针】</span>
+<span class="c-kw">var</span> netErr *net.OpError
+<span class="c-kw">if</span> errors.<span class="c-fn">As</span>(err, &amp;netErr) { ... }</code></pre>
+    </div>
+  </div>
+</div>
+
+<div class="plop-bridge">
+  🔗 看清了单机内存里的五大核心结构后，进入全书重头戏 <strong>第 03 章</strong>：为什么 Go 能轻松开出百万个协程？GMP 调度器是如何运转与抢占的？ ➔
+</div>

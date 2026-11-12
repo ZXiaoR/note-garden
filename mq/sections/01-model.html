@@ -1,0 +1,306 @@
+<!-- ====================================================================
+             PART 01: 为什么要用 MQ（收益与代价）& 两种消费模型 & 核心概念全景
+             ==================================================================== -->
+        <div class="wb-sec-header" id="model">
+          <span class="wb-sec-num">01</span>
+          <span class="wb-sec-title">收益、模型与概念 · 解耦/异步/削峰三大价值，以及用「消费者组」统一两种模型</span>
+          <span class="plop-tag tomato">BENEFITS · CONSUMER GROUP · CONCEPTS</span>
+        </div>
+
+        <!-- 01.1 · 为什么要用 MQ（三大收益）与引入 MQ 的三大代价 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill" id="cost">❓ 01.1 · 为什么要往系统里多加一层消息队列？它带来了什么收益，又惹来了什么新麻烦？</div>
+          <h3>🎯 01.1 为什么要用 MQ？一个「用户下单」例子串起三大核心收益</h3>
+          <p>
+            消息队列（MQ）本质上是一个<strong>应用间的异步中转驿站</strong>：发送方（<strong>生产者 Producer</strong>）把数据包（<strong>消息 Message</strong>）放进驿站（<strong>Broker</strong>）的某个分类货架（<strong>Topic / Queue</strong>）即可返回，接收方（<strong>消费者 Consumer</strong>）按自己的节奏来取。这一步“由同步直调改为异步入队”，直接带来 <strong>解耦、异步、削峰</strong> 三大收益：
+          </p>
+
+          <!-- 三大收益手账大字卡片 -->
+          <div style="display:grid; gap:14px; margin:14px 0;">
+            <!-- 收益 1：解耦 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-mustard); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14.5px; padding:4px 12px; border-radius:8px;">
+                  ① 好处一：解耦（Decoupling）—— 上游只管广播事件，不关心谁在听
+                </span>
+                <span class="plop-tag" style="font-size:11.5px;">架构灵活性</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+                <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:11px 13px; font-size:13.2px; line-height:1.58;">
+                  <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:4px;">❌ 不用 MQ（RPC 硬编码强耦合）：</div>
+                  <code>下单服务 ──▶ 调积分 + 调短信 + 调物流 + 调风控</code><br/>
+                  • <strong>痛点 1：</strong>明天运营说要加个“发优惠券服务”，你必须<strong>改订单服务代码、重新测试上线</strong>！<br/>
+                  • <strong>痛点 2：</strong>短信服务机房抖了一下报错，结果连累核心下单接口跟着失败！
+                </div>
+                <div style="background:#F0FDF4; border:2px solid #15803d; border-radius:10px; padding:11px 13px; font-size:13.2px; line-height:1.58;">
+                  <div style="font-weight:900; color:#15803d; margin-bottom:4px;">✅ 用 MQ（发布事件彻底解耦）：</div>
+                  <code>下单服务 ──▶ 往 order-topic 发一条「订单已创建」 ──▶ 结束</code><br/>
+                  • <strong>收益：</strong>积分、短信、物流、风控、优惠券<strong>谁关心谁自己来订阅</strong>。下游加减服务或短暂挂机，<strong>订单服务一行代码不用改、丝毫不受影响！</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- 收益 2：异步 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-mint); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14.5px; padding:4px 12px; border-radius:8px;">
+                  ② 好处二：异步提速（Asynchronization）—— 砍掉非核心耗时，主链路秒回
+                </span>
+                <span class="plop-tag mint" style="font-size:11.5px;">接口响应延迟 (RT)</span>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px; align-items:center;">
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13.2px; line-height:1.6;">
+                  • <strong>串行同步调：</strong>写订单库 <code>20ms</code> + 加积分 <code>50ms</code> + 调第三方发短信 <code>300ms</code> + 通知物流 <code>100ms</code> = 用户干等 <strong><code>470ms</code></strong>。<br/>
+                  • <strong>用 MQ 异步化：</strong>写订单库 <code>20ms</code> + 发 MQ 消息 <code>5ms</code> = <strong><code>25ms</code> 立即给用户返回“下单成功”</strong>（提速近 20 倍），积分与短信在后台异步消费。
+                </div>
+                <div style="background:#FFFBEB; border:2px dashed var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13px; line-height:1.58;">
+                  <strong style="color:var(--plop-tomato);">⚠️ 黄金边界：别把核心主链路也瞎异步！</strong><br/>
+                  <strong>「校验库存/扣减余额/生成订单」</strong>这种用户必须当场拿到确切结果的步骤，必须在主链路完成；只有<strong>「发短信、加积分、同步数仓」</strong>这种允许几秒延迟、最终一致即可的支线才丢进 MQ。
+                </div>
+              </div>
+            </div>
+
+            <!-- 收益 3：削峰填谷 -->
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <span style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14.5px; padding:4px 12px; border-radius:8px;">
+                  ③ 好处三：削峰填谷（Peak Shaving）—— 用队列水库把瞬时洪峰变成平缓水流
+                </span>
+                <span class="plop-tag periwinkle" style="font-size:11.5px;">保护脆弱的数据库</span>
+              </div>
+              <div style="display:grid; grid-template-columns:1fr auto 1.2fr auto 1fr; gap:8px; align-items:center; text-align:center; background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:8px;">
+                  <div style="font-weight:900; font-size:13.5px; color:var(--plop-tomato);">🌊 秒杀瞬时洪峰</div>
+                  <div style="font-family:var(--font-mono); font-size:12.5px; font-weight:800;">10,000 请求 / 秒</div>
+                </div>
+                <div style="font-weight:900; color:var(--plop-ink); font-size:13px;">──全数入队──▶</div>
+                <div style="background:var(--plop-mustard); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">
+                  <div style="font-weight:900; font-size:13.5px; color:var(--plop-ink-text);">🪣 MQ 缓冲水库</div>
+                  <div style="font-size:12px; font-weight:800; color:var(--plop-ink-soft);">把 1 万条请求暂存排队，不丢不拒</div>
+                </div>
+                <div style="font-weight:900; color:var(--plop-ink); font-size:13px;">──按能力拉取──▶</div>
+                <div style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">
+                  <div style="font-weight:900; font-size:13.5px; color:#15803d;">🐬 下游消费者 &amp; MySQL</div>
+                  <div style="font-family:var(--font-mono); font-size:12.5px; font-weight:800;">匀速 2,000 / 秒（5秒消化完）</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h4 style="margin-top:16px;">⚖️ 硬币的另一面：引入 MQ 带来的「三大代价」</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:22%">引入的新问题</th>
+                  <th>为什么会出现？</th>
+                  <th style="width:36%">本手账哪一章彻底解决它？</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>① 系统可用性降低</strong></td>
+                  <td>本来只有 A 和 B 两台机器，现在中间多了个 MQ。万一 MQ 单点挂掉，整条业务链路立刻瘫痪。</td>
+                  <td>👉 <strong>第 02 &amp; 07 章</strong>：多副本高可用（Kafka ISR / RocketMQ 主从与 DLedger / RabbitMQ Quorum 队列）</td>
+                </tr>
+                <tr>
+                  <td><strong>② 系统复杂度飙升</strong></td>
+                  <td>同步调用只有成功或报错；改成发消息后，会冒出<strong>消息丢失、重复消费、顺序错乱、消息积压</strong>四大难题。</td>
+                  <td>👉 <strong>第 03 &amp; 04 章</strong>：三段防丢 + 消费幂等 + 同 Key 局部有序 + 积压扩容急救</td>
+                </tr>
+                <tr>
+                  <td><strong>③ 数据一致性变难</strong></td>
+                  <td>A 服务写本地 MySQL 成功了，但发 MQ 失败；或者下游 B、C 消费失败，跨系统怎么保持最终一致？</td>
+                  <td>👉 <strong>第 05 章</strong>：RocketMQ 半消息 + 事务状态回查 / 本地消息表（Outbox）+ 消费重试与死信队列</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-callout tip">
+            <strong>💡 一句话串联面试开场：</strong>“解耦看的是<strong>架构依赖</strong>，异步看的是<strong>接口耗时</strong>，削峰看的是<strong>流量突发稳定性</strong>；而引入 MQ 增加的<strong>可用性、复杂度、一致性</strong>三大代价，正好对应生产上必须兜底的<strong>高可用、不丢、不重、有序、不积压、最终一致</strong>。”
+          </div>
+        </div>
+
+        <!-- 01.2 · 两种消费模型：队列模型 vs 发布/订阅模型（以及消费者组如何一统天下） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 01.2 · 什么是「点对点队列」和「发布/订阅」？Kafka 与 RocketMQ 是怎么用一个概念同时搞定这两种模式的？</div>
+          <h3>🔀 01.2 两种消费模型，与现代 MQ 的「消费者组（Consumer Group）」大一统</h3>
+          <p>
+            历史上消息队列有两种截然不同的消费语义：一种是<strong>几个人分摊干活（一条消息只给一个人）</strong>，另一种是<strong>多方同时收听广播（一条消息人手一份）</strong>。现代 MQ 用 <strong><code>Consumer Group</code>（消费者组）</strong> 把它们完美合二为一：
+          </p>
+
+          <!-- 两种模型 + 消费者组统一图解 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px; margin-bottom:14px;">
+              <!-- 模型 1 -->
+              <div style="background:#F8FAFC; border:2px solid var(--plop-ink); border-radius:11px; padding:12px;">
+                <div style="font-weight:900; font-size:14.2px; color:var(--plop-ink); margin-bottom:6px;">
+                  📦 模型 ①：点对点（Point-to-Point 队列模型）
+                </div>
+                <div style="font-size:13px; color:var(--plop-ink-text); line-height:1.58;">
+                  • <strong>核心规则：</strong>一条消息<strong>只能被一个消费者抢走处理</strong>（你拿了 <code>msg1</code>，我就只能拿 <code>msg2</code>）。<br/>
+                  • <strong>工程目的：</strong><strong>任务分摊与水平扩容（负载均衡）</strong>——1 台机器忙不过来，就加到 3 台一起分摊消费。
+                </div>
+              </div>
+
+              <!-- 模型 2 -->
+              <div style="background:#FFFBEB; border:2px solid var(--plop-ink); border-radius:11px; padding:12px;">
+                <div style="font-weight:900; font-size:14.2px; color:var(--plop-ink); margin-bottom:6px;">
+                  📡 模型 ②：发布/订阅（Pub/Sub 主题广播模型）
+                </div>
+                <div style="font-size:13px; color:var(--plop-ink-text); line-height:1.58;">
+                  • <strong>核心规则：</strong>一条消息<strong>会被每个订阅方各拿到一份完整拷贝</strong>，彼此独立互不干扰。<br/>
+                  • <strong>工程目的：</strong><strong>一份数据多业务方消费（业务解耦）</strong>——同一条下单消息，积分服务要一份，短信服务也要一份。
+                </div>
+              </div>
+            </div>
+
+            <!-- 下半部分：Consumer Group 统一大法 -->
+            <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:10px; text-align:center;">
+                🏆 现代 MQ（Kafka / RocketMQ）的终极解法：用「消费者组 Consumer Group」一招打通！
+              </div>
+              <div style="display:grid; grid-template-columns:1fr auto 1.4fr; gap:12px; align-items:center;">
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:12px; text-align:center;">
+                  <div style="font-weight:900; font-size:14px; color:var(--plop-ink);">📨 Topic: <code>order-topic</code></div>
+                  <div style="font-family:var(--font-mono); font-size:12.5px; font-weight:800; color:var(--plop-tomato); margin-top:6px;">
+                    Partition-0: [msg1, msg3]<br/>
+                    Partition-1: [msg2, msg4]
+                  </div>
+                </div>
+
+                <div style="font-weight:900; font-size:13px; color:var(--plop-ink); text-align:center;">
+                  ──组间广播──▶<br/>
+                  <span style="font-size:11.5px; color:var(--plop-ink-soft);">(每组拿全量)</span>
+                </div>
+
+                <div style="display:grid; gap:8px;">
+                  <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:9px; padding:9px 12px; font-size:12.8px;">
+                    <strong>👥 积分消费者组（<code>group-points</code>）· 收到全量 msg1~4：</strong><br/>
+                    ├─ 实例 A 负责 <code>Partition-0</code>（只吃 msg1, msg3）<br/>
+                    └─ 实例 B 负责 <code>Partition-1</code>（只吃 msg2, msg4） 👉 <strong>组内 = 点对点分摊！</strong>
+                  </div>
+                  <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:9px; padding:9px 12px; font-size:12.8px;">
+                    <strong>👥 短信消费者组（<code>group-sms</code>）· 也收到全量 msg1~4：</strong><br/>
+                    └─ 实例 C 独自负责 <code>Partition-0 &amp; 1</code>（吃下全部 msg1~4） 👉 <strong>组间 = 发布订阅！</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <details class="plop-drawer">
+            <summary>🔍 进阶对比 · RabbitMQ 没有「消费者组」的概念，它怎么同时实现发布订阅和负载均衡？</summary>
+            <div class="drawer-body">
+              <p>
+                RabbitMQ 走的是另一条精巧的架构路线——靠 <strong><code>Exchange（交换机） + 多个 Queue（队列）</code></strong> 组合实现：
+              </p>
+              <ul>
+                <li><strong>实现「发布订阅（组间广播）」：</strong>生产者把消息发给 <code>Exchange</code>，<code>Exchange</code> 把消息<strong>物理复制多份</strong>，分别投递到绑定的「积分队列 <code>queue_points</code>」和「短信队列 <code>queue_sms</code>」——<strong>在 RabbitMQ 里，一个独立的 Queue 就相当于 Kafka 里的一个 Consumer Group</strong>。</li>
+                <li><strong>实现「点对点（组内分摊）」：</strong>让积分服务的 3 台机器同时监听同一个 <code>queue_points</code>，队列里的每条消息会轮询分发给其中一台机器处理。</li>
+              </ul>
+            </div>
+          </details>
+        </div>
+
+        <!-- 01.3 · 核心概念全景图与必考边界 -->
+        <div class="wb-card" id="concept" style="background:var(--plop-paper);">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill">❓ 01.3 · Topic、Partition（分区）、Offset（偏移量）、Replica（副本）到底是什么关系？</div>
+          <h3>🗺️ 01.3 核心概念全景：为什么一个 Topic 必须拆成多个 Partition？</h3>
+          <p>
+            以最具代表性的日志型 MQ（Kafka / RocketMQ）为例，如果把一个 <code>Topic</code> 的所有消息全塞在单台机器的一个文件里，吞吐量和磁盘容量立刻会被单机卡死。因此，<strong>逻辑上的一个 <code>Topic</code>，在物理上被横向切成了多个 <code>Partition</code>（RocketMQ 中叫 <code>MessageQueue</code>）</strong>，分散到不同 <code>Broker</code> 节点上：
+          </p>
+
+          <!-- Topic / Partition / Offset 物理结构卡片图 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:10px;">
+              🧱 Topic 逻辑主题 ──▶ 物理切片为多个 Partition（每个 Partition 是一个严格有序、只追加的日志文件）
+            </div>
+            <div style="display:grid; gap:10px; font-family:var(--font-mono); font-size:13px;">
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:9px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                <span style="font-weight:900;">📂 Partition-0 (在 Broker-1)</span>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); border-radius:6px; padding:3px 8px;">offset=0 (订单A创建)</span>
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); border-radius:6px; padding:3px 8px;">offset=1 (订单A支付)</span>
+                  <span style="background:var(--plop-mustard); border:1.8px solid var(--plop-tomato); border-radius:6px; padding:3px 8px; color:var(--plop-tomato); font-weight:900;">offset=2 (订单A发货) ◀ 末尾追加</span>
+                </div>
+              </div>
+
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:9px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                <span style="font-weight:900;">📂 Partition-1 (在 Broker-2)</span>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <span style="background:#FFFFFF; border:1.5px solid var(--plop-ink); border-radius:6px; padding:3px 8px;">offset=0 (订单B创建)</span>
+                  <span style="background:var(--plop-mustard); border:1.8px solid var(--plop-tomato); border-radius:6px; padding:3px 8px; color:var(--plop-tomato); font-weight:900;">offset=1 (订单B支付) ◀ 末尾追加</span>
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:10px; font-size:13px; font-weight:800; color:var(--plop-tomato);">
+              ⚠️ <strong>最核心的铁律：</strong>消息只在<strong>单个 Partition 内部严格按 Offset 递增有序</strong>；<strong>跨 Partition 之间没有任何全局先后顺序保证！</strong>（这就是第 04 章顺序消息设计的根基）。
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">核心术语</th>
+                  <th style="width:40%">到底是什么？</th>
+                  <th>解决了什么工程问题？</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong><code>Topic</code> 主题</strong></td>
+                  <td>消息的逻辑业务分类（如 <code>order-topic</code>、<code>pay-topic</code>）</td>
+                  <td>按业务领域隔离不同数据流，生产者和消费者按 Topic 对接。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>Partition</code> 分区</strong></td>
+                  <td>Topic 的物理分片，本质是磁盘上一组<strong>只追加写（Append-Only）的有序日志文件</strong></td>
+                  <td>突破单机磁盘与网卡瓶颈，实现<strong>分布式并行读写与水平扩展</strong>；同时决定了消费者组内的最大并发上限。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>Offset</code> 偏移量</strong></td>
+                  <td>每条消息在所属 Partition 内的<strong>唯一单调递增整数编号</strong>（0, 1, 2...）</td>
+                  <td>消费者的“书签”：靠记录已消费 Offset（存在内部 <code>__consumer_offsets</code>）实现断点续传与历史重放。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>Replica</code> 副本</strong></td>
+                  <td>每个 Partition 配置 1 个 <strong>Leader 副本</strong> + N 个 <strong>Follower 副本</strong>，分布在不同 Broker</td>
+                  <td><strong>高可用容灾</strong>：Leader 负责全部读写，Follower 实时拉取同步；Leader 宕机时从同步副本（ISR）中秒级选出新主。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>KRaft / NameServer</code></strong></td>
+                  <td>集群控制器与路由元数据中心（Kafka 3.3+ / 4.0 用自研 <strong>KRaft</strong> 彻底取代了旧版 ZooKeeper；RocketMQ 用轻量无状态的 <strong>NameServer</strong>）</td>
+                  <td>管理“集群有哪些 Broker、每个 Topic 有几个分区、谁是当前 Leader”等全局路由表。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <details class="plop-drawer" open>
+            <summary>🔍 进阶必问 · 既然 Partition 能提高并行度，那单 Topic 的分区数是不是设得越多越好？</summary>
+            <div class="drawer-body">
+              <p>
+                <strong>绝不是越多越好！</strong>虽然增加分区可以提高吞吐上限，但当集群分区数膨胀到成千上万时，会带来 <strong>4 个严重的副作用</strong>：
+              </p>
+              <ol>
+                <li><strong>磁盘随机 I/O 恶化（尤其机械盘/普通云盘）：</strong>每个分区对应独立的日志与索引文件，当单台 Broker 上有几千个分区同时写入时，操作系统层面的多个顺序写会<strong>交错退化为实质上的随机 I/O</strong>，吞吐反而断崖式下跌（这也引出了第 06 章 RocketMQ 单一 <code>CommitLog</code> 的架构改进）。</li>
+                <li><strong>文件句柄与内存开销激增：</strong>每个分区的每个 Segment 都要占用文件描述符和内存映射（mmap）索引空间。</li>
+                <li><strong>故障恢复与切主变慢：</strong>当某台 Broker 宕机时，Controller 必须为它上面的所有 Leader 分区逐个选主；若单机有上万个分区，切主不可用窗口可能长达数秒至数十秒（这也是为什么新版 Kafka 引入 KRaft 将元数据切换加速了一个数量级）。</li>
+                <li><strong>Rebalance 耗时变长：</strong>消费者组重平衡时需协调更多分区的状态。</li>
+              </ol>
+              <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:9px; padding:8px 12px; margin-top:6px; font-size:12.8px; font-weight:700;">
+                <strong>🎯 生产经验值：</strong>单 Topic 分区数通常按<strong>「峰值目标吞吐 ÷ 单分区消费能力」</strong>计算，并设为<strong>消费者实例数的整数倍</strong>（常见 <code>6 / 12 / 24 / 32</code> 个分区），避免无脑开上千个分区。
+              </div>
+            </div>
+          </details>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：搞懂了通用模型和黑话，市面上最火的 <strong>Kafka、RocketMQ、RabbitMQ</strong> 内部架构到底长什么样？技术选型时怎么一眼拍板？</span>
+          </div>
+        </div>

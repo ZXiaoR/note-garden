@@ -1,0 +1,254 @@
+<!-- ====================================================================
+             PART 02: 数据类型、JSONB、事务性 DDL 与表间关系
+             ==================================================================== -->
+        <div class="wb-sec-header" id="types">
+          <span class="wb-sec-num">02</span>
+          <span class="wb-sec-title">数据类型与建模 · JSONB/数组、事务性 DDL、在线改表与表关系</span>
+          <span class="plop-tag mint">JSONB · IDENTITY · TRANSACTIONAL DDL · TOAST</span>
+        </div>
+
+        <!-- 02.1 数据类型选型与 JSONB -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 02.1 · 为什么在 PG 里字符串推荐直接用 text？JSON 和 JSONB 底层差在哪？</div>
+          <h3>🧬 02.1 核心数据类型选型表（避坑指南）</h3>
+          <p>
+            PostgreSQL 的类型系统极其严谨且丰富。掌握下面这张选型表，能帮你避开 90% 的建表坏味道：
+          </p>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:14%;">大类</th>
+                  <th style="width:28%;">类型名称</th>
+                  <th>底层原理与生产选型建议</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td rowspan="2"><strong>整数与自增</strong></td>
+                  <td><code>smallint</code> / <code>integer</code> / <code>bigint</code></td>
+                  <td>分别占 2 / 4 / 8 字节。业务主键或增长较快的流水表<strong>一律优先用 <code>bigint</code></strong>，防止 21 亿溢出后锁表改类型。</td>
+                </tr>
+                <tr>
+                  <td><code>GENERATED ALWAYS AS IDENTITY</code> vs <code>serial</code></td>
+                  <td>⭐ <strong>PG 10+ 强烈推荐 SQL 标准写法 <code>bigint GENERATED ALWAYS AS IDENTITY</code></strong>。旧写法 <code>serial / bigserial</code> 只是宏语法糖，底层创建的 <code>SEQUENCE</code> 权限与归属在 <code>pg_dump</code> 或切表时容易脱节，且无法禁止手动显式塞 ID。</td>
+                </tr>
+                <tr>
+                  <td rowspan="2"><strong>小数与金额</strong></td>
+                  <td><code>numeric(p, s)</code> / <code>decimal</code></td>
+                  <td>⭐ <strong>十进制精确存储，涉及金额、账务、费率必用</strong>，绝不丢失精度。</td>
+                </tr>
+                <tr>
+                  <td><code>real</code> / <code>double precision</code></td>
+                  <td>IEEE 754 二进制浮点数（4 / 8 字节），存在二进制舍入误差（如 <code>0.1 + 0.2 ≠ 0.3</code>），仅用于科学计算或指标监控，<strong>严禁存钱</strong>。</td>
+                </tr>
+                <tr>
+                  <td rowspan="2"><strong>字符串</strong></td>
+                  <td><code>text</code> vs <code>varchar(n)</code></td>
+                  <td>⭐ <strong>PG 特色：两者在底层完全共用同一个 C 结构 <code>varlena</code>，性能 100% 相同！</strong> <code>varchar(n)</code> 反而多一步长度检查开销。除非业务有硬性标准约束，否则在 PG 中直接用 <code>text</code>（如需限长也可加 <code>CHECK (length(col) &lt;= 100)</code>，日后放宽上限无需重写表）。</td>
+                </tr>
+                <tr>
+                  <td><code>char(n)</code></td>
+                  <td>定长字符串，不足会自动补空格，既费空间又容易引发尾部空格比较 Bug，<strong>生产基本不用</strong>。</td>
+                </tr>
+                <tr>
+                  <td rowspan="2"><strong>时间与日期</strong></td>
+                  <td><code>timestamptz</code>（推荐）</td>
+                  <td>⭐ <code>timestamp with time zone</code>（8 字节）：<strong>落盘统一转为 UTC 微秒时间戳存储</strong>，读取时自动按当前会话 <code>TimeZone</code> 转换。全球化与跨时区系统首选。</td>
+                </tr>
+                <tr>
+                  <td><code>timestamp</code> / <code>date</code> / <code>time</code></td>
+                  <td><code>timestamp</code> 不存时区上下文，服务器或客户端改时区极易算错时间差，仅适合纯本地日历字面量。</td>
+                </tr>
+                <tr>
+                  <td rowspan="4"><strong>PG 王牌特色类型</strong></td>
+                  <td><code>uuid</code></td>
+                  <td>原生 16 字节二进制存储（比存 36 字符文本省一半空间），内置 <code>gen_random_uuid()</code>（PG 13+ 免装扩展）。</td>
+                </tr>
+                <tr>
+                  <td><code>int[]</code> / <code>text[]</code> 数组</td>
+                  <td>⭐ <strong>一等公民数组类型</strong>：如文章标签 <code>tags text[]</code>，支持 <code>@&gt;</code>（包含）、<code>&amp;&amp;</code>（重叠）操作符并可直接建 <strong>GIN 倒排索引</strong>，免去为简单标签建关联中间表。</td>
+                </tr>
+                <tr>
+                  <td><code>int4range</code> / <code>tstzrange</code></td>
+                  <td>⭐ <strong>范围类型（Range Types）</strong>：一个字段直接表示区间 <code>[2026-11-12 09:00, 2026-11-12 10:30)</code>，配合 GiST 排他约束可在数据库层根绝“会议室/酒店房间时间段双重预订”。</td>
+                </tr>
+                <tr>
+                  <td><code>json</code> / <code>jsonb</code></td>
+                  <td>⭐ 见下方专项拆解：生产几乎一律选二进制结构化存储的 <strong><code>jsonb</code></strong>。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div id="types-json"></div>
+          <h3 style="margin-top:18px;">🔥 面试高频：<code>JSONB</code> vs <code>JSON</code> 深度对比与 GIN 索引实战</h3>
+          <div class="wb-grid-2">
+            <div>
+              <div class="table-wrap">
+                <table class="plop-table">
+                  <thead>
+                    <tr>
+                      <th>对比维度</th>
+                      <th><code>json</code>（文本原样）</th>
+                      <th>⭐ <code>jsonb</code>（二进制分解）</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>底层存储</strong></td>
+                      <td>把原始 JSON 字符串原封不动存下</td>
+                      <td>解析为<strong>二进制树形结构（含键偏移字典）</strong></td>
+                    </tr>
+                    <tr>
+                      <td><strong>写入速度</strong></td>
+                      <td>快（无需语法树拆解）</td>
+                      <td>略慢一点点（写入时完成解析与去重）</td>
+                    </tr>
+                    <tr>
+                      <td><strong>查询与取字段</strong></td>
+                      <td>慢（每次读取都要重新完整解析）</td>
+                      <td>⭐ <strong>极快（按二进制偏移直接跳读）</strong></td>
+                    </tr>
+                    <tr>
+                      <td><strong>空格/键序/重复键</strong></td>
+                      <td>完全保留原始格式与重复键</td>
+                      <td>去除多余空白、键按序重排、重复键只留最后一个</td>
+                    </tr>
+                    <tr>
+                      <td><strong>索引与局部更新</strong></td>
+                      <td>不支持 GIN 索引，不支持 <code>jsonb_set</code></td>
+                      <td>⭐ <strong>支持 GIN 倒排索引与 <code>@&gt;</code> 包含检索</strong></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="plop-callout tip" style="margin-top:10px;">
+                <strong>💡 超大字段怎么存？（TOAST 机制）：</strong><br>
+                PG 数据页固定为 <code>8 KiB</code>，不允许单行跨页。当你的 <code>text</code> 或 <code>jsonb</code> 超过约 <code>2 KiB</code> 时，PG 会自动触发 <strong>TOAST（The Oversized-Attribute Storage Technique）</strong>：先用 <code>LZ4 / pglz</code> 压缩，若仍超标则自动切成块存进附属的隐藏 TOAST 表，主表只留一个 18 字节指针！如果只 <code>SELECT id, status</code> 而不查大字段列，PG 根本不会去读 TOAST 表，性能极高（所以<strong>严禁无脑 <code>SELECT *</code></strong>）。
+              </div>
+            </div>
+
+            <div>
+              <div class="plop-code-box">
+                <div class="plop-code-head">
+                  <span>🐘 jsonb_and_identity.sql · 标准建表与 JSONB 查询</span>
+                  <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-jsonb-demo', this)">复制 SQL</button>
+                </div>
+                <pre class="plop-code-pre" id="pg-jsonb-demo"><code><span class="c-cmt">-- 1. 推荐：IDENTITY 标准自增 + jsonb + 数组</span>
+<span class="c-kw">CREATE TABLE</span> user_profiles (
+  id         bigint <span class="c-kw">GENERATED ALWAYS AS IDENTITY PRIMARY KEY</span>,
+  email      text <span class="c-kw">NOT NULL UNIQUE</span>,
+  tags       text[] <span class="c-kw">DEFAULT</span> <span class="c-str">'{}'</span>,
+  profile    jsonb  <span class="c-kw">NOT NULL DEFAULT</span> <span class="c-str">'{}'</span>,
+  created_at timestamptz <span class="c-kw">NOT NULL DEFAULT</span> now()
+);
+
+<span class="c-cmt">-- 2. JSONB 核心操作符：-> 返回 jsonb，->> 返回 text</span>
+<span class="c-kw">SELECT</span> profile-&gt;<span class="c-str">'address'</span>-&gt;&gt;<span class="c-str">'city'</span> <span class="c-kw">AS</span> city
+<span class="c-kw">FROM</span> user_profiles
+<span class="c-kw">WHERE</span> profile @&gt; <span class="c-str">'{"vip": true, "level": 3}'</span>   <span class="c-cmt">-- @&gt; 是否包含子 JSON</span>
+  <span class="c-kw">AND</span> profile ? <span class="c-str">'phone'</span>                        <span class="c-cmt">-- ? 是否存在顶层键</span>
+  <span class="c-kw">AND</span> tags @&gt; <span class="c-kw">ARRAY</span>[<span class="c-str">'golang'</span>, <span class="c-str">'postgres'</span>];    <span class="c-cmt">-- 数组包含</span>
+
+<span class="c-cmt">-- 3. 建立 GIN 倒排索引加速 @&gt; 与 ? 查询</span>
+<span class="c-kw">CREATE INDEX</span> idx_profiles_gin <span class="c-kw">ON</span> user_profiles <span class="c-kw">USING GIN</span> (profile);
+<span class="c-kw">CREATE INDEX</span> idx_tags_gin     <span class="c-kw">ON</span> user_profiles <span class="c-kw">USING GIN</span> (tags);</code></pre>
+              </div>
+            </div>
+          </div>
+
+          <details class="plop-drawer">
+            <summary>❓ 面试自测：既然 JSONB 这么强，还支持 GIN 索引，什么时候该用 JSONB、什么时候必须老老实实拆成独立列？</summary>
+            <div class="drawer-body">
+              <ul>
+                <li><strong>必须拆成正式关系列：</strong>字段结构稳定、需要高频做范围过滤/排序/<code>JOIN</code> 关联、需要外键或非空唯一约束、需要优化器收集精确的列级统计信息（直方图）来做执行计划估算的字段。</li>
+                <li><strong>适合放进 <code>jsonb</code>：</strong>稀疏属性（如不同品类的商品扩展参数）、Schema 频繁动态变化的用研埋点/用户偏好设置、第三方 Webhook 原始回包存档。<strong>切忌为了偷懒不写迁移脚本而把核心业务表做成“单列大 JSONB”</strong>，否则不仅丧失类型约束，每次局部修改 `jsonb` 都会引发整行新版本重写与 TOAST 膨胀。</li>
+              </ul>
+            </div>
+          </details>
+        </div>
+
+        <!-- 02.2 DDL、事务性 DDL、在线改表与表关系 -->
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill" id="ddl">❓ 02.2 · 为什么说 PG 的 DDL 比 MySQL 安全得多？给上亿行的大表加列或加约束怎么避免锁表事故？</div>
+          <div id="relation"></div>
+          <h3>🧱 02.2 DDL 约束、事务性 DDL、大表无锁变更与表关系</h3>
+
+          <div class="wb-grid-2">
+            <div>
+              <h4>1. 常用 DDL 与六大约束</h4>
+              <div class="plop-code-box">
+                <div class="plop-code-head">
+                  <span>🐘 DDL 建表、生成列与外键级联</span>
+                </div>
+                <pre class="plop-code-pre"><code><span class="c-kw">CREATE TABLE</span> users (
+  id         bigint <span class="c-kw">GENERATED ALWAYS AS IDENTITY PRIMARY KEY</span>,
+  email      text   <span class="c-kw">NOT NULL UNIQUE</span>,
+  age        int    <span class="c-kw">CHECK</span> (age &gt;= 0),
+  first_name text   <span class="c-kw">NOT NULL</span>,
+  last_name  text   <span class="c-kw">NOT NULL</span>,
+  <span class="c-cmt">-- STORED 生成列：自动计算并落盘</span>
+  full_name  text   <span class="c-kw">GENERATED ALWAYS AS</span> (first_name || <span class="c-str">' '</span> || last_name) <span class="c-kw">STORED</span>
+);
+
+<span class="c-cmt">-- 一对多关系 (1:N)：订单表外键指向用户表</span>
+<span class="c-kw">CREATE TABLE</span> orders (
+  id       bigint <span class="c-kw">GENERATED ALWAYS AS IDENTITY PRIMARY KEY</span>,
+  user_id  bigint <span class="c-kw">NOT NULL REFERENCES</span> users(id) <span class="c-kw">ON DELETE CASCADE</span>,
+  amount   numeric(12, 2) <span class="c-kw">NOT NULL CHECK</span> (amount &gt;= 0)
+);</code></pre>
+              </div>
+
+              <div class="plop-callout warn" style="margin-top:10px;">
+                <strong>⭐ PG 独门优势：DDL 也是事务性的（Transactional DDL）！</strong><br>
+                在 MySQL 中，任何 <code>ALTER / CREATE / DROP</code> 都会触发隐式提交（Implicit Commit），脚本跑到一半报错无法回滚；而在 PostgreSQL 中，系统目录表（Catalog，如 <code>pg_class</code>、<code>pg_attribute</code>）本身也受 MVCC 保护，你可以直接写：<br>
+                <code>BEGIN; ALTER TABLE ...; DROP TABLE ...; ROLLBACK;</code>（除 <code>CREATE DATABASE</code>、<code>VACUUM</code>、<code>CREATE INDEX CONCURRENTLY</code> 等少数命令外，全部可原子回滚！）。
+              </div>
+            </div>
+
+            <div>
+              <h4>2. 表间关系（1:1 / 1:N / M:N）与外键级联</h4>
+              <div class="table-wrap">
+                <table class="plop-table">
+                  <thead>
+                    <tr>
+                      <th>关系 / 外键策略</th>
+                      <th>落地实现与行为说明</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>一对一 (1:1)</strong></td>
+                      <td>子表的主键同时作为外键，或外键列加 <code>UNIQUE</code> 约束（如 <code>users</code> 与 <code>user_kyc_detail</code>）。</td>
+                    </tr>
+                    <tr>
+                      <td><strong>一对多 (1:N)</strong></td>
+                      <td>在“多”的一方存外键（如 <code>orders.user_id</code> 引用 <code>users.id</code>）。<strong>切记：PG 不会自动给外键列建索引，关联查询或删父表前务必手动给外键列建索引！</strong></td>
+                    </tr>
+                    <tr>
+                      <td><strong>多对多 (M:N)</strong></td>
+                      <td>拆出中间关联表，存放两个外键并组成联合主键 <code>PRIMARY KEY (student_id, course_id)</code>。</td>
+                    </tr>
+                    <tr>
+                      <td><code>ON DELETE CASCADE</code> / <code>SET NULL</code> / <code>RESTRICT</code></td>
+                      <td>父表行删除时：<code>CASCADE</code> 级联删子行；<code>SET NULL</code> 将子行外键置空；<code>RESTRICT / NO ACTION</code>（默认）若有子行则报错拒绝删除。</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="plop-callout tip" style="margin-top:10px;">
+                <strong>🛡️ 生产救命指南：大表 Online DDL 如何避免锁表？</strong>
+                <ul style="margin:6px 0 0; padding-left:18px;">
+                  <li><strong>加列带默认值：</strong>在 <strong>PG 11+</strong> 中，<code>ALTER TABLE t ADD COLUMN status int DEFAULT 1;</code> 只要默认值是<strong>非易变常量（Non-volatile）</strong>，只会更新系统表元数据 <code>pg_attribute</code>，<strong>0 秒完成、不重写全表</strong>！（但若是 <code>random()</code> 等易变函数或 <code>ALTER COLUMN TYPE</code> 改类型，则会持有最高级 <code>ACCESS EXCLUSIVE</code> 锁重写全表）。</li>
+                  <li><strong>千万不要让 <code>ALTER TABLE</code> 长时间等锁堵死线上读写：</strong>生产执行 DDL 前务必先加锁超时保护：<code>SET lock_timeout = '2s';</code>（拿不到锁立即放弃，避免排在慢查询后面把后续所有普通 <code>SELECT</code> 全部堵死在锁队列里！）。</li>
+                  <li><strong>无锁加 <code>CHECK</code> / 外键 / <code>NOT NULL</code> 约束：</strong>先执行 <code>ALTER TABLE orders ADD CONSTRAINT chk_amt CHECK (amount &gt;= 0) NOT VALID;</code>（瞬间完成，仅约束新写入行），再执行 <code>ALTER TABLE orders VALIDATE CONSTRAINT chk_amt;</code>（只持弱锁 <code>SHARE UPDATE EXCLUSIVE</code> 在线校验老数据，完全不阻塞读写！）。</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>

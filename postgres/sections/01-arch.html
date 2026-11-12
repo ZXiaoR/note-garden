@@ -1,0 +1,242 @@
+<!-- ====================================================================
+             PART 01: 进程架构、四级目录层级与 psql 高频实战
+             ==================================================================== -->
+        <div class="wb-sec-header" id="arch">
+          <span class="wb-sec-num">01</span>
+          <span class="wb-sec-title">进程架构与层级模型 · 多进程 postmaster、共享内存与 psql 实战</span>
+          <span class="plop-tag periwinkle">MULTI-PROCESS · SHARED BUFFERS · PGBOUNCER</span>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill">❓ 01.1 · 为什么 PostgreSQL 坚持用“多进程”而不是 MySQL 的“多线程”？生产环境为什么一定要挂 PgBouncer？</div>
+          <h3>🏛️ 01.1 进程模型：多进程（Process-per-Connection）架构全拆解</h3>
+          <p>
+            PostgreSQL 是一个开源的<strong>对象-关系型数据库（ORDBMS）</strong>，以严格遵循 SQL 标准、复杂查询优化器强大和扩展生态丰富著称。在进程模型上，它与 MySQL（单进程多线程）截然不同：每个客户端连接到达时，主守护进程 <code>postmaster</code> 会 <strong><code>fork()</code> 出一个独立的后端进程（<code>postgres backend process</code>）</strong>专门服务该会话。
+          </p>
+          <ul>
+            <li><strong>多进程的核心优势（故障隔离）：</strong>某个连接因为复杂扩展（如 C 插件）或极端 SQL 触发段错误崩溃时，不会直接把整个数据库地址空间搞挂，<code>postmaster</code> 可以安全接管并执行恢复。</li>
+            <li><strong>多进程的工程代价（连接开销 → 必配 PgBouncer）：</strong>每个 <code>backend</code> 进程独享一份私有内存（<code>work_mem</code>、<code>temp_buffers</code>、系统表缓存 Catalog Cache，单连接常占 5～15 MB），且新建连接要经历 <code>fork()</code> 开销。因此当业务有上千个微服务实例直连时，<strong>严禁把 <code>max_connections</code> 盲目调到几千</strong>，而是必须在前面部署轻量级连接池 <strong>PgBouncer（推荐使用 <code>transaction</code> 事务级池化模式，把几千个客户端连接复用在 100～200 个真实 PG 进程上）</strong>。</li>
+          </ul>
+
+          <!-- 手绘 SVG：PostgreSQL 多进程 + 共享内存 + 磁盘落盘全景图 -->
+          <svg viewBox="0 0 880 350" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="PostgreSQL 多进程与内存架构图">
+            <defs>
+              <marker id="pa-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
+              </marker>
+            </defs>
+
+            <!-- 左侧：客户端与 PgBouncer + Postmaster -->
+            <rect x="16" y="20" width="166" height="90" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
+            <text x="99" y="44" text-anchor="middle" font-size="12" font-weight="900" fill="var(--plop-ink-text)">💻 应用客户端集群</text>
+            <text x="99" y="64" text-anchor="middle" font-size="10.2" font-weight="700" fill="var(--plop-ink-soft)">成百上千并发连接</text>
+            <rect x="28" y="74" width="142" height="24" rx="6" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="99" y="90" text-anchor="middle" font-size="10.2" font-weight="900" fill="var(--plop-ink-text)">🛡️ PgBouncer 连接池</text>
+
+            <path d="M99 110 L99 144" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#pa-arr)"/>
+
+            <rect x="16" y="148" width="166" height="82" rx="10" fill="var(--plop-tomato)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <text x="99" y="175" text-anchor="middle" font-size="13" font-weight="900" fill="#FFF8E7">🎩 postmaster 主进程</text>
+            <text x="99" y="195" text-anchor="middle" font-size="10" font-weight="700" fill="#FFF8E7">监听 5432 · fork 子进程</text>
+            <text x="99" y="212" text-anchor="middle" font-size="10" font-weight="700" fill="#FFF8E7">守护后台进程与崩溃恢复</text>
+
+            <path d="M182 185 L224 72" stroke="var(--plop-ink)" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#pa-arr)"/>
+            <path d="M182 189 L224 148" stroke="var(--plop-ink)" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#pa-arr)"/>
+
+            <!-- 中上：Backend 会话进程群 -->
+            <rect x="228" y="20" width="388" height="162" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.3"/>
+            <text x="422" y="42" text-anchor="middle" font-size="12.2" font-weight="900" fill="var(--plop-ink)">⚙️ 会话工作进程群 (Backend Processes · 一连接一进程)</text>
+
+            <rect x="242" y="54" width="172" height="52" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="328" y="74" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">Backend #1 (PID 4012)</text>
+            <text x="328" y="92" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">解析→重写→规划→执行 SQL</text>
+
+            <rect x="428" y="54" width="172" height="52" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="514" y="74" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">Backend #2 ... #N</text>
+            <text x="514" y="92" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">Parallel Worker 并行查询子进程</text>
+
+            <rect x="242" y="116" width="358" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6" stroke-dasharray="4 2"/>
+            <text x="421" y="136" text-anchor="middle" font-size="10.5" font-weight="900" fill="#D2381E">📦 每个 Backend 进程独享的私有内存 (Local Memory)</text>
+            <text x="421" y="154" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">work_mem (排序/Hash表每算子独占) · temp_buffers (临时表) · Catalog Cache</text>
+
+            <!-- 中下：Shared Memory 共享内存 -->
+            <rect x="228" y="200" width="388" height="132" rx="12" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <text x="422" y="223" text-anchor="middle" font-size="12.5" font-weight="900" fill="var(--plop-ink-text)">🧠 共享内存区 (Shared Memory · 所有进程共同读写)</text>
+
+            <rect x="242" y="234" width="174" height="84" rx="8" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="329" y="255" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">Shared Buffers (8KB 页池)</text>
+            <text x="329" y="273" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">缓存堆表页与索引页 (Clock-Sweep)</text>
+            <text x="329" y="290" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">生产建议设为物理内存 25%~40%</text>
+
+            <rect x="426" y="234" width="174" height="84" rx="8" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="513" y="255" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">WAL Buffers &amp; CLOG</text>
+            <text x="513" y="273" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">预写日志缓冲 + pg_xact 事务状态</text>
+            <text x="513" y="290" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">Lock Table 全局锁表与快照信息</text>
+
+            <path d="M422 182 L422 200" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#pa-arr)"/>
+
+            <!-- 右侧：后台辅助进程 + 磁盘存储 -->
+            <rect x="636" y="20" width="228" height="196" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.3"/>
+            <text x="750" y="42" text-anchor="middle" font-size="12" font-weight="900" fill="var(--plop-ink)">🧹 后台守护进程 (Background)</text>
+
+            <rect x="648" y="52" width="204" height="34" rx="7" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="750" y="73" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--plop-ink-text)">WAL Writer (刷 WAL 保证持久性)</text>
+
+            <rect x="648" y="92" width="204" height="34" rx="7" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="750" y="113" text-anchor="middle" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">Bgwriter (平滑异步刷脏页)</text>
+
+            <rect x="648" y="132" width="204" height="34" rx="7" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
+            <text x="750" y="153" text-anchor="middle" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">Checkpointer (定期刷脏打检查点)</text>
+
+            <rect x="648" y="172" width="204" height="34" rx="7" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+            <text x="750" y="193" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--plop-ink-text)">⭐ Autovacuum (清死元组+防回卷)</text>
+
+            <!-- 右下：磁盘文件 -->
+            <rect x="636" y="232" width="228" height="100" rx="12" fill="var(--plop-sheet)" stroke="var(--plop-ink)" stroke-width="2.4"/>
+            <text x="750" y="256" text-anchor="middle" font-size="12" font-weight="900" fill="var(--plop-ink-text)">💽 磁盘文件 ($PGDATA)</text>
+            <text x="750" y="277" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• base/ : 堆表页 + 索引 + FSM + VM</text>
+            <text x="750" y="295" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• pg_wal/ : 16MB 预写日志段文件</text>
+            <text x="750" y="313" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• pg_xact/ : 事务提交状态位图</text>
+
+            <path d="M616 265 L636 265" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#pa-arr)"/>
+            <path d="M750 216 L750 232" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#pa-arr)"/>
+          </svg>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:24%;">核心组件</th>
+                  <th>职责与生产调优关键点</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>postmaster 主进程</strong></td>
+                  <td>数据库实例总管：监听 <code>5432</code> 端口、为新连接 <code>fork</code> 后端进程、启动后台守护进程，并在后端异常崩溃时负责共享内存重置与 WAL 崩溃恢复。</td>
+                </tr>
+                <tr>
+                  <td><strong>backend 会话进程</strong></td>
+                  <td>每个客户端连接独占一个进程，负责完成该连接上 SQL 的解析（Parser）、重写（Rewriter）、优化器规划（Planner）与执行（Executor）。注意：<code>work_mem</code>（默认 <code>4MB</code>）是<strong>每个排序/哈希算子都可以分配一份</strong>，并非整个连接上限！</td>
+                </tr>
+                <tr>
+                  <td><strong>Shared Buffers</strong></td>
+                  <td>所有进程共享的数据页缓存池（页大小默认 <code>8 KiB</code>），地位等同于 MySQL 的 <code>Buffer Pool</code>。默认仅 <code>128MB</code>，<strong>生产环境通常调至机器内存的 25%～40%</strong>（剩余留给 OS Page Cache，因为 PG 依赖双层缓存）。</td>
+                </tr>
+                <tr>
+                  <td><strong>WAL Writer</strong></td>
+                  <td>定期将共享内存 <code>WAL Buffers</code> 中的预写日志刷入磁盘 <code>pg_wal/</code>，保障事务提交的持久性（Durability）。</td>
+                </tr>
+                <tr>
+                  <td><strong>Bgwriter &amp; Checkpointer</strong></td>
+                  <td><code>Bgwriter</code> 后台平滑把少量脏页写回磁盘，避免查询进程自己找空页时被迫刷盘；<code>Checkpointer</code> 按时间（<code>checkpoint_timeout</code>）或 WAL 量（<code>max_wal_size</code>）将所有脏页落盘并推进恢复起点。</td>
+                </tr>
+                <tr>
+                  <td><strong>⭐ Autovacuum</strong></td>
+                  <td>PG 运维命脉：定期唤醒 Worker 进程扫描表，<strong>回收 MVCC 留下的死元组空间、更新可见性映射（VM）与统计信息（ANALYZE），并冻结（Freeze）老事务 ID 防止 32 位事务号回卷</strong>（详见第 06 章）。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 01.2 安装、四级逻辑层级与 psql 元命令 -->
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 01.2 · PG 里的 Database 和 Schema 有什么区别？为什么跨库不能直接写 JOIN？</div>
+          <h3>🛠️ 01.2 四级目录层级、安装启动与 <code>psql</code> 元命令速查</h3>
+
+          <div class="plop-callout info" style="margin-bottom:14px;">
+            <strong>🧭 概念澄清：PostgreSQL 的四层逻辑结构（对比 MySQL 的三层扁平结构）</strong><br>
+            在 MySQL 中，<code>CREATE SCHEMA</code> 等同于 <code>CREATE DATABASE</code>，同一实例下不同库可以直接 <code>SELECT * FROM db1.t1 JOIN db2.t2</code>。<br>
+            而在 PostgreSQL 中，严格划分为四层：<strong>实例集群（Cluster） → 数据库（Database，物理隔离） → 模式（Schema，命名空间，默认 <code>public</code>） → 表/视图/函数</strong>。不同 <code>Database</code> 之间连接隔离、<strong>不能直接写 SQL JOIN</strong>（跨库需借用 <code>postgres_fdw</code> 外部表）；一个项目内的多模块分治，推荐放在<strong>同一个 Database 下的不同 Schema</strong> 中（如 <code>SELECT * FROM auth.users JOIN billing.orders ...</code>），通过 <code>SET search_path TO auth, public;</code> 控制默认查找顺序。
+          </div>
+
+          <div class="wb-grid-2">
+            <div>
+              <h4>💻 安装与连接常用命令</h4>
+              <div class="plop-code-box">
+                <div class="plop-code-head">
+                  <span>🐚 macOS / Linux 启动与连接</span>
+                </div>
+                <pre class="plop-code-pre"><code><span class="c-cmt"># macOS Homebrew 安装与后台启动</span>
+brew install postgresql@16
+brew services start postgresql@16
+
+<span class="c-cmt"># 命令行连接（默认连接同名库/当前系统用户）</span>
+psql postgres
+psql -h localhost -p 5432 -U myuser -d mydb
+
+<span class="c-cmt"># 查看当前连接的库、用户、Schema 搜索路径</span>
+<span class="c-kw">SELECT</span> current_database(), current_user;
+<span class="c-kw">SHOW</span> search_path;</code></pre>
+              </div>
+            </div>
+
+            <div>
+              <h4>⚡ <code>psql</code> 终端反斜杠元命令（高频必背）</h4>
+              <div class="table-wrap" style="margin-top:6px;">
+                <table class="plop-table">
+                  <thead>
+                    <tr>
+                      <th>元命令</th>
+                      <th>作用说明</th>
+                      <th>元命令</th>
+                      <th>作用说明</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>\l</code></td>
+                      <td>列出所有数据库</td>
+                      <td><code>\c 库名</code></td>
+                      <td>切换连接的数据库</td>
+                    </tr>
+                    <tr>
+                      <td><code>\dn</code></td>
+                      <td>列出所有 Schema</td>
+                      <td><code>\dt</code></td>
+                      <td>列出当前 Schema 的表</td>
+                    </tr>
+                    <tr>
+                      <td><code>\d 表名</code></td>
+                      <td>查看表字段、索引与外键</td>
+                      <td><code>\d+ 表名</code></td>
+                      <td>连同表大小、注释一起看</td>
+                    </tr>
+                    <tr>
+                      <td><code>\di</code></td>
+                      <td>列出所有索引</td>
+                      <td><code>\du</code></td>
+                      <td>列出所有角色/用户权限</td>
+                    </tr>
+                    <tr>
+                      <td><code>\x</code></td>
+                      <td>⭐切换竖排展示（宽表神器）</td>
+                      <td><code>\timing</code></td>
+                      <td>⭐开启/关闭 SQL 毫秒耗时</td>
+                    </tr>
+                    <tr>
+                      <td><code>\df</code> / <code>\dx</code></td>
+                      <td>查看函数 / 已安装扩展</td>
+                      <td><code>\e</code> / <code>\q</code></td>
+                      <td>打开外部编辑器写 SQL / 退出</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <details class="plop-drawer">
+            <summary>❓ 面试自测：PostgreSQL 和 MySQL 最核心的三大架构区别是什么？</summary>
+            <div class="drawer-body">
+              <ol>
+                <li><strong>并发模型（多进程 vs 多线程）：</strong>PG 每个连接由 <code>postmaster</code> fork 独立 <code>backend</code> 进程，故障隔离好但单连接开销大，高并发必配 <code>PgBouncer</code>；MySQL 每连接一个线程。</li>
+                <li><strong>存储引擎与表组织（单一堆表引擎 vs 插件式聚簇索引）：</strong>PG 没有插件式引擎概念，表统一采用无序堆表（Heap）+ <code>ctid</code> 物理寻址；MySQL InnoDB 表即主键 B+ 树（索引组织表）。</li>
+                <li><strong>MVCC 多版本落盘位置（堆表内追加 vs Undo Log）：</strong>PG 把旧版本直接留在数据表页里（靠 <code>xmin/xmax</code> 标记），靠后台 <code>VACUUM</code> 异步清理死元组；InnoDB 把旧版本放进独立的 <code>undo log</code> 回滚段。这一点直接衍生出 PG 特有的“表膨胀”、“HOT 更新”与“事务 ID 回卷”运维体系。</li>
+              </ol>
+            </div>
+          </details>
+        </div>
