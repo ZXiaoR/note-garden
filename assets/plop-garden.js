@@ -270,12 +270,15 @@
     } catch (err) {
       console.warn('[plop-garden] Section fragment load failed:', err);
       if (slots[0]) {
-        slots[0].innerHTML = `
-          <div class="plop-callout warn" style="margin-top:20px;">
-            <strong>💡 本地预览提示：</strong>当前页面已按章节拆分为独立的纯 HTML 小文件（<code>sections/*.html</code>）。<br>
-            直接双击 <code>file://</code> 打开会被浏览器安全策略拦截静态片段请求；请使用 VS Code <strong>Live Server</strong> 插件，或在项目根目录执行 <code>python3 -m http.server 8000</code> 后访问 <code>http://localhost:8000</code>（GitHub Pages 线上 HTTPS 环境原生支持，无需任何额外配置）。
-          </div>
+        const tip = document.createElement('div');
+        tip.className = 'plop-callout warn';
+        tip.style.marginTop = '20px';
+        tip.style.marginBottom = '16px';
+        tip.innerHTML = `
+          <strong>💡 本地预览提示：</strong>当前页面已按章节拆分为独立的纯 HTML 小文件（<code>sections/*.html</code>）。<br>
+          直接双击 <code>file://</code> 打开会被浏览器安全策略拦截静态片段请求（下方已为您保留章节摘要与直达链接）；如需完整拼接交互，请使用 VS Code <strong>Live Server</strong> 插件，或在项目根目录执行 <code>python3 -m http.server 8000</code> 后访问 <code>http://localhost:8000</code>（GitHub Pages 线上 HTTPS 环境原生支持，无需任何额外配置）。
         `;
+        slots[0].parentNode.insertBefore(tip, slots[0]);
       }
     }
   }

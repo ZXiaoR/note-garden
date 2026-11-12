@@ -1,0 +1,294 @@
+<!-- ====================================================================
+             PART 08: Linux 常用命令与 Shell 实战 · 权限与查找、文本三剑客、网络抓包与进程后台管理
+             ==================================================================== -->
+        <div class="wb-sec-header mustard" id="linux-cmd">
+          <span class="wb-sec-num">08</span>
+          <span class="wb-sec-title">Linux 常用命令与实战 · 权限与查找、文本三剑客 (grep/awk/sed)、网络抓包与后台管理</span>
+          <span class="plop-tag tomato">PERM · AWK/SED · SS/TCPDUMP · SHELL</span>
+        </div>
+
+        <div class="plop-callout tip" style="margin-bottom:16px;">
+          <strong>⏱️ 30 秒口述版（本章核心）：</strong>Linux 权限由 <code>r(4)w(2)x(1)</code> 组成（注意<strong>目录必须有 <code>x</code> 权限才能 <code>cd</code> 进入，删文件看的是父目录的 <code>w</code> 权限</strong>；特殊位含 <code>SUID/SGID/Sticky</code>）。面试高频手写命令集中在三大场景：<strong>① 文本日志分析</strong>（<code>awk</code> 按列提取统计 + <code>sort -nr</code> + <code>uniq -c</code> + <code>head</code> 算 Top K）；<strong>② 网络与端口诊断</strong>（<code>ss -tulpn</code> / <code>lsof -i:端口</code> 查监听进程，<code>ss -ant</code> 统计 <code>TIME_WAIT/ESTABLISHED</code>，<code>tcpdump -nn -i any port 80 -w cap.pcap</code> 抓包）；<strong>③ 后台守护与重定向</strong>（<code>nohup ./app &gt; app.log 2&gt;&amp;1 &amp;</code>、<code>systemctl</code> 与 <code>journalctl</code>）。
+        </div>
+
+        <!-- 08.1 · 文件权限体系 (rwx / 目录x权限 / SUID / Sticky) 与查找打包 (#cmd-file) -->
+        <div class="wb-card" id="cmd-file" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 08.1 · 对一个只读文件（0400）能执行 rm 删除吗？目录的 r / w / x 权限和普通文件有什么不同？</div>
+          <h3>🔐 08.1 文件与目录权限（<code>rwx</code> / 特殊权限位）及高频查找打包命令 <span class="plop-tag tomato">高频必考</span></h3>
+          <p>
+            执行 <code>ls -l</code> 时看到的第一列如 <code>-rwxr-xr--</code> 共 10 个字符：第 1 位代表<strong>文件类型</strong>（<code>-</code> 普通文件、<code>d</code> 目录、<code>l</code> 软链接、<code>s</code> 套接字、<code>p</code> 管道、<code>c/b</code> 字符/块设备），后面 9 位按 3 位一组分别对应 <strong>属主（User <code>u</code>）、属组（Group <code>g</code>）、其他人（Others <code>o</code>）</strong> 的 <code>r(4) / w(2) / x(1)</code> 权限：
+          </p>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">权限位 (八进制)</th>
+                  <th style="width:36%">对「普通文件」的真实含义</th>
+                  <th>对「目录 (Directory)」的真实含义（面试常考陷阱）</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong><code>r</code> (读 = <code>4</code>)</strong></td>
+                  <td>可以读取文件的字节内容（如 <code>cat / less / vim</code>）。</td>
+                  <td>可以读取目录里的<strong>文件名列表</strong>（即允许执行 <code>ls dir/</code>）。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>w</code> (写 = <code>2</code>)</strong></td>
+                  <td>可以修改或截断文件的内容（但<strong>不含删除该文件本身</strong>）。</td>
+                  <td><strong style="color:var(--plop-tomato);">决定能否在该目录下新建、删除、重命名文件（需同时具备目录 <code>x</code> 权限）！</strong><br/>
+                  <em>👉 经典结论：哪怕一个文件本身权限是 <code>0000</code>（谁都不可读写），只要你对它所在的<strong>父目录有 <code>wx</code> 权限</strong>，你照样能用 <code>rm -f</code> 把它删掉（因为删除本质是修改父目录的 <code>dentry</code> 目录项）！</em></td>
+                </tr>
+                <tr>
+                  <td><strong><code>x</code> (执行 = <code>1</code>)</strong></td>
+                  <td>可以把该文件作为程序加载执行（<code>./a.out</code>）。</td>
+                  <td><strong style="color:#15803d;">决定能否 <code>cd</code> 进入该目录，以及能否访问该目录下任何子文件的 <code>inode</code> 元数据！</strong>如果目录只有 <code>r</code> 没有 <code>x</code>，<code>ls -l</code> 只能看到文件名，大小和时间全显示为 <code>?</code> 且无法打开里面任何文件。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 特殊权限位 SUID / SGID / Sticky Bit 与 umask -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.2px; color:var(--plop-ink); margin-bottom:8px;">
+              🛡️ 进阶必知：三大特殊权限位（SUID / SGID / Sticky Bit）与默认掩码 `umask`
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:10px; font-size:12.8px; line-height:1.56;">
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                <strong>① SUID（<code>4000</code>，属主 <code>x</code> 位显示为 <code>s</code>）：</strong><br/>
+                典型代表：<code>/usr/bin/passwd</code>（<code>-rwsr-xr-x</code>）。普通用户没有写 <code>/etc/shadow</code> 密码文件的权限，但给 <code>passwd</code> 程序加上 SUID 后，任何用户运行它时，<strong>进程的有效用户 ID（<code>euid</code>）会临时提升为文件属主（root）</strong>，从而顺利改密。
+              </div>
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                <strong>② Sticky Bit 粘滞位（<code>1000</code>，末尾显示为 <code>t</code>）：</strong><br/>
+                典型代表：<code>/tmp</code> 目录（<code>drwxrwxrwt</code>，即 <code>1777</code>）。大家都能在 <code>/tmp</code> 里建文件，但如果按普通目录规则，别人也能把你的文件删了；加上 <strong>Sticky 粘滞位后，目录下的文件只有「文件属主自己」或「root」才能删除</strong>。
+              </div>
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                <strong>③ 默认权限掩码 <code>umask</code>（常为 <code>0022</code>）：</strong><br/>
+                新建普通文件最大基准权限是 <code>0666</code>（默认不给执行位），新建目录最大基准是 <code>0777</code>。减去 <code>umask 0022</code> 后，<strong>新建文件默认权限为 <code>0644 (rw-r--r--)</code>，新建目录默认权限为 <code>0755 (rwxr-xr-x)</code></strong>。
+              </div>
+            </div>
+          </div>
+
+          <div class="plop-code-box">
+            <div class="plop-code-head">
+              <span>📂 file_find_tar.sh · 权限修改、find 高级查找清理与 tar / rsync 实战命令</span>
+            </div>
+            <pre class="plop-code-pre"><code><span class="c-cm"># ① 权限与属主：将脚本设为 755 (rwxr-xr-x)，递归修改目录属主为 www-data</span>
+chmod 755 deploy.sh &amp;&amp; chown -R www-data:www-data /var/www/app
+
+<span class="c-cm"># ② find 黄金组合：查找 /var/log 下大于 100MB 且是 7 天前修改的 .log 文件，安全删除（或用 xargs 并发处理）</span>
+find /var/log -type f -name "*.log" -size +100M -mtime +7 -delete
+find . -type f -name "*.go" -print0 | xargs -0 grep -n "TODO"   <span class="c-cm"># -print0 与 xargs -0 配合，安全处理含空格的文件名</span>
+
+<span class="c-cm"># ③ tar 打包与解压：-z(gzip) -c(创建) -x(解压) -v(显示过程) -f(指定文件名，必须放最后) -C(指定解压目录)</span>
+tar -zcvf app_backup.tar.gz --exclude="node_modules" ./app_dir
+tar -zxvf app_backup.tar.gz -C /opt/deploy/
+
+<span class="c-cm"># ④ 跨机器增量同步目录（比 scp 更好用：支持断点续传、保留权限 -a、显示进度 -P）</span>
+rsync -avzP ./dist/ user@10.0.0.8:/data/www/dist/</code></pre>
+          </div>
+        </div>
+
+        <!-- 08.2 · 文本处理三剑客 (grep / awk / sed) 与高频面试一行流 (#cmd-text) -->
+        <div class="wb-card" id="cmd-text" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 08.2 · 面试官让你现场手写一行 Shell：“从 Nginx 访问日志里统计访问量最高的前 10 个 IP”，怎么写？</div>
+          <h3>⚔️ 08.2 文本三剑客（<code>grep</code> · <code>awk</code> · <code>sed</code>）与日志分析组合拳 <span class="plop-tag tomato">高频必考</span></h3>
+          <p>
+            线上排查日志或面试手写 Shell 时，不需要死背几十个冷门参数，记住<strong>「三剑客分工 + 排序去重管道流水线」</strong>就能解决绝大多数文本统计问题：
+          </p>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">工具</th>
+                  <th style="width:24%">一句话核心定位</th>
+                  <th>最常用的黄金参数与内置变量</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong><code>grep</code></strong><br/>（按行过滤查找）</td>
+                  <td><strong>“找哪几行”</strong>：按正则匹配筛选包含指定模式的行</td>
+                  <td>
+                    • <code>-i</code> 忽略大小写 · <code>-n</code> 显示行号 · <code>-v</code> <strong>反向排除</strong>（如 <code>grep -v grep</code>） · <code>-r</code> 递归目录 · <code>-E</code> 扩展正则（等价于 <code>egrep</code>，支持 <code>"ERROR|FATAL"</code>） · <code>-c</code> 只统计匹配行数<br/>
+                    • <strong style="color:#15803d;">查报错上下文利器：</strong><code>-C 5</code>（显示匹配行前后各 5 行）、<code>-A 5</code>（After 后 5 行）、<code>-B 5</code>（Before 前 5 行）。
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong><code>awk</code></strong><br/>（按列切分与聚合）</td>
+                  <td><strong>“取哪几列 &amp; 做统计”</strong>：自带哈希表与循环的列处理引擎</td>
+                  <td>
+                    • <code>-F ':'</code> 指定分隔符（默认按任意空白符切分）<br/>
+                    • 内置变量：<code>$1, $2...</code>（第 1、2 列）、<code>$0</code>（整行）、<code>$NF</code>（<strong>最后一列</strong>）、<code>NR</code>（当前行号）、<code>NF</code>（当前行总列数）<br/>
+                    • 聚合模式：<code>awk '&#123;sum+=$10&#125; END &#123;print sum/NR&#125;'</code>（用哈希数组 <code>count[$1]++</code> 可直接做分组计数）。
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong><code>sed</code></strong><br/>（流式编辑替换）</td>
+                  <td><strong>“改/删文本内容”</strong>：按行增删改替换文本流</td>
+                  <td>
+                    • <code>sed 's/old/new/g' file</code>（把每行所有 <code>old</code> 替换为 <code>new</code>，只预览不改原文件）<br/>
+                    • <code>sed -i 's/8080/9090/g' app.conf</code>（<strong><code>-i</code> 直接原地修改文件</strong>；macOS 下需写 <code>sed -i ''</code>）<br/>
+                    • <code>sed -n '100,200p' app.log</code>（只打印第 100 到 200 行） · <code>sed '/^#/d'</code>（删除所有 <code>#</code> 开头的注释行）。
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>管道搭档</strong><br/><code>sort / uniq / tail</code></td>
+                  <td><strong>“排序 · 去重计数 · 实时盯梢”</strong></td>
+                  <td>
+                    • <code>sort -n</code>（<strong>按数值大小排</strong>，不加 <code>-n</code> 会按字典序把 <code>10</code> 排在 <code>2</code> 前面！） · <code>-r</code>（降序） · <code>-k 2</code>（按第 2 列排）<br/>
+                    • <code>uniq -c</code>（合并<strong>相邻</strong>重复行并在前面打印出现次数 —— <strong style="color:var(--plop-tomato);">注意：<code>uniq</code> 前必须先 <code>sort</code>，否则不相邻的重复行合并不了！</strong>）<br/>
+                    • <code>tail -f app.log</code>（实时追踪文件追加内容；若日志会按天切割重建，用 <code>tail -F</code> 按文件名持续追踪）。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-code-box">
+            <div class="plop-code-head">
+              <span>🏆 interview_log_oneliners.sh · 面试必考 4 大日志与文本统计手写一行流</span>
+              <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('os-shell-oneliners-cmd', this)">复制命令</button>
+            </div>
+            <pre class="plop-code-pre" id="os-shell-oneliners-cmd"><code><span class="c-cm"># 题 1：从 Nginx access.log（第1列为客户端IP）中找出访问量最高的 Top 10 IP 及其请求次数</span>
+awk '&#123;print $1&#125;' access.log | sort | uniq -c | sort -nr | head -n 10
+
+<span class="c-cm"># 题 2：纯用 awk 哈希数组一步完成 Top 10 IP 统计（无需全量外部 sort，大文件下内存与速度更优）</span>
+awk '&#123;cnt[$1]++&#125; END &#123;for (ip in cnt) print cnt[ip], ip&#125;' access.log | sort -nr | head -n 10
+
+<span class="c-cm"># 题 3：筛选出状态码为 500（假设第9列为状态码、第7列为URL）的请求，统计报错最多的前 5 个接口</span>
+awk '$9 == 500 &#123;print $7&#125;' access.log | sort | uniq -c | sort -nr | head -n 5
+
+<span class="c-cm"># 题 4：实时滚动查看线上日志中的 ERROR/Exception，并高亮展示报错前后各 10 行堆栈上下文</span>
+tail -F /var/log/app/server.log | grep --line-buffered -E -C 10 "ERROR|Exception|panic"</code></pre>
+          </div>
+        </div>
+
+        <!-- 08.3 · 网络、端口占用与抓包诊断命令 (#cmd-net) -->
+        <div class="wb-card" id="cmd-net" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 08.3 · 怎么看 8080 端口被哪个进程占了？为什么线上高并发服务器推荐用 ss 替代 netstat？</div>
+          <h3>🌐 08.3 网络连接、端口占用与抓包诊断（<code>ss</code> · <code>lsof</code> · <code>tcpdump</code> · <code>curl</code>）</h3>
+          <p>
+            当出现“启动服务报 <code>Address already in use</code>”、“怀疑连接池泄漏 / <code>TIME_WAIT</code> 过多”或“接口偶发超时”时，按以下工具链逐层排查：
+          </p>
+
+          <div class="wb-grid-2" style="margin:12px 0;">
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.2px; color:#15803d; margin-bottom:6px;">
+                ⚡ 为什么现代 Linux 强烈推荐用 `ss` 替代老旧的 `netstat`？
+              </div>
+              <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
+                • <strong><code>netstat</code> 的缺陷：</strong>它通过逐行遍历读取 <code>/proc/net/tcp</code> 文本文件来获取连接信息。当单机有 <strong>10 万个并发 TCP 连接或几万个 <code>TIME_WAIT</code></strong> 时，<code>netstat</code> 光读文件解析就要卡顿好几秒甚至消耗大量 CPU。<br/>
+                • <strong><code>ss</code>（Socket Statistics）的优势：</strong>直接通过内核 <strong><code>tcp_diag</code> Netlink 套接字</strong>从内核空间二进制导出状态，<strong>即使有十万连接也能毫秒级返回</strong>，而且参数与 <code>netstat</code> 高度兼容（如 <code>-t</code> TCP、<code>-u</code> UDP、<code>-l</code> 监听中、<code>-p</code> 显示进程、<code>-n</code> 不解析域名直接显示数字 IP:端口）。
+              </div>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.2px; color:var(--plop-tomato); margin-bottom:6px;">
+                🦈 线上抓包铁律：`tcpdump` 必加 `-nn` 与 `-w`
+              </div>
+              <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
+                • <strong>必加 <code>-nn</code>：</strong>禁止把 IP 反查成域名、禁止把端口号（如 <code>80/443</code>）转成服务名（<code>http/https</code>）——否则每抓一个包都要发 DNS 反查请求，既慢又污染抓包结果。<br/>
+                • <strong>生产抓包建议写文件：</strong>线上高流量时用 <code>-c 1000</code> 限制抓包数量，并用 <code>-w dump.pcap</code> 直接保存原始二进制包，拉回本地用图形化 <strong>Wireshark</strong> 分析三次握手、重传与对端 RST。
+              </div>
+            </div>
+          </div>
+
+          <div class="plop-code-box">
+            <div class="plop-code-head">
+              <span>🌐 net_diag_commands.sh · 查端口占用、统计 TCP 状态分布、tcpdump 抓包与 curl 耗时拆解</span>
+              <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('os-net-diag-cmd', this)">复制命令</button>
+            </div>
+            <pre class="plop-code-pre" id="os-net-diag-cmd"><code><span class="c-cm"># ① 查谁占用了 8080 端口（两种最常用写法，推荐加 sudo 才能看到非当前用户的进程 PID）</span>
+ss -tulpn | grep :8080
+lsof -i :8080
+
+<span class="c-cm"># ② 面试常考：一键统计当前机器各个 TCP 状态（ESTABLISHED / TIME_WAIT / CLOSE_WAIT）的连接总数</span>
+ss -tan | awk 'NR&gt;1 &#123;state[$1]++&#125; END &#123;for (s in state) print s, state[s]&#125;'
+ss -s   <span class="c-cm"># 或者直接用 ss -s 秒级查看内核汇总好的 TCP 各状态计数！</span>
+
+<span class="c-cm"># ③ tcpdump 抓包：抓 eth0 网卡上与 10.0.0.5 交互且端口为 3306 的包，最多抓 500 个存入 mysql.pcap</span>
+tcpdump -nn -i eth0 host 10.0.0.5 and port 3306 -c 500 -w mysql.pcap
+tcpdump -nn -A -s 0 port 8080   <span class="c-cm"># -A 以 ASCII 打印包体明文（适合直接看内部 HTTP 请求头与响应）</span>
+
+<span class="c-cm"># ④ curl 拆解一次 HTTP 请求在 DNS、TCP 握手、TLS 握手、首字节等待 (TTFB) 各阶段耗时（排障利器）</span>
+curl -o /dev/null -s -w "DNS:%&#123;time_namelookup&#125;s | TCP:%&#123;time_connect&#125;s | TLS:%&#123;time_appconnect&#125;s | TTFB:%&#123;time_starttransfer&#125;s | Total:%&#123;time_total&#125;s\n" https://example.com
+
+<span class="c-cm"># ⑤ 测试远端 IP:端口 TCP 连通性（替代废弃的 telnet）与查 DNS 解析链路</span>
+nc -zv 10.0.0.8 6379
+dig +short example.com</code></pre>
+          </div>
+        </div>
+
+        <!-- 08.4 · 进程后台运行、重定向细节与 systemd / /proc (#cmd-proc) -->
+        <div class="wb-card" id="cmd-proc" style="background:var(--plop-paper);">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill">❓ 08.4 · 为什么光加 `&` 后台运行，关掉 SSH 窗口进程还是死了？`> log 2>&1` 和 `2>&1 > log` 为什么不等价？</div>
+          <h3>⚙️ 08.4 进程后台运行（<code>nohup</code> vs <code>systemd</code>）、重定向顺序陷阱与 <code>/proc</code> 探秘</h3>
+
+          <div class="wb-grid-2" style="margin-bottom:14px;">
+            <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.2px; color:var(--plop-ink-text); margin-bottom:6px;">
+                🔌 为什么 `./app &amp;` 关掉终端还是会死？
+              </div>
+              <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
+                • <code>&amp;</code> 只是把进程放到当前 Shell 会话的<strong>后台运行</strong>（不再占用终端标准输入，忽略 <code>Ctrl+C</code> 的 <code>SIGINT</code>）；<br/>
+                • 但当你直接关闭 SSH 终端窗口时，Shell 会向会话下所有子进程发送 <strong><code>SIGHUP</code>（挂断信号，Hangup）</strong>，导致后台进程被默认终止！<br/>
+                • <strong>解法：</strong>① 临时任务用 <strong><code>nohup ./app &gt; app.log 2&gt;&amp;1 &amp;</code></strong>（<code>nohup</code> 让进程忽略 <code>SIGHUP</code> 信号）或在 <code>tmux / screen</code> 会话里跑；② 生产服务一律交由 <strong><code>systemd</code>（<code>systemctl start app</code>）或容器</strong> 托管守护。
+              </div>
+            </div>
+
+            <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.2px; color:var(--plop-ink-text); margin-bottom:6px;">
+                🚨 经典重定向考题：为什么 `2&gt;&amp;1` 必须写在 `&gt; app.log` 后面？
+              </div>
+              <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
+                结合第 07 章的<strong>文件描述符表</strong>，Shell 解析重定向是<strong>严格从左往右执行 <code>dup2()</code></strong> 的：<br/>
+                • <strong>✅ <code>&gt; app.log 2&gt;&amp;1</code>：</strong>先让 <code>fd=1 (stdout)</code> 指向 <code>app.log</code>，再让 <code>fd=2 (stderr)</code> 复制 <code>fd=1</code> 当前指向的目标（即 <code>app.log</code>），于是<strong>标准输出和标准错误都进了文件</strong>。<br/>
+                • <strong>❌ <code>2&gt;&amp;1 &gt; app.log</code>：</strong>先让 <code>fd=2</code> 复制当时 <code>fd=1</code> 的目标（此时 <code>fd=1</code> 还指着<strong>屏幕终端</strong>！），随后才把 <code>fd=1</code> 改指到 <code>app.log</code>——结果 <strong><code>stderr</code> 依然打在屏幕上，根本没进日志文件</strong>！
+              </div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:24%">管理场景 / <code>/proc</code> 伪文件</th>
+                  <th style="width:36%">高频命令与路径</th>
+                  <th>内核原理与实战用途</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>查看进程树与环境变量</strong></td>
+                  <td><code>ps aux</code> · <code>ps -ef</code> · <code>pstree -p &lt;pid&gt;</code></td>
+                  <td><code>ps aux</code> 侧重看 CPU%/MEM% 与进程状态码（<code>STAT</code> 列 <code>R/S/D/Z/Ssl</code>，其中 <code>s</code> 为会话首进程、<code>l</code> 为多线程）；<code>ps -ef</code> 侧重看父进程 <code>PPID</code>。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>systemd</code> 服务与日志</strong></td>
+                  <td><code>systemctl status/restart nginx</code><br/><code>journalctl -u nginx -f --since "10m ago"</code></td>
+                  <td>现代 Linux 标准守护进程管理器，支持进程崩溃自动拉起（<code>Restart=always</code>）与 Cgroup 资源限制。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>/proc/&lt;pid&gt;/</code> 进程内幕</strong></td>
+                  <td>
+                    • <code>/proc/&lt;pid&gt;/fd/</code>（打开的所有句柄）<br/>
+                    • <code>/proc/&lt;pid&gt;/maps</code> &amp; <code>smaps_rollup</code><br/>
+                    • <code>/proc/&lt;pid&gt;/exe</code> &amp; <code>cwd</code> &amp; <code>environ</code>
+                  </td>
+                  <td><code>/proc</code> 不占磁盘空间，是<strong>内核数据结构在内存里的实时镜像</strong>（<code>ps/top/lsof/ss</code> 底层全靠读 <code>/proc</code> 工作）。甚至当磁盘上的二进制或日志文件被误删，只要进程没关，还能直接 <code>cp /proc/&lt;pid&gt;/fd/3 recovered.log</code> 把文件救回来！</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-bridge">
+            <span>🧭 下一站：掌握了底层原理与日常命令武器库后，进入最后一章——把 `./a.out` 从启动到消亡的 6 步内核旅程串成闭环，并拿下线上性能故障排查 SOP 与 20 题速记表！</span>
+          </div>
+        </div>

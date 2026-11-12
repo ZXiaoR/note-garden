@@ -13,7 +13,7 @@
   <div class="chapter-q-pill">🔄 04.1 · 当已有接收协程阻塞在 <code>&lt;-ch</code> 时，发送者写的数据还会进环形缓冲区 <code>buf</code> 吗？</div>
   <h3>🧬 04.1 <code>runtime.hchan</code> 底层结构与 <code>sendDirect</code> 跨协程栈直接拷贝优化</h3>
   <p>
-    Rob Pike 名言：<strong>“不要通过共享内存来通信，而要通过通信来共享内存。”</strong> 调用 <code>make(chan int, 4)</code> 会在堆上分配一个 <code>hchan</code> 结构体并返回指针。它集成了<strong>环形缓冲区 <code>buf</code>、双向阻塞协程队列 <code>sendq/recvq (sudog)</code> 与互斥锁 <code>lock</code></strong>：
+    Rob Pike 名言：<strong>“不要通过共享内存来通信，而要通过通信来共享内存。”</strong> 调用 <code>make(chan int, 4)</code> 会在堆上分配一个 <code>hchan</code> 结构体并返回指针。它内部由<strong>环形缓冲区 <code>buf</code>、阻塞协程等待队列 <code>sendq / recvq</code>（节点类型为 <code>sudog</code>，即把休眠协程 <code>G</code> 与其收发变量栈地址打包成的等待节点）以及一把互斥锁 <code>lock</code></strong> 组成：
   </p>
 
   <!-- 手绘 SVG：hchan 底层结构与 sendDirect 跨栈直拷 -->
@@ -95,6 +95,26 @@
       <text x="14" y="216" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">  会发生扩容移动，因此 memmove 跨栈直写绝对安全！</text>
     </g>
   </svg>
+
+  <!-- 图下文字版核心拆解（方便手机端阅读） -->
+  <div class="wb-grid-2" style="margin-top:12px;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 图解左中区：<code>hchan</code> 三大件与 <code>sudog</code></div>
+      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
+        <li><strong>环形缓冲区 <code>buf</code></strong>：用定长数组配合写游标 <code>sendx</code>、读游标 <code>recvx</code> 构成环形队列（到尾自动取模回绕）。</li>
+        <li><strong>等待节点 <code>sudog</code></strong>：当协程因 Channel 空/满而阻塞时，Runtime 会把该协程指针 <code>g</code> 和它要读写的变量地址 <code>elem</code> 包装成一个 <code>sudog</code> 结构体，挂入读等待链表 <code>recvq</code> 或写等待链表 <code>sendq</code>。</li>
+        <li><strong>内置互斥锁 <code>lock</code></strong>：Channel 并非无锁结构，每次收发都会先加 <code>hchan.lock</code> 保护内部字段。</li>
+      </ul>
+    </div>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;">📖 图解右半区：发送 <code>ch &lt;- x</code> 的三条分支与跨栈直拷</div>
+      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
+        <li><strong>分支① <code>recvq</code> 已有等待者（<code>sendDirect</code> 跨栈直拷）</strong>：弹出等待的 <code>sudog</code>，<strong>完全绕过 <code>buf</code></strong>，直接将发送者栈上的 <code>x</code> 拷进接收者栈上的接收变量 <code>sg.elem</code>（因为接收者正处于 <code>_Gwaiting</code> 休眠态，栈不会扩容移动，跨栈直写安全且省去一次进出缓冲区的拷贝），随后调 <code>goready()</code> 唤醒接收者。</li>
+        <li><strong>分支② <code>buf</code> 还有空位</strong>：把数据拷进 <code>buf[sendx]</code>，游标后移，立即返回。</li>
+        <li><strong>分支③ <code>buf</code> 已满（或无缓冲）</strong>：将当前协程打包成 <code>sudog</code> 挂入 <code>sendq</code>，调 <code>gopark()</code> 休眠让出 M。</li>
+      </ul>
+    </div>
+  </div>
 </div>
 
 <!-- 04.2 · 收发关状态真值表与优雅关闭原则 -->

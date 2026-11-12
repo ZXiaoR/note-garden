@@ -57,7 +57,7 @@
             </tr>
             <tr>
               <td><strong><code>valueCtx</code></strong></td>
-              <td><code>WithValue(p, k, v)</code>：每次存一对 KV 指向上游構成单向链表（$O(N)$ 查找）。<strong>Key 必须用自定义私有类型</strong>防包间冲突！</td>
+              <td><code>WithValue(p, k, v)</code>：每次存一对 KV 指向上游构成单向链表（$O(N)$ 查找）。<strong>Key 必须用自定义私有类型</strong>防包间冲突！</td>
             </tr>
           </tbody>
         </table>
@@ -204,7 +204,7 @@ go tool pprof -http=:8080 http://127.0.0.1:6060/debug/pprof/goroutine</code></pr
   <details class="plop-drawer">
     <summary>01. 为什么 Go 要引入协程？它和操作系统内核线程的核心区别是什么？</summary>
     <div class="drawer-body">
-      <p>① <strong>栈内存</strong>：OS 线程栈固定 <code>1~8MB</code>，Goroutine 初始仅 <code>2KB</code> 且支持按需动态连续栈扩缩容（最大 1GB），单机可轻松创建百万级协程。② <strong>切换成本</strong>：线程切换需陷入内核态（Ring 0）保存十几个寄存器（<code>1~2μs</code>）；Goroutine 在用户态通过 <code>g0</code> 切换，仅保存 PC/SP/BP 三个核心寄存器（<code>~100-200ns</code>）。③ <strong>IO 阻塞</strong>：Go Runtime 内置 M:N 调度器与 <code>netpoller</code>，网络读写阻塞只挂起 G 而不阻塞底层线程 M。</p>
+      <p>① <strong>栈内存与资源上限</strong>：OS 线程栈默认保留 <code>1~8MB</code> 虚拟地址空间（触碰缺页分配物理页后不可缩容）及独立内核栈，数万并发易撞上 <code>threads-max</code>、<code>max_map_count</code> 与内存上限；Goroutine 初始仅 <code>2KB</code> 且支持按需动态连续栈扩缩容（最大 1GB），单机可轻松创建十万至百万级协程。② <strong>切换成本</strong>：线程切换需陷入内核态（Ring 0）保存十几个寄存器（<code>1~2μs</code>）；Goroutine 在用户态通过 <code>g0</code> 切换，仅保存 PC/SP/BP 三个核心寄存器（<code>~100-200ns</code>）。③ <strong>IO 阻塞</strong>：Go Runtime 内置 M:N 调度器与 <code>netpoller</code>，网络读写阻塞只挂起 G 而不阻塞底层线程 M。</p>
     </div>
   </details>
 

@@ -7,6 +7,10 @@
           <span class="plop-tag">MLFQ · CFS VRUNTIME · EEVDF</span>
         </div>
 
+        <div class="plop-callout tip" style="margin-bottom:16px;">
+          <strong>⏱️ 30 秒口述版（本章核心）：</strong>调度器需在<strong>周转时间（吞吐）</strong>与<strong>响应时间（交互延迟）</strong>之间权衡，优先照顾 I/O 密集型短任务。Linux <strong>CFS（完全公平调度器）</strong>按权重归一化的虚拟运行时间 <code>vruntime</code> 维护<strong>红黑树（<code>rb_root_cached</code>）</strong>，每次以 $O(1)$ 取最左节点（<code>vruntime</code> 最小）上 CPU；<strong>Linux 6.6+ 演进为 EEVDF</strong>，在满足资格（Eligible）的任务中挑<strong>虚拟截止时间（Virtual Deadline）最早</strong>的任务执行，短时间片请求能更快获得 CPU。
+        </div>
+
         <!-- 06.1 · 调度目标、任务分类与抢占时机 (#sched) -->
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape"></div>
@@ -75,27 +79,27 @@
               <tbody>
                 <tr>
                   <td><strong>① 先来先服务 (FCFS)</strong></td>
-                  <td>按到达先后排队，非抢占，谁先来谁跑到死。</td>
-                  <td>实现最简单、绝对零切换开销。</td>
-                  <td><strong style="color:var(--plop-tomato);">护航效应（Convoy Effect）：</strong>一个耗时 10 秒的大计算任务排在队头，后面 100 个只需 1ms 的网络请求全得陪它干等 10 秒！</td>
+                  <td>按到达先后排队，非抢占，谁先来谁跑到结束。</td>
+                  <td>实现最简单、无额外切换开销。</td>
+                  <td><strong style="color:var(--plop-tomato);">护航效应（Convoy Effect）：</strong>一个耗时 10 秒的大计算任务排在队头，后面 100 个只需 1ms 的网络请求全得陪它干等 10 秒。</td>
                 </tr>
                 <tr>
                   <td><strong>② 短作业优先 (SJF / SRTF)</strong></td>
                   <td>每次挑<strong>预计运行时间最短（抢占版为剩余时间最短 SRTF）</strong>的先跑。</td>
-                  <td>数学证明<strong>平均周转时间全局最优</strong>！</td>
-                  <td>① 操作系统<strong>根本无法提前预知</strong>一个进程还要跑多久；② 短任务源源不断涌入会导致长任务<strong>永久饿死（Starvation）</strong>。</td>
+                  <td>数学证明<strong>平均周转时间理论最优</strong>。</td>
+                  <td>① 操作系统<strong>无法提前预知</strong>一个进程还要跑多久；② 短任务源源不断涌入会导致长任务<strong>饥饿（Starvation）</strong>。</td>
                 </tr>
                 <tr>
                   <td><strong>③ 优先级调度 (Priority)</strong></td>
                   <td>给每个进程标优先级，高优先级先跑。</td>
                   <td>能区分核心系统任务与后台杂活。</td>
-                  <td>低优先级仍可能饿死 ──▶ 必须引入<strong>「老化（Aging）」机制</strong>：随着等待时间增加，动态调高老实排队者的优先级。</td>
+                  <td>低优先级仍可能饿死 ──▶ 需引入<strong>「老化（Aging）」机制</strong>：随着等待时间增加，动态调高排队者的优先级。</td>
                 </tr>
                 <tr>
                   <td><strong>④ 时间片轮转 (RR)</strong></td>
                   <td>所有就绪进程轮流跑一个固定时间片（如 <code>4ms</code>），用完排到队尾。</td>
-                  <td>绝对公平、交互响应时间极佳，不会饿死。</td>
-                  <td><strong>时间片大小极难定：</strong>设太大退化成 FCFS 响应慢；设太小（如 0.1ms）CPU 全耗在上下文切换和刷 TLB 上了！</td>
+                  <td>公平性好、交互响应时间可预期，不会饿死。</td>
+                  <td><strong>时间片大小需要权衡：</strong>设太大退化成 FCFS 响应慢；设太小（如 0.1ms）CPU 耗时在上下文切换和刷 TLB 上占比过高。</td>
                 </tr>
                 <tr>
                   <td><strong>⑤ 多级反馈队列 (MLFQ)</strong><br/><span class="plop-tag tomato" style="font-size:10px;">经典集大成者</span></td>
@@ -171,10 +175,10 @@
             <summary>🔍 进阶拓展 · Linux 6.6+ 最新的 EEVDF 调度器、CPU 亲和性 / NUMA 与 K8s 容器 CPU 限流 (Throttling)</summary>
             <div class="drawer-body">
               <ul>
-                <li><strong>Linux 6.6+ 的演进 —— EEVDF（Earliest Eligible Virtual Deadline First）：</strong>CFS 虽然保证了吞吐公平，但对“延迟敏感型短任务”缺少截止时间概念。<strong>Linux 6.6 正式用 EEVDF 替换了 CFS 内部挑选逻辑</strong>：保留了 <code>vruntime</code> 与红黑树，但在选任务时只从“已欠账（Eligible）”的任务中挑<strong>「虚拟截止时间（Virtual Deadline）最早」</strong>的任务执行，短请求或设置了低 <code>latency-nice</code> 的任务能更快上 CPU！</li>
-                <li><strong>多核负载均衡、CPU 亲和性（Affinity）与 NUMA：</strong>每个 CPU 核有自己独立的运行队列 <code>rq</code>，减少多核抢锁；调度器尽量让同一线程留在上次跑过的核上（<strong>软亲和性，保护 L1/L2 Cache 与 TLB 热度</strong>），也可通过 <code>taskset / sched_setaffinity</code> 绑核。多路服务器需注意 <strong>NUMA（非统一内存访问）</strong>，跨 Socket 访问远端节点的内存延迟会贵一倍。</li>
+                <li><strong>Linux 6.6+ 的演进 —— EEVDF（Earliest Eligible Virtual Deadline First）：</strong>CFS 保证了吞吐公平，但缺少“任务多快必须得到服务”的截止时间概念（早期社区讨论的 <code>latency-nice</code> 补丁最终并未合入主线）。<strong>Linux 6.6 正式用 EEVDF 替换了 CFS 内部挑选逻辑</strong>：保留了 <code>vruntime</code> 与红黑树（增维护子树最小 deadline 增强红黑树），选任务时只从“已欠账（Eligible，<code>lag ≥ 0</code>）”的任务中挑<strong>「虚拟截止时间（$\text{Virtual Deadline} = ve_i + \frac{\text{slice}}{w_i}$）最早」</strong>的任务执行。因此延迟敏感型短任务依靠<strong>更短的请求时间片（slice，后续版本可通过 <code>sched_setattr()</code> 的 <code>sched_runtime</code> 自定义）</strong>即可算出更早的虚拟截止时间，从而更快上 CPU。</li>
+                <li><strong>多核负载均衡、CPU 亲和性（Affinity）与 NUMA：</strong>每个 CPU 核有自己独立的运行队列 <code>rq</code>，减少多核抢锁；调度器尽量让同一线程留在上次跑过的核上（<strong>软亲和性，保护 L1/L2 Cache 与 TLB 热度</strong>），也可通过 <code>taskset / sched_setaffinity</code> 绑核。多路服务器需注意 <strong>NUMA（非统一内存访问）</strong>，跨 Socket 访问远端节点的内存延迟显著高于本地节点。</li>
                 <li><strong>🐳 K8s / Docker 容器为什么 CPU 利用率才 30%，接口延迟却突然暴增？（CFS Bandwidth Control 限流坑）：</strong><br/>
-                  容器设置的 <code>resources.limits.cpu: "2"</code> 底层对应 Cgroup 的 <code>cpu.cfs_period_us = 100ms</code> 与 <code>cpu.cfs_quota_us = 200ms</code>。如果你的 Go/Java 服务开了 <strong>16 个工作线程</strong>，在某个 100ms 周期的前 <strong>12.5ms（$16 \times 12.5 = 200\text{ms}$）</strong> 里就把 200ms 配额全烧光了，<strong>剩下的 87.5ms 内整个容器的所有线程会被内核 CFS 强制冻结节流（Throttled，查 `/sys/fs/cgroup/cpu/cpu.stat` 的 `nr_throttled`）</strong>，导致 P99 延迟毛刺飙升！解法：在容器内通过 <code>automaxprocs</code> 让运行时线程数对齐容器配额，或适当调高 CPU Limit。</li>
+                  容器设置的 <code>resources.limits.cpu: "2"</code> 底层对应 <strong>cgroup v2 的 <code>cpu.max = "200000 100000"</code></strong>（或旧版 cgroup v1 的 <code>cpu.cfs_quota_us = 200ms</code> / <code>cpu.cfs_period_us = 100ms</code>）。如果你的服务按宿主机核数开了 <strong>16 个工作线程</strong>，在某个 100ms 周期的前 <strong>12.5ms（$16 \times 12.5 = 200\text{ms}$）</strong> 里就把 200ms 配额全用完了，<strong>剩下的 87.5ms 内整个容器的所有线程会被内核强制节流冻结（Throttled，查 cgroup v2 `/sys/fs/cgroup/cpu.stat` 或 v1 `/sys/fs/cgroup/cpu/cpu.stat` 的 `nr_throttled`）</strong>，导致 P99 延迟毛刺飙升。<strong>解法：</strong>让语言运行时线程数对齐容器 CPU 配额（<strong>Go 1.25+ 的 <code>GOMAXPROCS</code> 已原生自动感知容器 cgroup CPU 配额</strong>；旧版本 Go 可引入 <code>uber-go/automaxprocs</code>，Java 10+ 默认开启 <code>-XX:+UseContainerSupport</code>），或适当放宽 CPU Limit。</li>
               </ul>
             </div>
           </details>

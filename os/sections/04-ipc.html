@@ -7,6 +7,10 @@
           <span class="plop-tag mint">IPC · SHM · SIGNAL · UDS</span>
         </div>
 
+        <div class="plop-callout tip" style="margin-bottom:16px;">
+          <strong>⏱️ 30 秒口述版（本章核心）：</strong>跨进程通信只有两条物理路径：<strong>① 经内核空间缓冲区中转</strong>（管道、消息队列、Socket，需 2 次用户↔内核拷贝）；<strong>② 映射同一块物理内存页</strong>（<strong>共享内存 Shared Memory</strong>，映射建立后 <strong>0 次内核拷贝，速度最快</strong>，但需配合信号量或互斥锁同步）。<strong>Signal 信号</strong>用于异步事件通知（<code>SIGTERM(15)</code> 可捕获做优雅退出，<code>SIGKILL(9)</code> 不可捕获/忽略，信号处理函数内仅可调用异步信号安全函数）。
+        </div>
+
         <!-- 04.1 · 为什么需要 IPC & 匿名管道 vs 命名管道 (#pipe) -->
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape"></div>
@@ -113,26 +117,26 @@
                 <tr>
                   <td><strong>共享内存 (Shared Memory)</strong></td>
                   <td>多进程页表映射<strong>同一块物理内存</strong>（<code>shmget/shmat</code> 或 <code>mmap</code>）</td>
-                  <td><strong>所有 IPC 中速度绝对第一（零内核拷贝）</strong>，适合高频大数据量交换。</td>
-                  <td><strong style="color:var(--plop-tomato);">本身完全不提供任何同步机制！</strong>同时读写会数据撕裂，<strong>必须配合信号量、互斥锁或原子操作使用</strong>。</td>
+                  <td><strong>所有 IPC 中速度最快（零内核拷贝）</strong>，适合高频大数据量交换。</td>
+                  <td><strong style="color:var(--plop-tomato);">本身不提供同步机制：</strong>并发读写会出现数据竞争，<strong>需配合信号量、互斥锁或原子操作使用</strong>。</td>
                 </tr>
                 <tr>
                   <td><strong>信号量 (Semaphore)</strong></td>
                   <td>内核维护的原子计数器 + <code>P(wait减1)</code> / <code>V(post加1)</code> 原语</td>
-                  <td>专门用来做<strong>跨进程互斥与同步协调</strong>（共享内存的黄金保镖）。</td>
+                  <td>专门用来做<strong>跨进程互斥与同步协调</strong>（常与共享内存配合）。</td>
                   <td>只传“能不能进”的信号计数，不传业务数据。</td>
                 </tr>
                 <tr>
                   <td><strong>信号 (Signal)</strong></td>
-                  <td>进程 PCB 上的位图标志（异步软件中断）</td>
-                  <td>最轻量的<strong>异步事件通知</strong>（如通知进程优雅退出、子进程结束）。</td>
+                  <td>进程 PCB 上的位图标志（异步软件通知）</td>
+                  <td>轻量的<strong>异步事件通知</strong>（如通知进程优雅退出、子进程结束）。</td>
                   <td>几乎不携带业务数据（仅一个信号编号 <code>signo</code>）。</td>
                 </tr>
                 <tr>
                   <td><strong>Socket 套接字</strong></td>
                   <td>内核网络协议栈缓冲区 或 本机 <strong>Unix Domain Socket (UDS)</strong></td>
-                  <td><strong>唯一支持跨物理机器网络通信的 IPC</strong>；本机 UDS 绕过 TCP/IP 网络栈，可直接传递数据甚至<strong>跨进程传递文件描述符 <code>fd</code>（<code>SCM_rights</code>）</strong>！</td>
-                  <td>跨机器走网络栈延迟最高；本机通信优先用 UDS（如 <code>mysql.sock</code>、<code>docker.sock</code>）。</td>
+                  <td><strong>支持跨物理机器网络通信的 IPC</strong>；本机 UDS 绕过 TCP/IP 网络栈，可直接传递数据甚至<strong>跨进程传递文件描述符 <code>fd</code>（<code>SCM_RIGHTS</code>）</strong>。</td>
+                  <td>跨机器走网络栈延迟较高；本机通信优先用 UDS（如 <code>mysql.sock</code>、<code>docker.sock</code>）。</td>
                 </tr>
               </tbody>
             </table>
@@ -147,8 +151,8 @@
         <!-- 04.3 · 信号 Signal 与 Socket (#signal, #socket) -->
         <div class="wb-card" id="signal" style="background:var(--plop-paper);">
           <div class="washi-tape periwinkle"></div>
-          <div class="chapter-q-pill" id="socket">❓ 04.3 · kill -9 和 kill -15 有什么天壤之别？为什么绝对不能在信号处理函数里调 printf / malloc？</div>
-          <h3>📡 04.3 信号（Signal 异步软中断）与本机 / 跨机 Socket</h3>
+          <div class="chapter-q-pill" id="socket">❓ 04.3 · kill -9 和 kill -15 有什么区别？为什么不能在信号处理函数里调 printf / malloc？</div>
+          <h3>📡 04.3 信号（Signal 异步事件通知）与本机 / 跨机 Socket</h3>
           <p>
             <strong>信号（Signal）</strong>是操作系统发给进程的<strong>异步事件通知（软件层面的中断）</strong>。当别的进程调用 <code>kill(pid, sig)</code> 或内核检测到异常时，内核会在目标进程 <code>task_struct</code> 的待处理信号位图（<code>pending</code>）上把对应比特位置 1；<strong>当目标进程下一次从内核态准备返回用户态时，检查位图并触发响应</strong>（① 执行默认动作、② 忽略、③ 跳进用户通过 <code>sigaction()</code> 注册的自定义捕获函数）：
           </p>
@@ -179,8 +183,8 @@
                 <tr>
                   <td><strong><code>SIGKILL (9)</code></strong></td>
                   <td><code>kill -9 &lt;pid&gt;</code> 或 OOM Killer 强杀</td>
-                  <td><strong style="color:var(--plop-tomato);">❌ 绝不可捕获/忽略！</strong></td>
-                  <td><strong>内核级立即处决！</strong>进程连执行半行遗言代码的机会都没有，直接被内核拔电源回收——会导致内存缓冲区数据丢失、事务半途中断、临时文件残留。</td>
+                  <td><strong style="color:var(--plop-tomato);">❌ 不可捕获 / 忽略</strong></td>
+                  <td><strong>内核级强制终止：</strong>进程没有机会执行清理逻辑，直接由内核回收资源——可能导致内存缓冲区数据丢失、事务中断或临时文件残留。</td>
                 </tr>
                 <tr>
                   <td><strong><code>SIGSEGV (11)</code></strong></td>
@@ -192,7 +196,7 @@
                   <td><strong><code>SIGPIPE (13)</code></strong></td>
                   <td>向<strong>对方已关闭（RST）的 Socket / 管道</strong>继续 <code>write</code></td>
                   <td>✅ 可捕获 / 忽略</td>
-                  <td><strong style="color:var(--plop-tomato);">网络编程高频隐形杀手！</strong>默认动作竟然是<strong>直接静默杀死当前进程</strong>！所以所有后端网络服务器启动第一件事就是设置 <code>signal(SIGPIPE, SIG_IGN)</code> 忽略它，让 <code>write()</code> 正常返回 <code>EPIPE</code> 错误码即可！</td>
+                  <td><strong style="color:var(--plop-tomato);">网络编程常见坑：</strong>默认动作是<strong>直接终止当前进程</strong>。因此后端网络服务器启动时通常会设置 <code>signal(SIGPIPE, SIG_IGN)</code> 忽略它，让 <code>write()</code> 正常返回 <code>EPIPE</code> 错误码。</td>
                 </tr>
                 <tr>
                   <td><strong><code>SIGCHLD (17)</code></strong></td>
@@ -203,8 +207,8 @@
                 <tr>
                   <td><strong><code>SIGSTOP (19)</code></strong></td>
                   <td>暂停进程执行（<code>SIGCONT(18)</code> 恢复）</td>
-                  <td><strong style="color:var(--plop-tomato);">❌ 绝不可捕获/忽略！</strong></td>
-                  <td>与 <code>SIGKILL (9)</code> 并列为 Linux 唯二不可抗拒的信号，确保管理员永远能冻结或杀死失控进程。</td>
+                  <td><strong style="color:var(--plop-tomato);">❌ 不可捕获 / 忽略</strong></td>
+                  <td>与 <code>SIGKILL (9)</code> 一样不可被用户捕获或忽略，确保管理员能随时暂停或终止失控进程。</td>
                 </tr>
               </tbody>
             </table>

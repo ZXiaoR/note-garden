@@ -1,72 +1,76 @@
 <!-- ====================================================================
-             PART 08: 全链路串联、Linux 线上性能排查 SOP、高频速记与闭卷自测 (#link, #tools, #cheat, #sources)
+             PART 09: 全链路串联、Linux 线上性能排查 SOP、高频速记与闭卷自测 (#link, #tools, #cheat, #sources)
              ==================================================================== -->
         <div class="wb-sec-header" id="link">
-          <span class="wb-sec-num">08</span>
+          <span class="wb-sec-num">09</span>
           <span class="wb-sec-title">全链路串联与排查 · 程序运行全流程、Linux 性能排障 SOP 与闭卷自测</span>
           <span class="plop-tag mint">LIFECYCLE · PERF SOP · SELF-CHECK</span>
         </div>
 
-        <!-- 08.1 · 一图串联：从敲下 ./a.out 到退出的 6 步内核全链路 (#link) -->
+        <div class="plop-callout tip" style="margin-bottom:16px;">
+          <strong>⏱️ 30 秒口述版（本章核心）：</strong>执行 <code>./a.out</code> 的内核主线依次为：<strong>① 父进程 <code>fork()</code>（COW 拷页表）并将子进程排入就绪队列 → ② 调度器（CFS/EEVDF）将子进程调度上 CPU → ③ 子进程执行 <code>execve()</code> 重建 VMA 与空页表 → ④ 返回用户态取指触发缺页异常（Page Fault）加载代码页并填 TLB → ⑤ 运行期通过 <code>malloc</code>/<code>futex</code>/<code>epoll</code> 分配内存与处理 I/O → ⑥ <code>exit_group()</code> 退出成 <code>Z</code> 态并发 <code>SIGCHLD</code> 由父进程 <code>wait4()</code> 回收 PCB</strong>。线上排障需分清 <code>load average</code>（含 <code>R</code> 态与不可中断 <code>D</code> 态）与 CPU 使用率，查看内存看 <code>free -h</code> 的 <code>available</code> 及进程均摊物理内存 <code>PSS</code>。
+        </div>
+
+        <!-- 09.1 · 一图串联：从敲下 ./a.out 到退出的 6 步内核全链路 (#link) -->
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape"></div>
-          <div class="chapter-q-pill">❓ 08.1 · 当你在终端敲下 `./a.out` 回车，到程序跑完退出，前 7 章的机制是怎么串成一条线的？</div>
-          <h3>🎬 08.1 全链路大串联：一个程序从诞生到消亡的 6 步内核旅程</h3>
+          <div class="chapter-q-pill">❓ 09.1 · 当你在终端敲下 `./a.out` 回车，到程序跑完退出，前 8 章的机制是怎么串成一条线的？</div>
+          <h3>🎬 09.1 全链路大串联：一个程序从诞生到消亡的 6 步内核旅程</h3>
           <p>
-            把前 7 章所有孤立的知识点串成一条完整的生命周期线——当你在 Bash Shell 里敲下 <code>./a.out</code> 回车时，Linux 内核在幕后依次完成了这 <strong>6 幕大戏</strong>：
+            把前 8 章的知识点串成一条完整的生命周期线——当你在 Bash Shell 里敲下 <code>./a.out</code> 回车时，Linux 内核在幕后依次完成了这 <strong>6 个步骤</strong>：
           </p>
 
           <!-- 6 步全链路手账卡片 -->
           <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow); display:grid; gap:10px;">
             <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px;">
-              <strong style="font-size:14px; color:var(--plop-ink-text);">Step 1 · 克隆与偷梁换柱（第 02 章 · <code>fork</code> COW + <code>execve</code>）：</strong><br/>
+              <strong style="font-size:14px; color:var(--plop-ink-text);">Step 1 · 克隆进程与就绪入队（第 02 章 · <code>fork</code> COW + Runqueue）：</strong><br/>
               <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">
-                Shell 进程先调 <code>fork()</code> 创建子进程（分配 <code>task_struct</code> PCB，利用 <strong>写时复制 COW</strong> 只拷页表不拷物理内存）；紧接着子进程调 <code>execve("./a.out")</code> 陷入内核，解析 ELF 二进制文件头，清空旧页表，为代码段（Text）、数据段（Data/BSS）、堆和栈建立新的虚拟内存区域（<code>vm_area_struct</code>）——注意此时代码还没真正读入物理内存！
+                Shell 进程先调 <code>fork()</code> 创建子进程（从 Slab 分配 <code>task_struct</code> PCB，利用 <strong>写时复制 COW</strong> 只复制父进程页表并将页表项标为只读，不拷贝物理内存），随后将子进程状态设为 <code>TASK_RUNNING (R)</code> 插入 CPU 就绪队列红黑树等待调度。
               </span>
             </div>
 
             <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px;">
-              <strong style="font-size:14px; color:var(--plop-ink-text);">Step 2 · 选中上台与切换空间（第 06 &amp; 02 章 · <code>CFS</code> + 上下文切换）：</strong><br/>
+              <strong style="font-size:14px; color:var(--plop-ink-text);">Step 2 · 调度上 CPU 与偷梁换柱（第 06 &amp; 02 章 · <code>CFS/EEVDF</code> 调度 + <code>execve</code>）：</strong><br/>
               <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">
-                新进程状态设为 <code>TASK_RUNNING (R)</code> 插入 CPU 就绪队列红黑树；<strong>CFS 调度器</strong>挑中最左节点（<code>vruntime</code> 最小）的它，执行<strong>进程上下文切换</strong>：把它的顶级页表物理基址写入 CPU 的 <code>CR3</code> 寄存器（刷新 TLB），将 <code>RIP</code> 指令指针指向程序入口 <code>_start / main</code>，切回用户态 Ring 3 开跑！
+                <strong>CFS / EEVDF 调度器</strong>挑中子进程并完成<strong>上下文切换</strong>（切换 <code>CR3</code> 页表与内核栈）；子进程获得 CPU 后立即调用 <code>execve("./a.out")</code> 陷入内核，解析 ELF 二进制文件头，释放继承自 Shell 的旧页表映射，为代码段（Text）、数据段（Data/BSS）、堆和栈建立新的虚拟内存区域（<code>vm_area_struct</code>），并将用户态指令指针 <code>RIP</code> 指向入口 <code>_start / main</code>（此时代码页尚未读入物理内存）。
               </span>
             </div>
 
             <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px;">
               <strong style="font-size:14px; color:var(--plop-ink-text);">Step 3 · 按需缺页调入物理内存（第 03 章 · <code>Page Fault</code> + <code>TLB</code>）：</strong><br/>
               <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">
-                CPU 去取 <code>main</code> 函数的第一条指令（虚拟地址），<strong>MMU 查 TLB 和四级页表发现页表项为空（<code>Present = 0</code>）</strong>，当场触发<strong>缺页异常（Page Fault）</strong>陷入内核！内核从<strong>伙伴系统（Buddy）</strong>分一个 4KB 物理页帧，从磁盘（或 Page Cache）把这页代码读进来，更新页表并填入 <strong>TLB 快表</strong>，返回用户态重新执行该指令成功！
+                <code>execve</code> 返回用户态 Ring 3 后，CPU 去取入口的第一条指令（虚拟地址），<strong>MMU 查 TLB 和四级页表发现页表项为空（<code>Present = 0</code>）</strong>，触发<strong>缺页异常（Page Fault）</strong>陷入内核；内核从<strong>伙伴系统（Buddy）</strong>分配一个 4KB 物理页帧，从磁盘（或 Page Cache）把这页代码读进来，更新页表并填入 <strong>TLB 快表</strong>，返回用户态重新执行该指令。
               </span>
             </div>
 
             <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px;">
               <strong style="font-size:14px; color:var(--plop-ink);">Step 4 · 动态分配内存与并发加锁（第 03 &amp; 05 章 · <code>malloc</code> + <code>futex</code>）：</strong><br/>
               <span style="font-size:13px; color:var(--plop-ink-soft); font-weight:700;">
-                程序调 <code>malloc()</code> 申请内存（小块走 <code>brk</code>、≥128KB 走 <code>mmap</code> 延迟分配，真正写入时才触发次缺页分配物理页）；若通过 <code>clone()</code> 创建了多个工作线程抢一把 <code>Mutex</code>，无竞争时在用户态靠 <strong><code>CAS</code></strong> 秒过，撞车时才调 <strong><code>futex</code></strong> 陷入内核挂起。
+                程序调 <code>malloc()</code> 申请内存（小块走 <code>brk</code>、大块初始 <code>≥128KB</code> 走 <code>mmap</code> 延迟分配，真正写入时才触发次缺页分配物理页）；若通过 <code>clone()</code> 创建了多个工作线程抢一把 <code>Mutex</code>，无竞争时在用户态靠 <strong><code>CAS</code></strong> 快速完成，竞争激烈时才调 <strong><code>futex</code></strong> 陷入内核挂起。
               </span>
             </div>
 
             <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:11px 14px;">
               <strong style="font-size:14px; color:var(--plop-tomato);">Step 5 · 文件 / 网络 I/O 与中断唤醒（第 01 &amp; 07 章 · <code>Page Cache</code> + <code>epoll</code> + 中断上下半部）：</strong><br/>
               <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">
-                程序调 <code>read/write</code> 走 <code>syscall</code> 陷入内核，查<strong>文件描述符三张表</strong>读写内核 <strong>Page Cache</strong>；若用 <code>epoll_wait</code> 等网络包且数据未到，进程转为可中断睡眠 <code>S</code> 态让出 CPU。等网卡 <strong>DMA</strong> 收完包触发<strong>硬中断（上半部）──▶ 软中断 <code>NET_RX_SOFTIRQ</code>（下半部）</strong>走完协议栈后，触发回调把该 Socket 塞进 <code>epoll</code> 就绪链表，并将进程重新唤醒回 <code>R</code> 态就绪队列！
+                程序调 <code>read/write</code> 走 <code>syscall</code> 陷入内核，查<strong>文件描述符三张表</strong>读写内核 <strong>Page Cache</strong>；若用 <code>epoll_wait</code> 等网络包且数据未到，进程转为可中断睡眠 <code>S</code> 态让出 CPU。等网卡 <strong>DMA</strong> 收完包触发<strong>硬中断（上半部）──▶ 软中断 <code>NET_RX_SOFTIRQ</code>（下半部）</strong>走完协议栈后，触发回调把该 Socket 塞进 <code>epoll</code> 就绪链表，并将进程重新唤醒回 <code>R</code> 态就绪队列。
               </span>
             </div>
 
             <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px;">
-              <strong style="font-size:14px; color:var(--plop-ink-text);">Step 6 · 谢幕退出与父进程收尸（第 02 &amp; 04 章 · <code>exit_group</code> + <code>Z 僵尸态</code> + <code>SIGCHLD</code>）：</strong><br/>
+              <strong style="font-size:14px; color:var(--plop-ink-text);">Step 6 · 谢幕退出与父进程回收（第 02 &amp; 04 章 · <code>exit_group</code> + <code>Z 僵尸态</code> + <code>SIGCHLD</code>）：</strong><br/>
               <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">
-                <code>main</code> 返回后调用 <code>exit_group()</code> 系统调用：内核关闭它打开的所有 <code>fd</code>、释放所有虚拟内存页表与物理页帧，只留下一具空壳 <code>task_struct</code>（状态变为 <strong><code>EXIT_ZOMBIE (Z)</code></strong>），并向父进程 Shell 发送 <strong><code>SIGCHLD</code> 信号</strong>；Shell 调用 <code>wait4()</code> 读走退出状态码，最后连这具 PCB 也归还给 Slab 分配器，进程彻底人间蒸发！
+                <code>main</code> 返回后调用 <code>exit_group()</code> 系统调用：内核关闭它打开的所有 <code>fd</code>、释放虚拟内存页表与物理页帧，只留下空壳 <code>task_struct</code>（状态变为 <strong><code>EXIT_ZOMBIE (Z)</code></strong>），并向父进程 Shell 发送 <strong><code>SIGCHLD</code> 信号</strong>；Shell 调用 <code>wait4()</code> 读走退出状态码后，这具 PCB 被归还给 Slab 分配器，进程生命周期正式结束。
               </span>
             </div>
           </div>
         </div>
 
-        <!-- 08.2 · 线上 Linux 性能排查速查 SOP (#tools) -->
+        <!-- 09.2 · 线上 Linux 性能排查速查 SOP (#tools) -->
         <div class="wb-card" id="tools" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape pink"></div>
-          <div class="chapter-q-pill">❓ 08.2 · 面试官问：“线上服务器突然卡顿 / CPU 飙高 / 内存告警，你的排查思路和命令是什么？”</div>
-          <h3>🛠️ 08.2 生产实战：Linux 线上性能排查 SOP（<code>load</code> vs <code>CPU%</code> · <code>free</code> · 八大神器） <span class="plop-tag tomato">高频必考</span></h3>
+          <div class="chapter-q-pill">❓ 09.2 · 面试官问：“线上服务器突然卡顿 / CPU 飙高 / 内存告警，你的排查思路和命令是什么？”</div>
+          <h3>🛠️ 09.2 生产实战：Linux 线上性能排查 SOP（<code>load</code> vs <code>CPU%</code> · <code>free</code> · 八大神器） <span class="plop-tag tomato">高频必考</span></h3>
 
           <!-- 两大高频误区拆解：Load Average vs CPU% & free -h available -->
           <div class="wb-grid-2" style="margin:12px 0;">
@@ -176,11 +180,11 @@ lsof | grep deleted
           </div>
         </div>
 
-        <!-- 08.3 · 高频面试速记表 + 8 题闭卷自测 (#cheat, #sources) -->
+        <!-- 09.3 · 高频面试速记表 + 8 题闭卷自测 (#cheat, #sources) -->
         <div class="wb-card" id="cheat" style="background:var(--plop-paper);">
           <div class="washi-tape mint"></div>
-          <div class="chapter-q-pill">🎯 08.3 · 20 道高频面试一句话速记表 + 8 道深度闭卷自测题</div>
-          <h3>⚡ 08.3 考前 5 分钟速记表 &amp; 闭卷自测问答</h3>
+          <div class="chapter-q-pill">🎯 09.3 · 20 道高频面试一句话速记表 + 8 道深度闭卷自测题</div>
+          <h3>⚡ 09.3 考前 5 分钟速记表 &amp; 闭卷自测问答</h3>
 
           <div class="table-wrap">
             <table class="plop-table">
@@ -209,7 +213,7 @@ lsof | grep deleted
                 </tr>
                 <tr>
                   <td><strong><code>fork()</code> 写时复制 (COW) 与大页坑</strong></td>
-                  <td><code>fork</code> 时只复制页表并将父子页表项标为只读，真正写某页时才触发缺页异常复制该 4KB 页；若开启 <strong>2MB 透明大页 (THP)</strong>，改 1 字节也要复制 2MB，会导致 Redis RDB 快照期间剧烈卡顿。</td>
+                  <td><code>fork</code> 时只复制页表并将父子页表项标为只读，真正写某页时才触发缺页异常复制物理页；若开启 <strong>2MB 透明大页 (THP)</strong>，旧内核（<code>&lt;5.8</code>）改 1 字节会复制整页 2MB，新内核（<code>5.8+</code>）虽先拆成 4KB 页再复制，但大页拆分锁、<code>khugepaged</code> 后台扫描合并与内存规整仍会导致 Redis RDB 期间延迟毛刺。</td>
                 </tr>
                 <tr>
                   <td><strong>64B 缓存行与伪共享 (False Sharing)</strong></td>
@@ -225,11 +229,11 @@ lsof | grep deleted
                 </tr>
                 <tr>
                   <td><strong><code>malloc</code> 底层原理与延迟分配</strong></td>
-                  <td><code>&lt; 128KB</code> 调 <code>brk</code> 从堆切（释放回内存池复用），<code>≥ 128KB</code> 调 <code>mmap</code> 匿名映射（释放即还内核）。<strong><code>malloc</code> 只分配虚拟地址（涨 <code>VIRT</code>），首次写入触发次缺页异常才分配物理页（涨 <code>RES</code>）！</strong></td>
+                  <td>初始默认 <code>&lt; 128KB</code> 调 <code>brk</code> 从堆切（释放回内存池复用），初始 <code>≥ 128KB</code> 调 <code>mmap</code> 匿名映射（释放即还内核，64位下该阈值会动态上调至最高 <code>32MB</code>）。<strong><code>malloc</code> 只分配虚拟地址（涨 <code>VIRT</code>），首次写入触发次缺页异常才分配物理页（涨 <code>RES</code>）。</strong></td>
                 </tr>
                 <tr>
                   <td><strong>哪种进程间通信 (IPC) 最快？</strong></td>
-                  <td><strong>共享内存（Shared Memory）最快！</strong>因为管道/消息队列/Socket 都要经内核缓冲区做 2 次拷贝，而共享内存让两进程页表直指同一块物理页，<strong>0 次内核拷贝</strong>（需配合信号量同步）。</td>
+                  <td><strong>共享内存（Shared Memory）最快：</strong>因为管道/消息队列/Socket 都要经内核缓冲区做 2 次拷贝，而共享内存让两进程页表直指同一块物理页，<strong>0 次内核拷贝</strong>（需配合信号量同步）。</td>
                 </tr>
                 <tr>
                   <td><strong>互斥锁 Mutex vs 自旋锁 Spinlock</strong></td>
@@ -237,7 +241,7 @@ lsof | grep deleted
                 </tr>
                 <tr>
                   <td><strong>死锁四条件与最实用预防法</strong></td>
-                  <td><strong>互斥、持有并等待、不可剥夺、循环等待</strong>（四者缺一不可）。工程上最实用方案：<strong>强制按固定全局顺序加锁（如按账户 ID 从小到大加锁）</strong>，100% 破坏循环等待。</td>
+                  <td><strong>互斥、持有并等待、不可剥夺、循环等待</strong>（四者缺一不可）。工程上最实用方案：<strong>强制按固定全局顺序加锁（如按账户 ID 从小到大加锁）</strong>，从根源上破坏循环等待。</td>
                 </tr>
                 <tr>
                   <td><strong>Linux CFS 调度器核心原理</strong></td>
@@ -254,6 +258,15 @@ lsof | grep deleted
                 <tr>
                   <td><strong>什么是零拷贝 (Zero-Copy)？</strong></td>
                   <td>传统 <code>read+write</code> 需 4 次切换 + 4 次拷贝（2 DMA + 2 CPU）；<strong><code>sendfile + SG-DMA</code></strong> 让数据从内核 Page Cache 直接由网卡 DMA 发走，降为 <strong>2 次切换 + 0 次 CPU 拷贝</strong>（Kafka/Nginx 核心加速手段）。</td>
+                </tr>
+                <tr>
+                  <td><strong>目录的 `r / w / x` 权限与删文件条件</strong></td>
+                  <td>目录 <code>r</code> 决定能否 <code>ls</code> 看文件名列表，<strong>目录 <code>x</code> 决定能否 <code>cd</code> 进入及访问子文件 <code>inode</code>，目录 <code>w</code>（配 <code>x</code>）决定能否新建或删除文件</strong>（哪怕文件本身 <code>0000</code> 只读，只要对父目录有 <code>wx</code> 就能 <code>rm</code> 删掉；<code>/tmp</code> 靠 Sticky 粘滞位 <code>1777</code> 防止删别人文件）。</td>
+                </tr>
+                <tr>
+                  <td><strong>统计日志 Top 10 IP 与查端口占用命令</strong></td>
+                  <td>• <strong>日志 Top 10 IP：</strong><code>awk '&#123;print $1&#125;' access.log | sort | uniq -c | sort -nr | head -n 10</code><br/>
+                  • <strong>查端口占用与 TCP 状态：</strong><code>ss -tulpn | grep :8080</code>（或 <code>lsof -i:8080</code>）；<code>ss -s</code> 查看各 TCP 状态汇总；后台重定向必写 <code>nohup ./app &gt; app.log 2&gt;&amp;1 &amp;</code>（先改 <code>fd=1</code> 再让 <code>fd=2</code> 复制 <code>fd=1</code>）。</td>
                 </tr>
               </tbody>
             </table>
@@ -272,16 +285,16 @@ lsof | grep deleted
               <details class="plop-drawer">
                 <summary>Q2：为什么 `kill -9` 杀不死 `D` 状态和 `Z` 状态的进程？</summary>
                 <div class="drawer-body">
-                  <p>• <strong><code>Z</code>（僵尸态）：</strong>进程<strong>已经死了</strong>（内存和资源早已释放），只剩个 PCB 空壳等父进程调用 <code>wait()</code> 收尸，你无法再杀一个死人（应给父进程发 <code>SIGCHLD</code> 或杀掉父进程让 <code>PID 1</code> 接管回收）。<br/>
-                  • <strong><code>D</code>（不可中断睡眠）：</strong>进程正在内核驱动里等待磁盘 DMA 或远程存储硬件完成，为了防止硬件状态损坏，内核屏蔽了信号唤醒；<code>SIGKILL</code> 信号虽然挂上了位图，但必须等硬件 I/O 返回或超时后才能响应。</p>
+                  <p>• <strong><code>Z</code>（僵尸态）：</strong>进程<strong>已经终止</strong>（内存和资源早已释放），只剩个 PCB 空壳等父进程调用 <code>wait()</code> 回收，无法再对已终止进程发信号（应给父进程发 <code>SIGCHLD</code> 或终止父进程让 <code>PID 1</code> 接管回收）。<br/>
+                  • <strong><code>D</code>（不可中断睡眠）：</strong>进程正在内核驱动里等待磁盘 DMA 或远程存储硬件完成，传统 <code>TASK_UNINTERRUPTIBLE</code> 为防止硬件状态不一致屏蔽了所有信号，<code>SIGKILL</code> 必须等硬件 I/O 返回后才能被处理（注：Linux 2.6.25 起新增了 <strong><code>TASK_KILLABLE</code></strong>，在 <code>ps/top</code> 中同样显示为 <code>D</code>，但允许 NFS 等路径响应 <code>SIGKILL</code> 终止）。</p>
                 </div>
               </details>
 
               <details class="plop-drawer">
                 <summary>Q3：既然有了多级页表能省内存，为什么大内存数据库还要开启 2MB 大页 (HugePage)，而却要关闭透明大页 (THP)？</summary>
                 <div class="drawer-body">
-                  <p>• <strong>开启静态 HugePage（2MB）的好处：</strong>50GB 内存如果按 4KB 分页需要 1300 万个页表项，TLB 缓存根本装不下，到处触发 TLB Miss；改用 2MB 大页后页表项暴降 512 倍（仅 2.5 万项），<strong>大幅提升 TLB 命中率且锁定在物理内存不被 Swap</strong>。<br/>
-                  • <strong>关闭透明大页（THP）的原因：</strong>THP 会在后台动态合并/拆分 2MB 大页消耗 CPU，更重要的是在 <strong><code>fork()</code> 写时复制（如 Redis RDB 快照）时，修改 1 字节会触发整整 2MB 的物理内存复制</strong>，造成严重的延迟毛刺。</p>
+                  <p>• <strong>开启静态 HugePage（2MB）的好处：</strong>50GB 内存如果按 4KB 分页需要 1300 万个页表项，TLB 缓存装不下，频繁触发 TLB Miss；改用 2MB 大页后页表项缩减 512 倍（仅 2.5 万项），<strong>大幅提升 TLB 命中率且锁定在物理内存不被 Swap</strong>。<br/>
+                  • <strong>关闭透明大页（THP）的原因：</strong>① <code>khugepaged</code> 后台扫描并将 4KB 页合并为 2MB 大页时会持有锁并争抢 CPU/内存带宽，且分配连续 2MB 页易触发直接内存规整（Direct Compaction）停顿；② 在 <code>fork()</code> 写时复制（如 Redis RDB）场景下，旧内核（<code>&lt; 5.8</code>）修改 1 字节会直接复制整页 2MB，而 <code>5.8+</code> 内核虽改为先拆分成 4KB 页（<code>split_huge_pmd</code>）再复制，但缺页拆分锁与后台合并依然会引发明显延迟毛刺。</p>
                 </div>
               </details>
 

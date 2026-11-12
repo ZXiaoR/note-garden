@@ -7,6 +7,10 @@
           <span class="plop-tag tomato">RING 0/3 · SYSCALL · INTERRUPT</span>
         </div>
 
+        <div class="plop-callout tip" style="margin-bottom:16px;">
+          <strong>⏱️ 30 秒口述版（本章核心）：</strong>CPU 通过硬件特权环（<strong>用户态 Ring 3 vs 内核态 Ring 0</strong>）隔离应用程序与底层硬件；用户态只能通过 <strong>① 系统调用（<code>syscall</code>）、② 异常（如缺页 <code>Page Fault</code>）、③ 外围硬件中断</strong> 三条路径陷入内核态（高频读时间等无副作用操作可通过 <strong><code>vDSO</code></strong> 映射只读页在用户态完成）。为兼顾硬件实时响应与吞吐，Linux 将中断拆为关中断快速响应的<strong>上半部（硬中断）</strong>与开中断延后处理的<strong>下半部（<code>softirq</code> / <code>tasklet</code> / 可睡眠的 <code>workqueue</code>）</strong>。
+        </div>
+
         <!-- 01.1 · 操作系统是什么 & 宏内核 vs 微内核 (#what) -->
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape pink"></div>
@@ -173,7 +177,7 @@
               </div>
             </div>
             <div style="margin-top:10px; font-size:12.6px; font-weight:800; color:var(--plop-ink-soft);">
-              💡 <strong>为什么 64 位用 <code>syscall</code> 替代了 32 位老旧的软中断 <code>int 0x80</code>？</strong> 因为 <code>int 0x80</code> 需要去内存里查中断描述符表（IDT）、做复杂的段权限检查与压栈，慢得多；而专用指令 <code>syscall / sysret</code> 直接读 CPU 内部 MSR 寄存器跳转，速度提升了好几倍！
+              💡 <strong>为什么 64 位用 <code>syscall</code> 替代了 32 位老旧的软件中断指令 <code>int 0x80</code>？</strong> 因为 <code>int 0x80</code> 需要去内存里查中断描述符表（IDT）、做段权限检查与压栈，开销较大；而专用指令 <code>syscall / sysret</code> 直接读 CPU 内部 MSR 寄存器跳转，显著降低了模式切换耗时。
             </div>
           </div>
 
@@ -263,10 +267,10 @@
                   <td><strong>缺页异常（Page Fault，修复后重新执行原指令）</strong>、除零错误、非法指令、段错误（<code>SIGSEGV</code>）。</td>
                 </tr>
                 <tr>
-                  <td><strong>陷阱 (Trap / 软中断指令)</strong></td>
+                  <td><strong>陷阱 (Trap / 软件中断指令 <code>int n</code>)</strong></td>
                   <td>用户程序<strong>主动执行陷入指令</strong></td>
                   <td><strong>同步</strong>（有意识主动调用）</td>
-                  <td>系统调用（<code>syscall</code> / <code>int 0x80</code>）、调试器断点指令（<code>int 3</code>）。</td>
+                  <td>系统调用（<code>syscall</code> / <code>int 0x80</code>）、调试器断点指令（<code>int 3</code>）。<br/><span style="font-size:12px; color:var(--plop-ink-soft);">（注：中文资料常把 <code>int n</code> 译作“软中断指令”，注意别与下文内核中断下半部的 <code>softirq</code> 软中断混淆，二者同名不同义）</span></td>
                 </tr>
               </tbody>
             </table>
@@ -274,7 +278,7 @@
 
           <h4 style="margin-top:16px;">🔪 Linux 中断处理核心设计：为什么要拆成「上半部 (Top Half)」和「下半部 (Bottom Half)」？ <span class="plop-tag mint">Linux 核心</span></h4>
           <p>
-            想象网卡突然收到一个数据包，发硬中断给 CPU。<strong>硬中断处理期间通常会屏蔽当前 CPU 上的同类中断（关中断）</strong>——如果内核在硬中断里慢吞吞地校验 IP 头、重组 TCP 分片、唤醒用户进程，耗时太长会导致后续涌入的网络包因为中断被屏蔽而<strong>直接丢包，鼠标键盘也会卡顿</strong>！因此 Linux 把中断一劈为二：
+            想象网卡收到一个数据包，发硬中断给 CPU。<strong>硬中断处理期间通常会屏蔽当前 CPU 上的同类中断（关中断）</strong>——如果内核在硬中断里慢吞吞地校验 IP 头、重组 TCP 分片、唤醒用户进程，耗时太长会导致后续涌入的网络包因为中断被屏蔽而<strong>丢包，交互设备也会出现卡顿</strong>。因此 Linux 把中断一劈为二：
           </p>
 
           <!-- 大字号卡片：上半部 vs 下半部三兄弟 -->
@@ -284,11 +288,11 @@
               <div style="background:#FFF0F5; border:2.2px solid var(--plop-tomato); border-radius:12px; padding:14px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                   <span style="font-weight:900; font-size:14.5px; color:var(--plop-tomato);">⚡ 上半部 (Top Half · 硬中断 `hi`)</span>
-                  <span class="plop-tag tomato" style="font-size:11px;">关中断 · 极快秒退</span>
+                  <span class="plop-tag tomato" style="font-size:11px;">关中断 · 快速返回</span>
                 </div>
                 <div style="font-size:13.2px; color:var(--plop-ink-text); line-height:1.58;">
-                  • <strong>干什么：</strong>只做最紧急、跟硬件强相关的动作（例如：把网卡 RingBuffer 寄存器状态记下来、清硬件中断标志位、<strong>触发下半部软中断标志</strong>），然后立刻退出恢复响应！<br/>
-                  • <strong>铁律：</strong>运行在中断上下文，<strong>绝不能睡眠阻塞</strong>，执行时间必须控制在微秒级。
+                  • <strong>干什么：</strong>只做最紧急、跟硬件强相关的动作（例如：把网卡 RingBuffer 寄存器状态记下来、清硬件中断标志位、<strong>触发下半部软中断标志</strong>），然后立刻退出恢复响应。<br/>
+                  • <strong>铁律：</strong>运行在中断上下文，<strong>不可睡眠阻塞</strong>，执行时间需控制在微秒级。
                 </div>
               </div>
 
@@ -300,7 +304,7 @@
                 </div>
                 <div style="font-size:13.2px; color:var(--plop-ink-text); line-height:1.58;">
                   • <strong>干什么：</strong>把耗时的重活（如走完整 TCP/IP 协议栈拆包、拷贝 sk_buff、唤醒 <code>epoll_wait</code> 进程）延后执行。<br/>
-                  • <strong>优势：</strong>执行期间<strong>开启硬中断</strong>，随时允许新的硬中断插队进来，兼顾了<strong>硬件实时响应</strong>与<strong>大吞吐处理</strong>（<code>top</code> 里的 <code>%si</code> 就是软中断耗时，负载高时由 <code>ksoftirqd/n</code> 内核线程接管）。
+                  • <strong>优势：</strong>执行期间<strong>开启硬中断</strong>，随时允许新的硬中断插队进来，兼顾了<strong>硬件实时响应</strong>与<strong>高吞吐处理</strong>（<code>top</code> 里的 <code>%si</code> 就是软中断耗时，负载高时由 <code>ksoftirqd/n</code> 内核线程接管）。
                 </div>
               </div>
             </div>
@@ -310,8 +314,8 @@
               <strong>🧩 进阶辨析：Linux 下半部的 3 种具体机制（面试加分项）：</strong><br/>
               1. <strong>软中断 (Softirq)：</strong>编译期静态分配（共 10 种，如网络收发 <code>NET_RX_SOFTIRQ</code>、块设备 <code>BLOCK_SOFTIRQ</code>）。同一个 softirq 可在多个 CPU 核上并行跑，性能最高但需自己保并发安全，<strong>处于中断上下文，不可睡眠</strong>。<br/>
               2. <strong>Tasklet：</strong>基于 softirq 实现，区别是<strong>同一个 tasklet 同一时刻只会在一个 CPU 上跑</strong>，写驱动更省心，同样<strong>不可睡眠</strong>。<br/>
-              3. <strong>工作队列 (Workqueue)：</strong>把任务交给专门的<strong>内核线程（<code>kworker</code>）</strong>去跑——因为它运行在<strong>进程上下文</strong>，所以它是下半部三兄弟里<strong>唯一可以睡眠阻塞（如申请内存、等锁、做磁盘 I/O）</strong>的机制！<br/>
-              <em>💡 补充：现代高吞吐网卡还会配合 <strong>NAPI（中断 + 轮询混合）</strong>——来第一个包时触发硬中断关闭接收中断，随后软中断一次性批量轮询拉走几百个包，拉空后再重新开硬中断，彻底消灭十万 QPS 下的“中断风暴”！</em>
+              3. <strong>工作队列 (Workqueue)：</strong>把任务交给专门的<strong>内核线程（<code>kworker</code>）</strong>去跑——因为它运行在<strong>进程上下文</strong>，所以它是下半部三兄弟里<strong>唯一可以睡眠阻塞（如申请内存、等锁、做磁盘 I/O）</strong>的机制。<br/>
+              <em>💡 补充：现代高吞吐网卡还会配合 <strong>NAPI（中断 + 轮询混合）</strong>——来第一个包时触发硬中断关闭接收中断，随后软中断一次性批量轮询拉走几百个包，拉空后再重新开硬中断，大幅缓解高并发下的“中断风暴”。</em>
             </div>
           </div>
 

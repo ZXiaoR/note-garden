@@ -7,13 +7,13 @@
   <span class="plop-tag tomato">RUNTIME MEMORY LAYOUT · 必考核心</span>
 </div>
 
-<!-- 02.1 · Slice 切片底层、扩容两步法与内存对齐 -->
+<!-- 02.1 · Slice 切片底层、共享数组陷阱与平滑扩容 -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">📐 02.1 · 为什么 <code>append([]int{1, 2}, 3, 4, 5)</code> 的最终 <code>cap</code> 是 6 而不是 4 或 5？</div>
-  <h3>🔪 02.1 <code>slice</code> 切片：24 字节描述符、1.18 平滑扩容与 TCMalloc 内存对齐取整</h3>
+  <div class="chapter-q-pill">📐 02.1 · 为什么子切片 <code>append</code> 一个元素会悄悄篡改原数组？容量不够时是怎么扩容的？</div>
+  <h3>🔪 02.1 <code>slice</code> 切片：24 字节描述符、共享底层陷阱与平滑扩容规则</h3>
   <p>
-    固定长度数组 <code>[4]int</code> 是纯值类型（传参整块拷贝 32B）；而日常使用的 <strong><code>[]int</code> 切片（Slice）</strong>本质上只是一个指向底层连续数组的<strong>24 字节轻量级视图表头（<code>runtime.slice { array unsafe.Pointer, len int, cap int }</code>）</strong>：
+    固定长度数组 <code>[4]int</code> 是纯值类型（传参整块拷贝 32B）；而日常使用的 <strong><code>[]int</code> 切片（Slice）</strong>本身并不存储元素，它只是一个指向底层连续数组的 <strong>24 字节轻量级视图表头（<code>{ array 指针 8B, len 长度 8B, cap 容量 8B }</code>）</strong>：
   </p>
 
   <!-- 手绘 SVG：Slice 24B 表头 + 子切片共享底层与三索引切片 -->
@@ -88,25 +88,14 @@
   </svg>
 
   <div class="wb-grid-2">
-    <div class="plop-code-box">
-      <div class="plop-code-head">
-        <span>🔥 runtime/slice.go · 真实扩容两步曲（含内存对齐取整）</span>
-        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-grow', this)">复制代码</button>
-      </div>
-      <pre class="plop-code-pre" id="code-slice-grow"><code><span class="c-cm">// 面试真题：为什么下面输出 cap=6 而不是 4 或 5？</span>
-s := []<span class="c-fn">int</span>{1, 2}       <span class="c-cm">// oldLen=2, oldCap=2</span>
-s = <span class="c-fn">append</span>(s, 3, 4, 5) <span class="c-cm">// 期望 newLen=5</span>
-
-<span class="c-cm">// 【第①步：预估容量 nextslicecap (Go 1.18+)】</span>
-<span class="c-cm">// 1. 若 newLen &gt; 2*oldCap (5 &gt; 4)：直接令 newcap = newLen = 5</span>
-<span class="c-cm">// 2. 若 oldCap &lt; 256：newcap = 2 * oldCap（翻倍）</span>
-<span class="c-cm">// 3. 若 oldCap &gt;= 256：循环 newcap += (newcap + 3*256) &gt;&gt; 2</span>
-<span class="c-cm">//    (即 1.25*newcap + 192，从 2.0x 平滑过渡到 1.25x)</span>
-
-<span class="c-cm">// 【第②步：TCMalloc 内存规格向上对齐 roundupsize (★决定最终 cap)】</span>
-<span class="c-cm">// 所需字节 = newcap * 8B = 5 * 8 = 40 Bytes</span>
-<span class="c-cm">// 查规格表 [8, 16, 24, 32, 48, 64...] → 40B 向上对齐到 48B</span>
-<span class="c-cm">// 最终真实容量 cap = 48B / 8B = 6！</span></code></pre>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin-top:10px;">
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">📈 <code>append</code> 容量不够时怎么扩容？（小翻倍、大变慢）</div>
+      <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.65;">
+        <li><strong>容量够用（<code>len &lt; cap</code>）</strong>：直接在原底层数组尾部覆盖写入（所以上图 <code>b := a[1:3]</code> 的容量是 3，执行 <code>append(b, 99)</code> 会直接覆盖掉 <code>a[3]</code>！可用<strong>三索引切片 <code>a[1:3:3]</code></strong> 锁死容量来防范）。</li>
+        <li><strong>容量不够（触发扩容搬家）</strong>：分配一块更大的新数组，把老元素拷过去并返回新表头：<br>
+          • <strong>小切片（旧容量 <code>&lt; 256</code>）</strong>：直接<strong>翻倍（<code>2x</code>）</strong>，避免频繁分配；<br>
+          • <strong>大切片（旧容量 <code>&gt;= 256</code>，Go 1.18+）</strong>：增长率从 <code>2x</code> <strong>平滑衰减到 <code>1.25x</code></strong>（每次涨约 1/4），防止大切片翻倍浪费成吨内存。</li>
+      </ul>
     </div>
 
     <div class="plop-code-box">
@@ -127,6 +116,33 @@ s3 := <span class="c-fn">make</span>([]<span class="c-fn">int</span>, 0) <span c
 }</code></pre>
     </div>
   </div>
+
+  <details class="plop-drawer">
+    <summary>🔍 深入源码：为什么 append([]int{1, 2}, 3, 4, 5) 的最终 cap 是 6 而不是 5？（预估公式 + 内存对齐取整）</summary>
+    <div class="drawer-body">
+      <p style="margin:0 0 8px;">
+        面试中常遇到这类“算出来的容量和实际打印的 <code>cap(s)</code> 不一样”的追问。因为 <code>runtime/slice.go</code> 的扩容分<strong>两步走</strong>——先算期望容量，再向 Go 内存分配器（详见 <strong>05.3 节</strong>）申请规整大小的内存块：
+      </p>
+      <div class="plop-code-box" style="margin:6px 0 0;">
+        <div class="plop-code-head">
+          <span>🔥 runtime/slice.go · nextslicecap 预估 + roundupsize 对齐取整</span>
+          <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-grow', this)">复制代码</button>
+        </div>
+        <pre class="plop-code-pre" id="code-slice-grow"><code>s := []<span class="c-fn">int</span>{1, 2}       <span class="c-cm">// oldLen=2, oldCap=2</span>
+s = <span class="c-fn">append</span>(s, 3, 4, 5) <span class="c-cm">// 期望 newLen=5</span>
+
+<span class="c-cm">// 【第①步：预估容量 nextslicecap (Go 1.18+)】</span>
+<span class="c-cm">// 1. 若 newLen &gt; 2*oldCap (5 &gt; 4)：直接令 newcap = newLen = 5</span>
+<span class="c-cm">// 2. 若 oldCap &lt; 256：newcap = 2 * oldCap（翻倍）</span>
+<span class="c-cm">// 3. 若 oldCap &gt;= 256：循环 newcap += (newcap + 3*256) &gt;&gt; 2（即 1.25*newcap + 192 平滑过渡）</span>
+
+<span class="c-cm">// 【第②步：内存规格向上对齐 roundupsize (★决定最终 cap)】</span>
+<span class="c-cm">// Go 内存分配器不做任意字节分配，而是按固定规格档位（8B, 16B, 24B, 32B, 48B, 64B...）切块：</span>
+<span class="c-cm">// 所需字节 = newcap * 8B = 5 * 8 = 40 Bytes → 向上对齐到最近的 48 Bytes 档位</span>
+<span class="c-cm">// 最终真实容量 cap = 48B / 8B = 6！</span></code></pre>
+      </div>
+    </div>
+  </details>
 </div>
 
 <!-- 02.2 · Map 哈希表底层、双模扩容与 Go 1.24 Swiss Table -->
@@ -204,6 +220,11 @@ s3 := <span class="c-fn">make</span>([]<span class="c-fn">int</span>, 0) <span c
     </g>
   </svg>
 
+  <!-- 图下文字版要点（方便手机端阅读） -->
+  <div style="background:#FFFDF7; border:2px dashed var(--plop-ink); border-radius:10px; padding:11px 14px; margin:10px 0 14px; font-size:13.2px; line-height:1.65;">
+    <strong>📖 图解三步寻址（手机端速读）：</strong>① 计算 Key 的 64 位哈希，用<strong>低 <code>B</code> 位</strong>定位到 <code>buckets</code> 数组中的第几个桶 <code>bmap</code>；② 用<strong>高 8 位（<code>tophash</code>）</strong>在桶头 <code>tophash[8]</code> 数组里快速比对指纹，指纹匹配才去比对真正的 Key；③ 桶内 <strong>8 个 Key 紧挨着排完再排 8 个 Value</strong>（而非 <code>k0,v0,k1,v1</code> 交错），这样 <code>map[int64]int8</code> 无需每对都补 7 字节对齐空洞，单桶立省 56 字节！
+  </div>
+
   <div class="table-wrap">
     <table class="plop-table">
       <thead>
@@ -223,7 +244,7 @@ s3 := <span class="c-fn">make</span>([]<span class="c-fn">int</span>, 0) <span c
         </tr>
         <tr>
           <td><strong>③ Go 1.24+ Swiss Table</strong></td>
-          <td>Go 1.24 将底层更换为 <strong>Swiss Table</strong>（开放寻址 + 每组 8 槽配备 64-bit <code>ctrl</code> 控制字，用位运算单指令并行比对 8 个哈希指纹），消除溢出桶指针，综合提速 20%~50%。</td>
+          <td>Go 1.24 将底层更换为 <strong>Swiss Table</strong>（开放寻址 + 每组 8 槽配备 64-bit 控制字，用位运算单指令并行比对 8 个哈希指纹），消除溢出桶指针；<strong>在微基准测试中最高提速 20%~60%，真实生产大型应用整体 CPU 平均节省约 1%~1.5%</strong>。</td>
         </tr>
         <tr>
           <td><strong>④ 四大必背陷阱</strong></td>
@@ -237,8 +258,8 @@ s3 := <span class="c-fn">make</span>([]<span class="c-fn">int</span>, 0) <span c
 <!-- 02.3 · defer / panic / recover -->
 <div class="wb-card" id="defer" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">⏱️ 02.3 · <code>defer</code> 为什么能改命名返回值？Go 1.14 又是怎么把 <code>defer</code> 提速 20 倍的？</div>
-  <h3>🪃 02.3 <code>defer / panic / recover</code>：三大执行铁律与开放编码（Open-coded Defer）</h3>
+  <div class="chapter-q-pill">⏱️ 02.3 · <code>defer</code> 为什么能改命名返回值？<code>recover()</code> 为什么跨协程就会失效？</div>
+  <h3>🪃 02.3 <code>defer / panic / recover</code>：三大执行铁律与异常捕获边界</h3>
 
   <div class="wb-grid-2">
     <div class="plop-code-box">
@@ -266,19 +287,27 @@ s3 := <span class="c-fn">make</span>([]<span class="c-fn">int</span>, 0) <span c
     </div>
 
     <div>
-      <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; margin-top:10px;">
-        <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">⚡ <code>defer</code> 三代性能演进（从 35ns 到 ~1ns）</div>
-        <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.62;">
-          <li><strong>Go 1.12 前（堆分配 <code>~35ns</code>）</strong>：每次 <code>defer</code> 在堆上分配 <code>_defer</code> 结构体挂入协程链表。</li>
-          <li><strong>Go 1.13（栈分配 <code>~25ns</code>）</strong>：非循环内的 <code>_defer</code> 改为在当前函数栈帧分配。</li>
-          <li><strong>Go 1.14+（开放编码 Open-coded Defer <code>~1.5ns</code>）</strong>：当函数内 <code>defer &lt;= 8</code> 且不在循环内时，编译器直接在栈上用 1 字节位掩码 <code>deferBits</code> 记录激活状态，并在 <code>return</code> 前<strong>直接内联展开函数调用</strong>，开销等同普通函数！</li>
-        </ul>
+      <div class="plop-callout warn" style="margin-top:10px;">
+        <strong>🚨 <code>recover()</code> 两条保命边界：</strong><br>
+        ① 必须在 <code>defer func() { recover() }()</code> 匿名函数内<strong>直接调用</strong>（嵌套再包一层普通函数调用无效）；<br>
+        ② <strong>不能跨协程捕获</strong>——每个新建的 <code>go func()</code> 必须自带独立的 <code>defer-recover</code> 保护罩，否则子协程 panic 会直接带崩整个进程！
       </div>
-      <div class="plop-callout warn">
-        <strong>🚨 <code>recover()</code> 两条保命边界：</strong>① 必须在 <code>defer func() { recover() }()</code> 匿名函数内<strong>直接调用</strong>；② <strong>不能跨协程捕获</strong>——每个新建的 <code>go func()</code> 必须自带独立的 <code>defer-recover</code> 保护罩，否则子协程 panic 会直接带崩整个进程！
+      <div class="plop-callout tip">
+        <strong>⚡ 性能定心丸：</strong>早年版本常告诫“热路径别用 <code>defer</code>”，但自 <strong>Go 1.14+</strong> 引入编译器内联展开后，常规 <code>defer</code> 开销已从 <code>~35ns</code> 降至 <strong><code>~1ns</code>（等同普通函数调用）</strong>，解锁与关资源请放心使用 <code>defer</code>！
       </div>
     </div>
   </div>
+
+  <details class="plop-drawer">
+    <summary>🔍 深入底层：defer 三代性能演进与 Go 1.14 开放编码（Open-coded Defer）原理</summary>
+    <div class="drawer-body">
+      <ul style="margin:0; padding-left:18px; font-size:13.3px; line-height:1.65;">
+        <li><strong>Go 1.12 前（堆分配 <code>~35ns</code>）</strong>：每次执行 <code>defer</code> 都要调 <code>deferproc</code> 在堆上分配 <code>_defer</code> 结构体挂入协程链表，函数返回时调 <code>deferreturn</code> 逐个出栈执行，触发堆分配与 GC 压力。</li>
+        <li><strong>Go 1.13（栈分配 <code>~25ns</code>）</strong>：非循环内的显式 <code>defer</code> 改为编译器在当前函数栈帧上分配 <code>_defer</code>，消除了堆分配。</li>
+        <li><strong>Go 1.14+（开放编码 Open-coded Defer <code>~1.5ns</code>）</strong>：当函数内 <code>defer</code> 数量 <code>&lt;= 8</code> 且不在循环语句内时，编译器不再生成 <code>_defer</code> 结构体，而是直接在栈上用 <strong>1 字节位掩码（<code>deferBits</code>，每位代表一个 defer 是否已激活）</strong>记录状态，并在每个 <code>return</code> 语句前<strong>直接内联展开延迟函数调用</strong>！</li>
+      </ul>
+    </div>
+  </details>
 </div>
 
 <!-- 02.4 · Interface 接口与 error 错误链 -->

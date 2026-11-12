@@ -7,11 +7,15 @@
           <span class="plop-tag tomato">VM · PAGE TABLE · BUDDY/SLAB</span>
         </div>
 
+        <div class="plop-callout tip" style="margin-bottom:16px;">
+          <strong>⏱️ 30 秒口述版（本章核心）：</strong>CPU Cache 按 <strong>64B 缓存行</strong>搬运数据（多核并发修改同缓存行独立变量会触发<strong>伪共享</strong>）。<strong>虚拟内存</strong>通过按需分页提供进程隔离、连续地址假象与容量扩展；x86-64 采用 <strong><code>9+9+9+9+12</code> 四级页表</strong>按需建表节省内存，并用硬件 <strong>TLB 快表</strong>加速地址翻译。<code>malloc</code> 申请时仅建立虚拟内存区间（<code>VIRT</code>），首次写入触发<strong>次缺页异常</strong>才由内核 <strong>Buddy 伙伴系统</strong>分配物理页（<code>RES</code>）。
+        </div>
+
         <!-- 03.1 · 存储层次结构、缓存行与伪共享 (#hierarchy) -->
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape pink"></div>
           <div class="chapter-q-pill">❓ 03.1 · 为什么要有 L1/L2/L3、内存、硬盘这么多层？什么是 64B 缓存行与伪共享？</div>
-          <h3>🏔️ 03.1 存储层次金字塔、64B 缓存行（Cache Line）与伪共享 <span class="plop-tag tomato">高频必考</span></h3>
+          <h3>🏔️ 03.1 存储层次金字塔、64B 缓存行（Cache Line）与伪共享</h3>
           <p>
             进入内存管理之前，必须先建立硬件物理直觉——为什么计算机里会有寄存器、L1/L2/L3 缓存、DRAM 内存、SSD、机械盘这么多层？因为半导体物理有一条铁律：<strong>越快 → 造价越贵 → 容量越小；越慢 → 造价越便宜 → 容量越大</strong>。没有任何一种介质能同时做到“又快、又大、又便宜且断电不丢”，于是工程师把它们<strong>分层堆叠成金字塔</strong>，靠<strong>局部性原理</strong>把热数据留在上层快设备里：
           </p>
@@ -114,7 +118,7 @@
         <div class="wb-card" id="why-vm" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape mint"></div>
           <div class="chapter-q-pill" id="paging">❓ 03.2 · 为什么要搞虚拟内存？分段、分页、段页式和内部/外部碎片怎么区分？</div>
-          <h3>🎭 03.2 为什么需要虚拟内存？分段、分页与段页式对比 <span class="plop-tag tomato">高频必考</span></h3>
+          <h3>🎭 03.2 为什么需要虚拟内存？分段、分页与段页式对比</h3>
           <p>
             如果让程序直接读写主板上的物理内存地址，会立刻撞上<strong>三个致命问题</strong>：① <strong>毫无安全隔离</strong>，进程 A 一个野指针就能改掉进程 B 或内核的数据；② <strong>物理内存不够用</strong>，16GB 内存跑不了总和 30GB 的几个程序；③ <strong>运行地址不固定且有外部碎片</strong>，程序每次加载到物理内存不同位置都要重写所有跳转地址。
           </p>
@@ -179,7 +183,7 @@
                 <tr>
                   <td><strong>分页 (Paging)</strong></td>
                   <td>不管逻辑，一律按<strong>固定尺寸（Linux 默认 <code>4 KB</code>）</strong>切块，<code>虚拟页号 + 12位页内偏移</code>。</td>
-                  <td><strong>彻底消灭外部碎片！</strong>任何空闲物理页帧都能塞进任何一个虚拟页；换页粒度固定为 4KB。</td>
+                  <td><strong>消除外部碎片：</strong>任何空闲物理页帧都能塞进任何一个虚拟页；换页粒度固定为 4KB。</td>
                   <td>假如你只存 100B 数据也要分一整页 4KB，页内剩余空间浪费 ──▶ <strong>存在少量「内部碎片」（最多浪费不超 1 页）</strong>。</td>
                 </tr>
                 <tr>
@@ -270,7 +274,7 @@
           <!-- 延迟分配与两类缺页异常 -->
           <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; margin:12px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
             <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:8px;">
-              🪄 颠覆直觉的真相：<code>malloc()</code> 申请内存时，内核其实根本没给你分配半个字节的物理内存！
+              🪄 核心机制：<code>malloc()</code> 申请内存时，内核并不会立即分配物理内存页
             </div>
             <p style="font-size:13.2px; margin:0 0 10px; line-height:1.6;">
               当你的程序调用 <code>char *p = malloc(1024 * 1024 * 1024);</code>（申请 1GB）时，内核通过 <code>mmap/brk</code> <strong>仅仅在进程的 <code>mm_struct</code> 里新建了一个虚拟内存区间结构体（<code>vm_area_struct</code>，记录“虚拟地址 <code>0x7f...</code> 到 <code>0x7f...+1GB</code> 合法可用”）</strong>，此时页表项全是空的（<code>Present = 0</code>），<strong>物理内存占用（<code>RES/RSS</code>）增加为 0，只有虚拟内存（<code>VIRT</code>）涨了 1GB</strong>！
@@ -326,8 +330,8 @@
                 </tr>
                 <tr>
                   <td><strong>Linux 真实实现：</strong><br/><strong>Active / Inactive 双链表</strong></td>
-                  <td>维护<strong>活跃链表 (Active)</strong> 与 <strong>非活跃链表 (Inactive)</strong>（类似 MySQL 冷热分区 LRU！）</td>
-                  <td>新页先入 <code>Inactive</code> 链表；只有被<strong>再次访问（二次触碰 mark_page_accessed）</strong>才晋升到 <code>Active</code> 链表！回收时从 <code>Inactive</code> 尾部淘汰，<strong>完美防止单次大文件扫描把热内存页冲刷殆尽</strong>！（配合 <code>/proc/sys/vm/swappiness</code> 调节换出匿名页与回收 Page Cache 的倾向，默认 60，数据库服务器常调为 <code>1 ~ 10</code> 或关闭 swap）。</td>
+                  <td>维护<strong>活跃链表 (Active)</strong> 与 <strong>非活跃链表 (Inactive)</strong>（类似 MySQL 冷热分区 LRU，Linux 6.1+ 还可选多代 LRU <code>MGLRU</code>）</td>
+                  <td>新页先入 <code>Inactive</code> 链表；只有被<strong>再次访问（二次触碰 mark_page_accessed）</strong>才晋升到 <code>Active</code> 链表。回收时从 <code>Inactive</code> 尾部淘汰，<strong>有效防止单次大文件扫描把热内存页冲刷出去</strong>（配合 <code>/proc/sys/vm/swappiness</code> 调节换出匿名页与回收 Page Cache 的倾向，默认 60，数据库服务器常调为 <code>1 ~ 10</code> 或关闭 swap）。</td>
                 </tr>
               </tbody>
             </table>
@@ -364,13 +368,14 @@
                   🧑💻 第二层：用户态 <code>malloc()</code> 背后怎么向内核要内存？
                 </div>
                 <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58; margin-bottom:8px;">
-                  <code>malloc</code> 是 glibc 的 <code>ptmalloc2</code> 库函数（类似还有 Google <code>tcmalloc</code>、Redis 用的 <code>jemalloc</code>），按申请大小走两条路：<br/>
-                  • <strong>小内存（默认 <code>&lt; 128 KB</code>，<code>M_MMAP_THRESHOLD</code>）：</strong>调用 <strong><code>brk() / sbrk()</code></strong> 把堆顶指针往高地址推。<code>free()</code> 时<strong>不会立刻归还给内核</strong>，而是放回 malloc 自己的空闲链表（bins/arena）留着下次复用（所以频繁 malloc/free 小对象会导致进程 <code>RES</code> 居高不下）！<br/>
-                  • <strong>大内存（默认 <code>≥ 128 KB</code>）：</strong>直接调用 <strong><code>mmap()</code></strong> 在文件映射区开辟一块独立匿名虚拟内存；<code>free()</code> 时调 <code>munmap()</code> <strong>立刻归还给操作系统</strong>！
+                  <code>malloc</code> 是 glibc 的 <code>ptmalloc2</code> 库函数（同类还有 Google <code>tcmalloc</code>、Redis 用的 <code>jemalloc</code>），按申请大小与阈值（<code>M_MMAP_THRESHOLD</code>）走两条路：<br/>
+                  • <strong>小内存（初始默认 <code>&lt; 128 KB</code>）：</strong>调用 <strong><code>brk() / sbrk()</code></strong> 推高堆顶指针（主分配区）或在子线程 arena 中切分。<code>free()</code> 时<strong>不会立刻归还给内核</strong>，而是放回 malloc 空闲链表（bins/arena）留作复用。<br/>
+                  • <strong>大内存（初始默认 <code>≥ 128 KB</code>）：</strong>调用 <strong><code>mmap()</code></strong> 在文件映射区开辟独立匿名虚拟内存；<code>free()</code> 时调 <code>munmap()</code> <strong>立刻归还给操作系统</strong>。<br/>
+                  • <strong>📌 动态阈值细节：</strong><code>128 KB</code> 只是<strong>初始阈值</strong>！为减少频繁 <code>mmap/munmap</code> 带来的缺页与内核清零开销，当程序释放一块 <code>mmap</code> 内存时，glibc 会<strong>自动将阈值动态调高（64 位系统最高可调至 <code>32 MB</code>，除非通过 <code>mallopt</code> 显式固定）</strong>。
                 </div>
                 <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:8px 12px; font-size:12.6px; line-height:1.5;">
                   <strong style="color:var(--plop-tomato);">💡 为什么不能全用 `brk` 或全用 `mmap`？</strong><br/>
-                  <code>brk</code> 堆是连续的，如果堆顶有 1 个小对象没释放，底下几百 MB 空洞也无法收缩归还内核（易内存膨胀）；而全用 <code>mmap</code> 每次释放后下次再用又会触发缺页异常 + 内核清零，太慢！两者结合才是绝配。
+                  <code>brk</code> 堆是连续的，如果堆顶有 1 个小对象没释放，底下几百 MB 空洞也无法收缩归还内核（易造成内存碎片与驻留膨胀）；而全用 <code>mmap</code> 每次释放后下次再用又会触发缺页异常 + 内核页清零 + TLB 刷新，开销较大。因此采用分块池化 + 动态阈值协同。
                 </div>
               </div>
             </div>
@@ -379,20 +384,20 @@
           <div class="wb-grid-2">
             <div class="plop-callout info" style="margin:0;">
               <strong>📊 排查内存必懂：<code>top</code> 里的 `VIRT`、`RES (RSS)`、`SHR` 与 `PSS`：</strong><br/>
-              • <strong><code>VIRT (VSZ)</code>：</strong>进程申请的<strong>虚拟内存总量</strong>（画的大饼，含未触碰的空页，参考意义不大）。<br/>
-              • <strong><code>RES (RSS)</code>：</strong>当前真正驻留在<strong>物理内存条里</strong>的大小（含共享库 <code>SHR</code>）。<br/>
-              • <strong><code>PSS</code>（Proportional Set Size，查 <code>/proc/pid/smaps_rollup</code>）：</strong>把共享库内存按共享进程数<strong>均摊</strong>后的真实物理内存占用——<strong>算多进程总内存时看 PSS 才不会重复计算！</strong><br/>
-              • <strong>💀 OOM Killer：</strong>当物理内存 + swap 彻底耗尽时，内核触发 OOM Killer，根据每个进程的 <code>oom_score</code>（综合 RSS 占比与 <code>oom_score_adj</code> 权重）挑一个内存大户发送 <code>SIGKILL (9)</code> 强杀（容器内超 <code>memory.limit_in_bytes</code> 同样触发 Cgroup OOM Killed，退出码 <code>137</code>，查 <code>dmesg -T | grep -i oom</code>）。
+              • <strong><code>VIRT (VSZ)</code>：</strong>进程申请的<strong>虚拟内存总量</strong>（含未触碰的空页，不能直接代表物理占用）。<br/>
+              • <strong><code>RES (RSS)</code>：</strong>当前驻留在<strong>物理内存条里</strong>的大小（含共享库 <code>SHR</code>）。<br/>
+              • <strong><code>PSS</code>（Proportional Set Size，查 <code>/proc/pid/smaps_rollup</code>）：</strong>把共享库内存按共享进程数<strong>均摊</strong>后的真实物理内存占用——<strong>汇总多进程总内存时看 PSS 不会重复计算。</strong><br/>
+              • <strong>💀 OOM Killer：</strong>当物理内存与 swap 耗尽且无法回收时，内核触发 OOM Killer，根据每个进程的 <code>oom_score</code>（综合 RSS 占比与 <code>oom_score_adj</code> 权重）挑出内存占用高的进程发送 <code>SIGKILL (9)</code> 终止（容器内超限触发 Cgroup OOM Killed，退出码 <code>137</code>，查 <code>dmesg -T | grep -i oom</code>）。
             </div>
 
             <div class="plop-callout warn" style="margin:0;">
               <strong>🌪️ 局部性原理（Locality）与「内存抖动 Thrashing」：</strong><br/>
-              • <strong>时间局部性：</strong>刚访问过的变量/函数马上还会用；<strong>空间局部性：</strong>访问了某地址，它紧挨着的后续地址马上也会用（写代码优先顺序遍历数组、紧凑排列热字段）。<br/>
-              • <strong>抖动/颠簸（Thrashing）：</strong>如果同时跑的进程太多，每个进程分到的物理页帧还装不下它的<strong>活跃工作集（Working Set）</strong>，就会陷入<strong>“刚换出到磁盘的页，下一条指令又要读回来”</strong>的死循环——此时磁盘 IO 100% 狂转、<code>vmstat</code> 的 <code>si/so</code> 飙升、系统彻底卡死，而 CPU 有效计算利用率却趋近于 0！
+              • <strong>时间局部性：</strong>刚访问过的变量/函数短期内还会再用；<strong>空间局部性：</strong>访问了某地址，它紧挨着的后续地址短期内也会被访问（写代码优先顺序遍历数组、紧凑排列热字段）。<br/>
+              • <strong>抖动/颠簸（Thrashing）：</strong>如果并发运行的进程过多，每个进程分到的物理页帧装不下它的<strong>活跃工作集（Working Set）</strong>，就会陷入<strong>“刚换出到磁盘的页，很快又要读回来”</strong>的循环——此时磁盘 IO 持续饱和、<code>vmstat</code> 的 <code>si/so</code> 飙升、系统响应极度迟缓，而 CPU 有效计算利用率却很低。
             </div>
           </div>
 
           <div class="plop-bridge">
-            <span>🧭 下一站：虚拟内存把进程A和进程B彻底隔离开来，谁也碰不到谁的物理页——那如果两个进程确实需要配合传数据、发通知，该怎么打破这座孤岛？</span>
+            <span>🧭 下一站：虚拟内存把进程 A 和进程 B 隔离开来，谁也碰不到谁的物理页——那如果两个进程确实需要配合传数据、发通知，该怎么打破这座孤岛？</span>
           </div>
         </div>

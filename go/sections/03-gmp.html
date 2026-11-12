@@ -13,7 +13,7 @@
   <div class="chapter-q-pill" id="goroutine">❓ 03.1 · 既然操作系统已经有内核线程了，为什么 Go 还要自己造一套 Goroutine？</div>
   <h3>🚀 03.1 OS 内核线程三大痛点 vs Goroutine 2KB 动态连续栈</h3>
   <p>
-    在互联网高并发服务中，95% 的时间都花在<strong>等待网络 IO（查 DB、调 RPC、读 Redis）</strong>上。如果采用传统的“一请求一 OS 线程（1:1 模型）”，会在<strong>栈内存占用、内核态上下文切换、阻塞线程挂起</strong>三大物理瓶颈上迅速撞墙：
+    在互联网高并发服务中，95% 的时间都花在<strong>等待网络 IO（查 DB、调 RPC、读 Redis）</strong>上。如果采用传统的“一请求一 OS 线程（1:1 模型）”，会在<strong>栈与内核资源上限、内核态上下文切换、阻塞线程挂起</strong>三大瓶颈上迅速撞墙：
   </p>
 
   <div class="table-wrap">
@@ -21,28 +21,28 @@
       <thead>
         <tr>
           <th style="width:18%">核心维度</th>
-          <th style="width:28%">OS 内核线程（Thread · 1:1）</th>
+          <th style="width:30%">OS 内核线程（Thread · 1:1）</th>
           <th style="width:30%">Go 协程（Goroutine · M:N）</th>
           <th>数量级差距与工程意义</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td><strong>初始栈内存</strong></td>
-          <td>固定 <strong>1 MB ~ 8 MB</strong>（含 Guard Page，不可缩容）</td>
-          <td>仅 <strong>2 KB</strong> 起步，按需 2 倍动态扩容（最大 1GB）、GC 时自动缩容</td>
-          <td>10 万并发：线程需 <code>100GB+</code> 直接 OOM；Goroutine 仅需 <code>~200MB</code>，轻松开百万级</td>
+          <td><strong>初始栈与资源上限</strong></td>
+          <td>默认保留 <strong>1 MB ~ 8 MB</strong> 虚拟地址空间（含 Guard Page，触碰缺页分配物理页后<strong>不可缩容</strong>）+ 独立内核栈（8~16KB）</td>
+          <td>仅 <strong>2 KB</strong> 起步，按需 2 倍动态扩容（最大 1GB）、GC 时自动缩容回收</td>
+          <td>数万并发下线程会撞上 <code>threads-max</code>、<code>max_map_count</code> 与脏栈页内存上限；Goroutine 200MB 即可轻松开出 <strong>10 万+ 并发</strong></td>
         </tr>
         <tr>
           <td><strong>创建与切换成本</strong></td>
-          <td><strong>陷入内核态（Ring 3 → Ring 0）</strong>，保存 16+ 通用/SIMD 寄存器，耗时 <strong>1 ~ 2 μs</strong></td>
-          <td><strong>纯用户态切换（经 <code>g0</code> 调度栈）</strong>，仅保存 PC/SP/BP 三个核心寄存器，耗时 <strong>~100 ~ 200 ns</strong></td>
+          <td><strong>陷入内核态（Ring 3 → Ring 0）</strong>，保存 16+ 通用/SIMD 寄存器并跑内核调度器，耗时 <strong>1 ~ 2 μs</strong></td>
+          <td><strong>纯用户态切换</strong>（借由每个线程内置的调度专用栈 <code>g0</code>），仅保存 PC/SP/BP 三个核心寄存器，耗时 <strong>~100 ~ 200 ns</strong></td>
           <td>上下文切换快 <strong>10 倍以上</strong>，CPU 算力真正花在业务代码上</td>
         </tr>
         <tr>
           <td><strong>IO 阻塞代价</strong></td>
-          <td>调阻塞 read 时整条 OS 线程被挂起，大栈白白占着</td>
-          <td>底层集成 <strong>netpoller（epoll/kqueue）</strong>：G 挂起让出，<strong>M 立刻切换跑下一个 G</strong></td>
+          <td>调阻塞 read 时整条 OS 线程被挂起，加剧线程数膨胀与调度抖动</td>
+          <td>底层集成 <strong>netpoller（epoll/kqueue）</strong>：协程挂起让出，<strong>底层线程立刻切换跑下一个协程</strong></td>
           <td>用<strong>同步顺序代码的直观心智</strong>，跑出<strong>异步非阻塞事件驱动的极致吞吐</strong></td>
         </tr>
       </tbody>
@@ -62,7 +62,8 @@
   <div class="chapter-q-pill">⚙️ 03.2 · 早期 Go 1.0 只有 G 和 M，为什么要大动干戈引入中间层 P？</div>
   <h3>🗺️ 03.2 GMP 四大核心组件、为什么需要 P 与调度流转全景图</h3>
   <p>
-    在 Go 1.0 的 <code>G-M</code> 模型中，所有线程 M 争抢<strong>唯一一把全局队列锁</strong>，且<strong>每个 M 都背着一个约 2MB 的无锁内存池 <code>mcache</code></strong>（一旦系统调用阻塞产生上千个 M，光闲置 <code>mcache</code> 就吃掉数 GB 内存）。Go 1.1 引入了<strong>逻辑处理器 <code>P</code>（数量 = <code>GOMAXPROCS</code>）</strong>，规定 <strong>M 必须绑定 P 才能执行 G</strong>，一举赋予每个 P 独立的<strong>无锁本地队列 <code>runq[256]</code></strong> 并把 <code>mcache</code> 锁死在 P 上！
+    Go 调度器由三个核心字母组成：<strong><code>G</code>（Goroutine，待执行的协程任务与 2KB 栈）</strong>、<strong><code>M</code>（Machine，真正上 CPU 干活的 OS 内核线程）</strong>、<strong><code>P</code>（Processor，持有本地运行队列与内存缓存的逻辑处理器，数量默认等于 CPU 核数 <code>GOMAXPROCS</code>）</strong>。<br>
+    在早期 Go 1.0 的 <code>G-M</code> 模型中，所有线程 M 争抢<strong>唯一一把全局队列锁</strong>，且<strong>每个 M 都挂着一份本地内存缓存池（<code>mcache</code>，详见 05.3 节）</strong>——一旦系统调用阻塞产生大量 M，闲置缓存池随 M 数量膨胀，白白吃掉大量内存。Go 1.1 引入中间层 <strong><code>P</code></strong>，规定 <strong>M 必须绑定 P 才能执行 G</strong>，一举把无锁本地队列和 <code>mcache</code> 全部收敛到固定数量的 P 上！
   </p>
 
   <!-- 手绘 SVG：GMP 调度模型全景图 -->
@@ -138,23 +139,87 @@
     <path d="M 432 190 L 502 190" stroke="#D2381E" stroke-width="3"/>
     <polygon points="504,190 494,184 494,196" fill="#D2381E"/>
   </svg>
+
+  <!-- 图下文字版核心拆解（方便手机端阅读） -->
+  <div class="wb-grid-2" style="margin-top:12px;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 图解左半区：P0 本地高速调度流</div>
+      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
+        <li><strong>VIP 插队槽 <code>runnext</code></strong>：新建的 <code>go func()</code> 或刚被 Channel 唤醒的 G 优先放进单槽位 <code>runnext</code>，利用热缓存立刻执行。</li>
+        <li><strong>本地无锁队列 <code>runq[256]</code></strong>：老 G 被挤进长度 256 的环形数组；若连 256 都塞满了，就摘出一半（128 个）连同新 G 拼成链表迁入<strong>全局队列（<code>sched.runq</code>）</strong>。</li>
+        <li><strong><code>g0</code> 调度栈</strong>：每个线程 M 都有一个 8KB 的 <code>g0</code> 专用栈，专门用于执行调度、栈扩容和分配内存；切换协程时走 <code>G_cur → g0 → G_next</code>。</li>
+      </ul>
+    </div>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;">📖 图解右半区：偷活干（Work Stealing）与解绑（Handoff）</div>
+      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
+        <li><strong>工作窃取（Work Stealing）</strong>：当 P1 的本地队列和全局队列都空了，它会随机挑另一个 P（如 P0），直接从对方 <code>runq</code> <strong>尾部一次性偷走一半的 G</strong>，让多核 CPU 满载运转。</li>
+        <li><strong>系统调用移交（Syscall Handoff）</strong>：当 M1 因文件 IO 或 CGO 陷入内核阻塞时，<strong>P1 立即与 M1 解绑</strong>，换一个空闲线程 M2 绑定继续跑队列里的其他 G；等 M1 从内核醒来后优先抢空闲 P，抢不到就把 G 塞进全局队列自己睡觉。</li>
+      </ul>
+    </div>
+  </div>
 </div>
 
 <!-- 03.3 · schedule() 找 G 顺序与三大阻塞场景 -->
 <div class="wb-card" id="schedule" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🔍 03.3 · 为什么要每 61 次调度查一次全局队列？Channel 阻塞和系统调用阻塞有什么本质区别？</div>
-  <h3>🧭 03.3 <code>runtime.schedule()</code> 找 G 优先级与三大阻塞场景对比</h3>
+  <div class="chapter-q-pill">🔍 03.3 · 线程 M 按什么优先级顺序找活干？Channel 阻塞和系统调用阻塞有什么本质区别？</div>
+  <h3>🧭 03.3 寻找可执行 G 的五步优先级与三大阻塞场景对比</h3>
 
   <div class="wb-grid-2">
-    <div class="plop-code-box">
-      <div class="plop-code-head">
-        <span>🐹 runtime/proc.go · schedule() 寻找可执行 G 的真实顺序</span>
-        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-gmp-sched', this)">复制代码</button>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin-top:10px;">
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:8px;">🎯 线程 M 寻找下一个可执行 G 的五步顺序</div>
+      <ol style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.68;">
+        <li><strong>定期看一眼全局队列（防饿死）</strong>：每调度一定次数先去全局队列拿 1 个 G，防止本地两个协程互相唤醒把全局队列里的 G 饿死。</li>
+        <li><strong>查 P 本地队列（最快热路径）</strong>：先拿 VIP 槽 <code>P.runnext</code>，若为空再从本地无锁环形队列 <code>P.runq</code> 队头取。</li>
+        <li><strong>全局队列批量搬迁</strong>：本地彻底空了，加锁从全局队列 <code>sched.runq</code> 搬一批到本地。</li>
+        <li><strong>检查网络轮询器 <code>netpoller</code></strong>：非阻塞询问 <code>epoll/kqueue</code> 是否有刚就绪的网络读写协程。</li>
+        <li><strong>Work Stealing 工作窃取</strong>：随机遍历其他 P，从对方队列尾部偷走一半 G；全偷不到才将 M 休眠。</li>
+      </ol>
+    </div>
+
+    <div>
+      <div class="table-wrap" style="margin-top:10px;">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">阻塞类型</th>
+              <th>底层动作与 M / P 状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>① 用户态同步阻塞</strong><br>(Channel / Mutex / Sleep)</td>
+              <td>调用运行时挂起函数 <strong><code>gopark()</code>（将 G 状态改为 <code>_Gwaiting</code> 并解绑让出）</strong>；<strong>M 和 P 完全不阻塞</strong>，百纳秒内切去跑下一个 G。</td>
+            </tr>
+            <tr>
+              <td><strong>② 网络 IO 阻塞</strong><br>(TCP / HTTP / DB 读写)</td>
+              <td>FD 交由 <code>netpoller (epoll)</code> 监听，G 调 <code>gopark()</code> 挂在等待描述符上；<strong>M 和 P 完全不阻塞</strong>。</td>
+            </tr>
+            <tr>
+              <td><strong>③ 阻塞式系统调用</strong><br>(磁盘文件 IO / CGO)</td>
+              <td><strong>M 与 G 一起陷入内核阻塞</strong>；<strong>P 执行 Handoff 与 M 解绑</strong>，换新 M 继续跑队列里其他 G。</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <pre class="plop-code-pre" id="code-gmp-sched"><code><span class="c-kw">func</span> <span class="c-fn">schedule</span>() {
+    </div>
+  </div>
+
+  <details class="plop-drawer">
+    <summary>🔍 深入源码：runtime.schedule() 真实实现与为什么偏偏选质数“61”查全局队列？</summary>
+    <div class="drawer-body">
+      <p style="margin:0 0 8px;">
+        如果只按“先查本地队列、本地空了才查全局队列”运行，一旦当前 P 上有两个协程通过 Channel 乒乓互相唤醒，<code>P.runnext</code> 永远非空，<strong>全局队列里的 G 就会被永久饿死</strong>。为什么选 <code>61</code>？因为它既不太小（太小会频繁抢全局锁拖慢吞吐），也不太大（太大全局 G 等待太久），且<strong>61 是质数，不会与业务代码里常见的 2 的幂次（16、32、64）循环步长产生哈希共振</strong>：
+      </p>
+      <div class="plop-code-box" style="margin:6px 0 0;">
+        <div class="plop-code-head">
+          <span>🐹 runtime/proc.go · schedule() 核心找 G 代码</span>
+          <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-gmp-sched', this)">复制代码</button>
+        </div>
+        <pre class="plop-code-pre" id="code-gmp-sched"><code><span class="c-kw">func</span> <span class="c-fn">schedule</span>() {
     <span class="c-kw">var</span> gp *g
-    <span class="c-cm">// ★ 1. 每调度 61 次，优先去全局队列拿 1 个 G（防本地乒乓协程饿死全局 G）</span>
+    <span class="c-cm">// ★ 1. 每调度 61 次（schedtick%61 == 0），优先去全局队列拿 1 个 G</span>
     <span class="c-kw">if</span> _g_.m.p.<span class="c-fn">ptr</span>().schedtick%61 == 0 &amp;&amp; sched.runqsize &gt; 0 {
         <span class="c-fn">lock</span>(&amp;sched.lock)
         gp = <span class="c-fn">globrunqget</span>(_g_.m.p.<span class="c-fn">ptr</span>(), 1)
@@ -170,35 +235,9 @@
     }
     <span class="c-fn">execute</span>(gp)
 }</code></pre>
-    </div>
-
-    <div>
-      <div class="table-wrap" style="margin-top:10px;">
-        <table class="plop-table">
-          <thead>
-            <tr>
-              <th style="width:28%">阻塞类型</th>
-              <th>底层动作与 M / P 状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>① 用户态同步阻塞</strong><br>(Channel / Mutex / Sleep)</td>
-              <td>调 <code>gopark()</code> 把 G 挂入等待链表变 <code>_Gwaiting</code>；<strong>M 和 P 完全不阻塞</strong>，百纳秒内切去跑下一个 G。</td>
-            </tr>
-            <tr>
-              <td><strong>② 网络 IO 阻塞</strong><br>(TCP / HTTP / DB 读写)</td>
-              <td>FD 交由 <code>netpoller (epoll)</code> 监听，G 挂在 <code>pollDesc</code> 上让出；<strong>M 和 P 完全不阻塞</strong>。</td>
-            </tr>
-            <tr>
-              <td><strong>③ 阻塞式系统调用</strong><br>(磁盘文件 IO / CGO)</td>
-              <td><strong>M 与 G 一起陷入内核阻塞</strong>；<strong>P 执行 Handoff 与 M 解绑</strong>，换新 M 继续跑队列里其他 G。</td>
-            </tr>
-          </tbody>
-        </table>
       </div>
     </div>
-  </div>
+  </details>
 </div>
 
 <!-- 03.4 · 抢占式调度（协作式 vs 1.14 信号异步抢占）与 sysmon -->
@@ -232,7 +271,7 @@
     <summary>🎯 面试追问：GOMAXPROCS 在 Docker / K8s 容器里有什么著名大坑？</summary>
     <div class="drawer-body">
       <p>
-        <code>GOMAXPROCS</code> 默认读取宿主机物理节点的逻辑 CPU 核数（如 64 核），在 Go 1.24 之前<strong>不感知容器的 cgroup CPU Quota（如 K8s 限制 Pod 只能用 2 核）</strong>！这会导致 2 核容器创建 64 个 P，引发严重的 CFS 周期限流（Throttling）与上下文切换，接口延迟暴增数倍。生产容器环境务必引入 <code>go.uber.org/automaxprocs</code> 自动对齐容器配额（注：Go 1.25+ 已原生支持 cgroup CPU 感知）。
+        <code>GOMAXPROCS</code> 默认读取宿主机物理节点的逻辑 CPU 核数（如 64 核），在 <strong>Go 1.25 之前不感知容器的 cgroup CPU Quota（如 K8s 限制 Pod 只能用 2 核）</strong>！这会导致 2 核容器创建 64 个 P，引发严重的 CFS 周期限流（Throttling）与上下文切换，接口延迟暴增数倍。Go 1.24 及更早版本的生产容器务必引入 <code>go.uber.org/automaxprocs</code> 自动对齐容器配额（注：<strong>Go 1.25+ 已原生支持容器 cgroup CPU 配额感知与动态调整</strong>）。
       </p>
     </div>
   </details>

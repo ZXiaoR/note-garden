@@ -179,15 +179,63 @@
 
         <!-- ====================================================================
              7 大章节纯 HTML 子模块（由 assets/plop-garden.js 自动并行加载拼装）
-             平时修改某个章节，直接编辑 postgres/sections/ 下的对应小文件即可
+             平时修改某个章节，直接编辑 postgres/sections/ 下的对应小文件即可；
+             每个挂载点内预置静态章节摘要与直达链接，兼顾搜索引擎、阅读器、AI 抓取与无 JS 环境可达性
              ==================================================================== -->
-        <div data-plop-section="sections/00-why.html"></div>
-        <div data-plop-section="sections/01-arch.html"></div>
-        <div data-plop-section="sections/02-types.html"></div>
-        <div data-plop-section="sections/03-dml.html"></div>
-        <div data-plop-section="sections/04-mvcc.html"></div>
-        <div data-plop-section="sections/05-index.html"></div>
-        <div data-plop-section="sections/06-vacuum.html"></div>
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="sections/00-why.html">
+          <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 第一性原理导读：为什么有了 MySQL 还要学 PostgreSQL？PG vs MySQL 10 大核心架构差异对照</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">从 InnoDB 索引组织表（IOT + Undo 回滚段）与 PostgreSQL 堆表（Heap Table + <code>xmin/xmax</code> 多版本追加写）的底层分水岭出发，对比两者在进程模型、MVCC、更新代价、索引体系与复杂查询优化器上的核心差异。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/01-arch.html">
+          <section class="wb-card" id="arch" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-arch.html">01 · 进程架构与层级模型：多进程 <code>postmaster</code>、共享内存 <code>shared_buffers</code>、连接池 <code>PgBouncer</code> 与四级目录层级</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解 PG 多进程模型（<code>postmaster</code>、<code>backend</code>、<code>bgwriter</code>、<code>checkpointer</code>、<code>walwriter</code>、<code>autovacuum</code>）、为什么高并发必配 PgBouncer，以及 <code>Instance → Database → Schema → Table</code> 四级逻辑结构。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/02-types.html">
+          <section class="wb-card" id="types" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-types.html">02 · 数据类型与建模：<code>JSONB</code> vs <code>JSON</code>、数组/范围/<code>pgvector</code>、事务性 DDL 与大表在线无锁变更</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖数值/字符/时间/UUID 选型避坑、<code>JSONB</code> 二进制解析树配合 GIN 索引毫秒级检索、支持回滚的事务性 DDL，以及 <code>CREATE INDEX CONCURRENTLY</code> 等生产在线改表铁律。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/03-dml.html">
+          <section class="wb-card" id="dml" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-dml.html">03 · DML 与高级查询：<code>RETURNING</code>、<code>ON CONFLICT (UPSERT)</code>、<code>LATERAL JOIN</code>、窗口函数与递归 CTE</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解 <code>ROW_NUMBER / RANK / DENSE_RANK / LAG / LEAD</code> 窗口函数与滑动窗口帧、<code>WITH RECURSIVE</code> 树形/图遍历查询，以及多表关联构建优化器（Hash Join / Merge Join / Nested Loop）。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/04-mvcc.html">
+          <section class="wb-card" id="trx" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-mvcc.html">04 · 事务、MVCC 与锁机制：堆表 <code>xmin/xmax/ctid</code> 多版本、CLOG 与 Hint Bits、SSI 可串行化快照与 <code>SKIP LOCKED</code></a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">深入剖析 PG Append-Only 堆表 MVCC、为什么 PG 的 RC 隔离级别下没有脏读且 RR 下天然防幻读、SSI 可串行化快照隔离（SIREAD 谓词锁），以及四级行锁与 <code>FOR UPDATE SKIP LOCKED</code> 高并发抢单队列。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/05-index.html">
+          <section class="wb-card" id="index" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-index.html">05 · 六大索引与执行计划：B-tree / GIN / GiST / BRIN / Hash / SP-GiST、覆盖索引 (<code>INCLUDE</code> + VM) 与 <code>EXPLAIN (ANALYZE, BUFFERS)</code></a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">全景对比 PG 六大索引引擎适用场景、部分索引与表达式索引、为什么 PG 的 Index-Only Scan 依赖可见性映射表（Visibility Map），以及精读 <code>EXPLAIN (ANALYZE, BUFFERS)</code> 定位慢 SQL。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/06-vacuum.html">
+          <section class="wb-card" id="vacuum" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-vacuum.html">06 · VACUUM 与高可用生态：死元组清理、表膨胀、32 位事务 ID 回卷 (XID Wraparound)、HOT 页内更新、WAL 流复制与闭卷自测</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解 <code>VACUUM</code> vs <code>VACUUM FULL</code> vs <code>pg_repack</code>、事务 ID 回卷冻结机制（<code>FREEZE</code>）、Heap-Only Tuple (HOT) 避免索引写放大、逻辑/物理流复制与 9 道高频面试自测问答。</p>
+          </section>
+        </div>
 
       </div>
     </main>

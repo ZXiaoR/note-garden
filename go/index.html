@@ -177,14 +177,65 @@
           </div>
         </header>
 
-        <!-- ==================== 模块化章节插槽（由 plop-garden.js 并行加载） ==================== -->
-        <div data-plop-section="sections/00-why.html"></div>
-        <div data-plop-section="sections/01-basic.html"></div>
-        <div data-plop-section="sections/02-types.html"></div>
-        <div data-plop-section="sections/03-gmp.html"></div>
-        <div data-plop-section="sections/04-channel.html"></div>
-        <div data-plop-section="sections/05-sync-gc.html"></div>
-        <div data-plop-section="sections/06-engineering.html"></div>
+        <!-- ====================================================================
+             7 大章节纯 HTML 子模块（由 assets/plop-garden.js 自动并行加载拼装）
+             平时修改某个章节，直接编辑 go/sections/ 下的对应小文件即可；
+             每个挂载点内预置静态章节摘要与直达链接，兼顾搜索引擎、阅读器、AI 抓取与无 JS 环境可达性
+             ==================================================================== -->
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="sections/00-why.html">
+          <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 第一性原理导读：为什么有了 C++、Java 和 Python，Google 还要造一门 Go？</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">从多核时代高并发 I/O、超大规模工程极速编译与云原生静态单二进制部署三大诉求出发，建立 Go 语言「核心数据结构、GMP 并发与 Channel、内存分配与混合写屏障 GC、工程化调优」全景图。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/01-basic.html">
+          <section class="wb-card" id="basic" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-basic.html">01 · 基础语法全览与 Go Modules：<code>string/byte/rune</code>、结构体组合、方法接收者、<code>make vs new</code> 与值传递铁律</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖 UTF-8 编码与 `strings.Builder`、结构体 Embedding 与值/指针接收者实现接口的方法集规则、为什么“Go 只有值传递”、以及 `init()` 初始化顺序与 Go Modules MVS 最小版本选择算法。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/02-types.html">
+          <section class="wb-card" id="slice" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-types.html">02 · 核心内置类型底层解剖：<code>slice</code> 扩容与共享陷阱、<code>map</code> (<code>hmap</code> + Go 1.24 Swiss Table)、<code>defer/panic/recover</code> 与 <code>interface</code> (<code>eface/iface</code>)</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">深入剖析 24 字节 `sliceHeader` 与 Go 1.18+ 平滑扩容公式、`map` 翻倍/等量渐进式扩容与 Go 1.24 Swiss Table 开放寻址演进、`defer` 开放编码与参数预计算、以及 `nil` 接口不等价于 `nil` 指针的经典陷阱。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/03-gmp.html">
+          <section class="wb-card" id="gmp" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-gmp.html">03 · 为什么引入协程 &amp; GMP 调度器底层全景：2KB 动态连续栈、Work Stealing、Hand Off 与 Go 1.14 <code>SIGURG</code> 异步抢占</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比 OS 内核线程与 Goroutine，详解 G/M/P/schedt 四大组件、为什么必须在 M 和 G 之间加一层 P、寻找可运行 G 的五步优先级（含 `runnext` 与 `schedtick%61`）、三大阻塞场景（Channel / Netpoller / Syscall）与 `sysmon` 监控线程。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/04-channel.html">
+          <section class="wb-card" id="channel" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-channel.html">04 · Channel 管道底层解剖与 <code>select</code> 多路复用：<code>runtime.hchan</code>、<code>sendDirect</code> 跨栈直拷、收发关真值表与优雅关闭</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解 `hchan` 环形队列与 `sendq/recvq` 双向链表、`sudog` 跨协程栈直接拷贝优化、未初始化/正常/已关闭三种 Channel 状态的读写关行为，以及 `select` 的 `pollorder` 随机洗牌防饥饿与 `lockorder` 地址排序防死锁。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/05-sync-gc.html">
+          <section class="wb-card" id="mutex" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-sync-gc.html">05 · 并发同步、内存分配与 GC：<code>sync.Mutex</code> 双模式、<code>WaitGroup/Once/sync.Map</code>、TCMalloc 三级分配器与混合写屏障 GC</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖 Mutex 正常模式 vs 1ms 饥饿模式、`sync.Map` 读写分离双 Map、微/小/大对象分级分配（`mspan → mcache → mcentral → mheap`）、并发三色标记法与 Go 1.8 混合写屏障、以及 `GOGC + GOMEMLIMIT` 与逃逸分析。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/06-engineering.html">
+          <section class="wb-card" id="context" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-engineering.html">06 · 工程实践与闭卷自测：<code>context</code> 取消树、泛型 GCShape、Go 1.22 循环变量分水岭、<code>errgroup/singleflight</code>、<code>pprof</code> 与 18 问自测</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解 `cancelCtx / timerCtx / valueCtx` 树形传播、Go 1.18+ 泛型 GCShape 单态化 + Dictionary、结构体内存对齐、`sync.Pool` P 本地池与 Victim 缓存、以及线上 `pprof` 排查 Goroutine/内存泄漏与 18 道高频面试自测题。</p>
+          </section>
+        </div>
 
       </div>
     </main>

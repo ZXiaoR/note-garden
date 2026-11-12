@@ -7,11 +7,15 @@
           <span class="plop-tag tomato">MUTEX · FUTEX · CAS · DEADLOCK</span>
         </div>
 
+        <div class="plop-callout tip" style="margin-bottom:16px;">
+          <strong>⏱️ 30 秒口述版（本章核心）：</strong>并发编程需解决<strong>原子性、可见性、有序性</strong>三大问题。多核且临界区极短（几十纳秒）适合<strong>自旋锁（Spinlock，持锁期间不可睡眠）</strong>；临界区较长适合<strong>互斥锁（Mutex）</strong>。现代 Linux Mutex 基于 <strong><code>futex</code> + 自适应自旋</strong>，无竞争时直接在用户态通过硬件 <strong><code>CAS</code></strong> 完成（0 次系统调用）。<strong>死锁</strong>需同时满足互斥、持有并等待、不可剥夺、循环等待四条件，工程上最常用的预防手段是<strong>按固定全局顺序加锁</strong>以破坏循环等待。
+        </div>
+
         <!-- 05.1 · 竞态条件、并发三要素与临界区四原则 (#race) -->
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape"></div>
-          <div class="chapter-q-pill">❓ 05.1 · 两个线程各跑 10000 次 count++，为什么结果永远小于 20000？并发到底难在哪三个问题？</div>
-          <h3>💥 05.1 竞态条件（Race Condition）、并发三要素与临界区准则 <span class="plop-tag tomato">高频必考</span></h3>
+          <div class="chapter-q-pill">❓ 05.1 · 两个线程各跑 10000 次 count++，为什么结果小于 20000？并发到底难在哪三个问题？</div>
+          <h3>💥 05.1 竞态条件（Race Condition）、并发三要素与临界区准则</h3>
           <p>
             当多个线程/进程并发读写同一份共享数据，且<strong>最终结果取决于它们谁先谁后的微妙执行时序</strong>时，就发生了<strong>竞态条件（Race Condition）</strong>。最经典的例子就是一行看似简单的 <code>count++</code>，编译成汇编其实有 <strong>3 条独立机器指令（从内存读到寄存器 <code>MOV</code> ──▶ 寄存器加一 <code>ADD</code> ──▶ 写回内存 <code>MOV</code>）</strong>，随时可能在中间被时钟中断切走或与另一颗 CPU 核交错：
           </p>
@@ -155,8 +159,8 @@
           </div>
 
           <div class="plop-callout warn">
-            <strong>🚨 必考陷阱：为什么生产者里的 `P(empty)` 和 `P(mutex)` 顺序绝对不能颠倒？</strong><br/>
-            假如缓冲区已经满了（<code>empty = 0</code>），生产者如果<strong>先执行 <code>P(mutex)</code> 拿到了互斥锁，再去执行 <code>P(empty)</code> 就会抱着 <code>mutex</code> 锁睡死过去</strong>！此时消费者想来取数据腾出空位，但消费者执行到 <code>P(mutex)</code> 时发现锁在睡觉的生产者手里，消费者也睡死过去——<strong>双方互等，当场死锁！</strong>（同理，<code>V(mutex)</code> 和 <code>V(full)</code> 都是释放操作，顺序颠倒不会死锁，但先放 <code>mutex</code> 锁能让临界区占用时间更短）。
+            <strong>🚨 必考陷阱：为什么生产者里的 `P(empty)` 和 `P(mutex)` 顺序不能颠倒？</strong><br/>
+            假如缓冲区已经满了（<code>empty = 0</code>），生产者如果<strong>先执行 <code>P(mutex)</code> 拿到了互斥锁，再去执行 <code>P(empty)</code> 就会抱着 <code>mutex</code> 锁阻塞睡眠</strong>。此时消费者想来取数据腾出空位，但消费者执行到 <code>P(mutex)</code> 时发现锁在睡眠的生产者手里，消费者也随之阻塞——<strong>双方互等，直接触发死锁</strong>（同理，<code>V(mutex)</code> 和 <code>V(full)</code> 都是释放操作，顺序颠倒不会死锁，但先放 <code>mutex</code> 锁能让临界区占用时间更短）。
           </div>
 
           <div class="wb-grid-2" style="margin-top:12px;">
@@ -212,7 +216,7 @@
                 <tr>
                   <td><strong>④ 循环等待</strong><br/>(Circular Wait)</td>
                   <td>存在一条头尾相接的等待环路：<code>T1 等 T2 ──▶ T2 等 T3 ──▶ T3 等 T1</code>。</td>
-                  <td><strong style="color:#15803d;">⭐ 工程上最实用、零开销的终极招数：按固定全局顺序加锁（Lock Ordering）！</strong></td>
+                  <td><strong style="color:#15803d;">⭐ 工程上最实用、低开销的预防手段：按固定全局顺序加锁（Lock Ordering）。</strong></td>
                 </tr>
               </tbody>
             </table>
@@ -220,14 +224,14 @@
 
           <div class="plop-code-box">
             <div class="plop-code-head">
-              <span>💸 transfer_lock_order.go · 工程防死锁铁律：转账锁两个账户时，永远按账户 ID 从小到大加锁！</span>
+              <span>💸 transfer_lock_order.go · 工程防死锁铁律：转账锁两个账户时，始终按账户 ID 从小到大加锁</span>
             </div>
-            <pre class="plop-code-pre"><code><span class="c-cm">// ❌ 错误写法：A转给B 先锁A再锁B；同时 B转给A 先锁B再锁A ──▶ 瞬间形成环形死锁！</span>
-<span class="c-cm">// ✅ 正确写法：不管谁转给谁，先按账户 ID 大小排序，永远【先锁 ID 小的，再锁 ID 大的】！</span>
+            <pre class="plop-code-pre"><code><span class="c-cm">// ❌ 错误写法：A转给B 先锁A再锁B；同时 B转给A 先锁B再锁A ──▶ 极易形成环形死锁</span>
+<span class="c-cm">// ✅ 正确写法：不管谁转给谁，先按账户 ID 大小排序，始终【先锁 ID 小的，再锁 ID 大的】</span>
 <span class="c-kw">func</span> <span class="c-fn">Transfer</span>(from, to *Account, amount <span class="c-fn">int</span>) &#123;
     first, second := from, to
     <span class="c-kw">if</span> from.ID &gt; to.ID &#123;
-        first, second = to, from  <span class="c-cm">// 强制统一加锁顺序，100% 破坏「循环等待」条件！</span>
+        first, second = to, from  <span class="c-cm">// 强制统一加锁顺序，从根源上破坏「循环等待」条件</span>
     &#125;
     first.Mu.<span class="c-fn">Lock</span>()
     <span class="c-kw">defer</span> first.Mu.<span class="c-fn">Unlock</span>()

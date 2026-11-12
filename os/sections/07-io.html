@@ -7,11 +7,15 @@
           <span class="plop-tag tomato">INODE · PAGE CACHE · EPOLL · ZERO-COPY</span>
         </div>
 
+        <div class="plop-callout tip" style="margin-bottom:16px;">
+          <strong>⏱️ 30 秒口述版（本章核心）：</strong>目录项 <code>dentry</code> 存文件名到 <code>inode</code> 的映射，进程 <code>fd</code> 经<strong>「进程 fd 表 → 系统打开文件表（存 <code>offset</code>）→ inode 表」</strong>寻址。普通读写默认走内核 <strong>Page Cache</strong> 异步回写（<code>fsync</code> 强制刷盘，MySQL 用 <code>O_DIRECT</code> 绕过 Page Cache 避免双重缓存）。<strong><code>epoll</code></strong> 靠内核红黑树常驻 fd 与网卡中断回调填充就绪链表实现 $O(1)$ 事件通知（ET 模式只通知一次，须配非阻塞 fd 循环读到 <code>EAGAIN</code>）；<strong><code>sendfile + SG-DMA</code> 零拷贝</strong>将文件转发降为 <strong>2 次切换 + 0 次 CPU 拷贝</strong>。
+        </div>
+
         <!-- 07.1 · 文件系统、inode、硬/软链接与文件描述符三张表 (#fs) -->
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape pink"></div>
-          <div class="chapter-q-pill">❓ 07.1 · 为什么 inode 里不存文件名？为什么 rm 删了 50GB 日志文件，df -h 看磁盘还是 100% 满？</div>
-          <h3>📂 07.1 VFS、<code>inode</code>、硬链接 vs 软链接 &amp; 文件描述符「内核三张表」 <span class="plop-tag tomato">高频必考</span></h3>
+          <div class="chapter-q-pill">❓ 07.1 · 为什么 inode 里不存文件名？为什么 rm 删了 50GB 日志文件，df -h 看磁盘还是满的？</div>
+          <h3>📂 07.1 VFS、<code>inode</code>、硬链接 vs 软链接 &amp; 文件描述符「内核三张表」</h3>
           <p>
             Linux 哲学是<strong>“一切皆文件”</strong>：无论是普通磁盘文件、目录、管道、Socket 套接字还是硬件设备，内核都在顶层抽象了一层 <strong>VFS（Virtual File System，虚拟文件系统）</strong>，向上层暴露完全统一的 <code>open / read / write / close</code> 接口。而在底层文件系统（如 <code>ext4 / xfs</code>）中，<strong>文件的「元数据」与「真正的数据内容」是严格分开存储的</strong>：
           </p>
@@ -77,7 +81,7 @@
             • <strong>排查与不重启救急解法：</strong>① 用 <code>lsof | grep deleted</code> 找出是哪个 PID 还占着已删除的文件；② 以后清理正在写的日志千万别直接 <code>rm</code>，而是执行 <strong><code>: &gt; access.log</code> 或 <code>truncate -s 0 access.log</code>（直接把原文件截断清空为 0 字节，瞬间释放磁盘且无需重启服务）</strong>！
           </div>
 
-          <h4 style="margin-top:16px;">🗂️ 进程调用 `open()` 拿到的整数 `fd`，背后是内核哪「三张表」？ <span class="plop-tag tomato">高频必考</span></h4>
+          <h4 style="margin-top:16px;">🗂️ 进程调用 `open()` 拿到的整数 `fd`，背后是内核哪「三张表」？</h4>
           <!-- 三张表大字卡片 -->
           <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; margin:12px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:12px;">
@@ -92,7 +96,7 @@
                 <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">表 ②：系统级「打开文件表 (`struct file`)」</div>
                 <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.55; font-weight:700;">
                   <strong>归属：全系统内核共享</strong>。<br/>
-                  每次调用 <code>open()</code> 都会新建一项！里面记录最核心的<strong>当前读写偏移量 <code>f_pos (offset)</code></strong>、打开模式（<code>O_RDONLY/O_APPEND</code>）以及指向第三张表的指针。
+                  每次调用 <code>open()</code> 都会新建一项。里面记录最核心的<strong>当前读写偏移量 <code>f_pos (offset)</code></strong>、打开模式（<code>O_RDONLY/O_APPEND</code>）以及指向第三张表的指针。
                 </div>
               </div>
               <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
@@ -104,10 +108,10 @@
               </div>
             </div>
             <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:9px; padding:9px 12px; margin-top:10px; font-size:12.8px; line-height:1.58;">
-              <strong>🎯 吃透这三张表，直接秒杀 3 道经典面试题：</strong><br/>
-              1. <strong><code>fork()</code> 后父子进程写同一个 fd 会互相覆盖吗？</strong>不会！因为 <code>fork</code> 复制了表①（进程 fd 表），但父子的 fd 指针<strong>指向表②里的同一个 <code>struct file</code> 项，共享同一个读写偏移量 <code>offset</code></strong>，父写完 10 字节，子接着从第 11 字节往后写！<br/>
-              2. <strong>同一进程（或两进程）各自调用一次 <code>open("a.txt")</code> 呢？</strong>会在表②生成<strong>两个独立的 <code>struct file</code> 项，各自拥有独立的 <code>offset</code></strong>，此时同时从头写就会互相覆盖（除非加了 <code>O_APPEND</code> 每次写前由内核原子移到文件末尾）！<br/>
-              3. <strong>Shell 重定向 <code>./app &gt; out.log 2&gt;&amp;1</code> 是怎么实现的？</strong>靠系统调用 <strong><code>dup2(oldfd, newfd)</code></strong>：先把 <code>fd=1 (stdout)</code> 指向 <code>out.log</code> 的表②项，再执行 <code>dup2(1, 2)</code> 把 <code>fd=2 (stderr)</code> 的指针也拷成跟 <code>fd=1</code> 完全一样，于是标准输出和标准错误就指向了同一个 <code>struct file</code>！
+              <strong>🎯 理解这三张表，即可串联 3 道经典面试题：</strong><br/>
+              1. <strong><code>fork()</code> 后父子进程写同一个 fd 会互相覆盖吗？</strong>不会。因为 <code>fork</code> 复制了表①（进程 fd 表），但父子的 fd 指针<strong>指向表②里的同一个 <code>struct file</code> 项，共享同一个读写偏移量 <code>offset</code></strong>，父写完 10 字节，子接着从第 11 字节往后写。<br/>
+              2. <strong>同一进程（或两进程）各自调用一次 <code>open("a.txt")</code> 呢？</strong>会在表②生成<strong>两个独立的 <code>struct file</code> 项，各自拥有独立的 <code>offset</code></strong>，此时同时从头写就会互相覆盖（除非加了 <code>O_APPEND</code> 每次写前由内核原子移到文件末尾）。<br/>
+              3. <strong>Shell 重定向 <code>./app &gt; out.log 2&gt;&amp;1</code> 是怎么实现的？</strong>靠系统调用 <strong><code>dup2(oldfd, newfd)</code></strong>：先把 <code>fd=1 (stdout)</code> 指向 <code>out.log</code> 的表②项，再执行 <code>dup2(1, 2)</code> 把 <code>fd=2 (stderr)</code> 的指针也拷成跟 <code>fd=1</code> 一样，于是标准输出和标准错误就指向了同一个 <code>struct file</code>。
             </div>
           </div>
         </div>
@@ -116,7 +120,7 @@
         <div class="wb-card" id="pagecache" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape mint"></div>
           <div class="chapter-q-pill">❓ 07.2 · 为什么调完 write() 返回成功，机器断电数据还是丢了？MySQL 为什么要加 O_DIRECT？</div>
-          <h3>🧠 07.2 Page Cache（内核页缓存）、脏页异步回写与 <code>fsync / O_DIRECT</code> <span class="plop-tag tomato">高频必考</span></h3>
+          <h3>🧠 07.2 Page Cache（内核页缓存）、脏页异步回写与 <code>fsync / O_DIRECT</code></h3>
           <p>
             磁盘比内存慢几千到几万倍，所以 Linux 内核会自动把所有空闲的物理内存利用起来，作为磁盘文件的缓存层——这就是 <strong>Page Cache（页缓存，即 <code>free -h</code> 命令看到的 <code>buff/cache</code>）</strong>。<strong>默认情况下，任何普通的 <code>read() / write()</code> 系统调用都只跟内存里的 Page Cache 打交道，并不直接碰物理磁盘！</strong>
           </p>
@@ -224,7 +228,7 @@
                   <td><strong>③ I/O 多路复用</strong><br/>(<code>select/poll/epoll</code>)</td>
                   <td>🟡 集中阻塞在 <code>epoll_wait</code> 等一批 fd</td>
                   <td>🔴 线程自己调 <code>read</code> 阻塞拷贝</td>
-                  <td><strong>本质仍是「同步 I/O」！</strong>（因为阶段②还是用户线程自己调 <code>read</code> 同步把数据从内核拷出来），但它能<strong>用 1 个线程同时监听 10 万个连接，谁就绪才读谁</strong>，是现代高并发的绝对基石！</td>
+                  <td><strong>本质仍是「同步 I/O」：</strong>（因为阶段②还是用户线程自己调 <code>read</code> 同步把数据从内核拷出来），但它能<strong>用 1 个线程同时监听数万个连接，谁就绪才读谁</strong>，是现代高并发网络服务的基石。</td>
                 </tr>
                 <tr>
                   <td><strong>④ 信号驱动 I/O</strong></td>
@@ -234,15 +238,15 @@
                 </tr>
                 <tr>
                   <td><strong>⑤ 异步 I/O (AIO / `io_uring`)</strong></td>
-                  <td>🟢 <strong>完全不阻塞</strong></td>
-                  <td>🟢 <strong>完全不阻塞（内核代拷）</strong></td>
-                  <td><strong style="color:#15803d;">唯一真正的「异步 I/O」！</strong>用户发起请求后扭头就走，<strong>内核把阶段①等数据和阶段②拷进用户缓冲区全部干完后，再通知用户直接用！</strong>（Linux 5.1+ 的 <strong><code>io_uring</code></strong> 通过用户与内核共享的提交队列 <code>SQ</code> / 完成队列 <code>CQ</code> 环形缓冲区，实现了零拷贝、甚至零系统调用的真异步 I/O）。</td>
+                  <td>🟢 <strong>不阻塞</strong></td>
+                  <td>🟢 <strong>不阻塞（内核完成拷贝）</strong></td>
+                  <td><strong style="color:#15803d;">真正的「异步 I/O」：</strong>用户发起请求后即可返回，<strong>内核把阶段①等数据和阶段②拷进用户缓冲区全部完成后，再通知用户直接使用</strong>。Linux 5.1+ 的 <strong><code>io_uring</code></strong> 核心是通过用户态与内核态共享的提交队列（<code>SQ</code>）/ 完成队列（<code>CQ</code>）环形缓冲区批量收发请求以省去系统调用开销（开启 <code>IORING_SETUP_SQPOLL</code> 内核轮询模式可实现零系统调用；若需进一步实现零拷贝，需额外配合注册固定缓冲区 <code>IORING_REGISTER_BUFFERS</code> 或零拷贝发送 <code>IORING_OP_SEND_ZC</code>）。</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <h4 style="margin-top:16px;">🔥 I/O 多路复用三代演进：`select` vs `poll` vs `epoll` <span class="plop-tag tomato">面试必问</span></h4>
+          <h4 style="margin-top:16px;">🔥 I/O 多路复用三代演进：`select` vs `poll` vs `epoll`</h4>
           <div class="table-wrap">
             <table class="plop-table">
               <thead>
@@ -285,10 +289,10 @@
                   ⚡ `epoll` 两种触发模式：水平触发 (LT) vs 边缘触发 (ET)
                 </div>
                 <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58;">
-                  • <strong>水平触发 LT（Level-Triggered，默认）：</strong>只要内核接收缓冲区里<strong>还有没读完的数据</strong>，每次调 <code>epoll_wait</code> 都会<strong>反复通知你</strong>（像催命闹钟，编程简单不易丢事件，Redis / Go netpoller(早期) / Netty 默认支持）。<br/>
-                  • <strong>边缘触发 ET（Edge-Triggered，<code>EPOLLET</code>）：</strong>只在缓冲区状态<strong>「从无到有 / 有新数据到达」的那一瞬间通知唯一一次</strong>！哪怕你只读了 50B 还剩 50B 在里面，下次 <code>epoll_wait</code> 也绝不再通知你！<br/>
-                  <strong style="color:var(--plop-tomato);">🚨 为什么 ET 模式必须 100% 搭配「非阻塞 Socket (`O_NONBLOCK`)」？</strong><br/>
-                  因为 ET 只通知一次，逼着你收到通知后必须用 <code>while</code> 循环一直调 <code>read()</code> <strong>把缓冲区彻底读空（直到底层返回 <code>EAGAIN / EWOULDBLOCK</code> 错误码为止）</strong>！如果你用的竟是<strong>阻塞 Socket</strong>，当最后一次循环把数据读完、再多调一次 <code>read()</code> 确认读空时，线程就会<strong>当场死死卡在最后那次阻塞 <code>read()</code> 上，整个 Reactor 事件循环彻底停摆！</strong>
+                  • <strong>水平触发 LT（Level-Triggered，默认）：</strong>只要内核接收缓冲区里<strong>还有未读完的数据</strong>，每次调 <code>epoll_wait</code> 都会<strong>持续通知你</strong>（编程简单不易漏事件；<strong>Redis</strong>、以及 <strong>Netty 的标准 Java NIO 传输 <code>NioEventLoopGroup</code></strong> 采用 LT）。<br/>
+                  • <strong>边缘触发 ET（Edge-Triggered，<code>EPOLLET</code>）：</strong>只在缓冲区状态<strong>「从无到有 / 有新数据到达」时通知一次</strong>。即使你只读了 50B 还剩 50B 在里面，下次 <code>epoll_wait</code> 也不会再通知（<strong>Nginx</strong>、<strong>Go <code>netpoller</code></strong>、以及 <strong>Netty 原生 Linux 传输 <code>EpollEventLoopGroup</code></strong> 默认采用 ET）。<br/>
+                  <strong style="color:var(--plop-tomato);">🚨 为什么 ET 模式必须搭配「非阻塞 Socket (`O_NONBLOCK`)」？</strong><br/>
+                  因为 ET 只通知一次，收到通知后必须用 <code>while</code> 循环调 <code>read()</code> <strong>把缓冲区读空（直到返回 <code>EAGAIN / EWOULDBLOCK</code> 为止）</strong>。如果使用<strong>阻塞 Socket</strong>，当最后一次循环把数据读完、再多调一次 <code>read()</code> 确认读空时，线程就会<strong>阻塞在最后那次 <code>read()</code> 调用上，导致该 Reactor 事件循环线程无法继续处理其他连接</strong>。
                 </div>
               </div>
 
@@ -394,6 +398,6 @@
           </div>
 
           <div class="plop-bridge">
-            <span>🧭 下一站：学完了全部 7 大核心模块，现在我们用一条完整主线把“敲下 `./a.out` 回车”的全链路串起来，并掌握线上 CPU 飙高、I/O 卡死、内存泄漏的排查 SOP 与闭卷自测！</span>
+            <span>🧭 下一站：学完了底层文件系统与高性能 I/O，接下来进入 <strong>08 Linux 常用命令与实战组合拳</strong>——掌握权限体系、文本三剑客（`grep/awk/sed`）、网络抓包（`ss/tcpdump`）与后台进程管理！</span>
           </div>
         </div>
