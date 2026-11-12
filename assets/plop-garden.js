@@ -26,8 +26,7 @@
   ];
   window.NOTE_GARDEN_TOPICS = NOTE_GARDEN_TOPICS;
 
-  // 2. 立即恢复用户上次选择的桌面材质，并标记章节片段待加载，避免首屏闪烁
-  document.documentElement.classList.add('plop-sections-pending');
+  // 2. 立即恢复用户上次选择的桌面材质，避免首屏闪烁
   try {
     const savedSurface = localStorage.getItem(STORAGE_SURFACE_KEY);
     if (savedSurface) {
@@ -314,10 +313,7 @@
 
   async function loadPlopSections() {
     const slots = Array.from(document.querySelectorAll('[data-plop-section]'));
-    if (!slots.length) {
-      document.documentElement.classList.remove('plop-sections-pending');
-      return;
-    }
+    if (!slots.length) return;
 
     const urls = slots.map(slot => slot.getAttribute('data-plop-section'));
 
@@ -334,7 +330,6 @@
       slots.forEach((slot, idx) => {
         slot.outerHTML = cachedFragments[idx];
       });
-      document.documentElement.classList.remove('plop-sections-pending');
       refreshScrollSpy();
       if (window.location.hash) {
         revealHashTarget(true);
@@ -372,15 +367,12 @@
         slot.outerHTML = fragments[idx];
       });
 
-      document.documentElement.classList.remove('plop-sections-pending');
       refreshScrollSpy();
       if (window.location.hash) {
         revealHashTarget(true);
       }
       prefetchSiblingEdition();
     } catch (err) {
-      document.documentElement.classList.remove('plop-sections-pending');
-      document.documentElement.classList.add('plop-sections-failed');
       console.warn('[plop-garden] Section fragment load failed:', err);
       if (slots[0]) {
         const tip = document.createElement('div');
