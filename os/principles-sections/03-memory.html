@@ -1,0 +1,395 @@
+<div class="wb-sec-header" id="hierarchy"><span class="wb-sec-num">03</span><span class="wb-sec-title">虚拟内存与内存分配</span><span class="plop-tag periwinkle">原理篇</span></div>
+<div class="plop-callout tip"><strong>🧭 本章主线：</strong>从 CPU <code>64B</code> 缓存行与伪共享出发，推导 x86-64 四级页表（<code>9+9+9+9+12</code>）与 <code>TLB</code> 快表，看懂缺页异常延迟分配、<code>malloc (brk / mmap)</code> 与内核 <code>Buddy / Slab</code> 分配器。</div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 03.1 · 为什么要有 L1/L2/L3、内存、硬盘这么多层？什么是 64B 缓存行与伪共享？</div>
+          <h3>🏔️ 03.1 存储层次金字塔、64B 缓存行（Cache Line）与伪共享</h3>
+          <p>
+            在第 00 章我们从全局认识了硬盘、内存条和 CPU：因为物理工艺上<strong>越快 → 造价越贵 → 容量越小；越慢 → 造价越便宜 → 容量越大</strong>，计算机将存储介质分层堆叠成金字塔，依靠<strong>局部性原理</strong>把热数据留在上层快设备里。在深入操作系统内存管理之前，我们先细化 CPU 内部缓存（L1 / L2 / L3）到磁盘的完整层级：
+          </p>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">存储层级</th>
+                  <th style="width:20%">典型容量</th>
+                  <th style="width:18%">真实访问延迟</th>
+                  <th style="width:22%">放大成人类感知时间</th>
+                  <th>由谁管理？</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>寄存器 Register</strong></td>
+                  <td>几百 Bytes</td>
+                  <td><code>~0.3 ns</code> (1 周期)</td>
+                  <td><strong>⏱️ 1 秒（伸手拿桌上的笔）</strong></td>
+                  <td>编译器（寄存器分配）</td>
+                </tr>
+                <tr>
+                  <td><strong>L1 Cache (L1d/L1i)</strong></td>
+                  <td>32 ~ 64 KB / 核</td>
+                  <td><code>~1 ns</code> (~4 周期)</td>
+                  <td>⏱️ 3 秒（转身拿书架上的书）</td>
+                  <td>CPU 硬件全自动（每核独占）</td>
+                </tr>
+                <tr>
+                  <td><strong>L2 Cache</strong></td>
+                  <td>256 KB ~ 2 MB / 核</td>
+                  <td><code>~4 ns</code> (~12 周期)</td>
+                  <td>⏱️ 12 秒（走到隔壁房间拿）</td>
+                  <td>CPU 硬件全自动（每核独占）</td>
+                </tr>
+                <tr>
+                  <td><strong>L3 Cache (LLC)</strong></td>
+                  <td>几十 MB（多核共享）</td>
+                  <td><code>~15 ns</code> (~40 周期)</td>
+                  <td>⏱️ 45 秒（去同楼层茶水间）</td>
+                  <td>CPU 硬件全自动（多核共享）</td>
+                </tr>
+                <tr>
+                  <td><strong>物理内存 DRAM</strong></td>
+                  <td>16 GB ~ 几百 GB</td>
+                  <td><code>~80 - 100 ns</code></td>
+                  <td><strong style="color:var(--plop-tomato);">🚶 5 分钟（下楼去小区便利店）</strong></td>
+                  <td><strong>操作系统内核（页表/伙伴系统）</strong></td>
+                </tr>
+                <tr>
+                  <td><strong>NVMe / SATA SSD</strong></td>
+                  <td>几百 GB ~ 几 TB</td>
+                  <td><code>~20 - 100 μs</code></td>
+                  <td><strong style="color:var(--plop-tomato);">🚗 1 ~ 3 天（自驾去外省）</strong></td>
+                  <td>OS 文件系统 / 块设备层</td>
+                </tr>
+                <tr>
+                  <td><strong>HDD 机械硬盘</strong></td>
+                  <td>几 TB ~ 二十几 TB</td>
+                  <td><code>~5 - 10 ms</code> (寻道)</td>
+                  <td><strong style="color:var(--plop-tomato);">🚀 6 ~ 10 个月（坐飞船去火星）</strong></td>
+                  <td>OS 文件系统 / 磁盘调度器</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:10px;">
+              ⚡ CPU 缓存三个核心机制：64B 缓存行（Cache Line）· 伪共享（False Sharing）· MESI 一致性
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap:12px;">
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">① 64 字节缓存行 (Cache Line)</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.55; font-weight:700;">
+                  CPU 缓存和内存之间搬运数据<strong>不是按单字节搬，而是每次整块搬运 <code>64 Bytes</code></strong>。读 <code>arr[0]</code>（4字节）时，紧挨着的 <code>arr[1]~arr[15]</code> 会顺便被拉进 L1 Cache——因此二维数组按行遍历比按列遍历快几倍。
+                </div>
+              </div>
+              <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato);">② 伪共享 (False Sharing) 问题</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.55; font-weight:700;">
+                  结构体里紧挨着两个独立变量 <code>struct &#123; long a, b; &#125;</code>，恰好落在<strong>同一个 64B 缓存行</strong>里。Core 1 频繁改 <code>a</code>、Core 2 频繁改 <code>b</code>，每次写都会让对方核上的整条缓存行<strong>标记为失效（Invalid）</strong>，导致两核缓存反复失效重读，性能显著下降。<br/>
+                  <strong>👉 解法：</strong>填充字节对齐到 64B（如 Java <code>@Contended</code>、Go <code>cpu.CacheLinePad</code>、C++ <code>alignas(64)</code>）。
+                </div>
+              </div>
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">③ MESI 协议与 Store Buffer</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.55; font-weight:700;">
+                  多核各自有 L1/L2，靠硬件 <strong>MESI 状态机（Modified已改 / Exclusive独占 / Shared共享 / Invalid失效）</strong>通过总线嗅探保持一致；为了不等其他核确认失效，CPU 引入了异步的 <strong>Store Buffer 与 Invalidate Queue</strong>，这也是并发编程中出现“可见性与指令重排”（需要内存屏障）的硬件原因。
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill" id="paging">❓ 03.2 · 为什么要搞虚拟内存？分段、分页、段页式和内部/外部碎片怎么区分？</div>
+          <h3 id="why-vm">🎭 03.2 为什么需要虚拟内存？分段、分页与段页式对比</h3>
+          <p>
+            如果让程序直接读写主板上的物理内存地址，会立刻遇到<strong>三个问题</strong>：① <strong>缺乏安全隔离</strong>，进程 A 一个越界指针就能改掉进程 B 或内核的数据；② <strong>物理内存容量受限</strong>，16GB 内存无法同时运行总需求 30GB 的多个程序；③ <strong>运行地址不固定且有外部碎片</strong>，程序每次加载到物理内存不同位置都要重新计算跳转地址。
+          </p>
+          <p>操作系统为每个进程提供独立的<strong>虚拟地址空间</strong>。程序使用的地址先由 CPU 的内存管理单元（MMU）按页表翻译，再访问物理内存。<strong>地址空间是可用地址的范围，不是一整块已经分配好的内存；没有建立合法映射的地址不能随便访问。</strong>下面以 x86-64 四级页表、4KB 普通页为例。</p>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap:12px; align-items:stretch;">
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:6px;">
+                  ① 进程视角：连续虚拟页 (Page)
+                </div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); line-height:1.55; font-weight:700;">
+                  进程 A 和进程 B 都可以访问虚拟地址 <code>0x401000</code>。<br/>
+                  • <strong>隔离保护：</strong>各自的页表将其映射到完全不同的物理页帧，互不可见；页表项带 <code>R/W/X</code> 权限位，写只读页直接触发段错误。<br/>
+                  • <strong>共享内存：</strong>若把两个进程的页表指向同一个物理页（如 glibc 动态库代码段），又能省下大量物理内存！
+                </div>
+              </div>
+
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:6px;">
+                  ② 硬件翻译：MMU + 页表 + DRAM
+                </div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); line-height:1.55; font-weight:700;">
+                  虚拟空间按固定大小切成 <strong>4KB 虚拟页（Page）</strong>，物理内存条也切成 <strong>4KB 物理页帧（Page Frame）</strong>。<br/>
+                  • <strong>消除外部碎片：</strong>虚拟地址连续的 10 个页，在物理内存条上可以东一页、西一页完全零散存放，只要页表连得上就行！
+                </div>
+              </div>
+
+              <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:6px;">
+                  ③ 突破容量：按需加载 + 磁盘 Swap
+                </div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); line-height:1.55; font-weight:700;">
+                  • <strong>按需调页：</strong>没访问到的虚拟页根本不分配物理内存；<br/>
+                  • <strong>换入换出 (Swap)：</strong>物理内存吃紧时，内核把长期不用的冷匿名页换出到磁盘 <code>swap</code> 分区，要用时再触发缺页换回来。
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <details class="plop-drawer"><summary><span class="plop-drawer-title">📎 进阶阅读 · 分段、分页与碎片</span></summary><div class="drawer-body"><h4>📐 分段 vs 分页 vs 段页式 &amp; 内部碎片 vs 外部碎片</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">管理方式</th>
+                  <th style="width:32%">切分粒度与寻址思路</th>
+                  <th style="width:25%">核心优点</th>
+                  <th>致命缺点（碎片类型）</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>分段 (Segmentation)</strong></td>
+                  <td>按<strong>程序逻辑模块</strong>切（代码段、数据段、栈段），<code>段号 + 段内偏移</code>，每段长度不一。</td>
+                  <td>符合程序员逻辑直觉，方便按整段设置只读/可执行权限与共享。</td>
+                  <td>段长短不一，反复分配释放后留下一堆夹缝空洞 ──▶ <strong>严重的「外部碎片」</strong>，换入换出整段大内存极慢。</td>
+                </tr>
+                <tr>
+                  <td><strong>分页 (Paging)</strong></td>
+                  <td>不管逻辑，一律按<strong>固定尺寸（Linux 默认 <code>4 KB</code>）</strong>切块，<code>虚拟页号 + 12位页内偏移</code>。</td>
+                  <td><strong>消除外部碎片：</strong>任何空闲物理页帧都能塞进任何一个虚拟页；换页粒度固定为 4KB。</td>
+                  <td>假如你只存 100B 数据也要分一整页 4KB，页内剩余空间浪费 ──▶ <strong>存在少量「内部碎片」（每个单独分配区域的末页都可能有浪费）</strong>。</td>
+                </tr>
+                <tr>
+                  <td><strong>段页式</strong></td>
+                  <td>先按逻辑切成段，每个段内部再按 4KB 切成页（x86 早期做法；<strong>64位 Linux 将所有段基址全设为 0 扁平化，实质上纯用分页！</strong>）</td>
+                  <td>兼具逻辑隔离与物理零外部碎片。</td>
+                  <td>硬件地址翻译多一次查段表开销。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div></details>
+</div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill">❓ 03.3 · 为什么不能用单级页表？x86-64 四级页表是怎么切分 48 位地址的？TLB 又起什么作用？</div>
+          <h3 id="pagetable">🗂️ 03.3 多级页表（x86-64 四级页表）与 TLB 快表加速 <span class="plop-tag tomato">重点回顾</span></h3>
+          <p>
+            <strong>先算一笔账：为什么不能用一张简单的一维数组（单级页表）？</strong><br/>
+            在 32 位系统下（4GB 空间，4KB 一页，共 $2^{20} \approx 100\text{万}$ 个页，每项 4B），单级页表必须连续占 <code>4 MB</code>——如果跑 100 个进程，光页表就吃掉 400MB！到了 <strong>64 位系统（x86-64 使用低 48 位虚拟地址 = 256 TB，共 $2^{36}$ 个 4KB 页，每项 8B）</strong>，如果建单级页表，<strong>光一个进程的页表就要占 $2^{36} \times 8\text{B} = 512\text{ GB}$ 物理内存！</strong>这根本不可能实现！
+          </p>
+          <p>
+            <strong>💡 多级页表的核心思路（按需建表，类似书的「章→节→小节」多级目录）：</strong><br/>
+            既然绝大多数进程只使用 256TB 虚拟空间里很小的一部分，其余大片虚拟地址都是空的，那就把页表拆成 <strong>4 级树状目录</strong>——<strong>只要某个一级目录项（管理 512GB 范围）完全没有用到，它下属的二级、三级、四级子页表就根本不需要分配内存。</strong>
+          </p>
+          <p>
+            <strong>🧮 为什么 48 位虚拟地址偏偏要切成 <code>9 + 9 + 9 + 9 + 12</code>？（不用死背，算一下就明白）：</strong><br/>
+            • <strong>为什么最后一段是 <code>12 位</code>？</strong>因为一页的大小是 <code>4 KB = 4096 字节 = 2¹² 字节</code>。想在 4096 个字节里定位到具体第几个字节（页内偏移 <code>Offset</code>），刚好需要 <strong><code>12 bits</code></strong>（这 12 位不用翻译，直接拼到物理页后面即可）。<br/>
+            • <strong>为什么前面每一级目录都是 <code>9 位</code>？</strong>因为内核希望<strong>每一级页表本身也刚好装进 1 个 <code>4 KB</code> 的物理页里</strong>。64 位下每个页表项占 <code>8 字节</code>，那么一页（4096 字节）刚好能装 <code>4096 ÷ 8 = 512 项 = 2⁹ 项</code>！要在 512 项里选出第几项，刚好需要 <strong><code>9 bits</code></strong>。4 级目录就是 <code>9 + 9 + 9 + 9 = 36 bits</code>，加上最后 <code>12 bits</code> 页内偏移，合起来正好是 <strong><code>48 bits</code></strong>。
+          </p>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:10px;">
+              📐 x86-64 四级页表地址切分：<code>9 + 9 + 9 + 9 + 12 = 48 bits</code>（每级页表刚好占 1 个 4KB 页 = 512 项 × 8B）
+            </div>
+
+
+            <div class="table-wrap" style="margin:0;"><div style="display:grid; min-width:520px; grid-template-columns:repeat(5, 1fr); gap:6px; text-align:center; font-family:var(--font-mono); margin-bottom:12px;">
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 4px;">
+                <div style="font-weight:900; font-size:13.5px; color:var(--plop-ink-text);">PGD (全局目录)</div>
+                <div style="font-size:12px; color:var(--plop-tomato); font-weight:900;">9 bits [47:39]</div>
+                <div style="font-size:11px; color:var(--plop-ink-soft); font-family:var(--font-body); font-weight:700;">2⁹=512项 · CR3指向它</div>
+              </div>
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 4px;">
+                <div style="font-weight:900; font-size:13.5px; color:var(--plop-ink-text);">PUD (上级目录)</div>
+                <div style="font-size:12px; color:var(--plop-ink); font-weight:900;">9 bits [38:30]</div>
+                <div style="font-size:11px; color:var(--plop-ink-text); font-family:var(--font-body); font-weight:700;">每项管 1 GB (1G大页)</div>
+              </div>
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 4px;">
+                <div style="font-weight:900; font-size:13.5px; color:var(--plop-ink-text);">PMD (中间目录)</div>
+                <div style="font-size:12px; color:#15803d; font-weight:900;">9 bits [29:21]</div>
+                <div style="font-size:11px; color:var(--plop-ink-text); font-family:var(--font-body); font-weight:700;">每项管 2 MB (2M大页)</div>
+              </div>
+              <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:8px; padding:8px 4px;">
+                <div style="font-weight:900; font-size:13.5px; color:var(--plop-tomato);">PTE (页表项)</div>
+                <div style="font-size:12px; color:var(--plop-tomato); font-weight:900;">9 bits [20:12]</div>
+                <div style="font-size:11px; color:var(--plop-ink-soft); font-family:var(--font-body); font-weight:700;">存 4KB 物理页帧号 PFN</div>
+              </div>
+              <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:8px; padding:8px 4px;">
+                <div style="font-weight:900; font-size:13.5px; color:var(--plop-ink);">Offset (页内偏移)</div>
+                <div style="font-size:12px; color:var(--plop-ink); font-weight:900;">12 bits [11:0]</div>
+                <div style="font-size:11px; color:var(--plop-ink-soft); font-family:var(--font-body); font-weight:700;">2¹² = 4096B (直拼物理页)</div>
+              </div>
+            </div></div>
+
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap:12px;">
+              <div style="background:#FFFBEB; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px; font-size:13px; line-height:1.58;">
+                <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:4px;">🐢 多级页表的代价：访存次数增加 4 次</div>
+                页表本身也是存放在物理内存 DRAM 里的。如果没有缓存，CPU 读一个变量时，MMU 得先去内存依次读取 <strong>PGD ──▶ PUD ──▶ PMD ──▶ PTE（共 4 次内存访问）</strong>，拿到物理地址后再做第 <strong>5 次</strong> 内存访问读取真正的数据（这一过程叫 <strong>Page Table Walk</strong>），延迟会明显增加。
+              </div>
+              <div style="background:#F0FDF4; border:2px solid #15803d; border-radius:10px; padding:11px 13px; font-size:13px; line-height:1.58;">
+                <div style="font-weight:900; color:#15803d; margin-bottom:4px;">⚡ 硬件加速：TLB（快表 / 页表硬件缓存）</div>
+                CPU 在 MMU 内部集成了一块高速硬件缓存 <strong>TLB（Translation Lookaside Buffer）</strong>，专门缓存最近用过的<strong>「虚拟页号 VPN ──▶ 物理页帧号 PFN」</strong>映射：<br/>
+                • <strong>TLB 命中：</strong>无需查内存中的页表，<strong>1 次物理访存直接取数据</strong>；<br/>
+                • <strong>TLB 未命中（Miss）：</strong>硬件自动遍历 4 级页表，查到后填入 TLB 供后续复用。
+              </div>
+            </div>
+            <div style="margin-top:8px; font-size:12.4px; color:var(--plop-ink-soft); font-weight:700;">
+              📌 <em>注：Linux 4.14+ 在支持 <code>LA57</code> 的新 CPU 上可扩展为 <strong>5 级页表（多一层 <code>P4D</code>，<code>9+9+9+9+9+12 = 57 bits</code>）</strong>，扩大可表示的虚拟地址范围（具体可用范围由架构和内核决定）。另外，数据库常开启 <strong>2MB 大页（HugePage，由 PMD 直接指向 2MB 物理页，少查一级 PTE）</strong>，不仅页表体积缩小 512 倍，更能大幅降低 <strong>TLB Miss</strong>！</em>
+            </div>
+          </div>
+        </div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 03.4 · 为什么申请内存后，物理占用不一定立即增长？缺页异常和页面置换是怎么配合的？</div>
+          <h3 id="pagefault">🚨 03.4 延迟分配（Lazy Allocation）、缺页异常与页面置换算法 <span class="plop-tag tomato">重点回顾</span></h3>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; margin:12px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:8px;">
+              🪄 核心机制：<code>malloc()</code> 申请的新匿名区域，通常按需分配物理页
+            </div>
+            <p>例如申请一块较大的匿名内存：<code>char *p = malloc(1024 * 1024 * 1024);</code>。若分配器需要向内核申请新区域，内核通常先建立虚拟映射，并不立即为全部范围配齐物理页。<strong>随后第一次写到某页时，才可能通过缺页处理分配它。</strong>因此 VIRT 可以先明显增长，RSS 随实际触碰逐步增长；分配器元数据、已有内存复用和系统配置都会影响观察结果，也不能保证申请一定成功。</p>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap:10px; font-size:13px;">
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+                <div style="font-weight:900; color:var(--plop-ink-text); margin-bottom:4px;">🟢 次缺页异常 (Minor / Soft Page Fault)</div>
+                <strong>触发场景（不碰磁盘，微秒级极快）：</strong><br/>
+                ① 你第一次真正往 <code>p[0] = 'a'</code> <strong>写数据</strong>时，MMU 发现页表项为空，触发缺页异常 ──▶ 内核这才从伙伴系统分配一个真正的 <strong>4KB 物理页帧</strong>并建立映射（这就叫<strong>延迟分配 / Demand Paging</strong>）；<br/>
+                ② <code>fork()</code> 后的写时复制（COW）；<br/>
+                ③ 访问已被别的进程加载进内存的共享库 <code>.so</code>，只需改页表映射。
+              </div>
+              <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:10px 12px;">
+                <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:4px;">🔴 主缺页异常 (Major / Hard Page Fault)</div>
+                <strong>触发场景（必须读磁盘，毫秒级极慢）：</strong><br/>
+                ① 首次执行某段代码或 <code>mmap</code> 读取文件，且该页不在内核 Page Cache 中，<strong>必须发起磁盘 I/O 把数据从硬盘读进物理内存页</strong>；<br/>
+                ② 进程某个匿名内存页之前因为物理内存不足被换出到了磁盘 <code>swap</code> 分区，现在重新访问它，必须从磁盘 <code>swap</code> 读回来！<br/>
+                <em>（用 <code>pidstat -r 1</code> 查看 <code>minflt/s</code> 与 <code>majflt/s</code>，若 <code>majflt/s</code> 飙高说明正在频繁读盘换页！）</em>
+              </div>
+            </div>
+          </div>
+
+          <h4>♻️ 物理内存满了换谁出去？四大经典页面置换算法 + Linux 双链表 LRU</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">置换算法</th>
+                  <th style="width:32%">淘汰规则</th>
+                  <th>优缺点与必考陷阱</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>OPT（最佳置换）</strong></td>
+                  <td>淘汰<strong>“未来最长时间内不会被访问”</strong>的页</td>
+                  <td>缺页率理论最低，但需要“预知未来”，<strong>操作系统无法实现</strong>，仅作为衡量其他算法的基准线。</td>
+                </tr>
+                <tr>
+                  <td><strong>FIFO（先进先出）</strong></td>
+                  <td>淘汰<strong>“最早进入内存”</strong>的页（队列）</td>
+                  <td>实现最简单，但完全不顾高频热点页，且存在著名的 <strong>Belady 异常（给进程分配的物理页帧数增多，缺页次数反而诡异增加！）</strong>。</td>
+                </tr>
+                <tr>
+                  <td><strong>LRU（最近最少使用）</strong></td>
+                  <td>淘汰<strong>“最长时间没有被访问过”</strong>的页</td>
+                  <td>利用时间局部性，效果极好且无 Belady 异常；但纯正 LRU 要求每次访存指令都更新链表时间戳，硬件代价太高，且<strong>怕偶发的全盘大扫描污染缓存</strong>。</td>
+                </tr>
+                <tr>
+                  <td><strong>Clock（时钟 / 二次机会）</strong></td>
+                  <td>环形链表 + 页表项硬件 <code>Accessed</code> 访问位（<code>0/1</code>）</td>
+                  <td>指针扫过时：若 <code>A=1</code> 则清零给它“第二次机会”跳过；若 <code>A=0</code> 则直接淘汰。是 <strong>LRU 的低成本硬件近似实现</strong>。</td>
+                </tr>
+                <tr>
+                  <td><strong>Linux 真实实现：</strong><br/><strong>Active / Inactive 双链表</strong></td>
+                  <td>维护<strong>活跃链表 (Active)</strong> 与 <strong>非活跃链表 (Inactive)</strong>（类似 MySQL 冷热分区 LRU，Linux 6.1+ 还可选多代 LRU <code>MGLRU</code>）</td>
+                  <td>新页先入 <code>Inactive</code> 链表；只有被<strong>再次访问（二次触碰 mark_page_accessed）</strong>才晋升到 <code>Active</code> 链表。回收时从 <code>Inactive</code> 尾部淘汰，<strong>有效防止单次大文件扫描把热内存页冲刷出去</strong>（配合 <code>/proc/sys/vm/swappiness</code> 调节换出匿名页与回收 Page Cache 的倾向，默认 60，数据库服务器常调为 <code>1 ~ 10</code> 或关闭 swap）。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill" id="locality">❓ 03.5 · 内核的伙伴系统与 Slab 管什么？用户态 malloc 底层怎么切？VIRT / RES / PSS 看哪个？</div>
+          <h3 id="alloc">🧱 03.5 Linux 内存分配全栈（Buddy + Slab + <code>malloc</code>）、<code>VIRT/RES/PSS</code> 与抖动</h3>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:14px; align-items:start;">
+
+              <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+                <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:8px;">
+                  🛡️ 第一层：Linux 内核态怎么管物理内存？
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58; margin-bottom:8px;">
+                  <strong style="color:var(--plop-ink);">① 伙伴系统 (Buddy System) —— 按「页」管大块，管理连续物理页：</strong><br/>
+                  把所有空闲物理页按 <strong>$2^0, 2^1, 2^2 \dots 2^{10}$ 个连续页（即 4KB, 8KB, 16KB ... 4MB，共 11 条空闲链表）</strong>组织。要 4KB 若没有，就把 8KB 对半劈成两个“伙伴”；释放时若相邻伙伴也空闲，立刻合并回大块，尽量合并空闲块，缓解外部碎片；但无法保证总能分配大块连续内存。
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58;">
+                  <strong style="color:#15803d;">② Slab / Slub 分配器 —— 按「字节」管内核小对象，防内部碎片：</strong><br/>
+                  内核频繁创建 <code>task_struct</code>、<code>inode</code>、<code>dentry</code> 等几百字节的小结构体，直接向伙伴系统要一整页 4KB 太浪费。<strong>Slub（现代 Linux 默认）</strong>向伙伴系统批发整页，预先切成固定大小的对象槽位池，用完放回池中<strong>复用对象槽位（对象仍需按类型正确初始化）</strong>！
+                </div>
+              </div>
+
+
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+                <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:8px;">
+                  🧑💻 第二层：用户态 <code>malloc()</code> 背后怎么向内核要内存？
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58; margin-bottom:8px;">
+                  <code>malloc</code> 是 glibc 的 <code>ptmalloc2</code> 库函数（同类还有 Google <code>tcmalloc</code>、Redis 用的 <code>jemalloc</code>），按申请大小与阈值（<code>M_MMAP_THRESHOLD</code>）走两条路：<br/>
+                  • <strong>小内存（初始默认 <code>&lt; 128 KB</code>）：</strong>调用 <strong><code>brk() / sbrk()</code></strong> 推高堆顶指针（主分配区）或在子线程 arena 中切分。<code>free()</code> 时<strong>不会立刻归还给内核</strong>，而是放回 malloc 空闲链表（bins/arena）留作复用。<br/>
+                  • <strong>大内存（初始默认 <code>≥ 128 KB</code>）：</strong>调用 <strong><code>mmap()</code></strong> 在文件映射区开辟独立匿名虚拟内存；<code>free()</code> 时调 <code>munmap()</code> <strong>立刻归还给操作系统</strong>。<br/>
+                  • <strong>📌 动态阈值细节：</strong><code>128 KB</code> 只是<strong>初始阈值</strong>！为减少频繁 <code>mmap/munmap</code> 带来的缺页与内核清零开销，当程序释放一块 <code>mmap</code> 内存时，glibc 会<strong>自动将阈值动态调高（64 位系统最高可调至 <code>32 MB</code>，除非通过 <code>mallopt</code> 显式固定）</strong>。
+                </div>
+                <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:8px 12px; font-size:12.6px; line-height:1.5;">
+                  <strong style="color:var(--plop-tomato);">💡 为什么不能全用 <code>brk</code> 或全用 <code>mmap</code>？</strong><br/>
+                  <code>brk</code> 堆是连续的，如果堆顶有 1 个小对象没释放，底下几百 MB 空洞也无法收缩归还内核（易造成内存碎片与驻留膨胀）；而全用 <code>mmap</code> 每次释放后下次再用又会触发缺页异常 + 内核页清零 + TLB 刷新，开销较大。因此采用分块池化 + 动态阈值协同。
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="wb-grid-2">
+            <div class="plop-callout info" style="margin:0;">
+              <strong>📊 排查内存必懂：<code>top</code> 里的 <code>VIRT</code>、<code>RES (RSS)</code>、<code>SHR</code> 与 <code>PSS</code>：</strong><br/>
+              • <strong><code>VIRT (VSZ)</code>：</strong>进程申请的<strong>虚拟内存总量</strong>（含未触碰的空页，不能直接代表物理占用）。<br/>
+              • <strong><code>RES (RSS)</code>：</strong>当前驻留在<strong>物理内存条里</strong>的大小（含共享库 <code>SHR</code>）。<br/>
+              • <strong><code>PSS</code>（Proportional Set Size，查 <code>/proc/pid/smaps_rollup</code>）：</strong>把共享库内存按共享进程数<strong>均摊</strong>后的真实物理内存占用——<strong>汇总多进程总内存时看 PSS 不会重复计算。</strong><br/>
+              • <strong>💀 OOM Killer：</strong>当物理内存与 swap 耗尽且无法回收时，内核触发 OOM Killer，根据每个进程的 <code>oom_score</code>（综合 RSS 占比与 <code>oom_score_adj</code> 权重）挑出内存占用高的进程发送 <code>SIGKILL (9)</code> 终止（容器内超限触发 Cgroup OOM Killed，退出码 <code>137</code>，查 <code>dmesg -T | grep -i oom</code>）。
+            </div>
+
+            <div class="plop-callout warn" style="margin:0;">
+              <strong>🌪️ 局部性原理（Locality）与「内存抖动 Thrashing」：</strong><br/>
+              • <strong>时间局部性：</strong>刚访问过的变量/函数短期内还会再用；<strong>空间局部性：</strong>访问了某地址，它紧挨着的后续地址短期内也会被访问（写代码优先顺序遍历数组、紧凑排列热字段）。<br/>
+              • <strong>抖动/颠簸（Thrashing）：</strong>如果并发运行的进程过多，每个进程分到的物理页帧装不下它的<strong>活跃工作集（Working Set）</strong>，就会陷入<strong>“刚换出到磁盘的页，很快又要读回来”</strong>的循环——此时磁盘 IO 持续饱和、<code>vmstat</code> 的 <code>si/so</code> 飙升、系统响应极度迟缓，而 CPU 有效计算利用率却很低。
+            </div>
+          </div>
+
+          <div class="plop-callout tip"><strong>📝 本章先记住：</strong>虚拟地址经页表对应物理内存；合法页面未就绪时，缺页处理可以补齐它。</div>
+
+        </div>
+<div class="plop-bridge"><span>🧭 下一章：<a href="#pipe">04 · 进程间通信 IPC →</a></span></div>

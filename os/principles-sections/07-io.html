@@ -1,0 +1,395 @@
+<div class="wb-sec-header" id="fs"><span class="wb-sec-num">07</span><span class="wb-sec-title">文件系统与高性能读写</span><span class="plop-tag periwinkle">原理篇</span></div>
+<div class="plop-callout tip"><strong>🧭 本章主线：</strong>看懂 <code>dentry / inode / fd 内核三张表</code>、<code>Page Cache</code> 脏页回写与 <code>fsync / O_DIRECT</code>，再拆解五种 I/O 模型、<code>epoll</code> 红黑树与就绪链表、以及 <code>mmap / sendfile</code> 零拷贝。</div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 07.1 · 为什么 inode 里不存文件名？为什么 rm 删了 50GB 日志文件，df -h 看磁盘还是满的？</div>
+          <h3>📂 07.1 从文件名到 fd：程序怎样找到一个文件</h3>
+          <p>
+            Linux 哲学是<strong>“一切皆文件”</strong>：无论是普通磁盘文件、目录、管道、Socket 套接字还是硬件设备，内核都在顶层抽象了一层 <strong>VFS（Virtual File System，虚拟文件系统）</strong>，向上层暴露完全统一的 <code>open / read / write / close</code> 接口。而在底层文件系统（如 <code>ext4 / xfs</code>）中，<strong>文件的「元数据」与「真正的数据内容」是严格分开存储的</strong>：
+          </p>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div class="table-wrap" style="margin:0;"><div style="display:grid; min-width:520px; grid-template-columns:1fr auto 1.2fr auto 1fr; gap:8px; align-items:center; text-align:center;">
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">① 目录项 (dentry)</div>
+                <div style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; color:#15803d; margin:4px 0;">"app.log" ──▶ inode #1024</div>
+                <div style="font-size:12px; color:var(--plop-ink-text); font-weight:700;">目录本质是一张「文件名 → inode号」映射表</div>
+              </div>
+              <div style="font-weight:900; color:var(--plop-ink);">──▶</div>
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">② 索引节点 (inode #1024)</div>
+                <div style="font-size:12.2px; color:var(--plop-ink-text); font-weight:800; margin:4px 0;">
+                  权限 / 属主 / 大小 / 时间戳 / 硬链接计数 <code>i_nlink</code> / <strong>数据块指针数组 (extents)</strong>
+                </div>
+                <div style="font-size:11.8px; color:var(--plop-tomato); font-weight:900;">⚠️ 注意：inode 里唯独不存「文件名」！</div>
+              </div>
+              <div style="font-weight:900; color:var(--plop-ink);">──▶</div>
+              <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">③ 数据块 (Data Blocks)</div>
+                <div style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; color:var(--plop-ink); margin:4px 0;">4KB 磁盘块序列</div>
+                <div style="font-size:12px; color:var(--plop-ink-text); font-weight:700;">存放真正的文件字节内容</div>
+              </div>
+            </div></div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">对比维度</th>
+                  <th style="width:38%">硬链接 (Hard Link · <code>ln a.txt b.txt</code>)</th>
+                  <th>软链接 / 符号链接 (Symbolic Link · <code>ln -s a.txt s.txt</code>)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>底层本质与 inode</strong></td>
+                  <td>在目录里新增一条目录项，<strong>直接指向原文件完全相同的 <code>inode</code> 号</strong>，并将该 inode 的硬链接计数 <code>i_nlink + 1</code>（地位完全平等）。</td>
+                  <td>创建一个<strong>全新的独立小文件（拥有自己独立的 <code>inode</code> 号）</strong>，它的数据块里存的仅仅是<strong>目标文件的路径字符串</strong>（类似 Windows 快捷方式）。</td>
+                </tr>
+                <tr>
+                  <td><strong>删除原文件 <code>a.txt</code> 后</strong></td>
+                  <td><strong>完全不受影响！</strong><code>rm a.txt</code> 只是删了 <code>a.txt</code> 目录项并让 <code>i_nlink - 1</code>；只要 <code>i_nlink &gt; 0</code>，通过 <code>b.txt</code> 照样正常读写数据。</td>
+                  <td><strong style="color:var(--plop-tomato);">软链接当场失效（变成悬空死链 Dangling Link）！</strong>再次打开会报错 <code>No such file or directory</code>。</td>
+                </tr>
+                <tr>
+                  <td><strong>跨分区 / 链接目录</strong></td>
+                  <td>❌ <strong>不能跨文件系统分区</strong>（不同分区有各自的 inode 编号空间）；❌ <strong>不允许给目录建硬链接</strong>（防止目录树出现环路导致 <code>find</code> 死循环）。</td>
+                  <td>✅ <strong>可以跨文件系统分区</strong>；✅ <strong>可以对目录创建软链接</strong>（线上发布切换版本目录 <code>current -&gt; v1.2</code> 常用）。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-callout warn">
+            <strong>🚨 经典生产排障：磁盘满了，运维执行 <code>rm -f access.log</code> 删掉了 50GB 的大日志，为什么 <code>df -h</code> 看磁盘空间一点没释放，而 <code>du -sh</code> 却找不到这个大文件？</strong><br/>
+            • <strong>根因：</strong>一个文件的数据块要想真正被文件系统回收，必须<strong>同时满足两个归零条件</strong>：① 磁盘硬链接数 <strong><code>i_nlink == 0</code></strong>（没有任何目录项指向它）；② 不再有打开文件、内存映射等引用阻止回收（不能把 inode 引用计数简单当成打开 fd 的数量）！<br/>
+            • 你执行 <code>rm</code> 只是做到了 <code>i_nlink = 0</code>（所以遍历目录的 <code>du</code> 看不见它了），但 Nginx / Java 进程<strong>还一直打开着这个日志文件往里写（仍有打开引用）</strong>，内核根本不敢释放那 50GB 磁盘块！<br/>
+            • <strong>排查与不重启救急解法：</strong>① 用 <code>lsof | grep deleted</code> 找出是哪个 PID 还占着已删除的文件；② 以后清理正在写的日志千万别直接 <code>rm</code>，而是执行 <strong><code>: &gt; access.log</code> 或 <code>truncate -s 0 access.log</code>（直接把原文件截断清空为 0 字节，瞬间释放磁盘且无需重启服务）</strong>！
+          </div>
+
+          <h4 style="margin-top:16px;">🗂️ 进程调用 <code>open()</code> 拿到的整数 <code>fd</code>，背后是内核哪「三张表」？</h4>
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; margin:12px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap:12px;">
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">表 ①：进程级「文件描述符表」</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.55; font-weight:700;">
+                  <strong>归属：每个进程独占一张（<code>files_struct</code>）</strong>。<br/>
+                  实质是个指针数组，下标就是小整数 <code>fd</code>（<code>0=stdin, 1=stdout, 2=stderr</code>），内容是指向第二张表的指针。
+                </div>
+              </div>
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">表 ②：系统级「打开文件表 (<code>struct file</code>)」</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.55; font-weight:700;">
+                  <strong>归属：全系统内核共享</strong>。<br/>
+                  每次调用 <code>open()</code> 都会新建一项。里面记录最核心的<strong>当前读写偏移量 <code>f_pos (offset)</code></strong>、打开模式（<code>O_RDONLY/O_APPEND</code>）以及指向第三张表的指针。
+                </div>
+              </div>
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">表 ③：系统级「inode 表 (<code>struct inode</code>)」</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.55; font-weight:700;">
+                  <strong>归属：全系统内核共享</strong>。<br/>
+                  不管一个文件被打开多少次，它在内存里的 <code>inode</code> 永远只有唯一一份，记录文件大小与磁盘块映射。
+                </div>
+              </div>
+            </div>
+            <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:9px; padding:9px 12px; margin-top:10px; font-size:12.8px; line-height:1.58;">
+              <strong>🎯 理解这三张表，即可串联 3 道经典面试题：</strong><br/>
+              1. <strong><code>fork()</code> 后父子进程写同一个 fd 会互相覆盖吗？</strong>不会。因为 <code>fork</code> 复制了表①（进程 fd 表），但父子的 fd 指针<strong>指向表②里的同一个 <code>struct file</code> 项，共享同一个读写偏移量 <code>offset</code></strong>，父写完 10 字节，子接着从第 11 字节往后写。<br/>
+              2. <strong>同一进程（或两进程）各自调用一次 <code>open("a.txt")</code> 呢？</strong>会在表②生成<strong>两个独立的 <code>struct file</code> 项，各自拥有独立的 <code>offset</code></strong>，此时同时从头写就会互相覆盖（除非加了 <code>O_APPEND</code> 每次写前由内核原子移到文件末尾）。<br/>
+              3. <strong>Shell 重定向 <code>./app &gt; out.log 2&gt;&amp;1</code> 是怎么实现的？</strong>靠系统调用 <strong><code>dup2(oldfd, newfd)</code></strong>：先把 <code>fd=1 (stdout)</code> 指向 <code>out.log</code> 的表②项，再执行 <code>dup2(1, 2)</code> 把 <code>fd=2 (stderr)</code> 的指针也拷成跟 <code>fd=1</code> 一样，于是标准输出和标准错误就指向了同一个 <code>struct file</code>。
+            </div>
+          </div>
+        </div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 07.2 · 为什么调完 write() 返回成功，机器断电数据还是丢了？MySQL 为什么要加 O_DIRECT？</div>
+          <h3 id="pagecache">🧠 07.2 Page Cache（内核页缓存）、脏页异步回写与 <code>fsync / O_DIRECT</code></h3>
+          <p>
+            磁盘比内存慢几千到几万倍，所以 Linux 内核会自动把所有空闲的物理内存利用起来，作为磁盘文件的缓存层——这就是 <strong>Page Cache（页缓存，即 <code>free -h</code> 命令看到的 <code>buff/cache</code>）</strong>。<strong>默认情况下，任何普通的 <code>read() / write()</code> 系统调用都只跟内存里的 Page Cache 打交道，并不直接碰物理磁盘！</strong>
+          </p>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div class="table-wrap" style="margin:0;"><div style="display:grid; min-width:520px; grid-template-columns:1fr auto 1.3fr auto 1fr; gap:8px; align-items:center; text-align:center;">
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">① 用户态进程缓冲区</div>
+                <div style="font-size:12.4px; color:var(--plop-ink-text); font-weight:700; margin-top:4px;">
+                  调用 <code>read(fd, buf)</code><br/>或 <code>write(fd, buf)</code>
+                </div>
+              </div>
+              <div style="font-weight:900; font-size:12px; color:var(--plop-tomato);">
+                ──CPU拷贝──▶<br/>◀──CPU拷贝──
+              </div>
+              <div style="background:var(--plop-mint); border:2.4px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">② 内核态 Page Cache（4KB 页缓存）</div>
+                <div style="font-size:12.2px; color:var(--plop-ink-text); font-weight:700; margin-top:4px;">
+                  • <strong>读：</strong>命中直接返回 + 顺序<strong>预读 (Readahead)</strong><br/>
+                  • <strong>写：</strong><span style="color:var(--plop-tomato); font-weight:900;">写进缓存页并标为「脏页 Dirty」就立刻返回成功！</span>
+                </div>
+              </div>
+              <div style="font-weight:900; font-size:12px; color:var(--plop-ink);">
+                ──flusher异步回写──▶<br/>或 <code>fsync()</code> 强制落盘
+              </div>
+              <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">③ 物理磁盘 / SSD</div>
+                <div style="font-size:12.4px; color:var(--plop-ink-text); font-weight:700; margin-top:4px;">
+                  DMA 传输真正持久化落盘
+                </div>
+              </div>
+            </div></div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:24%">刷盘与绕过机制</th>
+                  <th style="width:36%">底层行为</th>
+                  <th>在 MySQL / Redis / Kafka 中的真实应用</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>后台回写线程 (Write-back)</strong></td>
+                  <td><code>write()</code> 标完脏页即返回；由内核 flusher 线程在满足以下任一条件时异步刷盘：① 脏页满 30 秒（<code>dirty_expire_centisecs=3000</code>）；② 脏页占内存超阈值（<code>dirty_background_ratio=10%</code>）。</td>
+                  <td><strong>Kafka 高吞吐核心密码之一：</strong>消息直接顺序写入 OS Page Cache 即返回，靠操作系统批量合并顺序刷盘 + <code>sendfile</code> 直接从 Page Cache 发给消费者！</td>
+                </tr>
+                <tr>
+                  <td><strong><code>fsync(fd)</code> vs <code>fdatasync(fd)</code></strong></td>
+                  <td>
+                    • <strong><code>fsync(fd)</code>：</strong>强制把该文件的<strong>脏数据页 + inode 元数据（修改时间/大小）</strong>同步到持久存储后才返回；实际 I/O 次数由文件系统与设备决定。<br/>
+                    • <strong><code>fdatasync(fd)</code>：</strong>只要文件大小没变，<strong>只刷脏数据页、不刷非关键元数据</strong>，比 <code>fsync</code> 少一次磁盘元数据寻道，性能更高！
+                  </td>
+                  <td>MySQL 的“双 1”（<code>innodb_flush_log_at_trx_commit=1</code> &amp; <code>sync_binlog=1</code>）与 Redis 的 <code>appendfsync everysec/always</code>，本质都是在控制<strong>什么时候调 <code>fsync/fdatasync</code></strong>！</td>
+                </tr>
+                <tr>
+                  <td><strong>直接 I/O (<code>O_DIRECT</code>)</strong></td>
+                  <td><code>open()</code> 时带上 <code>O_DIRECT</code> 标志：<strong>彻底绕过内核 Page Cache，用户态内存直接通过 DMA 读写物理磁盘！</strong></td>
+                  <td><strong>为什么 MySQL InnoDB 数据文件要用 <code>O_DIRECT</code>？</strong>因为 InnoDB 自己在用户态已经有几十 GB 的 <strong>Buffer Pool</strong> 和 LRU 机制了！如果再走一遍内核 Page Cache，同一份 16KB 数据页在内存里存两份（<strong>双重缓存 Double Caching</strong>），纯属浪费一半内存！</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+
+        <div class="wb-card" id="io-model" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill">❓ 07.3 · 同步和异步、阻塞和非阻塞到底怎么分？epoll 为什么不用每轮扫描全部连接？为什么 ET 必须配非阻塞 fd？</div>
+          <h3 id="epoll">🌐 07.3 多个连接，怎样一起等？从等待就绪到 epoll <span class="plop-tag tomato">重点回顾</span></h3><p>先想象同时开着一万个连接，大部分时间没有数据。一个线程不必逐个反复询问，可以先把连接交给 <code>epoll</code> 监听，再等待一批就绪事件。<strong>epoll 告诉你“哪些连接现在可以尝试读写”，数据仍需要程序自己调用 read/write 取得或发送。</strong>它能减少无效检查，但不会替你并行执行业务，也不会自动让慢操作变快。</p>
+          <p>
+            一次网络读取（如 <code>read(socket_fd)</code>）在内核里严格分为<strong>两个阶段</strong>：<br/>
+            <strong>阶段 ①（等待数据就绪）：</strong>等待远程网卡把数据包发过来，通过 DMA 放进内核 Socket 接收缓冲区（<code>sk_buff</code>）；<br/>
+            <strong>阶段 ②（数据拷贝）：</strong>把数据从<strong>内核缓冲区拷贝到用户态缓冲区</strong>。<br/>
+            所谓<strong>五种 I/O 模型</strong>，区别全在这两个阶段“谁来等、怎么拷”：
+          </p>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">I/O 模型</th>
+                  <th style="width:20%">阶段①：等数据就绪</th>
+                  <th style="width:20%">阶段②：内核→用户拷贝</th>
+                  <th>定性与高并发评价</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>① 阻塞 I/O (BIO)</strong></td>
+                  <td>🔴 线程挂起阻塞</td>
+                  <td>🔴 线程阻塞拷贝</td>
+                  <td><strong>同步阻塞：</strong>最简单，但 1 个连接必须配 1 个独立线程（C10K 时开 1 万个线程直接把内存和上下文切换撑爆）。</td>
+                </tr>
+                <tr>
+                  <td><strong>② 非阻塞 I/O (NIO)</strong></td>
+                  <td>🟢 不阻塞（立即返回 <code>EAGAIN</code>，用户轮询）</td>
+                  <td>🔴 线程阻塞拷贝</td>
+                  <td><strong>同步非阻塞：</strong>阶段①不睡，但如果让用户线程死循环调 <code>read()</code> 轮询，会把 CPU 空转烧到 100%，没人单用它。</td>
+                </tr>
+                <tr>
+                  <td><strong>③ I/O 多路复用</strong><br/>(<code>select/poll/epoll</code>)</td>
+                  <td>🟡 集中阻塞在 <code>epoll_wait</code> 等一批 fd</td>
+                  <td>🔴 线程自己调 <code>read</code> 阻塞拷贝</td>
+                  <td><strong>本质仍是「同步 I/O」：</strong>（因为阶段②还是用户线程自己调 <code>read</code> 同步把数据从内核拷出来），但它能<strong>用 1 个线程同时监听数万个连接，谁就绪才读谁</strong>，是现代高并发网络服务的基石。</td>
+                </tr>
+                <tr>
+                  <td><strong>④ 信号驱动 I/O</strong></td>
+                  <td>🟢 不阻塞（就绪时发 <code>SIGIO</code>）</td>
+                  <td>🔴 线程阻塞拷贝</td>
+                  <td><strong>同步 I/O：</strong>TCP 下信号产生过于频繁，实战极少使用。</td>
+                </tr>
+                <tr>
+                  <td><strong>⑤ 异步 I/O (AIO / <code>io_uring</code>)</strong></td>
+                  <td>🟢 <strong>不阻塞</strong></td>
+                  <td>🟢 <strong>不阻塞（内核完成拷贝）</strong></td>
+                  <td><strong style="color:#15803d;">真正的「异步 I/O」：</strong>用户发起请求后即可返回，<strong>内核把阶段①等数据和阶段②拷进用户缓冲区全部完成后，再通知用户直接使用</strong>。Linux 5.1+ 的 <strong><code>io_uring</code></strong> 核心是通过用户态与内核态共享的提交队列（<code>SQ</code>）/ 完成队列（<code>CQ</code>）环形缓冲区批量收发请求以省去系统调用开销（开启 <code>IORING_SETUP_SQPOLL</code> 内核轮询模式可实现零系统调用；若需进一步实现零拷贝，需额外使用对应的零拷贝操作，例如 <code>IORING_OP_SEND_ZC</code>；注册固定缓冲区本身并不保证零拷贝）。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-top:16px;">🔥 I/O 多路复用三代演进：<code>select</code> vs <code>poll</code> vs <code>epoll</code></h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">对比维度</th>
+                  <th style="width:24%"><code>select</code></th>
+                  <th style="width:24%"><code>poll</code></th>
+                  <th><code>epoll</code>（Linux 2.6+ 高并发主流方案）</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>底层数据结构</strong></td>
+                  <td>固定长度位图 <code>fd_set</code>（<strong>硬上限 <code>1024</code> 个 fd</strong>）</td>
+                  <td>动态数组/链表 <code>struct pollfd</code>（破除了 1024 上限）</td>
+                  <td>内核 <code>struct eventpoll</code> 对象：<strong>一棵红黑树（<code>rbr</code>） + 一条双向就绪链表（<code>rdllist</code>）</strong></td>
+                </tr>
+                <tr>
+                  <td><strong>fd 集合拷贝开销</strong></td>
+                  <td><strong style="color:var(--plop-tomato);">开销大：每次调 <code>select</code> 都要把整个 fd 集合从用户态拷贝进内核态</strong>，返回时还会修改原集合需重置。</td>
+                  <td><strong style="color:var(--plop-tomato);">同 select：每次调 <code>poll</code> 仍要把全部 <code>pollfd</code> 数组从用户态拷入内核。</strong></td>
+                  <td><strong style="color:#15803d;">无重复拷贝：</strong>调 <code>epoll_ctl</code> 把 fd <strong>一次性注册进内核红黑树常驻</strong>，之后每次调 <code>epoll_wait</code> 无需重复传入 fd 列表。</td>
+                </tr>
+                <tr>
+                  <td><strong>查找就绪 fd 复杂度</strong></td>
+                  <td><strong>$O(N)$ 全量线性轮询：</strong>不管有几个活跃，内核和用户都得把 1024 个位全扫一遍。</td>
+                  <td><strong>$O(N)$ 全量线性轮询：</strong>10 万个连接里只有 1 个来数据，也得遍历 10 万次！</td>
+                  <td><strong>按就绪事件处理：</strong>注册时建立监听关系，事件回调将就绪项加入就绪链表。等待时不必每轮扫描全部监听 fd；取回和处理 K 个就绪事件仍需相应工作，不能把整个过程统称为 O(1)。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:14px;">
+
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+                <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:6px;">
+                  ⚡ <code>epoll</code> 两种触发模式：水平触发 (LT) vs 边缘触发 (ET)
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58;">
+                  • <strong>水平触发 LT（Level-Triggered，默认）：</strong>只要内核接收缓冲区里<strong>还有未读完的数据</strong>，每次调 <code>epoll_wait</code> 都会<strong>持续通知你</strong>（编程简单不易漏事件；<strong>Redis</strong>、以及 <strong>Netty 的标准 Java NIO 传输 <code>NioEventLoopGroup</code></strong> 采用 LT）。<br/>
+                  • <strong>边缘触发 ET（Edge-Triggered，<code>EPOLLET</code>）：</strong>只在缓冲区状态<strong>「从无到有 / 有新数据到达」时通知一次</strong>。即使你只读了 50B 还剩 50B 在里面，下次 <code>epoll_wait</code> 也不会再通知（<strong>Nginx</strong>、<strong>Go <code>netpoller</code></strong>、以及 <strong>Netty 原生 Linux 传输 <code>EpollEventLoopGroup</code></strong> 默认采用 ET）。<br/>
+                  <strong style="color:var(--plop-tomato);">🚨 为什么 ET 模式必须搭配「非阻塞 Socket (<code>O_NONBLOCK</code>)」？</strong><br/>
+                  因为 ET 只通知一次，收到通知后必须用 <code>while</code> 循环调 <code>read()</code> <strong>把缓冲区读空（直到返回 <code>EAGAIN / EWOULDBLOCK</code> 为止）</strong>。如果使用<strong>阻塞 Socket</strong>，当最后一次循环把数据读完、再多调一次 <code>read()</code> 确认读空时，线程就会<strong>阻塞在最后那次 <code>read()</code> 调用上，导致该 Reactor 事件循环线程无法继续处理其他连接</strong>。
+                </div>
+              </div>
+
+
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+                <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:6px;">
+                  🏛️ 基于 <code>epoll</code> 的三种 Reactor 高并发服务器架构
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58;">
+                  1. <strong>单 Reactor 单线程（代表：Redis 6.0 前）：</strong>1 个线程包揽 <code>epoll_wait</code> + <code>accept</code> + 读写 + 内存命令执行。无锁零切换，但怕慢命令阻塞全局。<br/>
+                  2. <strong>单 Reactor 多线程（代表：Redis 6.0+ 多线程 I/O）：</strong>1 个主线程管 <code>epoll</code> 与命令执行，把耗时的 Socket <code>read/write</code> 字节拷贝与协议解析分发给多个 I/O 线程并行干。<br/>
+                  3. <strong>主从 Reactor 多线程（代表：Netty <code>BossGroup + WorkerGroup</code>）：</strong><br/>
+                  • <strong>Main Reactor（Boss）：</strong>只干一件事——监听服务端端口 <code>accept()</code> 接收新连接，然后把新连接轮询注册给 Sub Reactor；<br/>
+                  • <strong>Sub Reactor（Worker）：</strong>每个 Worker 线程各自跑一个独立的 <code>epoll_wait</code>，负责管好名下那批连接的读写，耗时业务再丢给业务线程池！<br/>
+                  <em>（💡 补充：Nginx 通常由多个 Worker 进程各自接收并处理连接，Master 管理进程与配置；它不是由 Master 接收连接再分派给 Worker 的上述模型。其缓解 <code>accept/epoll</code> <strong>惊群效应</strong>靠的是内核 <code>SO_REUSEPORT</code> 端口复用负载均衡与 <code>EPOLLEXCLUSIVE</code> 独占唤醒标志）。</em>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill" id="disk">❓ 07.4 · 传统读文件发网络为什么要 4 次拷贝 + 4 次切换？mmap 和 sendfile 分别省掉哪次 CPU 拷贝？</div>
+          <h3 id="zerocopy">🚀 07.4 零拷贝（Zero-Copy：<code>mmap</code> vs <code>sendfile</code> vs <code>splice</code>）与磁盘调度 <span class="plop-tag tomato">重点回顾</span></h3>
+          <p>
+            思考一个最常见的场景：Nginx 静态文件服务器或 Kafka 消费者拉取磁盘上的消息日志——要把<strong>磁盘文件里的数据原封不动通过网卡发出去</strong>。如果用最朴素的 <code>read(file_fd, buf) + write(sock_fd, buf)</code>，数据明明不需要在用户态做任何修改，却被迫在用户态和内核态之间来回折腾了 <strong>4 次用户态/内核态切换 + 4 次数据拷贝（2 次 DMA 硬件拷贝 + 2 次无谓的 CPU 拷贝）</strong>：
+          </p>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow); display:grid; gap:12px;">
+            <div style="background:#FFF0F5; border:2px dashed var(--plop-tomato); border-radius:10px; padding:12px;">
+              <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato); margin-bottom:6px;">
+                🐢 传统 <code>read() + write()</code>：4 次特权态切换 + 4 次拷贝（其中 ②、③ 两次 CPU 拷贝纯属浪费！）
+              </div>
+              <div style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; text-align:center;">
+                磁盘 ──<span style="color:#15803d;">①DMA拷贝</span>──▶ [内核 PageCache] ──<span style="color:var(--plop-tomato);">②CPU拷贝(多余!)</span>──▶ [用户态 buf] ──<span style="color:var(--plop-tomato);">③CPU拷贝(多余!)</span>──▶ [内核 Socket缓冲区] ──<span style="color:#15803d;">④DMA拷贝</span>──▶ 网卡
+              </div>
+            </div>
+
+            <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+              <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text); margin-bottom:6px;">
+                🚀 零拷贝 <code>sendfile() + DMA Scatter/Gather (SG-DMA)</code>：2 次切换 + 2 次 DMA 拷贝 + <strong>0 次 CPU 拷贝！</strong>
+              </div>
+              <div style="font-family:var(--font-mono); font-size:12.5px; font-weight:900; background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; text-align:center;">
+                磁盘 ──<span style="color:#15803d;">①DMA拷贝</span>──▶ [内核 PageCache] ──<span style="color:var(--plop-ink);">(仅把内存地址+长度描述符追加到 Socket 缓冲区，0字节CPU拷贝!)</span>──▶ ──<span style="color:#15803d;">②SG-DMA直接汇聚拷贝</span>──▶ 网卡
+              </div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:24%">文件传输方案</th>
+                  <th style="width:16%">态切换次数</th>
+                  <th style="width:22%">数据拷贝总次数</th>
+                  <th>底层原理与中间件选型（Kafka vs RocketMQ）</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>① 传统 <code>read + write</code></strong></td>
+                  <td><strong>4 次</strong></td>
+                  <td><strong>4 次</strong> (2 DMA + <strong>2 CPU</strong>)</td>
+                  <td>数据必须进出用户态缓冲区，CPU 和内存带宽双双浪费。</td>
+                </tr>
+                <tr>
+                  <td><strong>② <code>mmap + write</code></strong></td>
+                  <td><strong>4 次</strong></td>
+                  <td><strong>3 次</strong> (2 DMA + <strong>1 CPU</strong>)</td>
+                  <td><code>mmap</code> 把内核 Page Cache 直接映射到用户虚拟地址空间，省掉了“PageCache → 用户态”那次拷贝；<code>write</code> 时 CPU 直接把数据从 Page Cache 拷进 Socket 缓冲区。<br/>
+                  <strong style="color:var(--plop-ink);">👉 RocketMQ 选它：</strong>适合小块数据（CommitLog 固定 1GB 映射）且需要在用户态读取/处理消息内容的场景。</td>
+                </tr>
+                <tr>
+                  <td><strong>③ <code>sendfile</code> (Linux 2.1)</strong></td>
+                  <td><strong>2 次</strong></td>
+                  <td><strong>3 次</strong> (2 DMA + <strong>1 CPU</strong>)</td>
+                  <td>用一条 <code>sendfile(out_fd, in_fd)</code> 系统调用替代 <code>read+write</code>（切换减半为 2 次），数据全程不进用户态，只在内核态由 CPU 从 Page Cache 拷到 Socket 缓冲区。</td>
+                </tr>
+                <tr>
+                  <td><strong>④ <code>sendfile + SG-DMA</code></strong><br/>(Linux 2.4+ 网卡支持)</td>
+                  <td><strong>2 次</strong></td>
+                  <td><strong style="color:#15803d;">2 次 (2 DMA + 0 CPU!)</strong></td>
+                  <td>只要网卡支持 <code>Scatter/Gather DMA</code>，连内核内部的 CPU 拷贝都省了——只把 Page Cache 的物理地址和长度描述符传给 Socket，网卡 DMA 自己去 Page Cache 拿数据发走！<br/>
+                  <strong style="color:#15803d;">👉 Kafka 与 Nginx 选它：</strong>大批量纯转发静态文件或消息日志，吞吐量飙到网卡物理极限！（缺点：数据不经过用户态，无法在用户态加密或改内容，HTTPS 下需配合内核 <code>kTLS</code>）。</td>
+                </tr>
+                <tr>
+                  <td><strong>⑤ <code>splice</code> (Linux 2.6.17+)</strong></td>
+                  <td><strong>2 次</strong></td>
+                  <td><strong style="color:#15803d;">2 次 (2 DMA + 0 CPU!)</strong></td>
+                  <td>在任意两个 <code>fd</code> 之间（至少一端必须是内核管道 Pipe）通过共享管道环形缓冲区的页面指针实现零 CPU 拷贝转发。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <details class="plop-drawer"><summary><span class="plop-drawer-title">📎 进阶阅读 · 机械硬盘与 SSD 的调度差异</span></summary><div class="drawer-body">
+<div class="plop-callout info">
+            <strong>💿 补充：机械硬盘调度算法（FCFS / SSTF / SCAN / C-SCAN）在 SSD 时代还重要吗？</strong><br/>
+            • <strong>机械硬盘（HDD）时代：</strong>最慢的是磁头机械移动（寻道时间 ~10ms），因此设计了：① <code>FCFS</code>（先来先服务，磁头乱跑）；② <code>SSTF</code>（最短寻道时间优先，远处磁道易饿死）；③ <strong><code>SCAN</code>（电梯算法，磁头单向扫到底再折返，最经典）</strong>；④ <code>C-SCAN</code>（循环电梯，扫到底直接回起点重新单向扫，响应更均匀）。<br/>
+            • <strong>现代 NVMe SSD 时代：</strong>固态硬盘<strong>由闪存芯片构成，没有任何机械磁头寻道开销</strong>，且支持多队列高并发随机访问！如果在 SSD 上还用复杂的电梯算法去合并排序并加全局队列锁，反而会拖慢 CPU！因此现代 Linux 针对 NVMe SSD 引入了 <strong>Multi-Queue 块设备层（<code>blk-mq</code>）</strong>，默认调度器直接设为 <strong><code>none</code>（不排序直发硬件队列）或 <code>mq-deadline</code></strong>。
+          </div>
+</div></details>
+
+          <div class="plop-callout tip"><strong>📝 本章先记住：</strong>就绪通知、数据传输和持久化是不同的事情：epoll、read/write、fsync 各有职责。</div>
+
+        </div>
+<div class="plop-bridge"><span>🧭 下一章：<a href="#link">08 · 运行链路、排查与自测 →</a></span></div>

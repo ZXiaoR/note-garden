@@ -1,0 +1,426 @@
+<div class="wb-sec-header" id="what"><span class="wb-sec-num">01</span><span class="wb-sec-title">权限与系统调用</span><span class="plop-tag periwinkle">原理篇</span></div>
+<div class="plop-callout tip"><strong>🧭 本章主线：</strong>从操作系统的上下分工出发，看懂 CPU 硬件特权级（<code>Ring 0 / Ring 3</code>）与 <code>CR3 + 页表</code> 是如何隔离进程的，再拆解系统调用 <code>syscall</code> 的 4 步流转与中断上下半部。</div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 01.1 · 操作系统到底夹在什么位置？它核心就干哪两件事？</div>
+          <h3>🖥️ 01.1 操作系统是什么：资源大管家 × 硬件抽象层</h3>
+          <p>
+            操作系统（OS）是<strong>介于底层物理硬件与上层应用程序之间</strong>的一层系统软件。剥离掉所有花哨的外壳，它核心只干两件事：
+          </p>
+          <ul>
+            <li><strong>向下当「资源管理者」：</strong>管住 CPU、物理内存、磁盘、网卡等有限硬件资源，在成百上千个进程之间<strong>分配、调度、隔离与回收</strong>，做到既公平又高效。</li>
+            <li><strong>向上当「硬件抽象层 / 虚拟机」：</strong>把裸露、难用的物理硬件包装成干净统一的抽象——把 CPU 抽象成<strong>进程/线程（虚拟 CPU）</strong>，把内存条抽象成<strong>虚拟地址空间（虚拟内存）</strong>，把磁盘和网卡抽象成<strong>文件与 Socket（文件描述符 <code>fd</code>）</strong>，让程序员不用直接跟寄存器和磁盘扇区打交道。</li>
+          </ul>
+
+
+          <div style="background:#FFFDF7; border:2.5px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+
+            <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; text-align:center;">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:6px;">
+                🧑💻 第一层：应用程序（运行在「用户态 Ring 3」· 受限沙箱）
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap:8px; font-size:13px; font-weight:800;">
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px;">🌐 浏览器 / 前端 Node 服务</div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px;">🐬 MySQL / Redis / Kafka</div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px;">🐹 你写的 Go / Java / C++ 程序</div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px;">📚 C 标准库 (glibc 封装)</div>
+              </div>
+            </div>
+
+            <div style="text-align:center; padding:8px 0; font-weight:900; font-size:13.8px; color:var(--plop-tomato);">
+              ⬇️ 主动请求：系统调用 <code>syscall</code>（请求内核服务） ⇄ ⬆️ 被动打断：异常 Exception / 硬件中断 Interrupt
+            </div>
+
+
+            <div style="background:var(--plop-mustard); border:2.4px solid var(--plop-ink); border-radius:12px; padding:14px; text-align:center;">
+              <div style="background:var(--plop-ink); color:#FFF8E7; border-radius:8px; padding:7px 12px; font-weight:900; font-size:14.5px; margin-bottom:10px;">
+                🛡️ 第二层：操作系统内核 Kernel（运行在「内核态 Ring 0」· 最高特权）
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap:8px; font-size:13px; font-weight:800;">
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">⚙️ 进程/线程管理与 CFS 调度</div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">🧠 虚拟内存、页表与伙伴系统</div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">📂 VFS 虚拟文件系统与 PageCache</div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">🌐 TCP/IP 协议栈与设备驱动</div>
+              </div>
+            </div>
+
+            <div style="text-align:center; padding:8px 0; font-weight:900; font-size:13.8px; color:var(--plop-ink);">
+              ⬇️ 驱动程序下发指令 / DMA 传输 ⇄ ⬆️ 硬件外部中断 Interrupt（网卡收包 / 磁盘就绪 / 时钟滴答）
+            </div>
+
+
+            <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:11px 14px; text-align:center;">
+              <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">
+                🔌 第三层：物理硬件底座 —— CPU 核心 &amp; MMU · DRAM 物理内存条 · NVMe SSD / 磁盘 · 网卡 NIC
+              </div>
+            </div>
+          </div>
+
+          <details class="plop-drawer"><summary><span class="plop-drawer-title">📎 进阶阅读 · 内核、完整操作系统，以及宏内核与微内核</span></summary><div class="drawer-body">
+<div class="plop-callout info">
+            <strong>📌 先理清两个基础概念：「内核 vs 操作系统」以及「宏内核 vs 微内核」</strong><br/>
+            • <strong>内核（Kernel）vs 操作系统（OS）—— 核心程序与完整发行版的区别：</strong><br/>
+            &nbsp;&nbsp;◦ <strong>内核（Kernel）：</strong>操作系统最底层的核心程序，开机后常驻内存，拥有最高硬件权限（Ring 0），负责管理 CPU 调度、虚拟内存、文件系统和硬件驱动（例如狭义的 <code>Linux</code> 指的就是 Linux 内核）。<br/>
+            &nbsp;&nbsp;◦ <strong>操作系统（广义 OS）：</strong>光有内核，用户还没法直接使用。在<strong>内核</strong>外围加上<strong>命令行 Shell、图形界面（GUI）、系统工具和标准库（如 glibc）</strong>，打包成完整的系统（如 Ubuntu、CentOS、macOS、Windows），才构成广义的操作系统。<br/>
+            • <strong>宏内核 vs 微内核 —— 核心区别在于：「把多少系统功能放进最高权限的内核态（Ring 0）运行？」</strong><br/>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap:10px; margin-top:8px;">
+              <div style="background:#FFFDF7; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px; font-size:12.8px; line-height:1.55;">
+                <div style="font-weight:900; color:var(--plop-ink); margin-bottom:4px;">🏢 宏内核（Monolithic Kernel · 代表：Linux / Unix）</div>
+                • <strong>做法：</strong>把进程调度、内存管理、文件系统、网络协议栈、设备驱动<strong>全部放进同一个内核态（<code>Ring 0</code>）地址空间里运行</strong>。<br/>
+                • <strong>优势（性能高）：</strong>各个模块在同一个地址空间内，比如网络模块需要读写文件，<strong>直接进行内部函数调用即可</strong>，没有跨进程通信开销。<br/>
+                • <strong>代价（隔离弱）：</strong>所有模块共享最高权限内存，一旦某个第三方设备驱动出现空指针等严重 Bug，<strong>会直接导致整个内核崩溃（Kernel Panic）</strong>。（注：现代 Linux 支持动态加载内核模块 <code>LKM</code>，但模块加载后依然运行在 Ring 0）。
+              </div>
+              <div style="background:#FFFDF7; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px; font-size:12.8px; line-height:1.55;">
+                <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:4px;">🏘️ 微内核（Microkernel · 代表：QNX 车机 / 鸿蒙微内核）</div>
+                • <strong>做法：</strong><code>Ring 0</code> 内核态里<strong>只保留最基础的 CPU 调度、内存映射和进程间通信（IPC）</strong>；把文件系统、网络协议栈、设备驱动<strong>全部移到普通用户态（<code>Ring 3</code>）</strong>，作为独立的普通进程运行。<br/>
+                • <strong>优势（稳定性高）：</strong>各个服务彼此隔离，就算声卡或网卡驱动崩溃，也只是挂掉一个用户态进程，<strong>拉起重启即可，不会导致整机死机</strong>（适合车载、航天等高可靠场景）。<br/>
+                • <strong>代价（通信开销大）：</strong>模块之间隔在不同进程里，网络模块找文件系统需要通过内核转发消息（<strong>频繁跨进程通信 IPC + 用户态/内核态切换</strong>），整体吞吐性能不如宏内核。
+              </div>
+            </div>
+          </div>
+</div></details>
+        </div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">❓ 01.2 · 为什么 CPU 非要分用户态和内核态？怎么从用户态进入内核态？</div>
+          <h3 id="mode">🔐 01.2 用户态 vs 内核态（CPU 硬件特权级 Ring 0 / Ring 3） <span class="plop-tag tomato">重点回顾</span></h3>
+          <p>假设程序要读 <code>hello.txt</code>。如果它能随意向硬盘发指令，就可能绕过文件权限。CPU 因此区分执行权限：<strong>普通程序通常在用户态运行，内核代码在内核态运行。</strong>在 x86 上，常用 Ring 3 和 Ring 0 表示这两种权限。<br/>程序调用 <code>read()</code> 请求内核处理；内核检查参数并执行读取，再把结果交回来。<strong>这里换的是权限，执行任务不一定改变。</strong>只有需要等待或发生调度时，CPU 才可能交给别的任务。</p>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:14px 16px; margin:12px 0 16px; box-shadow:3px 4px 0 var(--plop-shadow); font-size:13.2px; line-height:1.65;">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:8px;">
+              🗺️ 硬件与数据结构图解：<code>Ring 0 / 3</code>、<code>CR3 寄存器</code> 与 <code>页表 (Page Table)</code> 是怎么配合的？
+            </div>
+
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 235px), 1fr)); gap:12px; align-items:stretch; margin-bottom:12px;">
+
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px; display:flex; flex-direction:column; justify-content:space-between;">
+                <div>
+                  <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:8px;">
+                    ① 🧠 CPU 内部寄存器（权限与页表指针）
+                  </div>
+                  <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; margin-bottom:8px;">
+                    <div style="font-weight:900; font-size:12.8px; color:var(--plop-tomato);">🔐 当前特权级位（CPL，2 bit 开关）</div>
+                    <div style="font-size:12.3px; color:var(--plop-ink-text); margin-top:3px; font-weight:700;">
+                      • 值为 <code>3 (Ring 3)</code> = 用户态（普通程序，受限）<br/>
+                      • 值为 <code>0 (Ring 0)</code> = 内核态（OS 内核，全权）
+                    </div>
+                  </div>
+                  <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:8px; padding:8px 10px;">
+                    <div style="font-weight:900; font-size:12.8px; color:var(--plop-tomato);">🧭 <code>CR3</code> 页表基址寄存器（存当前页表地址）</div>
+                    <div style="font-family:var(--font-mono); font-size:13px; font-weight:900; background:#FFFFFF; border:1.5px solid var(--plop-ink); border-radius:6px; padding:4px 8px; margin:5px 0; text-align:center; color:var(--plop-ink);">
+                      CR3 = 0x1000 ──▶ 指向进程 A 页表
+                    </div>
+                    <div style="font-size:12px; color:var(--plop-ink-text); font-weight:700;">
+                      ⚠️ <strong>硬件限制：</strong>只有 <code>Ring 0</code> 能修改 <code>CR3</code>！
+                    </div>
+                  </div>
+                </div>
+                <div style="background:#FFFFFF; border:1.5px dashed var(--plop-ink); border-radius:7px; padding:6px 8px; margin-top:8px; font-size:12px; font-weight:800; text-align:center;">
+                  ⚡ <strong>MMU + TLB 快表缓存：</strong>顺着 <code>CR3</code> 查表，把虚拟地址翻译成物理地址
+                </div>
+              </div>
+
+
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:8px;">
+                  ② 📋 内存里的「页表」数据结构（每个进程各自独立）
+                </div>
+
+
+                <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:8px; padding:8px; margin-bottom:8px;">
+                  <div style="font-weight:900; font-size:12.5px; color:#15803d; margin-bottom:4px;">
+                    🟢 进程 A 的页表 <code>@0x1000</code>（当前 CR3 正在使用）
+                  </div>
+                  <table style="width:100%; border-collapse:collapse; font-size:11.8px; font-family:var(--font-mono); font-weight:800;">
+                    <tr style="background:#F1F5F9; border-bottom:1.5px solid var(--plop-ink);">
+                      <td style="padding:3px 4px;">虚拟地址</td>
+                      <td style="padding:3px 4px;">物理页帧号</td>
+                      <td style="padding:3px 4px;">访问权限位</td>
+                    </tr>
+                    <tr style="border-bottom:1px dashed #CBD5E1;">
+                      <td style="padding:3px 4px;">0x0040</td>
+                      <td style="padding:3px 4px; color:#15803d;">➔ 物理页 #102</td>
+                      <td style="padding:3px 4px;">Ring 3 可读写</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:3px 4px;">0xFFFF..</td>
+                      <td style="padding:3px 4px; color:var(--plop-tomato);">➔ 物理页 #001</td>
+                      <td style="padding:3px 4px; color:var(--plop-tomato);">仅 Ring 0 可访问</td>
+                    </tr>
+                  </table>
+                </div>
+
+
+                <div style="background:#F8FAFC; border:1.8px dashed var(--plop-ink); border-radius:8px; padding:8px; opacity:0.92;">
+                  <div style="font-weight:900; font-size:12.5px; color:var(--plop-ink-soft); margin-bottom:4px;">
+                    ⚪ 进程 B 的页表 <code>@0x9000</code>（未上 CPU，暂未使用）
+                  </div>
+                  <table style="width:100%; border-collapse:collapse; font-size:11.8px; font-family:var(--font-mono); font-weight:800;">
+                    <tr style="background:#E2E8F0; border-bottom:1.5px solid var(--plop-ink);">
+                      <td style="padding:3px 4px;">虚拟地址</td>
+                      <td style="padding:3px 4px;">物理页帧号</td>
+                      <td style="padding:3px 4px;">访问权限位</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:3px 4px;">0x0040</td>
+                      <td style="padding:3px 4px; color:#1d4ed8;">➔ 物理页 #588</td>
+                      <td style="padding:3px 4px;">Ring 3 可读写</td>
+                    </tr>
+                  </table>
+                  <div style="font-size:11.5px; color:var(--plop-ink-text); font-weight:800; margin-top:4px;">
+                    💡 进程 B 的页表里<strong>根本没有映射 <code>物理页 #102</code></strong>；即使它使用相同的虚拟地址 <code>0x0040</code>，翻译出来的也是自己的 <code>#588</code>，从而实现进程间的内存隔离。
+                  </div>
+                </div>
+              </div>
+
+
+              <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px; display:flex; flex-direction:column; justify-content:space-between;">
+                <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:8px;">
+                  ③ 💽 物理内存条（DRAM 实际存储页）
+                </div>
+                <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:8px 10px; margin-bottom:8px; font-size:12.5px; font-weight:800;">
+                  🛡️ <strong>物理页 #001（内核空间数据）</strong><br/>
+                  <span style="font-size:11.8px; color:var(--plop-ink-text);">页表权限标记为“仅 Ring 0”，用户态访问会触发硬件异常（段错误）</span>
+                </div>
+                <div style="background:#F0FDF4; border:1.8px solid #15803d; border-radius:8px; padding:8px 10px; margin-bottom:8px; font-size:12.5px; font-weight:800;">
+                  📘 <strong>物理页 #102（进程 A 的私有数据）</strong><br/>
+                  <span style="font-size:11.8px; color:var(--plop-ink-text);">仅被进程 A 的页表 <code>@0x1000</code> 映射</span>
+                </div>
+                <div style="background:#EFF6FF; border:1.8px solid #1d4ed8; border-radius:8px; padding:8px 10px; font-size:12.5px; font-weight:800;">
+                  📙 <strong>物理页 #588（进程 B 的私有数据）</strong><br/>
+                  <span style="font-size:11.8px; color:var(--plop-ink-text);">仅被进程 B 的页表 <code>@0x9000</code> 映射</span>
+                </div>
+              </div>
+            </div>
+
+
+            <div class="plop-callout info"><strong>读图要点：</strong>普通程序不能自行更换页表来读取别人的私有内存。模式切换回答“现在执行的是哪种权限的代码”；任务切换回答“现在由谁使用 CPU”。启用 KPTI 时，同一任务进出内核也可能切换页表，所以不能仅靠 CR3 是否变化来区分两者。</div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">特权状态</th>
+                  <th style="width:16%">CPU 特权级</th>
+                  <th style="width:32%">能访问什么 / 能执行什么指令</th>
+                  <th>想越权办事怎么办？</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>内核态 (Kernel Mode)</strong></td>
+                  <td><code>Ring 0</code>（最高权限）</td>
+                  <td>能执行<strong>全部指令（含特权指令：<code>invlpg</code> 刷 TLB、改 <code>CR3</code> 页表、<code>cli/sti</code> 开关中断、I/O 端口读写）</strong>，可访问全部虚拟/物理内存与硬件。</td>
+                  <td>操作系统内核代码运行在此状态，代表用户进程执行底层敏感操作。</td>
+                </tr>
+                <tr>
+                  <td><strong>用户态 (User Mode)</strong></td>
+                  <td><code>Ring 3</code>（受限权限）</td>
+                  <td>可执行普通指令并访问获准映射的内存，<strong>只能访问自己进程虚拟地址空间的「用户区」</strong>；一旦在 Ring 3 强行执行特权指令或访问内核地址，CPU 触发异常（如 #GP 或页故障），内核按原因处理；非法访问通常导致 SIGSEGV。</td>
+                  <td>想读文件、发网络包、申请物理内存页、创建线程，<strong>必须通过系统调用陷入内核态，请内核代劳</strong>。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-callout tip">
+            <strong>💡 怎么从用户态进入内核态？（先区分三类入口）：</strong><br/>
+            ① <strong>系统调用（Syscall，主动）：</strong>用户代码主动执行 <code>syscall</code> 指令请求内核服务（如读写文件、<code>fork</code>）。<br/>
+            ② <strong>异常（Exception，被动同步）：</strong>CPU 执行当前用户态指令时内部受阻或出错（如访问未分配物理页触发<strong>缺页异常 Page Fault</strong>、除零错误），被迫陷入内核。<br/>
+            ③ <strong>外围设备中断（Interrupt，被动异步）：</strong>外部硬件完成任务后主动通知 CPU（如网卡收到数据包、磁盘 DMA 读完、时钟中断），打断当前用户态程序进入内核中断处理程序。<br/>
+            <em>这三条路本质上都是 <strong>“陷入内核（Trap into Kernel）”</strong>：硬件与内核入口代码共同完成现场保存、权限转换和必要的栈切换，转入预设入口。具体分工因入口而异；x86-64 的 syscall 指令不会自动保存用户 RSP 或切换到内核栈。</em>
+          </div>
+
+          <details class="plop-drawer"><summary><span class="plop-drawer-title">📎 进阶阅读 · 模式切换、任务切换与页表切换</span></summary><div class="drawer-body"><p><strong>模式切换：</strong>在用户态与内核态之间改变执行权限，例如同一线程发起系统调用并返回。<strong>上下文切换：</strong>保存一个任务的执行状态，恢复另一个任务的状态。</p><p>同一进程的线程通常共享地址空间；跨进程切换通常还需切换地址空间。启用 KPTI 时，进出内核也需要切换用户/内核页表。PCID 等硬件机制可以保留带标签的 TLB 条目，因此切页表不等于每次清空全部 TLB；CPU 数据缓存也不会因切换进程就全部失效。</p><p>系统调用仍有入口、参数检查和返回等开销。把很多小块写入合并成一次较大的写入，通常能减少系统调用次数。具体耗时依赖硬件、内核配置和工作负载，不宜记成固定纳秒数。</p></div></details>
+        </div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill">❓ 01.3 · 调一次 read() 背后 CPU 发生了什么？为什么 gettimeofday() 不用陷入内核？</div>
+          <h3 id="syscall">📞 01.3 系统调用（Syscall）：从 glibc 封装到内核 <code>sys_call_table</code></h3>
+          <p>
+            既然普通程序跑在受限的用户态（<code>Ring 3</code>），不能直接碰硬盘和网卡，那你平时写代码调用的 <code>open()</code>、<code>read()</code>、<code>write()</code> 是怎么把文件读出来的？<br/>
+            其实它们就像<strong>去银行柜台办业务</strong>：你在柜台外（<code>Ring 3</code>）不能自己进金库拿钱，但标准库（如 C 语言的 <code>glibc</code>）帮你把<strong>“要办第几号业务（系统调用号）”</strong>和<strong>“参数（读哪个文件 fd、读多少字节）”</strong>填进固定的 CPU 寄存器里，然后执行一条专门的硬件指令 <code>syscall</code> 呼叫柜台里面（<code>Ring 0</code>）的内核代办：
+          </p>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:10px;">
+              🔬 x86-64 下一次系统调用（以 <code>read(fd, buf, count)</code> 为例）的 4 步流转：
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 195px), 1fr)); gap:10px;">
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">① 填单传参 (Ring 3)</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                  把业务编号（<code>read</code> 的系统调用号是 <code>0</code>）放进 <code>rax</code> 寄存器；把三个参数（<code>fd, buf, count</code>）依次放进 <code>rdi, rsi, rdx</code> 寄存器。
+                </div>
+              </div>
+              <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:11px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato);">② 硬件切入内核 (<code>syscall</code>)</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                  执行 <code>syscall</code> 指令：CPU 自动记下刚才用户代码跑到哪一行（存入 <code>rcx</code>），将权限从 <code>Ring 3</code> 切到 <code>Ring 0</code>，跳进内核总入口函数 <code>entry_SYSCALL_64</code>。
+                </div>
+              </div>
+              <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">③ 内核查表办事 (Ring 0)</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                  切换到该线程的内核栈并保存寄存器现场；内核有一张全局函数指针数组叫 <strong><code>sys_call_table</code></strong>，按系统调用号分派到 read 的内核处理路径。不同版本可能使用包装函数或不同的分派实现，不必把某个函数名当成固定接口。
+                </div>
+              </div>
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">④ 递回结果退出 (<code>sysret</code>)</div>
+                <div style="font-size:12.6px; color:var(--plop-ink-text); margin-top:4px; line-height:1.5; font-weight:700;">
+                  读完数据后，把返回值（读到的字节数）放进 <code>rax</code> 寄存器，执行 <code>sysret</code> 指令把权限降回 <code>Ring 3</code>，回到刚才用户代码的下一行继续往下跑。
+                </div>
+              </div>
+            </div>
+            <details class="plop-drawer"><summary><span class="plop-drawer-title">📎 进阶阅读 · syscall 与 int 0x80 的区别</span></summary><div class="drawer-body">
+<div style="margin-top:10px; font-size:12.6px; font-weight:800; color:var(--plop-ink-soft);">
+              💡 <strong>补充：为什么 64 位系统用专用指令 <code>syscall</code> 替代了 32 位时代的软件中断指令 <code>int 0x80</code>？</strong><br/>
+              因为老旧的 <code>int 0x80</code> 走的是通用中断流程，每次都要去内存里的中断描述符表（IDT，一张记录“中断号 → 处理函数地址”的表）里查第 <code>0x80</code> 项并做多次权限校验；而 64 位 CPU 专门为系统调用设计了硬件快车道指令 <code>syscall / sysret</code>，直接从 CPU 内部的专用寄存器读取内核入口地址跳转，省去了查内存表的开销。
+            </div>
+</div></details>
+          </div>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:22%">系统调用类别</th>
+                  <th style="width:42%">高频代表 Syscall</th>
+                  <th>与标准库函数（Library Call）的区别</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>进程/线程控制</strong></td>
+                  <td><code>fork</code> / <code>vfork</code> / <code>clone</code> / <code>execve</code> / <code>exit_group</code> / <code>wait4</code></td>
+                  <td><code>pthread_create</code> 是库函数，底层调用 <code>clone()</code>。</td>
+                </tr>
+                <tr>
+                  <td><strong>文件与磁盘 I/O</strong></td>
+                  <td><code>openat</code> / <code>read</code> / <code>write</code> / <code>close</code> / <code>lseek</code> / <code>fsync</code> / <code>stat</code></td>
+                  <td><code>printf / fwrite</code> 是 C 库函数，自带用户态缓冲区（<code>FILE*</code>），攒够一批才调一次 <code>write()</code> 减少陷入内核次数！</td>
+                </tr>
+                <tr>
+                  <td><strong>虚拟内存管理</strong></td>
+                  <td><code>brk</code> / <code>mmap</code> / <code>munmap</code> / <code>mprotect</code> / <code>madvise</code></td>
+                  <td><code>malloc / free</code> 是库函数（管理用户态内存池），池空了才调 <code>brk</code> 或 <code>mmap</code> 向内核批发内存。</td>
+                </tr>
+                <tr>
+                  <td><strong>进程通信与同步</strong></td>
+                  <td><code>pipe2</code> / <code>shmget</code> / <code>futex</code> / <code>kill</code> / <code>sigaction</code> / <code>eventfd</code></td>
+                  <td><code>pthread_mutex_lock</code> 无锁竞争时在用户态 CAS 完成，冲突时才调 <code>futex</code> 陷入内核睡眠。</td>
+                </tr>
+                <tr>
+                  <td><strong>网络与多路复用</strong></td>
+                  <td><code>socket</code> / <code>bind</code> / <code>listen</code> / <code>accept4</code> / <code>epoll_create1</code> / <code>epoll_ctl</code> / <code>epoll_wait</code> / <code>sendfile</code></td>
+                  <td>高并发网络框架（Netty / Go netpoller / Redis）全部直接建立在这组系统调用之上。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <details class="plop-drawer"><summary><span class="plop-drawer-title">📎 进阶阅读 · vDSO 为什么能减少获取时间的系统调用</span></summary><div class="drawer-body"><p>Linux 把部分函数代码和相关数据映射到用户空间。库函数在条件允许时使用 vDSO，读取内核维护的时间基准、硬件计数器等信息，在用户态计算时间，避免每次进入内核。</p><p>这不是简单读取一个定时更新的时间戳。是否走 vDSO 取决于架构、时钟类型和系统支持，不支持时仍会退回系统调用。</p></div></details>
+        </div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 01.4 · 中断、异常、陷阱怎么区分？为什么 Linux 要把中断拆成「上半部」和「下半部」？</div>
+          <h3 id="interrupt">⚡ 01.4 中断 / 异常 / 陷阱 &amp; Linux 硬中断（上半部）与软中断（下半部）</h3>
+          <p>
+            三者都会让 CPU 暂停当前正在跑的指令流、陷入内核去执行处理函数，核心区别在于<strong>触发来源与是否同步</strong>：
+          </p>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:24%">名称</th>
+                  <th style="width:22%">触发来源</th>
+                  <th style="width:18%">同步 / 异步</th>
+                  <th>典型例子</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>中断 (Interrupt / 硬中断)</strong></td>
+                  <td><strong>外部硬件设备</strong>主动发信号给 CPU 引脚</td>
+                  <td><strong>异步</strong>（随时发生，与当前执行哪条指令无关）</td>
+                  <td>网卡收到数据包、磁盘 DMA 读写完成、硬件时钟定时滴答（Timer）、键盘敲击。</td>
+                </tr>
+                <tr>
+                  <td><strong>异常 (Exception)</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">(含故障 Fault / 终止 Abort)</span></td>
+                  <td><strong>CPU 执行当前指令时内部</strong>受阻或出错</td>
+                  <td><strong>同步</strong>（执行到那条指令必然触发）</td>
+                  <td><strong>缺页异常（Page Fault，修复后重新执行原指令）</strong>、除零错误、非法指令、段错误（<code>SIGSEGV</code>）。</td>
+                </tr>
+                <tr>
+                  <td><strong>陷阱 (Trap / 软件中断指令 <code>int n</code>)</strong></td>
+                  <td>用户程序<strong>主动执行陷入指令</strong></td>
+                  <td><strong>同步</strong>（有意识主动调用）</td>
+                  <td>系统调用（<code>syscall</code> / <code>int 0x80</code>）、调试器断点指令（<code>int 3</code>）。<br/><span style="font-size:12px; color:var(--plop-ink-soft);">（注：中文资料常把 <code>int n</code> 译作“软中断指令”，注意别与下文内核中断下半部的 <code>softirq</code> 软中断混淆，二者同名不同义）</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-top:16px;">🔪 Linux 中断处理设计：为什么要拆成「上半部 (Top Half)」和「下半部 (Bottom Half)」？ <span class="plop-tag mint">Linux 核心</span></h4>
+          <p>
+            当网卡收到一个数据包时，会向 CPU 发送硬件中断。<strong>而 CPU 在执行硬中断处理函数期间，默认会暂时屏蔽当前 CPU 核上的同类型中断（关中断）</strong>——如果内核在硬中断里把所有事情都做完（比如校验 IP 头、重组 TCP 分片、拷贝数据、唤醒用户进程），耗时太长，这期间新到达的网卡数据包就会因为中断被屏蔽而<strong>丢包，鼠标键盘等交互也会卡顿</strong>。<br/>
+            为了解决“硬中断不能久留，但网络拆包等工作又很耗时”的矛盾，Linux 把中断处理拆成了两半：
+          </p>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap:14px;">
+
+              <div style="background:#FFF0F5; border:2.2px solid var(--plop-tomato); border-radius:12px; padding:14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-weight:900; font-size:14.5px; color:var(--plop-tomato);">⚡ 上半部 (Top Half · 硬中断 <code>hi</code>)</span>
+                  <span class="plop-tag tomato" style="font-size:11px;">关中断 · 快速登记</span>
+                </div>
+                <div style="font-size:13.2px; color:var(--plop-ink-text); line-height:1.58;">
+                  • <strong>负责什么：</strong>只做最紧急、必须关着中断完成的硬件操作（例如：记下网卡 DMA 环形缓冲区的状态、清除硬件中断标志位、<strong>打一个“有软中断待处理”的标记</strong>），然后立刻退出并恢复中断响应。<br/>
+                  • <strong>限制：</strong>运行在中断上下文，<strong>不能睡眠阻塞</strong>，执行时间通常在微秒级。
+                </div>
+              </div>
+
+
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text);">🐢 下半部 (Bottom Half · 软中断 <code>si</code> 等)</span>
+                  <span class="plop-tag" style="background:#FFFFFF; font-size:11px;">开中断 · 延后处理</span>
+                </div>
+                <div style="font-size:13.2px; color:var(--plop-ink-text); line-height:1.58;">
+                  • <strong>负责什么：</strong>把比较耗时的后续工作（如完整的 TCP/IP 协议栈拆包、拷贝 <code>sk_buff</code>、唤醒阻塞在 <code>epoll_wait</code> 上的进程）延后到这里执行。<br/>
+                  • <strong>优势：</strong>执行期间<strong>开启硬中断</strong>，随时允许新的硬件中断打断它，从而兼顾了<strong>硬件实时响应</strong>与<strong>数据处理吞吐量</strong>（<code>top</code> 里的 <code>%si</code> 就是软中断耗时，负载高时由 <code>ksoftirqd/n</code> 内核线程接管）。
+                </div>
+              </div>
+            </div>
+
+
+            <details class="plop-drawer"><summary><span class="plop-drawer-title">📎 进阶阅读 · softirq、tasklet、工作队列与 NAPI</span></summary><div class="drawer-body">
+<div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:10px; padding:11px 14px; margin-top:12px; font-size:12.8px; line-height:1.6;">
+              <strong>🧩 进阶辨析：Linux 下半部的 3 种具体实现机制（面试常问区别）：</strong><br/>
+              1. <strong>软中断 (Softirq)：</strong>内核编译期静态定义（共 10 种，如网络收发 <code>NET_RX_SOFTIRQ</code>、块设备 <code>BLOCK_SOFTIRQ</code>）。同一个 softirq 处理函数可以在多个 CPU 核上同时运行，并发性能最高，但需要自己处理多核加锁；<strong>处于中断上下文，不能睡眠</strong>。<br/>
+              2. <strong>Tasklet：</strong>基于 softirq 封装，区别是内核保证了<strong>同一个 tasklet 同一时刻只会在一个 CPU 核上运行</strong>，驱动开发者不用操心多核并发重入问题；同样处于中断上下文，<strong>不能睡眠</strong>。<br/>
+              3. <strong>工作队列 (Workqueue)：</strong>把任务放进队列，交给专门的<strong>内核线程（<code>kworker</code>）</strong>去执行——因为它运行在正常的<strong>进程上下文</strong>里，所以它是三种下半部机制中<strong>唯一可以睡眠阻塞（如申请内存、等待互斥锁、执行磁盘 I/O）</strong>的机制。<br/>
+              <em>💡 补充：现代网卡还会配合 <strong>NAPI（中断 + 轮询混合模式）</strong>——收到第一个包时触发硬中断并关闭该网卡的接收硬中断，随后由软中断一次性批量轮询拉走几百个包，等队列拉空后再重新开启硬中断，避免高并发收包时产生大量硬中断。</em>
+            </div>
+</div></details>
+          </div>
+
+          <div class="plop-callout tip"><strong>📝 本章先记住：</strong>用户态与内核态区分权限；系统调用不一定更换执行任务。</div>
+
+        </div>
+<div class="plop-bridge"><span>🧭 下一章：<a href="#process">02 · 进程、线程与写时复制 →</a></span></div>

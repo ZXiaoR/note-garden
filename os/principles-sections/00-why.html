@@ -1,0 +1,261 @@
+<div class="wb-sec-header" id="why">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">核心概念地基与全局架构图 · 从硬件底座到 Linux 内核实现</span>
+  <span class="plop-tag periwinkle">原理篇总览</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:16px;">
+  <strong>🧭 怎么读原理篇最轻松？</strong><br/>
+  如果某个概念（如变量、指针、为什么需要等待）还不熟，随时点顶部切换回 <a href="index.html">🌱 基础入门篇</a> 先看直觉过程；进入原理篇后，我们先在下面把<strong>贯穿后面每一章的「5 组底层概念 + 三大缓存对比 + 硬件与内核全局架构图」</strong>立住，后续各章按问题展开具体的数据结构与代码。
+</div>
+
+<!-- 00.1 · 操作系统核心基础概念体系与三大缓存辨析 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">❓ 00.1 · 进入各章实现前，先把贯穿全篇的「进程/线程/PCB、虚拟地址空间、内核栈、三大缓存、fd」一次串通</div>
+  <h3>🧱 00.1 操作系统核心概念地基：后面每一章都会用到的 4 组基础模型</h3>
+  <p>
+    操作系统的各个模块是互相咬合的：第 01 章讲系统调用和切换时，就会用到第 02 章的<strong>进程/线程/PCB/内核栈</strong>、第 03 章的<strong>虚拟内存/页表/TLB</strong>、以及第 07 章的<strong>Page Cache 与 fd</strong>。我们先在这里把这几组基础模型立住：
+  </p>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin:12px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">
+        ① 📦 程序 → 进程（资源盒子）→ 线程（执行流）→ PCB
+      </div>
+      <div style="font-size:12.8px; line-height:1.6; color:var(--plop-ink-text);">
+        • <strong>程序 vs 进程：</strong>躺在硬盘上的二进制文件叫<strong>程序</strong>；加载到内存条里运行起来的实例叫<strong>进程</strong>。<br/>
+        • <strong>进程 vs 线程：</strong><strong>进程是“资源分配盒子”</strong>（拥有独立的虚拟内存和打开文件表）；<strong>线程是盒子里真正上 CPU 跑代码的“执行流”</strong>（共享进程内存，独享自己的栈与寄存器）。<br/>
+        • <strong>PCB（Linux 里叫 <code>struct task_struct</code>）：</strong>内核在内存条里为每个进程/线程建立的<strong>「档案结构体」</strong>，记录它的 <code>PID</code>、状态、寄存器保存区、页表指针（<code>mm_struct</code>）和打开文件表（<code>files_struct</code>）。
+      </div>
+    </div>
+
+    <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:6px;">
+        ② 🗺️ 虚拟地址空间的「上下分半」与「用户栈 / 内核栈」
+      </div>
+      <div style="font-size:12.8px; line-height:1.6; color:var(--plop-ink-text);">
+        • <strong>低地址用户区（各进程私有）+ 高地址内核区（所有进程共享）：</strong>每个进程的虚拟地址空间分成上下两半——下半部分是<strong>用户空间</strong>（放进程自己的代码、全局变量、堆、栈，进程间完全隔离）；上半部分是<strong>内核空间</strong>（<strong>所有进程的页表高地址区都映射到同一个操作系统内核</strong>，普通用户态 Ring 3 禁止访问）。<br/>
+        • <strong>用户栈 vs 内核栈：</strong>平时跑用户代码用用户栈；一旦通过 <code>syscall</code> 进入内核态（Ring 0），CPU 会立刻把栈指针切换到该线程在内核区的<strong>专属内核栈（8KB/16KB）</strong>。
+      </div>
+    </div>
+
+    <div style="background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text); margin-bottom:6px;">
+        ③ 🧭 页表（Page Table）、<code>CR3</code> 寄存器与文件描述符 <code>fd</code>
+      </div>
+      <div style="font-size:12.8px; line-height:1.6; color:var(--plop-ink-text);">
+        • <strong>页表与 <code>CR3</code>：</strong>把虚拟内存和物理内存条按 <strong><code>4 KB</code>（一页）</strong>切块。每个进程有一张<strong>页表</strong>（存放在内存条里，记录 <code>虚拟页号 ➔ 物理页号 + 权限</code>）；CPU 里的 <strong><code>CR3</code> 寄存器</strong>存着当前进程页表的物理起始地址。<br/>
+        • <strong>文件描述符 <code>fd</code>：</strong>进程打开文件或 Socket，内核在内部登记状态后只返回一个非负整数编号 <strong><code>fd</code>（<code>0, 1, 2, 3...</code>）</strong>。
+      </div>
+    </div>
+  </div>
+
+  <!-- 极易混淆的三大缓存全维对比表：TLB vs CPU Cache vs Page Cache -->
+  <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:14px 16px; margin-top:12px; box-shadow:3px 4px 0 var(--plop-shadow);">
+    <div style="font-weight:900; font-size:14.2px; color:var(--plop-ink); margin-bottom:8px;">
+      ⚡ ④ 最容易搞混的「三大缓存」一次性分清：<code>TLB 快表</code> vs <code>CPU Cache (L1/L2/L3)</code> vs <code>内核 Page Cache</code>
+    </div>
+    <div class="table-wrap" style="margin:0;">
+      <table class="plop-table" style="margin:0;">
+        <thead>
+          <tr>
+            <th style="width:20%">缓存名称</th>
+            <th style="width:18%">物理位置在哪？</th>
+            <th style="width:14%">由谁管理？</th>
+            <th style="width:24%">里面到底缓存什么内容？</th>
+            <th>为了解决什么慢的问题？</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>① <code>TLB 快表</code></strong><br/>(地址翻译缓存)</td>
+            <td><strong>CPU 芯片内部</strong><br/>(MMU 单元里)</td>
+            <td>CPU 硬件自动查，<br/>换 <code>CR3</code> 时刷新</td>
+            <td>最近用过的<strong>「虚拟页号 ➔ 物理页帧号」地址映射关系</strong></td>
+            <td>因为<strong>页表本身放在内存条里</strong>，每次去内存条查 4 级页表太慢，用 TLB 省去查表访存。</td>
+          </tr>
+          <tr>
+            <td><strong>② <code>CPU Cache</code></strong><br/>(<code>L1 / L2 / L3</code>)</td>
+            <td><strong>CPU 芯片内部</strong></td>
+            <td>CPU 硬件全自动<br/>(按 <code>64B</code> 缓存行)</td>
+            <td>内存条里最近读写过的<strong>真实变量数值与机器指令</strong></td>
+            <td>因为<strong>内存条（~100ns）比 CPU（~0.3ns）慢上百倍</strong>，把热点变量缓存在 CPU 内部加速计算。</td>
+          </tr>
+          <tr>
+            <td><strong>③ <code>Page Cache</code></strong><br/>(内核文件页缓存)</td>
+            <td><strong>物理内存条 (DRAM)</strong><br/>(<code>free -h</code> 的 <code>buff/cache</code>)</td>
+            <td><strong>操作系统内核软件</strong><br/>(按 <code>4KB</code> 页管理)</td>
+            <td><strong>硬盘文件的数据块副本</strong>（读文件先读它，写文件先改它变脏页再异步刷盘）</td>
+            <td>因为<strong>硬盘（微秒/毫秒级）比内存条（纳秒级）慢上千倍</strong>，内核拿空闲内存条给硬盘做缓存。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 00.2 · 全景架构总图 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">❓ 00.2 · 把所有概念放回真实硬件位置：CPU 内部、内存条 DRAM、硬盘/网卡是怎么联动的？</div>
+  <h3>🗺️ 00.2 计算机硬件底座 × 操作系统内核 全局架构总图</h3>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:0 0 12px; line-height:1.55;">
+    顺着图中编号 <strong>① ➔ ② ➔ ③ ➔ ④</strong>，一眼看清：<strong>进程眼里的虚拟空间（左上）</strong>是怎么通过 <strong>CPU 内部的 MMU/TLB/Cache（右上）</strong>，映射到 <strong>物理内存条 DRAM（中间）</strong>，再通过 <strong>DMA 与硬盘/网卡（底部）</strong>完成数据交换的：
+  </p>
+
+  <div style="background:#FFFDF7; border:2.6px solid var(--plop-ink); border-radius:14px; padding:16px; box-shadow:3px 4px 0 var(--plop-shadow);">
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px; align-items:stretch;">
+      <div style="background:#FFFFFF; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-weight:900; font-size:13.8px; color:var(--plop-ink);">① 软件视角：进程的「虚拟地址空间」</span>
+          <span class="plop-tag periwinkle" style="font-size:10.5px;">OS 给每个进程画的独立视野</span>
+        </div>
+        <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:8px 10px; margin-bottom:8px;">
+          <div style="font-weight:900; font-size:12.5px; color:var(--plop-tomato);">
+            🔼 高地址半区：内核空间（Ring 0 · 所有进程共享同一份内核映射）
+          </div>
+          <div style="font-size:12px; color:var(--plop-ink-text); line-height:1.5; margin-top:3px;">
+            • 用户态代码不能直接访问，只能通过 <strong><code>syscall / 异常 / 中断</code></strong> 陷入进入<br/>
+            • 切换到当前线程专属的 <strong>内核栈（8KB/16KB）</strong> 执行内核代码
+          </div>
+        </div>
+        <div style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px;">
+          <div style="font-weight:900; font-size:12.5px; color:var(--plop-ink-text);">
+            🔽 低地址半区：用户空间（Ring 3 · 每个进程各自独立隔离）
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:6px; font-size:11.8px;">
+            <div style="background:#FFFFFF; border:1.4px solid var(--plop-ink); border-radius:6px; padding:5px 7px;">
+              <strong>各线程独享：</strong><br/>• 用户栈 <code>Stack</code>（局部变量）
+            </div>
+            <div style="background:#FFFFFF; border:1.4px solid var(--plop-ink); border-radius:6px; padding:5px 7px;">
+              <strong>同进程多线程共享：</strong><br/>• 堆 <code>Heap</code> · 全局数据 · 代码段 <code>Text</code> · 打开的 <code>fd</code>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">② 硬件核心：CPU 芯片内部（0.3 ~ 15 ns）</span>
+          <span class="plop-tag tomato" style="font-size:10.5px;">断电即空 · 极快</span>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:12px;">
+          <div style="background:#FFFFFF; border:1.6px solid var(--plop-ink); border-radius:8px; padding:7px 9px;">
+            <strong style="color:var(--plop-ink);">⚙️ 控制与运算核心</strong><br/>
+            • <code>CU + RIP</code>：取指、译码<br/>
+            • <code>ALU</code>：算术逻辑运算<br/>
+            • <strong>通用寄存器</strong>（<code>RAX/RSP...</code>）<br/>
+            • 特权级状态位 <code>CPL (Ring 0/3)</code>
+          </div>
+          <div style="background:#FFFFFF; border:1.6px solid var(--plop-ink); border-radius:8px; padding:7px 9px;">
+            <strong style="color:#D2381E;">⚡ CPU Cache (L1/L2/L3)</strong><br/>
+            • 按 <strong><code>64B 缓存行</code></strong> 缓存内存条里的热点变量与指令<br/>
+            • 弥补 CPU(<code>0.3ns</code>) 与内存条(<code>100ns</code>) 的百倍速度差
+          </div>
+        </div>
+        <div style="background:#FFFDF7; border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px 10px; margin-top:8px; font-size:12px;">
+          <strong style="color:#15803d;">🧭 地址翻译硬件：<code>CR3 寄存器</code> + <code>MMU</code> + <code>TLB 快表</code></strong><br/>
+          • <strong><code>CR3</code>：</strong>存当前进程页表在【内存条】里的起始物理地址（切进程 = 改 <code>CR3</code>）<br/>
+          • <strong><code>TLB 快表</code>：</strong>在 CPU 内缓存最近查过的「虚拟页 ➔ 物理页」映射；未命中时由 <code>MMU</code> 顺着 <code>CR3</code> 去下面内存条查页表
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center; font-family:var(--font-mono); font-size:12px; font-weight:900; color:var(--plop-ink); margin:8px 0; padding:4px; background:#F8FAFC; border:1.6px dashed var(--plop-ink); border-radius:8px;">
+      ▲▼ <strong>内存总线（~80 - 100 ns）</strong>：MMU 去内存查页表 · CPU Cache 按 64B 读写内存变量 ▲▼
+    </div>
+
+    <div style="background:#EEF2FF; border:2.4px solid var(--plop-ink); border-radius:12px; padding:12px 14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+        <span style="font-weight:900; font-size:14px; color:var(--plop-ink);">③ 物理内存条 DRAM（16GB ~ 128GB · 所有正在运行的程序和内核都住在这里）</span>
+        <span class="plop-tag" style="font-size:10.5px; background:#FFFFFF;">按 4KB 物理页帧划分 · 断电即空</span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; font-size:12.2px; line-height:1.55;">
+        <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 11px;">
+          <strong style="color:var(--plop-ink);">📦 A. 各进程的用户物理页</strong><br/>
+          • 存放进程 A、进程 B 真正加载进内存的<strong>代码机器码、全局变量、堆对象、用户栈数据</strong>。<br/>
+          • 进程 A 和 B 的页表指向不同的物理页，实现硬件级隔离（共享内存 IPC 则指向同一物理页）。
+        </div>
+        <div style="background:#FFFFFF; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:9px 11px;">
+          <strong style="color:var(--plop-tomato);">🗂️ B. 内核管理数据（页表 / PCB / 栈）</strong><br/>
+          • <strong>四级页表（Page Tables）：</strong><span style="text-decoration:underline;">页表本身住在内存条里！</span>由 <code>CR3</code> 指向它的根。<br/>
+          • <strong><code>PCB (task_struct)</code>：</strong>所有进程/线程的档案与调度红黑树。<br/>
+          • <strong>内核栈 &amp; 文件三张表（<code>struct file / inode</code>）</strong>。
+        </div>
+        <div style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 11px;">
+          <strong style="color:#15803d;">🚀 C. 内核 <code>Page Cache</code> 与 Socket 缓冲区</strong><br/>
+          • <strong><code>Page Cache</code>（页缓存）：</strong>内核用空闲内存条缓存<strong>硬盘文件的 4KB 数据块</strong>（<code>read</code> 优先读它，<code>write</code> 先改它变脏页再异步落盘）。<br/>
+          • <strong>Socket 缓冲区（<code>sk_buff</code>）：</strong>暂存网卡收发的网络包。
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center; font-family:var(--font-mono); font-size:12px; font-weight:900; color:#15803d; margin:8px 0; padding:4px; background:#F0FDF4; border:1.6px dashed #15803d; border-radius:8px;">
+      ▲▼ <strong>DMA 硬件直接搬运（无需 CPU 亲自逐字节拷贝）</strong>：搬完后向 CPU 发送<strong>「硬中断」</strong>通知内核 ▲▼
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+      <div style="background:#FFFFFF; border:2.2px solid var(--plop-ink); border-radius:11px; padding:10px 14px; font-size:12.4px; line-height:1.55;">
+        <strong style="font-size:13.4px; color:var(--plop-ink);">④-A 💽 外存硬盘（NVMe SSD `~50μs` / 机械 HDD `~8ms` · 永久保存）</strong><br/>
+        • <strong>存什么：</strong>未运行的程序文件（<code>./a.out</code>）、目录项与磁盘 <code>inode</code>、MySQL 表文件、日志、<strong>Swap 交换分区</strong>。<br/>
+        • <strong>怎么跟内存条联动：</strong>程序启动或触发缺页异常时，DMA 把磁盘块读入内存条的 <strong>Page Cache / 物理页</strong>；调 <code>fsync()</code> 或后台回写时，把内存脏页刷回硬盘。
+      </div>
+      <div style="background:#FFFFFF; border:2.2px solid var(--plop-ink); border-radius:11px; padding:10px 14px; font-size:12.4px; line-height:1.55;">
+        <strong style="font-size:13.4px; color:var(--plop-ink);">④-B 🌐 网卡（NIC · 外部网络通信接口）</strong><br/>
+        • <strong>怎么收包：</strong>网线收到数据包 ──▶ <strong>网卡 DMA</strong> 直接把包写进内存条的内核 RingBuffer ──▶ 触发<strong>硬中断（上半部）+ 软中断（下半部）</strong> ──▶ 唤醒阻塞在 <code>epoll_wait</code> 上的进程。<br/>
+        • <strong>怎么零拷贝发文件：</strong><code>sendfile</code> 直接让网卡 DMA 从内存条的 <strong>Page Cache</strong> 把文件数据发走，全程不经过用户态。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 00.3 · 按问题进入各章实现 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <h3>📚 00.3 原理篇章节速查地图（按你想深挖的问题直达）</h3>
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:62%">想深挖的底层机制问题</th>
+          <th>直达章节</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Ring 0/3</code>、<code>CR3 + 页表</code> 硬件隔离、系统调用 vs 上下文切换、中断上下半部</td>
+          <td><a href="#what"><strong>01 · 权限与系统调用 →</strong></a></td>
+        </tr>
+        <tr>
+          <td>进程虚拟内存布局对照 C 代码、<code>task_struct</code>、进程五态、<code>fork</code> 写时复制 COW</td>
+          <td><a href="#process"><strong>02 · 进程、线程与写时复制 →</strong></a></td>
+        </tr>
+        <tr>
+          <td><code>64B</code> 缓存行与伪共享、四级页表 <code>9+9+9+9+12</code> 推导、缺页异常、<code>malloc</code> 与 Buddy/Slab</td>
+          <td><a href="#hierarchy"><strong>03 · 虚拟内存与内存分配 →</strong></a></td>
+        </tr>
+        <tr>
+          <td>匿名/命名管道、共享内存（零拷贝最快 IPC）、消息队列、<code>Signal</code> 异步信号安全</td>
+          <td><a href="#pipe"><strong>04 · 进程间通信 IPC →</strong></a></td>
+        </tr>
+        <tr>
+          <td>并发三要素、<code>Mutex</code> vs 自旋锁、底层 <code>CAS</code> 与 <code>ABA</code>、Linux <code>futex</code>、死锁四条件</td>
+          <td><a href="#race"><strong>05 · 并发、锁与死锁 →</strong></a></td>
+        </tr>
+        <tr>
+          <td>五大经典调度算法（<code>MLFQ</code>）、Linux <code>CFS (vruntime + 红黑树)</code> 与 6.6+ <code>EEVDF</code></td>
+          <td><a href="#sched"><strong>06 · 处理器调度 →</strong></a></td>
+        </tr>
+        <tr>
+          <td><code>dentry / inode / fd 三张表</code>、<code>Page Cache</code> 与 <code>fsync</code>、五种 I/O 模型、<code>epoll</code>、零拷贝</td>
+          <td><a href="#fs"><strong>07 · 文件系统与高性能读写 →</strong></a></td>
+        </tr>
+        <tr>
+          <td><code>./a.out</code> 启动到退出 6 步内核全链路、线上 CPU/内存/IO 排障 SOP 与闭卷自测</td>
+          <td><a href="#link"><strong>08 · 全链路串联与排查 SOP →</strong></a></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

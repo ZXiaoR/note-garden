@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="操作系统原理篇：Linux 的权限与系统调用、进程线程、虚拟内存、并发调度、文件读写与性能排查。基础概念见独立的基础入门篇。" />
+  <title>操作系统 · 原理篇 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
+</head>
+<body class="os-primer">
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+      </div>
+      <nav class="plop-edition-switch" aria-label="切换入门篇与原理篇" style="margin-left:6px;">
+        <a href="index.html" data-edition-target="index.html" title="切换到当前章节的通俗直觉导读与入门例子">🌱 基础入门篇 ↗</a>
+        <a href="principles.html" class="active principles" aria-current="page" title="深入 Linux 内核数据结构图解、源码机制与线上排障">📘 核心原理篇</a>
+      </nav>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + Linux 速查小票 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与参数速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="操作系统章节书签">
+          <a href="#why" class="plop-ear-tab active" data-toc="why">
+            <span class="ear-dot"></span>
+            <span>00 阅读地图</span>
+          </a>
+          <a href="#what" class="plop-ear-tab" data-toc="what">
+            <span class="ear-dot mustard"></span>
+            <span>01 权限与系统调用</span>
+          </a>
+          <a href="#process" class="plop-ear-tab" data-toc="process">
+            <span class="ear-dot mint"></span>
+            <span>02 进程、线程与写时复制</span>
+          </a>
+          <a href="#hierarchy" class="plop-ear-tab" data-toc="hierarchy">
+            <span class="ear-dot periwinkle"></span>
+            <span>03 虚拟内存与分配</span>
+          </a>
+          <a href="#pipe" class="plop-ear-tab" data-toc="pipe">
+            <span class="ear-dot mustard"></span>
+            <span>04 进程间通信</span>
+          </a>
+          <a href="#race" class="plop-ear-tab" data-toc="race">
+            <span class="ear-dot pink"></span>
+            <span>05 锁与并发</span>
+          </a>
+          <a href="#sched" class="plop-ear-tab" data-toc="sched">
+            <span class="ear-dot mint"></span>
+            <span>06 处理器调度</span>
+          </a>
+          <a href="#fs" class="plop-ear-tab" data-toc="fs">
+            <span class="ear-dot periwinkle"></span>
+            <span>07 文件与高性能读写</span>
+          </a>
+          <a href="#link" class="plop-ear-tab" data-toc="link">
+            <span class="ear-dot mustard"></span>
+            <span>08 运行、排查与自测</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：Linux 内核关键数值与边界速查 -->
+        <div class="plop-side-ticket tilt-right">
+<div class="plop-side-ticket-head"><span>卡住时，先问这四句</span><span>阅读书签</span></div>
+<div class="plop-side-ticket-row"><span>谁在做事？</span><span>进程与线程</span></div>
+<div class="plop-side-ticket-row"><span>数据在哪？</span><span>内存与文件</span></div>
+<div class="plop-side-ticket-row"><span>在等什么？</span><span>条件还是处理器</span></div>
+<div class="plop-side-ticket-row"><span>能一起修改吗？</span><span>共享与保护</span></div>
+</div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#why" class="active">00 阅读地图</a>
+        <a href="#what">01 权限与系统调用</a>
+        <a href="#process">02 进程、线程与写时复制</a>
+        <a href="#hierarchy">03 虚拟内存与分配</a>
+        <a href="#pipe">04 进程间通信</a>
+        <a href="#race">05 锁与并发</a>
+        <a href="#sched">06 处理器调度</a>
+        <a href="#fs">07 文件与高性能读写</a>
+        <a href="#link">08 运行、排查与自测</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape"></div>
+
+        <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三遍读法车票 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card mint">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">操作系统 · 原理手账</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:34px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">Linux OS</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">按主题查阅实现</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag tomato">权限与执行流 · 内存管理</span>
+              <span class="plop-tag mint">进程间通信 · 并发与调度</span>
+              <span class="plop-tag periwinkle">文件系统 · 网络读写 · 性能排查</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              操作系统 · 原理篇
+            </h1>
+            <p>在理解程序运行过程的基础上，进一步追问 Linux 怎样管理权限、执行流、内存与文件。按问题进入小节，结合图解、代码和实际排查理解实现与取舍。</p>
+
+            <!-- 三遍读法手账小票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#why" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 权限、执行流与内存</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 01—03：系统调用、进程切换、地址翻译与内存分配</div>
+              </a>
+              <a href="#pipe" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 通信、同步与调度</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 04—06：通信方式、锁与条件等待、处理器份额分配</div>
+              </a>
+              <a href="#fs" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 文件读写与实际排查</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 07—08：文件对象、缓存、连接等待、性能证据与自测</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <!-- ====================================================================
+             9 个章节纯 HTML 子模块（由 assets/plop-garden.js 自动并行加载拼装）
+             平时修改某个章节，直接编辑 os/sections/ 下的对应小文件即可；
+             每个挂载点内预置静态章节摘要与直达链接，兼顾搜索引擎、阅读器、AI 抓取与无 JS 环境可达性
+             ==================================================================== -->
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 9 个章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="principles-sections/00-why.html"><section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;"><h2><a href="principles-sections/00-why.html">00 · 阅读地图：从理解过程到理解实现</a></h2><p>按主题阅读具体机制、代码图解与实现边界。</p></section></div>
+<div data-plop-section="principles-sections/01-privilege.html"><section class="wb-card" id="what" style="background:var(--plop-paper); margin-bottom:14px;"><h2><a href="principles-sections/01-privilege.html">01 · 权限与系统调用</a></h2><p>按主题阅读具体机制、代码图解与实现边界。</p></section></div>
+<div data-plop-section="principles-sections/02-process.html"><section class="wb-card" id="process" style="background:var(--plop-paper); margin-bottom:14px;"><h2><a href="principles-sections/02-process.html">02 · 进程、线程与写时复制</a></h2><p>按主题阅读具体机制、代码图解与实现边界。</p></section></div>
+<div data-plop-section="principles-sections/03-memory.html"><section class="wb-card" id="hierarchy" style="background:var(--plop-paper); margin-bottom:14px;"><h2><a href="principles-sections/03-memory.html">03 · 虚拟内存与内存分配</a></h2><p>按主题阅读具体机制、代码图解与实现边界。</p></section></div>
+<div data-plop-section="principles-sections/04-ipc.html"><section class="wb-card" id="pipe" style="background:var(--plop-paper); margin-bottom:14px;"><h2><a href="principles-sections/04-ipc.html">04 · 进程间通信</a></h2><p>按主题阅读具体机制、代码图解与实现边界。</p></section></div>
+<div data-plop-section="principles-sections/05-sync.html"><section class="wb-card" id="race" style="background:var(--plop-paper); margin-bottom:14px;"><h2><a href="principles-sections/05-sync.html">05 · 并发、锁与死锁</a></h2><p>按主题阅读具体机制、代码图解与实现边界。</p></section></div>
+<div data-plop-section="principles-sections/06-sched.html"><section class="wb-card" id="sched" style="background:var(--plop-paper); margin-bottom:14px;"><h2><a href="principles-sections/06-sched.html">06 · 处理器调度</a></h2><p>按主题阅读具体机制、代码图解与实现边界。</p></section></div>
+<div data-plop-section="principles-sections/07-io.html"><section class="wb-card" id="fs" style="background:var(--plop-paper); margin-bottom:14px;"><h2><a href="principles-sections/07-io.html">07 · 文件系统与高性能读写</a></h2><p>按主题阅读具体机制、代码图解与实现边界。</p></section></div>
+<div data-plop-section="principles-sections/08-lifecycle.html"><section class="wb-card" id="link" style="background:var(--plop-paper); margin-bottom:14px;"><h2><a href="principles-sections/08-lifecycle.html">08 · 运行链路、排查与自测</a></h2><p>按主题阅读具体机制、代码图解与实现边界。</p></section></div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：Linux 排障命令速拷贴 + 跨专题切换耳标 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 毛线帽吉祥物 + 快捷复制 Linux 排障命令便签 -->
+        <div class="plop-sticky-note mint tilt-right"><div class="plop-pin"></div>
+<div class="sticky-title"><span>🌱 按现在的需要读</span></div>
+<div style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+<a class="plop-pill-sticker" href="index.html#foundation-code">代码和变量还不熟？</a>
+<a class="plop-pill-sticker periwinkle" href="index.html#foundation-address">地址、指针总混淆？</a>
+<a class="plop-pill-sticker mustard" href="index.html#linux-cmd">第一次打开终端？</a>
+<a class="plop-pill-sticker" href="#cheat">查看进阶自测题</a>
+</div></div>
+
+        <!-- 2. 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>

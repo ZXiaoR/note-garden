@@ -295,29 +295,36 @@
 
           <!-- 进阶图解 2（大字号手账卡片版） -->
           <details class="plop-drawer" open>
-            <summary>🔍 进阶图解 ② · 三条管理链表、5:3 冷热分区 LRU（防全表扫描污染）与 Change Buffer</summary>
+            <summary>🔍 进阶图解 ② · 为什么需要三条管理链表？5:3 冷热分区 LRU 与 Change Buffer</summary>
             <div class="drawer-body">
               <p>
-                Buffer Pool 内部靠<strong>三条链表</strong>管理页帧，并用<strong>改进版 5:3 冷热分区 LRU</strong> 防止一次全表大扫描把热点页全挤走，同时用 <strong>Change Buffer</strong> 优化非唯一二级索引的写入：
+                <strong>🤔 为什么 Buffer Pool 内部需要维护“三条链表”？</strong><br/>
+                假设 Buffer Pool 分配了 <code>16 GiB</code> 内存，按每页 <code>16 KiB</code> 切分，里面共有 <strong>100 多万个内存页帧（格子）</strong>。在日常运行中，InnoDB 随时要处理下面<strong>三个高频问题</strong>——如果不靠链表把同类页串起来，每次都去挨个遍历这 100 万个格子（<code>O(N)</code>），CPU 开销根本无法承受：
               </p>
 
               <!-- 图 A：三条管理链表 + 5:3 冷热分区 LRU -->
               <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin:10px 0;">
                 <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:10px;">
-                  🌡️ 图 A：Buffer Pool 三条管理链表 &amp; 5:3 冷热分区 LRU（Midpoint 插入防全表扫描冲刷）
+                  🌡️ 图 A：三个管理问题 ──▶ 对应 Buffer Pool 三条管理链表 &amp; 5:3 冷热分区 LRU
                 </div>
 
                 <!-- 三条链表卡片 -->
                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:8px; margin-bottom:12px;">
                   <div style="background:#F8FAFC; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:800;">
-                    <strong>① Free List（空闲链表）</strong>：刚启动或淘汰后，用来快速找空闲页帧。
+                    <div style="color:var(--plop-ink-soft); font-size:12px; margin-bottom:2px;">❓ 问题 1：从磁盘读新页时，<strong>哪个页帧是空的？</strong></div>
+                    <strong>① Free List（空闲链表）</strong>：把所有空闲页帧串起来，需要空位时直接从链表头取用（<code>O(1)</code>），用完即从 Free 摘除。
                   </div>
                   <div style="background:#FFFBEB; border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:800;">
-                    <strong>② LRU List（冷热淘汰链表）</strong>：按访问热度排序，内存满时淘汰冷页。
+                    <div style="color:var(--plop-ink-soft); font-size:12px; margin-bottom:2px;">❓ 问题 2：空位用光了，<strong>该淘汰哪个不常用的旧页？</strong></div>
+                    <strong>② LRU List（冷热淘汰链表）</strong>：把所有已存数据的页（无论干净或脏）按访问热度排序，内存满时直接淘汰链表尾部冷页。
                   </div>
                   <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:8px 10px; font-size:13px; font-weight:800; color:var(--plop-tomato);">
-                    <strong>③ Flush List（脏页链表）</strong>：专门挂载已修改的脏页，供后台按 LSN 刷盘。
+                    <div style="color:var(--plop-ink-text); font-size:12px; margin-bottom:2px;">❓ 问题 3：后台刷盘时，<strong>哪些页被改过需要写回磁盘？</strong></div>
+                    <strong>③ Flush List（脏页链表）</strong>：把被修改过的脏页按第一次变脏的 LSN 顺序串起来，后台不用遍历全池，直接按序刷盘推进 Checkpoint。
                   </div>
+                </div>
+                <div style="margin-bottom:10px; padding:6px 10px; background:#F1F5F9; border-radius:7px; font-size:12.5px; font-weight:800; color:var(--plop-ink-text);">
+                  🔗 <strong>一个页在三条链表里的流转关系：</strong> 刚启动全在 <code>Free List</code> ──▶ 读入数据后移入 <code>LRU List</code>（干净页）──▶ 一旦被 <code>UPDATE</code> 修改，它<strong>既留在 <code>LRU List</code> 参与热度排名，又同时挂入 <code>Flush List</code> 等待刷盘</strong>（刷盘变干净后从 Flush 摘除，淘汰后归还 Free）。
                 </div>
 
                 <!-- 5:3 冷热分区条 -->
@@ -340,8 +347,11 @@
                     </div>
                   </div>
                 </div>
-                <div style="margin-top:8px; font-size:13px; font-weight:800; color:var(--plop-ink-text);">
-                  💡 <strong>为什么全表扫描不会冲掉热缓存？</strong> 因为新读入的页不会直接插到链表最左边（Young 头），而是插在 5:3 交界的 <strong>Midpoint（Old 区头部）</strong>；必须在 Old 区存活满 <code>1 秒（innodb_old_blocks_time=1000）</code> 后又被访问，才有资格晋升到 Young 热区！
+                <div style="margin-top:8px; font-size:13px; font-weight:800; color:var(--plop-ink-text); line-height:1.65;">
+                  💡 <strong>为什么要把 <code>LRU List</code> 分成 Young (5/8) 和 Old (3/8) 两部分？为了解决普通 LRU 的两个缺陷：</strong><br/>
+                  • <strong>缺陷 ①（预读失效与全表扫描污染）：</strong>普通 LRU 会把刚读进内存的新页直接放到<strong>链表最头部</strong>。如果执行了一次 <code>SELECT * FROM 大表</code>（全表扫描），或者预读了相邻页但实际并未访问，这批只用一次的冷页就会插到最前面，把原本高频使用的<strong>真热点页从尾部挤出内存</strong>。<br/>
+                  • <strong>改进 ①（5:3 冷热隔离）：</strong>把链表分为 <code>Young 热区</code> 和 <code>Old 冷区</code>，新从磁盘读入的页<strong>不能直接进 Young 区</strong>，只能先插在交界处的 <code>Midpoint</code>（Old 区头部）。如果后续不再被访问，它就只会在后 3/8 的 Old 区内向尾部移动并被淘汰，<strong>前 5/8 的 Young 热区不受影响</strong>。<br/>
+                  • <strong>缺陷 ② 与改进 ②（为什么要加 <code>1 秒</code> 驻留时间限制？）：</strong>全表扫描读取一个 16KiB 数据页时，页内包含几百行记录，执行器依次读取这几百行，相当于在<strong>几毫秒内连续访问了该页几百次</strong>。如果规则是“访问第 2 次就升入 Young 区”，全表扫描依然会把 Young 区冲掉。因此 InnoDB 规定：页必须在 Old 区<strong>驻留满 <code>1 秒</code>（<code>innodb_old_blocks_time=1000</code>）后</strong>再次被访问，才算真正的热点页，允许晋升到 Young 热区。
                 </div>
               </div>
 

@@ -237,6 +237,17 @@
       document.querySelectorAll('.plop-mobile-toc a').forEach(a => {
         a.classList.toggle('active', a.getAttribute('href') === '#' + currentId);
       });
+
+      // 同步「入门篇 ⇄ 原理篇」切换按钮的当前章节锚点，实现“读到哪一章，切过去就是哪一章”
+      document.querySelectorAll('[data-edition-target]').forEach(a => {
+        const base = a.getAttribute('data-edition-target');
+        if (!base) return;
+        let targetHash = currentId;
+        if (base.includes('principles.html') && currentId === 'linux-cmd') {
+          targetHash = 'tools';
+        }
+        a.setAttribute('href', currentId && currentId !== 'why' ? `${base}#${targetHash}` : base);
+      });
     }
 
     refreshScrollSpy = onScroll;
@@ -253,7 +264,7 @@
       const fragments = await Promise.all(
         slots.map(async slot => {
           const url = slot.getAttribute('data-plop-section');
-          const res = await fetch(url);
+          const res = await fetch(url, { cache: 'no-cache' });
           if (!res.ok) throw new Error(`HTTP ${res.status} when loading ${url}`);
           return await res.text();
         })

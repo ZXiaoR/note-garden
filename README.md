@@ -15,7 +15,8 @@
 | [🐘 PostgreSQL](postgres/index.html) | ✅ 已完成 | 进程架构 · 数据类型与 SQL · MVCC · 锁 · 索引(GIN/BRIN) · EXPLAIN · VACUUM 与表膨胀 |
 | [🧱 Redis](redis/index.html) | ✅ 已完成 | 为什么快/单线程 · 数据结构(底层编码/阈值) · 缓存三大问题 · 持久化(RDB/AOF) · 过期淘汰 · 主从/哨兵/集群 · 分布式锁 |
 | [🐹 Go](go/index.html) | ✅ 已完成 | 基础语法/包管理 · 协程与 GMP 调度 · channel · 锁与同步 · GC(三色标记/写屏障/逃逸分析) · context/泛型/性能优化 |
-| [🖥️ 操作系统](os/index.html) | ✅ 已完成 | 用户态/内核态 · 进程线程/上下文切换 · 虚拟内存/分页 · IPC · 并发同步/死锁 · CFS 调度 · 文件系统/epoll/零拷贝 |
+| [🌱 操作系统 · 基础入门篇](os/index.html) | ✅ 已完成 | 指令/变量/地址 · 程序运行与等待 · 进程线程 · 内存 · 多任务协作 · Linux 终端与文件操作 |
+| [🖥️ 操作系统 · 原理篇](os/principles.html) | ✅ 已完成 | 系统调用 · 进程切换与写时复制 · 页表与分配器 · 进程间通信 · 锁与调度 · 文件系统/epoll/零拷贝 · 性能排查 |
 | [📨 消息队列](mq/index.html) | ✅ 已完成 | 解耦/异步/削峰 · 核心模型 · Kafka / RocketMQ / RabbitMQ 对比 · 不丢/不重/有序/堆积 · 顺序写/页缓存/零拷贝/ISR |
 | [🌐 浏览器](browser/index.html) | 🚧 建设中 | 渲染流程 · 事件循环 · 跨域 · 缓存 · 性能优化 |
 

@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="从第一性原理理解 Linux 操作系统：用户态与内核态、进程/线程/协程与写时复制 COW、虚拟内存与四级页表/TLB/Buddy/Slab、六大 IPC、并发锁/Futex/CAS 与死锁防治、CFS/EEVDF 调度、VFS/inode/Page Cache/epoll/零拷贝与线上性能排查 SOP。" />
-  <title>操作系统：从硬件虚拟化，到 Linux 内核并发与高性能 I/O · note-garden 技术知识花园</title>
+  <meta name="description" content="从一个读取文件的小程序出发理解 Linux 操作系统：进程与线程、用户态与内核态、虚拟内存、并发调度、文件读写与性能排查。" />
+  <title>操作系统 · 基础入门篇 · note-garden 技术知识花园</title>
   <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
   <link rel="stylesheet" href="../assets/plop-garden.css" />
   <script src="../assets/plop-garden.js"></script>
   <script defer src="../assets/analytics.js"></script>
 </head>
-<body>
+<body class="os-primer">
 
   <!-- ==========================================================================
        顶部固定导航与手账桌面材质切换栏
@@ -23,8 +23,11 @@
       <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
         <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
         <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
-        <span class="plop-tag mint">🖥️ LINUX 5.x / 6.x 内核全览</span>
       </div>
+      <nav class="plop-edition-switch" aria-label="切换入门篇与原理篇" style="margin-left:6px;">
+        <a href="index.html" class="active" aria-current="page" title="零基础顺读：从硬件底座与小程序运行过程讲起">🌱 基础入门篇</a>
+        <a href="principles.html" data-edition-target="principles.html" title="切换到当前章节的底层原理、数据结构图解与排障">📘 核心原理篇 ↗</a>
+      </nav>
     </div>
 
     <div class="console-group">
@@ -61,73 +64,54 @@
         <nav class="plop-index-tabs" id="toc-tabs" aria-label="操作系统章节书签">
           <a href="#why" class="plop-ear-tab active" data-toc="why">
             <span class="ear-dot"></span>
-            <span>00 第一性原理导读</span>
+            <span>00 指令、数据、地址与等待</span>
           </a>
           <a href="#what" class="plop-ear-tab" data-toc="what">
             <span class="ear-dot mustard"></span>
-            <span>01 特权态与系统调用</span>
+            <span>01 为什么请内核代办</span>
           </a>
           <a href="#process" class="plop-ear-tab" data-toc="process">
             <span class="ear-dot mint"></span>
-            <span>02 进程、线程与COW</span>
+            <span>02 程序怎样运行</span>
           </a>
           <a href="#hierarchy" class="plop-ear-tab" data-toc="hierarchy">
             <span class="ear-dot periwinkle"></span>
-            <span>03 虚拟内存与页表</span>
+            <span>03 数据放在哪里</span>
           </a>
           <a href="#pipe" class="plop-ear-tab" data-toc="pipe">
             <span class="ear-dot mustard"></span>
-            <span>04 进程间通信 IPC</span>
+            <span>04 任务怎样传数据</span>
           </a>
           <a href="#race" class="plop-ear-tab" data-toc="race">
             <span class="ear-dot pink"></span>
-            <span>05 并发同步与死锁</span>
+            <span>05 共享数据怎样保护</span>
           </a>
           <a href="#sched" class="plop-ear-tab" data-toc="sched">
             <span class="ear-dot mint"></span>
-            <span>06 CPU调度与CFS</span>
+            <span>06 处理器交给谁</span>
           </a>
           <a href="#fs" class="plop-ear-tab" data-toc="fs">
             <span class="ear-dot periwinkle"></span>
-            <span>07 文件、epoll与零拷贝</span>
+            <span>07 文件读写与等待</span>
           </a>
           <a href="#linux-cmd" class="plop-ear-tab" data-toc="linux-cmd">
             <span class="ear-dot tomato"></span>
-            <span>08 Linux 常用命令实战</span>
+            <span>08 Linux 第一次上手</span>
           </a>
           <a href="#link" class="plop-ear-tab" data-toc="link">
             <span class="ear-dot mustard"></span>
-            <span>09 串联、排查与自测</span>
+            <span>09 串起过程，检查理解</span>
           </a>
         </nav>
 
         <!-- 3. 打孔小票贴纸：Linux 内核关键数值与边界速查 -->
         <div class="plop-side-ticket tilt-right">
-          <div class="plop-side-ticket-head">
-            <span>LINUX 黄金数值</span>
-            <span>#x86-64</span>
-          </div>
-          <div class="plop-side-ticket-row">
-            <span>CPU 缓存行</span>
-            <span>64 Bytes</span>
-          </div>
-          <div class="plop-side-ticket-row">
-            <span>默认页 / 大页</span>
-            <span>4 KB / 2 MB</span>
-          </div>
-          <div class="plop-side-ticket-row">
-            <span>四级页表切分</span>
-            <span>9+9+9+9+12 (48b)</span>
-          </div>
-          <div class="plop-side-ticket-row">
-            <span>malloc 初始阈值</span>
-            <span>128KB (动态至32MB)</span>
-          </div>
-          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
-            <span>sendfile+DMA</span>
-            <span>2切换 + 0 CPU拷贝</span>
-          </div>
-        </div>
+<div class="plop-side-ticket-head"><span>卡住时，先问这四句</span><span>阅读书签</span></div>
+<div class="plop-side-ticket-row"><span>谁在做事？</span><span>进程与线程</span></div>
+<div class="plop-side-ticket-row"><span>数据在哪？</span><span>内存与文件</span></div>
+<div class="plop-side-ticket-row"><span>在等什么？</span><span>条件还是处理器</span></div>
+<div class="plop-side-ticket-row"><span>能一起修改吗？</span><span>共享与保护</span></div>
+</div>
       </div>
     </aside>
 
@@ -135,16 +119,16 @@
     <main class="plop-workbench" id="content">
       <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
       <nav class="plop-mobile-toc" aria-label="章节快速跳转">
-        <a href="#why" class="active">00 第一性原理</a>
-        <a href="#what">01 特权与中断</a>
-        <a href="#process">02 进程与线程</a>
-        <a href="#hierarchy">03 虚拟内存</a>
-        <a href="#pipe">04 IPC通信</a>
-        <a href="#race">05 并发与死锁</a>
-        <a href="#sched">06 CFS调度</a>
-        <a href="#fs">07 epoll与零拷贝</a>
-        <a href="#linux-cmd">08 Linux命令</a>
-        <a href="#link">09 排查与自测</a>
+        <a href="#why" class="active">00 先补基础</a>
+        <a href="#what">01 内核代办</a>
+        <a href="#process">02 程序运行</a>
+        <a href="#hierarchy">03 数据与地址</a>
+        <a href="#pipe">04 传递数据</a>
+        <a href="#race">05 保护数据</a>
+        <a href="#sched">06 轮流执行</a>
+        <a href="#fs">07 读写与等待</a>
+        <a href="#linux-cmd">08 Linux入门</a>
+        <a href="#link">09 检查理解</a>
       </nav>
 
       <div class="wb-sheet plop-journal-book">
@@ -156,120 +140,118 @@
         <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三遍读法车票 -->
         <header class="wb-masthead">
           <div class="wb-card wb-date-card mint">
-            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">SYSTEMS / 04</span>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">操作系统 · 入门手账</span>
             <div style="font-family:var(--font-head); font-style:italic; font-size:34px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">Linux OS</div>
-            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">KERNEL 5.x · 6.x</span>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">先理解，再记术语</span>
           </div>
 
           <div class="wb-masthead-main">
             <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
-              <span class="plop-tag tomato">VIRTUALIZATION · CONCURRENCY · PERSISTENCE</span>
-              <span class="plop-tag mint">TASK_STRUCT · 4-LEVEL PAGE TABLE · CFS</span>
-              <span class="plop-tag periwinkle">FUTEX · PAGE CACHE · EPOLL · ZERO-COPY</span>
+              <span class="plop-tag tomato">程序怎么执行 · 数据放在哪里</span>
+              <span class="plop-tag mint">为什么要等待 · 多个任务怎样合作</span>
+              <span class="plop-tag periwinkle">中文主线 · 例子贯穿 · 按需深入</span>
             </div>
             <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
-              操作系统：从硬件虚拟化，到 Linux 内核并发与高性能 I/O
+              操作系统 · 基础入门篇
             </h1>
-            <p style="font-size:14.8px; color:var(--plop-ink-soft); margin:0; font-weight:600;">
-              从第一性原理出发：如果程序直接跑在裸机硬件上会撞上哪三座大山？顺着「OS 特权级与中断 → 进程/线程/协程与写时复制 → 存储金字塔与虚拟内存页表 → 进程间通信 → 并发锁/Futex/死锁 → CFS 调度 → 文件系统/Page Cache/epoll/零拷贝」一条问题链推导到底，打通 MySQL、Redis、Kafka、Go 背后的全部系统底座。
-            </p>
+            <p>从“代码怎么执行、变量是什么、地址有什么用”讲起。跟着一个字数统计程序，逐步理解启动、内存、读写和等待，再看多个任务如何合作。正文用中文讲过程，遇到实现层面的追问，再到独立的原理篇按主题阅读。</p>
 
             <!-- 三遍读法手账小票卡片 -->
             <div class="wb-kpi-grid">
-              <a href="#what" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 第一遍：立住虚拟化</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 00—03：搞懂 Ring0/3、进程/线程/协程、COW、四级页表与 TLB</div>
+              <a href="#why" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 先理解一个程序</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—03：从代码和变量开始，理解运行、权限与内存</div>
               </a>
               <a href="#pipe" class="plop-ticket-kpi" style="background:var(--plop-mint);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 第二遍：攻克并发调度</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 04—06：吃透共享内存 IPC、Mutex/自旋锁/Futex、死锁防治与 CFS</div>
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 再理解多个任务</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 04—06：用传结果、加一和等待，理解任务之间的配合</div>
               </a>
               <a href="#fs" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 第三遍：打通 I/O 与命令排障</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 07—09：掌握 inode 三张表、Page Cache、epoll、零拷贝、Linux 常用命令与线上排障</div>
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 亲手练习，解释原因</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 07—09：读写与等待、终端上手，再用五个问题自测</div>
               </a>
             </div>
           </div>
         </header>
 
         <!-- ====================================================================
-             9 大章节纯 HTML 子模块（由 assets/plop-garden.js 自动并行加载拼装）
+             10 个章节纯 HTML 子模块（由 assets/plop-garden.js 自动并行加载拼装）
              平时修改某个章节，直接编辑 os/sections/ 下的对应小文件即可；
              每个挂载点内预置静态章节摘要与直达链接，兼顾搜索引擎、阅读器、AI 抓取与无 JS 环境可达性
              ==================================================================== -->
         <noscript>
           <div class="plop-callout warn" style="margin:14px 0;">
-            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 9 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 10 个章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
           </div>
         </noscript>
 
         <div data-plop-section="sections/00-why.html">
           <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 第一性原理导读：为什么要学操作系统？入门懂什么、进阶在解决什么？</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">从裸机运行程序的三大困境（CPU 独占失控、物理内存互踩与不足、慢速 I/O 阻塞 CPU）出发，推导操作系统「进程/线程虚拟化、虚拟内存页表、文件与多路复用 I/O、并发同步与 IPC」四大主线。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 先补基础：指令、数据、地址与等待</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">先分清代码与数据、变量与地址、运行与等待。不需要先学完 C 语言或记住英文缩写。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/01-privilege.html">
           <section class="wb-card" id="what" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-privilege.html">01 · 特权与入口：OS 在管什么、用户态 Ring 3 / 内核态 Ring 0、syscall 与中断上下半部</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖宏内核 vs 微内核、Ring 3 进入 Ring 0 的唯一三条路径（系统调用 <code>syscall</code>、异常 <code>Exception</code>、外部硬件中断 <code>Interrupt</code>）、模式切换 vs 上下文切换、<code>vDSO</code> 零陷入机制，以及 Linux 硬中断上半部与软中断下半部（<code>softirq</code> / <code>tasklet</code> / <code>workqueue</code>）。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-privilege.html">01 · 为什么要请内核代办：权限、请求与通知</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">从读取文字文件出发，理解为什么要检查权限，内核如何处理请求，以及设备怎样报告进展。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/02-process.html">
           <section class="wb-card" id="process" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-process.html">02 · 执行实体：进程与 PCB (<code>task_struct</code>)、状态转换 (<code>R/S/D/Z/T</code>)、线程与协程、写时复制 COW</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖 64 位虚拟地址空间布局与 KPTI 页表隔离、僵尸进程 <code>Z</code> 与不可中断睡眠 <code>D</code>（含 <code>TASK_KILLABLE</code>）排查、进程 vs 内核线程 vs 用户态协程三维对比、跨进程切换刷 TLB 成本，以及 <code>fork()</code> 写时复制（COW）与透明大页 THP 在 Redis RDB 下的延迟影响。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-process.html">02 · 程序怎样运行：进程、线程与执行进度</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">同一个程序运行两次，各自保存资源与进度；再区分同进程里的多条执行路线。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/03-memory.html">
           <section class="wb-card" id="hierarchy" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-memory.html">03 · 内存管理：存储层次与 64B 缓存行伪共享、虚拟内存、x86-64 四级页表与 TLB、缺页置换与 Buddy/Slab/malloc</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖存储金字塔延迟、64B Cache Line 伪共享与 MESI、分段 vs 分页、48 位地址 <code>9+9+9+9+12</code> 四级页表与 TLB 快表、延迟分配（Lazy Allocation）与次缺页/主缺页、Linux 双链表 LRU，以及内核 Buddy/Slub 与用户态 <code>malloc</code>（初始 <code>128KB</code> 动态至 <code>32MB</code> 的 <code>brk/mmap</code> 阈值）和 <code>VIRT/RES/PSS/OOM</code>。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-memory.html">03 · 数据放在哪里：地址翻译与按需分配</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">地址怎样对应到物理内存，为什么申请可用范围不等于立即占满物理内存，指针与内容如何区分。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/04-ipc.html">
           <section class="wb-card" id="pipe" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-ipc.html">04 · 进程间通信 IPC：匿名管道 Pipe、命名管道 FIFO、消息队列、共享内存、信号量、Signal 与 Socket</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖内核中转 IPC（2 次拷贝）与共享内存（0 次内核拷贝，最快 IPC）对比、<code>eventfd/timerfd/signalfd</code>、<code>SIGTERM(15)</code> 优雅退出 vs <code>SIGKILL(9)</code> 强制终止、<code>SIGPIPE</code> 防护、信号处理函数异步信号安全铁律，以及 Unix Domain Socket（<code>SCM_RIGHTS</code> 传递 fd）。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-ipc.html">04 · 任务怎样传数据：通道、共享与通知</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">用两个任务交接统计结果的例子，区分连续传内容、按条传消息、共同访问与发送通知。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/05-sync.html">
           <section class="wb-card" id="race" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-sync.html">05 · 并发与同步：竞态与并发三要素、Mutex / 自旋锁 / 条件变量、CAS 与 ABA、Linux <code>futex</code> 与死锁防治</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖原子性/可见性/有序性、互斥锁 vs 自旋锁适用边界、<code>pthread_cond_wait</code> 用 <code>while</code> 防虚假唤醒、硬件 <code>CAS</code> 与版本号解 ABA、Linux <code>futex</code> 用户态快路径、生产者消费者信号量顺序，以及死锁四大必要条件、固定加锁顺序破环与优先级反转（优先级继承）。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-sync.html">05 · 共享数据怎样保护：加一、加锁与条件等待</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">先展示两个线程加一却覆盖结果的过程，再引入锁、条件等待和固定加锁顺序。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/06-sched.html">
           <section class="wb-card" id="sched" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-sched.html">06 · CPU 调度：周转时间 vs 响应时间、抢占时机 (<code>TIF_NEED_RESCHED</code>)、MLFQ、Linux CFS 与 EEVDF</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖 FCFS / SJF / Priority / RR / 多级反馈队列（MLFQ）演进、Linux CFS 权重归一化虚拟运行时间 <code>vruntime</code> 与红黑树 <code>rb_root_cached</code> $O(1)$ 取最左节点、<code>min_vruntime</code> 睡眠补偿、Linux 6.6+ EEVDF 虚拟截止时间调度，以及 K8s 容器 cgroup v2 <code>cpu.max</code> 限流与 Go 1.25+ 原生容器配额感知。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-sched.html">06 · 处理器交给谁：轮流执行与公平</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">跟着任务等待、唤醒与继续执行的时间线，理解响应、效率、公平和调度。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/07-io.html">
           <section class="wb-card" id="fs" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/07-io.html">07 · 文件与高性能 I/O：VFS / inode / 内核三张表、Page Cache 与 <code>fsync/O_DIRECT</code>、<code>epoll</code> / Reactor / <code>io_uring</code> 与零拷贝</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖目录项 <code>dentry</code> 与 <code>inode</code>、硬链接 vs 软链接、<code>rm</code> 后未释放句柄排查（<code>lsof +L1</code>）、进程 fd 表 → 系统打开文件表 → inode 表、Page Cache 脏页回写与 MySQL <code>O_DIRECT</code>、五种 I/O 模型、<code>select/poll/epoll</code> 红黑树+就绪链表、LT vs ET（Redis LT / Go &amp; Netty native epoll ET）、三种 Reactor 模型与 <code>mmap / sendfile + SG-DMA</code> 零拷贝。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/07-io.html">07 · 文件读写与等待：编号、缓存与就绪通知</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">先理解打开文件得到编号，再分清内存缓存、持久保存，以及通知就绪与实际读取。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/08-commands.html">
           <section class="wb-card" id="linux-cmd" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/08-commands.html">08 · Linux 常用命令与实战：文件权限 (<code>rwx/SUID/Sticky</code>) 与查找、文本三剑客 (<code>grep/awk/sed</code>)、网络抓包 (<code>ss/tcpdump/curl</code>) 与后台守护</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖普通文件 vs 目录 <code>rwx</code> 权限差异、<code>SUID/Sticky Bit/umask</code>、<code>find/xargs/tar/rsync</code>、<code>grep/awk/sed/sort/uniq</code> 日志 Top K 统计一行流、<code>ss -tulpn</code> vs <code>netstat</code>、<code>tcpdump</code> 抓包与 <code>curl -w</code> 耗时拆解、<code>nohup ... &gt; app.log 2&gt;&amp;1 &amp;</code> 重定向顺序原理与 <code>/proc</code> 虚拟文件系统。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/08-commands.html">08 · Linux 第一次上手：终端、目录、文件与软件安装</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">先亲手查看位置、进出目录和打开文件；安装软件、上传下载与解压按需学习。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/08-lifecycle.html">
           <section class="wb-card" id="link" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/08-lifecycle.html">09 · 全链路串联与排查：<code>./a.out</code> 运行 6 步内核旅程、Linux 线上性能排障 SOP、20 题速记表与 8 题闭卷自测</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">串联 <code>fork(COW) → CFS/EEVDF 调度上 CPU → execve 重建 VMA → 缺页异常与 TLB → malloc/futex/epoll → exit_group 与父进程 wait4 回收</code> 全流程，详解 <code>load average</code> vs <code>CPU%</code>、<code>free -h available</code>、<code>vmstat/pidstat/perf/strace/iostat</code> 排障命令集与高频面试自测问答。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/08-lifecycle.html">09 · 把过程串起来：五个理解题与后续学习</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">把程序从启动到退出串起来，用中文解释五个基础问题，再选择是否进入原理篇。</p>
           </section>
         </div>
 
@@ -280,30 +262,14 @@
     <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
       <div class="rail-sticky-cluster">
         <!-- 1. 毛线帽吉祥物 + 快捷复制 Linux 排障命令便签 -->
-        <div class="plop-sticky-note mint tilt-right">
-          <div class="plop-pin"></div>
-          <div class="sticky-title">
-            <span style="display:inline-flex; align-items:center; gap:5px;">
-              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
-              <span>📋 线上排障命令速拷</span>
-            </span>
-            <span>COPY</span>
-          </div>
-          <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
-            <button type="button" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('os-shell-oneliners-cmd', this)">
-              ⚔️ 复制日志 TopK 统计命令
-            </button>
-            <button type="button" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px; background:var(--plop-periwinkle);" onclick="copyText('os-net-diag-cmd', this)">
-              🌐 复制端口 / 抓包诊断命令
-            </button>
-            <button type="button" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('os-troubleshoot-cmd', this)">
-              🔥 复制 CPU / IO 排障命令
-            </button>
-            <button type="button" class="plop-pill-sticker mustard" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('os-fd-mem-cmd', this)">
-              🧠 复制 OOM / 磁盘满排查
-            </button>
-          </div>
-        </div>
+        <div class="plop-sticky-note mint tilt-right"><div class="plop-pin"></div>
+<div class="sticky-title"><span>🌱 按现在的需要读</span></div>
+<div style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+<a class="plop-pill-sticker" href="#foundation-code">代码和变量还不熟？</a>
+<a class="plop-pill-sticker periwinkle" href="#foundation-address">地址、指针总混淆？</a>
+<a class="plop-pill-sticker mustard" href="#linux-cmd">第一次打开终端？</a>
+<a class="plop-pill-sticker" href="#understanding-check">试着解释这五个问题</a>
+</div></div>
 
         <!-- 2. 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
         <div class="plop-index-tabs" data-plop-topics></div>

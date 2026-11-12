@@ -1,192 +1,144 @@
-<!-- ====================================================================
-             PART 00: 第一性原理导读 · 为什么要学操作系统？入门懂什么、进阶在解决什么？
-             ==================================================================== -->
-        <div class="wb-sec-header tomato" id="why" style="background:var(--plop-mustard);">
-          <span class="wb-sec-num">00</span>
-          <span class="wb-sec-title">第一性原理导读 · 我们为什么学操作系统？入门懂什么就够、进阶到底在解决什么？</span>
-          <span class="plop-tag tomato">FIRST PRINCIPLES · 必读心法</span>
+<div class="wb-sec-header" id="why"><span class="wb-sec-num">00</span><span class="wb-sec-title">先补四个基础 · 电脑硬件、指令与变量、地址与等待</span><span class="plop-tag mint">先理解过程</span></div>
+<div class="plop-callout tip"><strong>不用先背英文名词。</strong>这一篇先讲一个程序怎样在真实电脑硬件上运行起来。例子始终是：读一份文字文件，统计字数，再输出结果。每章先弄懂一件事，最后能解释这个小程序就够了。</div>
+
+<div class="wb-card" id="foundation-hardware" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <h3>🧰 00.1 拆开电脑机箱：硬盘、内存条、CPU 与网卡各自负责什么？</h3>
+  <p>在看操作系统之前，先在脑子里建立真实电脑的硬件画面。不管你是用笔记本还是云服务器，<strong>拆开机箱，程序跑起来全靠下面这 4 样硬件配合</strong>：</p>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; margin:12px 0; font-size:12.8px; line-height:1.58;">
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px;">
+      <strong>① 💽 硬盘（机械 HDD / 固态 SSD）</strong><br/>
+      <span style="color:#15803d; font-weight:800;">定位：永久大仓库（断电不丢 · 便宜 · 慢）</span><br/>
+      你写的程序文件和要统计的文字文件，平时<strong>全都保存在硬盘上</strong>。机械硬盘靠磁头移动寻道（约 <code>5~10 毫秒</code>，极慢）；固态硬盘用闪存芯片（约 <code>20~100 微秒</code>，快上百倍）。
+    </div>
+    <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px;">
+      <strong>② 🧠 内存条（DRAM 物理内存）</strong><br/>
+      <span style="color:var(--plop-tomato); font-weight:800;">定位：临时工作台（断电即空 · 较贵 · 快）</span><br/>
+      硬盘对处理器来说太慢了。所以中间加了一层快上千倍的<strong>内存条（约 <code>80~100 纳秒</code>）</strong>。程序运行前，必须<strong>先把硬盘里的代码和文字加载到内存条里</strong>；但内存条一断电就会清空。
+    </div>
+    <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px;">
+      <strong>③ ⚙️ 处理器（CPU + 内部高速缓存）</strong><br/>
+      <span style="color:var(--plop-ink-soft); font-weight:800;">定位：计算核心（断电即空 · 极贵 · 极快）</span><br/>
+      负责从内存条取出指令和数据做计算（一次仅 <code>0.3 纳秒</code>）。因为内存条（<code>100ns</code>）还是比 CPU 慢上百倍，CPU 芯片内部又造了极快的<strong>寄存器与 L1/L2/L3 高速缓存（<code>1~15ns</code>）</strong>存放手头刚用到的变量。
+    </div>
+    <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px;">
+      <strong>④ 🌐 网卡（NIC）与 DMA 搬运工</strong><br/>
+      <span style="color:var(--plop-ink-text); font-weight:800;">定位：网络收发口 + 后台搬运芯片</span><br/>
+      网卡负责收发网络数据。为了不让宝贵的 CPU 亲自去慢速硬盘或网卡一个字节一个字节搬数据，主板上配有 <strong>DMA 硬件</strong>：它在后台自动把硬盘/网卡的数据拷进内存条，搬完发个通知（中断）告诉 CPU。
+    </div>
+  </div>
+
+  <div class="table-wrap" style="margin:10px 0;">
+    <table class="plop-table" style="margin:0;">
+      <thead>
+        <tr>
+          <th style="width:22%">硬件层级</th>
+          <th style="width:16%">常见容量</th>
+          <th style="width:18%">读写耗时</th>
+          <th style="width:18%">大概每 GB 价格</th>
+          <th style="width:12%">断电丢吗？</th>
+          <th>平时里面放什么？</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>CPU 寄存器 &amp; L1~L3 缓存</strong></td>
+          <td>几百 B ~ 几十 MB</td>
+          <td><code>0.3 ~ 15 纳秒</code></td>
+          <td>造价最高（焊在 CPU 内）</td>
+          <td>🔴 断电即空</td>
+          <td>当前这一微秒 CPU 正在计算的变量与指令。</td>
+        </tr>
+        <tr>
+          <td><strong>内存条 (DRAM)</strong></td>
+          <td>16 GB ~ 128 GB</td>
+          <td><code>~80 - 100 纳秒</code></td>
+          <td><strong>约 ¥15 ~ ¥30 / GB</strong></td>
+          <td>🔴 断电即空</td>
+          <td><strong>当前正在运行的程序（进程）</strong>、变量、操作系统内核与文件缓存。</td>
+        </tr>
+        <tr>
+          <td><strong>固态硬盘 (SSD) / 机械硬盘</strong></td>
+          <td>512 GB ~ 16 TB</td>
+          <td><code>50 微秒 ~ 10 毫秒</code></td>
+          <td><strong>约 ¥0.1 ~ ¥0.6 / GB</strong></td>
+          <td>🟢 <strong>永久保存</strong></td>
+          <td>安装好的软件、代码文件、要统计的文字文件、数据库表。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">🔬 好奇追问：把 CPU 芯片拆开，里面到底装了哪 4 样部件？</span></summary>
+    <div class="drawer-body">
+      <p>很多人容易把“CPU 里面的东西”和“内存条里的东西”搞混。其实 CPU 芯片内部主要装了这 <strong>4 个部件</strong>：</p>
+      <ol>
+        <li><strong>控制器 (CU) + 指令指针 (<code>RIP/PC</code>)：</strong>记住“下一条指令在内存的哪个地址”，负责把指令取进来解码。</li>
+        <li><strong>运算器 (ALU) + 通用寄存器：</strong>负责加减乘除和逻辑判断。注意：运算器只能对 CPU 内部<strong>寄存器</strong>里的数字做运算，不能直接算内存条里的数字。</li>
+        <li><strong>三级高速缓存 (<code>CPU Cache L1/L2/L3</code>)：</strong>为了弥补 CPU（<code>0.3ns</code>）与内存条（<code>100ns</code>）之间的百倍速度差，读内存时顺手把相邻 <strong>64 字节</strong>的数据块搬进 CPU 内部缓存起来。</li>
+        <li><strong>地址翻译器 (<code>MMU + TLB</code>)：</strong>把程序里的虚拟地址自动翻译成内存条上的真实物理位置，并把最近查过的映射缓存在 CPU 内部的 <code>TLB 快表</code>里。</li>
+      </ol>
+    </div>
+  </details>
+</div><div class="wb-card" id="foundation-code" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape pink"></div><h3>🧾 00.2 代码、指令和变量是什么关系？</h3><div class="plop-code-box"><div class="plop-code-head"><span>流程示意 · 用中文描述，不需要执行</span></div><pre class="plop-code-pre"><code>打开文字文件
+读出一段文字
+数一数字数，把结果记下来
+输出结果</code></pre></div><p>人写的代码表达这些步骤。像 C 语言程序，会先由编译工具把代码转换成机器能执行的指令；其他语言也可能通过解释器或运行时执行。<strong>处理器最终执行的是机器指令。</strong></p><p>统计途中要记住“目前数到多少”，就需要存数据。代码里给数据取的名字叫<strong>变量</strong>。例如“字数”这个变量保存整数 120；它的名字、它的值，以及它存放的位置，是三个不同概念。</p></div><div class="wb-card" id="foundation-address" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <h3>📍 00.3 地址和指针：名字、内容、位置要分开</h3>
+  <p>想象超市门口一排带门牌号的<strong>储物格</strong>：格子里放的是<strong>内容（值）</strong>，格子门上的编号是<strong>位置（地址）</strong>。内存条也是这样按字节编号的。变量既可以直接保存一个数字，也可以专门保存另一个格子的编号——<strong>这种专门存地址、用来顺藤摸瓜找到另一份数据的变量，就叫「指针」</strong>：</p>
+
+  <!-- 储物格图解：普通变量 vs 指针变量 vs 目标数据 -->
+  <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:12px 0; box-shadow:2px 3px 0 var(--plop-shadow);">
+    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:10px;">
+      🗄️ 一张储物柜图分清：「变量名 · 地址 · 里面的值 · 指针」
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:12px; align-items:stretch; font-size:12.6px;">
+      <!-- 格子 101：普通整数变量 -->
+      <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+        <div style="display:flex; justify-content:space-between; font-family:var(--font-mono); font-weight:900; font-size:12px; border-bottom:1.5px dashed var(--plop-ink); padding-bottom:4px; margin-bottom:6px;">
+          <span>📍 地址：#101号格</span>
+          <span style="color:#15803d;">标签名：字数 (count)</span>
         </div>
-
-        <div class="wb-card" style="background:var(--plop-paper);">
-          <div class="washi-tape"></div>
-          <div class="chapter-q-pill">🧭 先搞清楚目的 · 别把操作系统当成一堆孤立的八股概念来死记硬背</div>
-          <h3>💡 从第一性原理出发：如果没有操作系统，你的程序直接跑在裸机硬件上会死在哪里？</h3>
-          <p>
-            很多同学学操作系统时，会被满屏的 <code>Ring 0 / Ring 3</code>、<code>task_struct</code>、<code>四级页表与 TLB</code>、<code>COW 写时复制</code>、<code>Futex</code>、<code>CFS 红黑树</code>、<code>Page Cache</code>、<code>epoll</code>、<code>零拷贝</code> 劝退，觉得“我平时只写业务代码，又不去写 Linux 内核，学这些干嘛？”其实操作系统里没有任何一个机制是凭空捏造的——<strong>每一个概念，都是为了解决「多程序争抢有限物理硬件（CPU、内存、磁盘/网卡）」时撞上的真实工程死穴</strong>。
-          </p>
-          <p>
-            不妨做个思想实验：假设服务器上没有操作系统，你写的后端服务、MySQL、Redis 直接跑在裸机 CPU 和物理内存条上，你会立刻撞上 <strong>三大硬件失控灾难（CPU 独占与失控 → 内存互踩与不够用 → 慢速 I/O 拖死 CPU）</strong>。而操作系统的全部内容，就是用<strong>「三大虚拟化抽象 + 一套并发通信机制」</strong>把这三座大山逐一铲平：
-          </p>
-
-          <!-- 手绘 SVG：从第一性原理推导操作系统四大进阶主线的全景导图 -->
-          <svg viewBox="0 0 880 435" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="操作系统第一性原理推导全景图">
-            <defs>
-              <marker id="os-fp-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
-              </marker>
-              <marker id="os-fp-arr-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 1 1 L 9 5 L 1 9 z" fill="#D2381E" stroke="#D2381E" stroke-linejoin="round"/>
-              </marker>
-            </defs>
-
-            <!-- 左侧：裸机困境与硬件底座 -->
-            <rect x="14" y="18" width="196" height="398" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
-            <rect x="26" y="30" width="172" height="28" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2"/>
-            <text x="112" y="49" text-anchor="middle" font-size="12.5" font-weight="900" fill="var(--plop-ink-text)">🌱 起点：三大物理硬件</text>
-
-            <text x="112" y="80" text-anchor="middle" font-size="13" font-weight="900" fill="var(--plop-ink)">如果程序直接操作裸机</text>
-            <text x="112" y="98" text-anchor="middle" font-size="10.8" font-weight="700" fill="#D2381E">(无隔离 · 无调度 · 极慢 I/O)</text>
-
-            <rect x="28" y="112" width="168" height="54" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="112" y="132" text-anchor="middle" font-size="11.2" font-weight="900" fill="var(--plop-ink-text)">① 裸 CPU：死循环霸占</text>
-            <text x="112" y="149" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">一个程序卡死或乱执行特权指令</text>
-            <text x="112" y="162" text-anchor="middle" font-size="9.8" font-weight="800" fill="#D2381E">→ 整台机器直接瘫痪</text>
-
-            <rect x="28" y="176" width="168" height="54" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="112" y="196" text-anchor="middle" font-size="11.2" font-weight="900" fill="var(--plop-ink-text)">② 裸内存：互踩与不够用</text>
-            <text x="112" y="213" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">进程 A 随便改进程 B 的物理地址</text>
-            <text x="112" y="226" text-anchor="middle" font-size="9.8" font-weight="800" fill="#D2381E">→ 物理内存满了直接崩</text>
-
-            <rect x="28" y="240" width="168" height="54" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="112" y="260" text-anchor="middle" font-size="11.2" font-weight="900" fill="var(--plop-ink-text)">③ 裸磁盘/网卡：慢百万倍</text>
-            <text x="112" y="277" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">CPU 1ns vs 磁盘 ms 级傻等</text>
-            <text x="112" y="290" text-anchor="middle" font-size="9.8" font-weight="800" fill="#D2381E">→ 1万连接就把线程撑爆</text>
-
-            <rect x="28" y="308" width="168" height="94" rx="8" fill="#FFF6F4" stroke="#D2381E" stroke-width="1.8" stroke-dasharray="4 3"/>
-            <text x="112" y="328" text-anchor="middle" font-size="11" font-weight="900" fill="#D2381E">🛡️ OS 的核心使命：</text>
-            <text x="112" y="346" text-anchor="middle" font-size="10.2" font-weight="800" fill="var(--plop-ink-text)">向下管住硬件（分配/隔离）</text>
-            <text x="112" y="362" text-anchor="middle" font-size="10.2" font-weight="800" fill="var(--plop-ink-text)">向上提供三大抽象：</text>
-            <text x="112" y="378" text-anchor="middle" font-size="10" font-weight="900" fill="#D2381E">进程/线程 · 虚拟内存 · 文件/fd</text>
-            <text x="112" y="394" text-anchor="middle" font-size="9.8" font-weight="800" fill="var(--plop-ink)">推导右侧 4 大主线 ➔</text>
-
-            <!-- 四条分叉箭头 -->
-            <path d="M210 138 L248 68" stroke="#D2381E" stroke-width="2.4" marker-end="url(#os-fp-arr-red)"/>
-            <path d="M210 202 L248 172" stroke="#D2381E" stroke-width="2.4" marker-end="url(#os-fp-arr-red)"/>
-            <path d="M210 265 L248 276" stroke="#D2381E" stroke-width="2.4" marker-end="url(#os-fp-arr-red)"/>
-            <path d="M210 345 L248 372" stroke="#D2381E" stroke-width="2.4" marker-end="url(#os-fp-arr-red)"/>
-
-            <!-- 主线一：特权隔离与 CPU 虚拟化（第 01、02、06 章） -->
-            <rect x="254" y="18" width="612" height="94" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
-            <rect x="266" y="25" width="588" height="22" rx="6" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="278" y="40" font-size="11.5" font-weight="900" fill="var(--plop-ink-text)">⚙️ 主线一：CPU 怎么安全共享？（第 01、02、06 章 · 特权态、进程/线程/协程与 CFS 调度）</text>
-
-            <rect x="268" y="53" width="180" height="50" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="358" y="70" text-anchor="middle" font-size="10.6" font-weight="900" fill="#D2381E">① 权限隔离（第 01 章）</text>
-            <text x="358" y="85" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">用户态 Ring3 vs 内核态 Ring0</text>
-            <text x="358" y="98" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink-soft)">syscall / vDSO / 中断上下半部</text>
-
-            <line x1="448" y1="78" x2="466" y2="78" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#os-fp-arr)"/>
-
-            <rect x="470" y="53" width="188" height="50" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="564" y="70" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink-text)">② 执行实体（第 02 章）</text>
-            <text x="564" y="85" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">进程(资源) / 线程(调度) / 协程</text>
-            <text x="564" y="98" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">上下文切换 · fork 写时复制 COW</text>
-
-            <line x1="658" y1="78" x2="676" y2="78" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#os-fp-arr)"/>
-
-            <rect x="680" y="53" width="172" height="50" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="766" y="70" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink-text)">③ 算力分配（第 06 章）</text>
-            <text x="766" y="85" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">MLFQ 多级反馈 · Linux CFS</text>
-            <text x="766" y="98" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">vruntime 红黑树 · EEVDF</text>
-
-            <!-- 主线二：内存虚拟化（第 03 章） -->
-            <rect x="254" y="122" width="612" height="94" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
-            <rect x="266" y="129" width="588" height="22" rx="6" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="278" y="144" font-size="11.5" font-weight="900" fill="var(--plop-ink-text)">🧠 主线二：内存怎么隔离又够用？（第 03 章 · 存储层次、虚拟内存、四级页表/TLB、缺页与分配）</text>
-
-            <rect x="268" y="157" width="180" height="50" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="358" y="174" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink)">① 硬件底座与虚拟大饼</text>
-            <text x="358" y="189" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">L1/L2/L3 (64B 缓存行/伪共享)</text>
-            <text x="358" y="202" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">虚拟地址空间隔离 + 连续假象</text>
-
-            <line x1="448" y1="182" x2="466" y2="182" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#os-fp-arr)"/>
-
-            <rect x="470" y="157" width="188" height="50" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="564" y="174" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink-text)">② 地址翻译与按需加载</text>
-            <text x="564" y="189" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">4级页表(9+9+9+9+12) + TLB快表</text>
-            <text x="564" y="202" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">缺页异常(延迟分配) + LRU置换</text>
-
-            <line x1="658" y1="182" x2="676" y2="182" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#os-fp-arr)"/>
-
-            <rect x="680" y="157" width="172" height="50" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="766" y="174" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink-text)">③ 内核与用户内存分配</text>
-            <text x="766" y="189" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">内核 Buddy 伙伴系统 + Slab</text>
-            <text x="766" y="202" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink)">用户 malloc(brk / mmap) · OOM</text>
-
-            <!-- 主线三：进程通信与并发同步（第 04、05 章） -->
-            <rect x="254" y="226" width="612" height="94" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
-            <rect x="266" y="233" width="588" height="22" rx="6" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="278" y="248" font-size="11.5" font-weight="900" fill="var(--plop-ink-text)">🔒 主线三：隔离后怎么通信？并发抢数据怎么不乱？（第 04、05 章 · IPC 通信、锁与死锁）</text>
-
-            <rect x="268" y="261" width="282" height="50" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="409" y="278" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink)">📡 跨进程通信 IPC（第 04 章）</text>
-            <text x="409" y="293" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">管道/FIFO · 消息队列 · 共享内存(最快/零拷贝) · 信号量</text>
-            <text x="409" y="306" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">Signal 异步通知(SIGTERM优雅退出) · Socket / eventfd</text>
-
-            <line x1="550" y1="286" x2="568" y2="286" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#os-fp-arr)"/>
-
-            <rect x="572" y="261" width="280" height="50" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="712" y="278" text-anchor="middle" font-size="10.6" font-weight="900" fill="var(--plop-ink-text)">🛡️ 并发同步与死锁（第 05 章）</text>
-            <text x="712" y="293" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-text)">原子性/可见性/有序性 · Mutex vs Spinlock · CAS 与 Futex</text>
-            <text x="712" y="306" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">生产者消费者 · 死锁四条件与固定加锁顺序破环</text>
-
-            <!-- 主线四：文件系统与高并发 I/O（第 07、08 章） -->
-            <rect x="254" y="330" width="612" height="86" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
-            <rect x="266" y="337" width="588" height="22" rx="6" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="278" y="352" font-size="11.5" font-weight="900" fill="var(--plop-ink-text)">🚀 主线四：数据怎么落盘、高并发网络怎么榨干性能？（第 07、08 章 · 文件系统、epoll 与零拷贝）</text>
-
-            <rect x="268" y="365" width="185" height="44" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="360" y="382" text-anchor="middle" font-size="10.4" font-weight="900" fill="var(--plop-ink)">① VFS · inode · 三张表</text>
-            <text x="360" y="398" text-anchor="middle" font-size="9.4" font-weight="700" fill="var(--plop-ink-soft)">硬/软链接 · Page Cache 与 fsync</text>
-
-            <line x1="453" y1="387" x2="471" y2="387" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#os-fp-arr)"/>
-
-            <rect x="475" y="365" width="192" height="44" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="571" y="382" text-anchor="middle" font-size="10.4" font-weight="900" fill="var(--plop-ink-text)">② epoll · Reactor · io_uring</text>
-            <text x="571" y="398" text-anchor="middle" font-size="9.4" font-weight="800" fill="#D2381E">红黑树+就绪链表 O(1) · LT/ET</text>
-
-            <line x1="667" y1="387" x2="685" y2="387" stroke="var(--plop-ink)" stroke-width="1.8" marker-end="url(#os-fp-arr)"/>
-
-            <rect x="689" y="365" width="163" height="44" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="770" y="382" text-anchor="middle" font-size="10.4" font-weight="900" fill="var(--plop-ink-text)">③ 零拷贝 &amp; 线上排查</text>
-            <text x="770" y="398" text-anchor="middle" font-size="9.4" font-weight="700" fill="var(--plop-ink-text)">mmap/sendfile · top/strace</text>
-          </svg>
-
-          <!-- 入门 vs 进阶双栏拆解 -->
-          <div class="wb-grid-2" style="margin-top:14px;">
-            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
-              <span class="plop-tag mint" style="margin-bottom:8px;">STAGE 1 · 入门阶段我们懂什么就够了？</span>
-              <h4>🎯 目标：看懂程序是怎么跑起来的（建立三大抽象直觉）</h4>
-              <p>
-                在入门阶段，你不需要一上来就去啃内核源码，只需要立住操作系统最核心的 <strong>3 个基本认知</strong>：
-              </p>
-              <ol>
-                <li><strong>分清「用户态 vs 内核态」（第 01 章）：</strong>知道你写的代码跑在受限的用户态（Ring 3），一旦要读文件、发网络包、申请物理内存，必须通过 <code>syscall</code> 系统调用请内核态（Ring 0）代劳。</li>
-                <li><strong>分清「进程 vs 线程 vs 协程」（第 02 章）：</strong>知道<strong>进程是资源分配单位</strong>（拥有独立虚拟地址空间，隔离但切换重），<strong>线程是 CPU 调度单位</strong>（共享进程内存，轻量但需加锁），<strong>协程是用户态调度流</strong>（极轻，切换不进内核）。</li>
-                <li><strong>理解「虚拟内存」与「文件描述符 fd」（第 03 &amp; 07 章）：</strong>知道每个进程看到的连续地址都是 OS 画的“虚拟大饼”（靠页表翻译到物理内存），打开的文件和网络连接在进程眼里都只是一个整数编号 <code>fd</code>。</li>
-              </ol>
-            </div>
-
-            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
-              <span class="plop-tag tomato" style="margin-bottom:8px;">STAGE 2 · 进阶在干什么？为什么后端/中间件全靠它？</span>
-              <h4>🔥 目标：看透 MySQL / Redis / Kafka / Go 背后的底层性能机制与线上故障根因</h4>
-              <p>
-                <strong>上层数据库和分布式中间件的许多架构设计，本质上都是在顺应或规避操作系统的底层机制。</strong>掌握进阶内容，就能把上层组件与内核底座串联起来：
-              </p>
-              <ul>
-                <li><strong>为什么 Redis RDB 快照不阻塞主线程，但开启 THP 大页就会引发延迟毛刺？</strong><br>
-                  👉 对应 <strong>第 02 &amp; 03 章（<code>fork()</code> 写时复制 COW + 4KB 页 vs 2MB 透明大页拆分/合并与缺页开销）</strong>。</li>
-                <li><strong>为什么 `malloc(1GB)` 立即返回，进程 `VIRT` 很大但 `RES` 很小？什么时候会被 OOM Killer 强杀？</strong><br>
-                  👉 对应 <strong>第 03 章（虚拟内存延迟分配 Lazy Allocation、次缺页/主缺页、Buddy/Slab 与 OOM 评分）</strong>。</li>
-                <li><strong>为什么 MySQL 会有“双 1”刷盘和 `O_DIRECT`？为什么 `rm` 删了 50GB 日志文件磁盘还是满的？</strong><br>
-                  👉 对应 <strong>第 07 章（Page Cache 脏页回写 vs `fsync`、inode 引用计数与进程 `fd` 句柄未释放）</strong>。</li>
-                <li><strong>为什么 Redis / Nginx / Netty 能单机支撑十万并发连接？Kafka 为什么能实现极高吞吐？</strong><br>
-                  👉 对应 <strong>第 07 章（`epoll` 红黑树 + 就绪回调链表 $O(1)$、Reactor 线程模型、`sendfile` 零拷贝）</strong>。</li>
-              </ul>
-            </div>
-          </div>
-
-          <div class="plop-bridge">
-            <span>👇 现在带着这张全景图往下读：从 <strong>01 操作系统在管什么与特权分级</strong> 出发，顺着「进程/线程/协程 → 虚拟内存与页表 → IPC 通信 → 并发锁与死锁 → CFS 调度 → 文件系统/epoll/零拷贝 → 线上排查」一步步推导出整个 Linux 内核知识体系！</span>
-          </div>
+        <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:10px; text-align:center; font-size:18px; font-weight:900; font-family:var(--font-mono);">
+          120
         </div>
+        <div style="margin-top:6px; color:var(--plop-ink-text); line-height:1.5;">
+          • <strong>普通变量：</strong>盒子里直接装着数字 <code>120</code>（这是它的<strong>值</strong>），盒子在内存里的门牌号是 <code>#101</code>（这是它的<strong>地址</strong>）。
+        </div>
+      </div>
+
+      <!-- 格子 102：指针变量（里面装着一张写着 #500 的纸条） -->
+      <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+        <div style="display:flex; justify-content:space-between; font-family:var(--font-mono); font-weight:900; font-size:12px; border-bottom:1.5px dashed var(--plop-ink); padding-bottom:4px; margin-bottom:6px;">
+          <span>📍 地址：#102号格</span>
+          <span style="color:var(--plop-tomato);">标签名：文字指针 (p)</span>
+        </div>
+        <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:10px; text-align:center; font-size:14px; font-weight:900; font-family:var(--font-mono); color:var(--plop-tomato);">
+          📄 纸条：去 #500号格 找 ──▶
+        </div>
+        <div style="margin-top:6px; color:var(--plop-ink-text); line-height:1.5;">
+          • <strong>指针变量：</strong>它自己住在 <code>#102</code> 格，但它里面<strong>不装长篇文章，只装一张写着 <code>#500</code> 的地址纸条</strong>！
+        </div>
+      </div>
+
+      <!-- 格子 500：真正存放长文字的大储物格 -->
+      <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
+        <div style="display:flex; justify-content:space-between; font-family:var(--font-mono); font-weight:900; font-size:12px; border-bottom:1.5px dashed var(--plop-ink); padding-bottom:4px; margin-bottom:6px;">
+          <span>📍 地址：#500号大格</span>
+          <span>（指针 p 指向的目标）</span>
+        </div>
+        <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:10px; text-align:center; font-size:14px; font-weight:900; font-family:var(--font-mono);">
+          "hello linux..."
+        </div>
+        <div style="margin-top:6px; color:var(--plop-ink-text); line-height:1.5;">
+          • <strong>指针指向的内容：</strong>顺着 <code>#102</code> 格里的纸条找到 <code>#500</code> 格，里面放的才是真正读出来的文字内容。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="plop-callout tip">先记住这个区别就够了：“字数是 120”说的是格子里装的<strong>值</strong>；“去 #500 号格子找”说的是<strong>地址</strong>；而专门用来装这张地址纸条的小盒子（<code>#102</code>）就是<strong>指针</strong>。</div>
+</div><div class="wb-card" id="foundation-wait" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape periwinkle"></div><h3>⏳ 00.4 执行一条命令，为什么有时要等？</h3><p>处理器执行计算，硬盘和网卡完成读写。程序请求的数据不一定已经准备好。<strong>等待数据的时间，可以远长于处理器做一次简单计算的时间。</strong></p><p>操作系统可以记下当前任务的进度，让它等待，再安排另一个任务使用处理器。数据准备好后，原任务重新获得继续执行的机会。因此，窗口没立刻给结果，并不代表处理器一直在替它计算。</p><p>操作系统就是协调这些资源的系统软件：它安排任务、管理内存、提供文件和设备的使用方式。后面每一个机制，都要回到“它解决哪个具体问题”来理解。</p></div><div class="wb-card" id="reading-route" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3>🧭 从哪里开始读？</h3><ol><li><strong>先读 01—03：</strong>谁来代办读写？程序怎么运行？数据怎么放进内存？</li><li><strong>再读 04—07：</strong>多个任务怎样通信、保护数据、轮流执行，以及等待读写？</li><li><strong>不会用终端：</strong>随时跳到 <a href="#linux-cmd">08 · Linux 第一次上手</a>，练完目录与文件操作，再回来。</li></ol><div class="plop-callout tip">每章末尾有一道理解题，能解释原因就继续。想追问 Linux 具体怎样实现，再进入独立的<a href="principles.html">原理篇</a>，可以按主题查阅。</div></div><div class="plop-bridge"><span>从第一件事开始：<a href="#what">01 · 程序为什么需要操作系统代办读写？ →</a></span></div>

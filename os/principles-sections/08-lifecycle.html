@@ -1,0 +1,330 @@
+<div class="wb-sec-header" id="link"><span class="wb-sec-num">08</span><span class="wb-sec-title">运行链路、排查与自测</span><span class="plop-tag periwinkle">原理篇</span></div>
+<div class="plop-callout tip"><strong>🧭 本章主线：</strong>把 <code>./a.out</code> 从启动到消亡的 6 步内核旅程串成闭环，掌握线上 CPU / 内存 / 磁盘 I/O 性能排查 SOP，并通过速记表与 8 道自测题完成复盘。</div>
+
+        <!-- 08.1 · 一图串联：从敲下 ./a.out 到退出的 6 步内核全链路 (#link) -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 08.1 · 当你在终端敲下 <code>./a.out</code> 回车，到程序跑完退出，前 8 章的机制是怎么串成一条线的？</div>
+          <h3>🎬 08.1 全链路大串联：一个程序从诞生到消亡的 6 步内核旅程</h3>
+          <p>
+            把前 8 章的知识点串成一条完整的生命周期线——当你在 Bash Shell 里敲下 <code>./a.out</code> 回车时，Linux 内核在幕后依次完成了这 <strong>6 个步骤</strong>：
+          </p>
+
+          <!-- 6 步全链路手账卡片 -->
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow); display:grid; gap:10px;">
+            <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px;">
+              <strong style="font-size:14px; color:var(--plop-ink-text);">Step 1 · 克隆进程与就绪入队（第 02 章 · <code>fork</code> COW + Runqueue）：</strong><br/>
+              <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">Shell 常通过创建子进程来启动程序。<code>fork()</code> 为子进程建立资源与执行状态；普通私有可写页可先通过 COW 共享，不必马上复制全部数据。子进程进入可运行状态，等待调度。</span>
+            </div>
+
+            <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px;">
+              <strong style="font-size:14px; color:var(--plop-ink-text);">Step 2 · 调度上 CPU 与加载新程序（第 06 &amp; 02 章 · <code>CFS/EEVDF</code> 调度 + <code>execve</code>）：</strong><br/>
+              <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">子进程获得 CPU 后，调用 <code>execve("./a.out")</code> 加载目标程序，建立新的代码、数据和栈等映射。成功后从可执行文件或动态加载器的入口开始，经过启动代码才进入 <code>main()</code>。</span>
+            </div>
+
+            <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px;">
+              <strong style="font-size:14px; color:var(--plop-ink-text);">Step 3 · 按需缺页调入物理内存（第 03 章 · <code>Page Fault</code> + <code>TLB</code>）：</strong><br/>
+              <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">程序访问的合法页面如果尚未建立映射，会触发缺页异常。数据已在文件页缓存里时，内核可直接建立映射；不在时可能需要读取存储。处理完成后，重新执行原指令。缺页不一定是错误，也不一定需要读盘。</span>
+            </div>
+
+            <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px;">
+              <strong style="font-size:14px; color:var(--plop-ink);">Step 4 · 动态分配内存与并发加锁（第 03 &amp; 05 章 · <code>malloc</code> + <code>futex</code>）：</strong><br/>
+              <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">程序申请缓冲区、存放读出的文字。分配器可能复用已有内存，也可能请求新映射，物理页通常按需分配。如果程序启用了多个线程，共享计数器等数据需要用锁或原子操作保护。</span>
+            </div>
+
+            <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:11px 14px;">
+              <strong style="font-size:14px; color:var(--plop-tomato);">Step 5 · 文件 / 网络 I/O 与中断唤醒（第 01 &amp; 07 章 · <code>Page Cache</code> + <code>epoll</code> + 中断上下半部）：</strong><br/>
+              <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">程序用 <code>read()</code> 读取文件、统计后用 <code>write()</code> 输出结果。数据已就绪时可以继续；需要等待时，线程可能睡眠，CPU 改去执行别的任务。网络服务还可以用 epoll 等待一批连接的就绪事件。被唤醒只代表重新具备运行条件。</span>
+            </div>
+
+            <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 14px;">
+              <strong style="font-size:14px; color:var(--plop-ink-text);">Step 6 · 谢幕退出与父进程回收（第 02 &amp; 04 章 · <code>exit_group</code> + <code>Z 僵尸态</code> + <code>SIGCHLD</code>）：</strong><br/>
+              <span style="font-size:13px; color:var(--plop-ink-text); font-weight:700;">通常从 <code>main()</code> 返回后，C 运行库执行退出清理，最终请求内核结束进程。内核释放相关资源并保留必要的退出信息；父进程通过 wait 系列接口回收这些信息。父进程一直不回收，才会留下僵尸进程。</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 08.2 · 线上 Linux 性能排查速查 SOP (#tools) -->
+        <div class="wb-card" id="tools" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 08.2 · 面试官问：“线上服务器突然卡顿 / CPU 飙高 / 内存告警，你的排查思路和命令是什么？”</div>
+          <h3>🛠️ 08.2 生产实战：Linux 线上性能排查 SOP（<code>load</code> vs <code>CPU%</code> · <code>free</code> · 八大神器） <span class="plop-tag tomato">重点回顾</span></h3>
+
+          <!-- 两大高频误区拆解：Load Average vs CPU% & free -h available -->
+          <div class="wb-grid-2" style="margin:12px 0;">
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-tomato); margin-bottom:6px;">
+                🚨 必考误区 ①：<code>load average</code>（平均负载）≠ CPU 使用率！
+              </div>
+              <div style="font-size:13px; line-height:1.6; color:var(--plop-ink-text);">
+                <code>uptime / top</code> 顶部的 1 / 5 / 15 分钟 <code>load average</code>，统计的是单位时间内<strong>处于「可运行态 <code>R</code>」+「不可中断睡眠态 <code>D</code>（等磁盘/NFS I/O）」的平均任务数</strong>！<br/>
+                • <strong>为什么 Linux 要把等磁盘的 <code>D</code> 态也算进 Load？</strong>因为它们代表着“系统正在承受的总体工作需求”。<br/>
+                • <strong>🔥 黄金排障推论：</strong>假设一台 8 核服务器，<strong><code>load average</code> 飙到了 40，但 <code>top</code> 看 CPU 使用率 <code>%us</code> 只有 5%</strong>——发生了什么？说明<strong>根本不是 CPU 算力不够，而是磁盘 I/O 或 NFS 存储卡死了（观察 <code>%wa</code> 极高，大批线程卡在 <code>D</code> 状态排队等磁盘）</strong>！
+              </div>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.5px; color:#15803d; margin-bottom:6px;">
+                🚨 必考误区 ②：<code>free -h</code> 里 <code>free</code> 只剩 200MB 就是内存快爆了吗？
+              </div>
+              <div style="font-size:13px; line-height:1.6; color:var(--plop-ink-text);">
+                <strong>完全不是！</strong>Linux 的信条是“空闲的内存就是浪费的内存”，它会把没用的物理内存全拿去做 <strong><code>buff/cache</code>（即第 07 章的 Page Cache 页缓存 + 可回收 Slab <code>SReclaimable</code>）</strong>。<br/>
+                • <strong>看哪个指标才准？</strong>必须看最右边的 <strong><code>available</code>（真实可用内存）</strong>！因为一旦新进程需要申请内存，内核瞬间就能把 <code>buff/cache</code> 里的干净缓存页回收腾出来。<br/>
+                • 只有当 <strong><code>available</code> 趋近于 0，且 <code>vmstat 1</code> 里的 <code>si / so</code>（每秒 Swap 换入/换出）持续非 0</strong> 时，才说明物理内存真的见底、开始发生换页抖动了！
+              </div>
+            </div>
+          </div>
+
+          <h4>📊 <code>top</code> 命令中 CPU 6 大百分比指标精准解读</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:14%">指标</th>
+                  <th style="width:26%">全称与含义</th>
+                  <th>飙高时的根因定位与下一步排查动作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong><code>%us</code></strong></td>
+                  <td>User Space（用户态 CPU 耗时）</td>
+                  <td><strong>业务代码自己在猛算：</strong>死循环、正则回溯、频繁 JSON 序列化或 GC 狂扫 ──▶ 用 <code>perf top -p &lt;pid&gt;</code>、<code>pprof</code> 或 <code>jstack</code> 抓用户态热点函数火焰图。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>%sy</code></strong></td>
+                  <td>System / Kernel（内核态耗时）</td>
+                  <td><strong>系统调用或上下文切换过于频繁：</strong>开几万个线程抢锁（<code>futex</code>）、高频小包 <code>read/write</code> 或海量 <code>fork</code> ──▶ 用 <code>vmstat 1 / pidstat -w 1</code> 看上下文切换 <code>cs</code>，用 <code>strace -c -p &lt;pid&gt;</code> 统计哪个 syscall 最耗时。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>%wa</code></strong></td>
+                  <td>I/O Wait（等待磁盘 I/O 耗时）</td>
+                  <td><strong>CPU 空闲但在等慢速磁盘返回（此时常伴随大量 <code>D</code> 态进程与高 Load）：</strong>转去执行 <code>iostat -xz 1</code> 查磁盘 <code>%util</code>（是否 100% 打满）和 <code>await</code>（单次 I/O 延迟），再用 <code>iotop / pidstat -d 1</code> 揪出狂写磁盘的进程。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>%hi / %si</code></strong></td>
+                  <td>Hard / Soft IRQ（硬/软中断耗时）</td>
+                  <td><strong><code>%si</code>（软中断）高最常见于网络小包洪峰（PPS 极高 / SYN Flood 攻击）</strong> ──▶ 查 <code>cat /proc/softirqs</code> 看是不是 <code>NET_RX</code> 暴涨，开启网卡多队列 RSS / RPS 分摊到多核。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>%st</code></strong></td>
+                  <td>Steal Time（被宿主机偷走的时间）</td>
+                  <td><strong>云服务器 / 虚拟机特有指标：</strong>物理宿主机超卖严重，同宿主机上的邻居 VM 抢走了物理 CPU 核，需联系云厂商迁移实例。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 可一键复制的三大排障脚本代码块（与右侧贴纸栏按钮对应） -->
+          <div class="plop-code-box">
+            <div class="plop-code-head">
+              <span>🔥 troubleshoot_cpu_io.sh · 线上 CPU 飙高 / 软中断 / 磁盘 I/O 卡顿黄金排障命令集</span>
+              <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('os-troubleshoot-cmd', this)">复制命令</button>
+            </div>
+            <pre class="plop-code-pre" id="os-troubleshoot-cmd"><code><span class="c-cm"># ① 1秒1次全局体检：看 r(运行队列)、b(D态阻塞数)、si/so(Swap换页)、cs(上下文切换)、us/sy/wa</span>
+vmstat 1 5
+
+<span class="c-cm"># ② 按进程/线程排查：-u 看CPU、-w 看主动(cswch)/被动(nvcswch)上下文切换、-d 看磁盘IO、-r 看缺页(minflt/majflt)</span>
+pidstat -u -w -d -r 1
+
+<span class="c-cm"># ③ 查线程级 CPU 凶手（top -Hp &lt;pid&gt;）并实时采样内核/用户态函数调用栈热点（生成火焰图的数据源）</span>
+top -Hp &lt;pid&gt;
+perf top -g -p &lt;pid&gt;
+
+<span class="c-cm"># ④ 跟踪某进程正在执行什么系统调用及耗时统计（排查进程假死卡在哪个 futex / read 上）</span>
+strace -tt -T -p &lt;pid&gt;
+strace -c -p &lt;pid&gt;
+
+<span class="c-cm"># ⑤ 磁盘 I/O 深度体检：重点关注 %util(繁忙度，近100%即饱和)、await(平均每次IO耗时ms)、r/s 与 w/s</span>
+iostat -xz 1</code></pre>
+          </div>
+
+          <div class="plop-code-box" style="margin-top:12px;">
+            <div class="plop-code-head">
+              <span>🧠 troubleshoot_mem_fd.sh · 内存泄漏 / PSS 统计 / OOM Killer 查凶 / 删文件不释放磁盘排查</span>
+              <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('os-fd-mem-cmd', this)">复制命令</button>
+            </div>
+            <pre class="plop-code-pre" id="os-fd-mem-cmd"><code><span class="c-cm"># ① 查看真实可用内存 available，以及某进程均摊共享库后的真实物理内存 PSS 与 Swap 占用</span>
+free -h
+cat /proc/&lt;pid&gt;/smaps_rollup
+
+<span class="c-cm"># ② 进程莫名消失（退出码 137 / SIGKILL）？查内核日志确认是不是被 OOM Killer 处决了！</span>
+dmesg -T | grep -E -i "oom|killed process|out of memory"
+
+<span class="c-cm"># ③ 磁盘 100% 满但 du 找不到大文件？揪出还持有「已删除文件 fd (deleted)」的进程并确认写入方；优先让服务轮转或重新打开日志</span>
+lsof +L1
+lsof | grep deleted
+: &gt; /path/to/still_open_huge.log   <span class="c-cm"># 用截断代替 rm，瞬间释放磁盘块且无需重启进程！</span></code></pre>
+          </div>
+        </div>
+
+        <!-- 08.3 · 高频面试速记表 + 8 题闭卷自测 (#cheat, #sources) -->
+        <div class="wb-card" id="cheat" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">🎯 08.3 · 核心问题速记表 + 8 道深度闭卷自测题</div>
+          <h3>⚡ 08.3 考前 5 分钟速记表 &amp; 闭卷自测问答</h3>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:26%">高频考题</th>
+                  <th>核心理解与适用边界</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>用户态 vs 内核态 &amp; 怎么切换？</strong></td>
+                  <td>CPU 硬件特权级（Ring 3 vs Ring 0）。用户态受限，只能通过 <strong>① 系统调用、② 异常（如缺页）、③ 外围硬件中断</strong> 陷入内核态；高频读时间靠 <strong><code>vDSO</code></strong> 映射只读页实现零陷入。</td>
+                </tr>
+                <tr>
+                  <td><strong>进程 vs 线程 vs 协程</strong></td>
+                  <td>进程组织资源和地址空间；线程是内核调度的执行实体；协程由用户态运行时安排。它们的共享方式、栈实现与切换成本各不相同，不宜记成固定耗时。</td>
+                </tr>
+                <tr>
+                  <td><strong>僵尸进程 vs 孤儿进程</strong></td>
+                  <td>僵尸是已退出但未被回收的子进程，应修复父进程的 wait 逻辑。发送 SIGCHLD 仅在父进程已有适当处理逻辑时可能有用；孤儿会交给合适的收养进程（如 subreaper 或 PID 1）。</td>
+                </tr>
+                <tr>
+                  <td><strong>为什么进程切换比线程切换慢？</strong></td>
+                  <td>跨进程通常多一步切换地址空间；同进程线程通常共享地址空间。TLB 保留与刷新依赖硬件和内核机制，缓存局部性也会影响实际成本。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>fork()</code> 写时复制 (COW) 与大页坑</strong></td>
+                  <td>私有可写页可以在 fork 后先共享，发生写入时再按需复制。THP 可能涉及大页复制、拆分、合并与规整，路径依赖具体内核和页面状态；Redis 快照需要关注 fork 停顿与 COW 延迟。</td>
+                </tr>
+                <tr>
+                  <td><strong>64B 缓存行与伪共享 (False Sharing)</strong></td>
+                  <td>CPU Cache 按 <strong>64 Bytes 缓存行</strong>整块搬运；若两个核高频修改落在同一缓存行里的两个独立变量，会导致缓存行在多核间按 MESI 协议反复失效，靠 <strong>64B 对齐填充（Padding）</strong>解决。</td>
+                </tr>
+                <tr>
+                  <td><strong>为什么需要虚拟内存？</strong></td>
+                  <td>① <strong>进程内存安全隔离</strong>；② <strong>提供连续地址空间假象</strong>（消除外部碎片）；③ <strong>突破物理内存容量限制</strong>（按需调页 + 冷页 Swap 换出 + 共享库物理页复用）。</td>
+                </tr>
+                <tr>
+                  <td><strong>x86-64 四级页表与 TLB</strong></td>
+                  <td>单级页表占空间太大，48 位虚拟地址按 <strong><code>9+9+9+9+12</code></strong> 拆成四级页表（PGD→PUD→PMD→PTE→4KB页内偏移）按需建表省内存；再用硬件 <strong>TLB 快表</strong>缓存热门映射抵消 4 次查表访存。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>malloc</code> 底层原理与延迟分配</strong></td>
+                  <td>malloc 先尝试复用分配器已有内存；需要新区域时可能使用 brk/mmap。匿名映射通常按需分配物理页，VIRT 与 RSS 因此不必同步增长；阈值不是跨分配器的统一规则。</td>
+                </tr>
+                <tr>
+                  <td><strong>共享内存为什么能减少数据拷贝？</strong></td>
+                  <td><strong>共享内存可减少传输中的数据中转：</strong>因为管道/消息队列/Socket 都要经内核缓冲区做 2 次拷贝，而共享内存让两进程页表直指同一块物理页，<strong>0 次内核拷贝</strong>（需配合信号量同步）。</td>
+                </tr>
+                <tr>
+                  <td><strong>互斥锁 Mutex vs 自旋锁 Spinlock</strong></td>
+                  <td>用户态互斥锁常用原子操作完成无竞争快路径，竞争时可借助 futex 等待和唤醒；自旋策略依赖实现。内核 mutex 是另一种内核同步原语，不能与 pthread_mutex 混为一谈。</td>
+                </tr>
+                <tr>
+                  <td><strong>死锁四条件与最实用预防法</strong></td>
+                  <td><strong>互斥、持有并等待、不可剥夺、循环等待</strong>（四者缺一不可）。工程上最实用方案：<strong>强制按固定全局顺序加锁（如按账户 ID 从小到大加锁）</strong>，从根源上破坏循环等待。</td>
+                </tr>
+                <tr>
+                  <td><strong>Linux CFS 调度器核心原理</strong></td>
+                  <td>按权重归一化的虚拟运行时间 <code>vruntime</code> 组织<strong>红黑树</strong>，每次 $O(1)$ 取最左节点（<code>vruntime</code> 最小）上 CPU；高优先级（<code>nice</code> 值小）权重大、<code>vruntime</code> 涨得慢，分得更多 CPU（Linux 6.6+ 演进为 EEVDF）。</td>
+                </tr>
+                <tr>
+                  <td><strong>硬链接 vs 软链接 &amp; 文件三张表</strong></td>
+                  <td>硬链接共享同一 <code>inode</code>（<code>i_nlink+1</code>，删原文件不影响）；软链接是存目标路径字符串的独立小文件。进程 <code>fd</code> 背后的三张表：<strong>进程 fd 表 ──▶ 系统打开文件表（含 <code>offset</code>）──▶ inode 表</strong>。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>select / poll / epoll</code> 核心区别</strong></td>
+                  <td>select/poll 通常每轮提交并扫描监听集合；epoll 维护监听关系和就绪集合，避免每轮扫描全部 fd。返回 K 个事件仍有相应开销；ET 通常配合非阻塞 fd，并读取至 EAGAIN。</td>
+                </tr>
+                <tr>
+                  <td><strong>什么是零拷贝 (Zero-Copy)？</strong></td>
+                  <td>传统 <code>read+write</code> 需 4 次切换 + 4 次拷贝（2 DMA + 2 CPU）；<strong><code>sendfile + SG-DMA</code></strong> 让数据从内核 Page Cache 直接由网卡 DMA 发走，降为 <strong>2 次切换 + 0 次 CPU 拷贝</strong>（Kafka/Nginx 核心加速手段）。</td>
+                </tr>
+                <tr>
+                  <td><strong>目录的 <code>r / w / x</code> 权限与删文件条件</strong></td>
+                  <td>目录 <code>r</code> 决定能否 <code>ls</code> 看文件名列表，<strong>目录 <code>x</code> 决定能否 <code>cd</code> 进入及访问子文件 <code>inode</code>，目录 <code>w</code>（配 <code>x</code>）决定能否新建或删除文件</strong>（哪怕文件本身 <code>0000</code> 只读，只要对父目录有 <code>wx</code> 就能 <code>rm</code> 删掉；<code>/tmp</code> 靠 Sticky 粘滞位 <code>1777</code> 防止删别人文件）。</td>
+                </tr>
+                <tr>
+                  <td><strong>统计日志 Top 10 IP 与查端口占用命令</strong></td>
+                  <td>• <strong>日志 Top 10 IP：</strong><code>awk '&#123;print $1&#125;' access.log | sort | uniq -c | sort -nr | head -n 10</code><br/>
+                  • <strong>查端口占用与 TCP 状态：</strong><code>ss -tulpn | grep :8080</code>（或 <code>lsof -i:8080</code>）；<code>ss -s</code> 查看各 TCP 状态汇总；后台重定向必写 <code>nohup ./app &gt; app.log 2&gt;&amp;1 &amp;</code>（先改 <code>fd=1</code> 再让 <code>fd=2</code> 复制 <code>fd=1</code>）。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-top:18px;">🎯 8 道深度闭卷自测题（先在心里作答，再点击展开核对边界）</h4>
+          <div class="wb-grid-2">
+            <div>
+              <details class="plop-drawer">
+                <summary><span class="plop-drawer-title">Q1：一次系统调用一定会发生「进程上下文切换」吗？</span></summary>
+                <div class="drawer-body">
+                  <p>不一定。真正执行系统调用时会进入内核，但仍可能由原线程继续执行。需要等待或发生抢占调度时，才可能换成另一个任务。<strong>启用 KPTI 时，同一线程进出内核也可能切换页表。</strong></p>
+                </div>
+              </details>
+
+              <details class="plop-drawer">
+                <summary><span class="plop-drawer-title">Q2：为什么 <code>kill -9</code> 杀不死 <code>D</code> 状态和 <code>Z</code> 状态的进程？</span></summary>
+                <div class="drawer-body">
+                  <p>• <strong><code>Z</code>（僵尸态）：</strong>进程<strong>已经终止</strong>（内存和资源早已释放），只剩个 PCB 空壳等父进程调用 <code>wait()</code> 回收，无法再对已终止进程发信号（应让父进程正确调用 wait 回收；单发 SIGCHLD 不保证有效）。<br/>
+                  • <strong><code>D</code>（不可中断睡眠）：</strong>进程正在内核驱动里等待磁盘 DMA 或远程存储硬件完成，传统 <code>TASK_UNINTERRUPTIBLE</code> 为防止硬件状态不一致屏蔽了所有信号，<code>SIGKILL</code> 必须等硬件 I/O 返回后才能被处理（注：Linux 2.6.25 起新增了 <strong><code>TASK_KILLABLE</code></strong>，在 <code>ps/top</code> 中同样显示为 <code>D</code>，但允许 NFS 等路径响应 <code>SIGKILL</code> 终止）。</p>
+                </div>
+              </details>
+
+              <details class="plop-drawer"><summary><span class="plop-drawer-title">Q3：大页有什么好处？为什么有些服务要关闭 THP？</span></summary><div class="drawer-body"><p>大页能减少页表项数量，并让同样数量的 TLB 条目覆盖更多内存。显式 HugeTLB 页与透明大页（THP）是不同的使用方式；前者需要专门配置，后者可由内核自动管理。</p><p>THP 的分配、合并、拆分、写时复制和内存规整可能带来延迟。是否采用应看服务类型、内核和实测结果；Redis 官方建议关闭 THP，不能将这个建议推广成所有数据库都应关闭。</p></div></details>
+
+              <details class="plop-drawer">
+                <summary><span class="plop-drawer-title">Q4：为什么条件变量 <code>pthread_cond_wait</code> 必须写在 <code>while</code> 循环里，用 <code>if</code> 会出什么 Bug？</span></summary>
+                <div class="drawer-body">
+                  <p>两个原因：① 操作系统底层实现（如 <code>futex</code> 被信号打断或多核竞争）允许在没有人调 <code>signal</code> 的情况下发生<strong>虚假唤醒（Spurious Wakeup）</strong>；② 即使是真的被生产者唤醒，从“被唤醒”到“重新抢回 Mutex 锁”之间有时间差，队列里的那个元素可能<strong>已经被别的消费者线程抢先取走了</strong>！因此醒来拿到锁后必须用 <code>while (queue.empty())</code> 再次检查条件。</p>
+                </div>
+              </details>
+            </div>
+
+            <div>
+              <details class="plop-drawer">
+                <summary><span class="plop-drawer-title">Q5：<code>epoll</code> 是同步 I/O 还是异步 I/O？为什么 <code>epoll</code> 的 ET 模式必须配非阻塞 Socket？</span></summary>
+                <div class="drawer-body">
+                  <p>• <strong>定性：</strong><code>epoll</code> 是<strong>同步 I/O</strong>！因为它只负责阶段①（通知你哪个 fd 就绪了），阶段②（把数据从内核缓冲区拷贝到用户态缓冲区）仍需要用户线程自己调用 <code>read()</code> 取得数据（可使用非阻塞 fd）；真正的异步 I/O 是 Linux 5.1+ 的 <strong><code>io_uring</code></strong>。<br/>
+                  • <strong>为什么 ET 必配非阻塞：</strong>ET 只在数据到来时通知一次，你必须用 <code>while</code> 循环一直 <code>read()</code> 直到返回 <code>EAGAIN</code> 才算读空；若用阻塞 Socket，最后一次读空后的 <code>read()</code> 会把整个事件循环线程永久卡死！</p>
+                </div>
+              </details>
+
+              <details class="plop-drawer"><summary><span class="plop-drawer-title">Q6：什么时候考虑 mmap，什么时候考虑 sendfile？</span></summary><div class="drawer-body"><p>需要在用户态读取或处理文件内容时，mmap 提供文件的内存映射访问。需要把文件内容直接转发给另一个 fd 时，sendfile 可以避免先读进用户缓冲区再写出去。</p><p>这是两种接口的适用场景，并非 Kafka 或 RocketMQ 永远只用其中一种。具体路径还受版本、传输大小、加密与配置影响。</p></div></details>
+
+              <details class="plop-drawer">
+                <summary><span class="plop-drawer-title">Q7：调用 <code>write()</code> 返回成功了，如果此时进程崩溃 vs 整机断电，数据会丢吗？</span></summary>
+                <div class="drawer-body">
+                  <p>• <strong>如果只是你的应用程序进程崩溃（如 <code>kill -9</code> 或段错误）：数据不会丢！</strong>因为 <code>write()</code> 已经把数据拷进了<strong>操作系统内核的 Page Cache</strong>，进程虽然死了，但内核还活着，内核的回写线程（flusher）照样会把这页脏页刷进磁盘！<br/>
+                  • <strong>如果是操作系统内核 Panic 或整机拔电源断电：数据会丢！</strong>因为 Page Cache 也是 DRAM 内存，断电即失；要想防整机断电，必须在 <code>write()</code> 后调用 <strong><code>fsync() / fdatasync()</code></strong> 强制刷入物理磁盘介质。</p>
+                </div>
+              </details>
+
+              <details class="plop-drawer">
+                <summary><span class="plop-drawer-title">Q8：线上服务器 <code>load average</code> 高达 30（8核机器），但 <code>top</code> 看 CPU 使用率只有 10%，怎么回事？</span></summary>
+                <div class="drawer-body">
+                  <p>load average 包含可运行任务，也包含不可中断等待任务，而且是一定时间范围的平均值。高 Load、低 CPU 利用率提示需要检查等待与资源限制，<strong>不能据此断言当前正有 30 个线程全部在等磁盘</strong>。结合 ps 的状态、vmstat、iostat 与进程栈继续定位。</p>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <!-- 核对依据与权威参考资料 -->
+        <div class="wb-card" id="sources" style="background:var(--plop-sheet); margin-top:18px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+            <h3 style="margin:0;">📚 核对依据与 Linux 内核权威参考（Linux 5.x / 6.x · x86-64）</h3>
+            <span class="plop-tag periwinkle">修订：2026-11-12</span>
+          </div>
+          <p style="font-size:13.4px;">
+            本篇手账以 <strong>现代 Linux 内核（5.x / 6.x）与 x86-64 架构</strong> 为基准，结合经典教材《Operating Systems: Three Easy Pieces (OSTEP)》（三大主线：虚拟化、并发、持久化）与《深入理解 Linux 内核 / Linux 内核设计与实现》整理核对。以下为内核官方文档与 man 手册直达链接：
+          </p>
+          <ul class="source-links-grid">
+            <li>🔗 <a href="https://docs.kernel.org/scheduler/index.html" target="_blank" rel="noopener">Linux Kernel Scheduler (CFS &amp; EEVDF)</a> · <a href="https://docs.kernel.org/scheduler/sched-design-CFS.html" target="_blank" rel="noopener">CFS 设计文档</a></li>
+            <li>🔗 <a href="https://docs.kernel.org/mm/index.html" target="_blank" rel="noopener">Linux Memory Management (MM)</a> · <a href="https://docs.kernel.org/mm/page_tables.html" target="_blank" rel="noopener">x86-64 多级页表</a> · <a href="https://docs.kernel.org/admin-guide/mm/transhuge.html" target="_blank" rel="noopener">透明大页 THP</a></li>
+            <li>🔗 <a href="https://man7.org/linux/man-pages/man7/epoll.7.html" target="_blank" rel="noopener">man 7 epoll (LT / ET / EPOLLEXCLUSIVE)</a> · <a href="https://kernel.dk/io_uring.pdf" target="_blank" rel="noopener">io_uring 异步 I/O 白皮书</a></li>
+            <li>🔗 <a href="https://man7.org/linux/man-pages/man2/sendfile.2.html" target="_blank" rel="noopener">man 2 sendfile</a> · <a href="https://man7.org/linux/man-pages/man2/mmap.2.html" target="_blank" rel="noopener">man 2 mmap</a> · <a href="https://man7.org/linux/man-pages/man2/futex.2.html" target="_blank" rel="noopener">man 2 futex</a></li>
+            <li>🔗 <a href="https://man7.org/linux/man-pages/man7/vdso.7.html" target="_blank" rel="noopener">man 7 vDSO (零陷入系统调用)</a> · <a href="https://man7.org/linux/man-pages/man7/signal-safety.7.html" target="_blank" rel="noopener">man 7 signal-safety (异步信号安全)</a></li>
+            <li>🔗 <a href="https://pages.cs.wisc.edu/~remzi/OSTEP/" target="_blank" rel="noopener">OSTEP《操作系统导论》公开版</a> · <a href="https://www.brendangregg.com/linuxperf.html" target="_blank" rel="noopener">Brendan Gregg Linux 性能排查指南</a></li>
+          <li>🔗 <a href="https://kernel.org/doc/html/v6.10/arch/x86/pti.html" target="_blank" rel="noopener">KPTI 与 PCID</a> · <a href="https://man7.org/linux/man-pages/man2/fsync.2.html" target="_blank" rel="noopener">fsync / fdatasync</a></li>
+<li>🔗 <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/latency/" target="_blank" rel="noopener">Redis：fork 与 THP 延迟</a> · <a href="https://nginx.org/en/docs/dev/development_guide.html" target="_blank" rel="noopener">NGINX 进程模型</a></li>
+</ul>
+        </div>
+<div class="plop-bridge"><span>⬆️ <a href="#why">回到原理篇顶部 →</a></span></div>

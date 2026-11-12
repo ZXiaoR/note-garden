@@ -1,0 +1,392 @@
+<div class="wb-sec-header" id="process"><span class="wb-sec-num">02</span><span class="wb-sec-title">进程、线程与写时复制</span><span class="plop-tag periwinkle">原理篇</span></div>
+<div class="plop-callout tip"><strong>🧭 本章主线：</strong>对照真实 C 代码看懂进程虚拟内存分布与 <code>task_struct</code>，理清进程五态转换（尤其是僵尸进程 <code>Z</code> 与不可中断睡眠 <code>D</code>），最后拆解进程/线程/协程切换代价与 <code>fork</code> 写时复制（COW）。</div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">❓ 02.1 · 程序和进程有什么区别？内核靠什么管住进程？进程的内存布局长什么样？</div>
+          <h3>📦 02.1 进程与 PCB（Linux <code>task_struct</code>）及虚拟地址空间布局</h3>
+          <p>
+            <strong>程序（Program）</strong>是静静躺在磁盘上的可执行二进制文件（如 ELF 格式的 <code>./a.out</code>）；而<strong>进程（Process）</strong>是程序被加载进内存、分配了系统资源、正在运行的一个<strong>动态实例</strong>。一句话定性：<strong>进程是操作系统进行「资源分配」的基本单位</strong>（独立的虚拟地址空间、打开的文件描述符表、信号处理等都归进程所有）。
+          </p>
+
+          <p><strong>这两栏分别回答两个问题：</strong>左边是内核保存的“进程档案”，记录它是谁、运行到哪、有哪些资源；右边是程序所使用的虚拟地址空间，代码和数据在其中分区存放。左边的内存描述信息把这个进程与右边的地址空间关联起来。先看下面的代码例子，再回来看分区名字。</p><div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:14px; margin:14px 0;">
+
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span style="font-weight:900; font-size:14.5px; color:var(--plop-ink);">🪪 PCB 进程控制块（Linux <code>struct task_struct</code>）</span>
+                <span class="plop-tag mint" style="font-size:11px;">进程存在的唯一标志</span>
+              </div>
+              <p style="font-size:13px; margin:0 0 8px;">
+                内核创建进程时，首先在内核空间分配一个 <code>task_struct</code> 结构体（约几 KB，由 Slab 分配器管理），里面装满了该进程的全部身家：
+              </p>
+              <div style="display:grid; gap:6px; font-size:12.8px;">
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px 10px;">
+                  <strong>① 身份标识：</strong><code>pid</code>（内核任务/线程 ID）、<code>tgid</code>（线程组 ID，即用户看到的进程 PID）、<code>ppid</code>（父进程）、<code>cred</code>（UID/GID 权限凭证）。
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px 10px;">
+                  <strong>② 状态与调度：</strong><code>__state</code>（R/S/D/Z/T 状态）、优先级 <code>prio / nice</code>、调度实体 <code>sched_entity</code>（含 CFS 的 <code>vruntime</code>）。
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px 10px;">
+                  <strong>③ CPU 硬件上下文：</strong><code>thread_struct</code>（当进程被切换下 CPU 时，保存它的寄存器、程序计数器 <code>PC/RIP</code>、内核栈指针 <code>RSP</code>）。
+                </div>
+                <div style="background:var(--plop-mustard); border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px 10px;">
+                  <strong>④ 内存描述符：</strong><code>struct mm_struct *mm</code> —— 指向该进程的<strong>虚拟内存区域（VMA；不同版本采用不同索引结构，新内核使用 Maple Tree）与顶级页表基址（<code>pgd</code>，加载进 <code>CR3</code>）</strong>。
+                </div>
+                <div style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px 10px;">
+                  <strong>⑤ 打开文件与信号：</strong><code>struct files_struct *files</code>（进程 fd 表）、<code>signal_struct</code>（信号处理表）、当前工作目录 <code>fs_struct</code>。
+                </div>
+              </div>
+            </div>
+
+
+            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span style="font-weight:900; font-size:14.5px; color:var(--plop-ink);">🗺️ 进程虚拟地址空间布局（x86-64，48位 256TB）</span>
+                <span class="plop-tag tomato" style="font-size:11px;">高地址 ──▶ 低地址</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:5px; font-size:12.4px; font-weight:800;">
+                <div style="background:var(--plop-ink); color:#FFF8E7; border:1.8px solid var(--plop-ink); border-radius:8px; padding:7px 10px; display:flex; justify-content:space-between;">
+                  <span>🛡️ 内核空间 Kernel Space (高 128 TB)</span>
+                  <span style="font-family:var(--font-mono); color:var(--plop-mustard);">所有进程页表共享同一份内核映射</span>
+                </div>
+                <div style="background:var(--plop-periwinkle); border:1.8px solid var(--plop-ink); border-radius:8px; padding:6px 10px; display:flex; justify-content:space-between;">
+                  <span>⬇️ 栈区 Stack（向下增长，默认上限 8MB）</span>
+                  <span style="font-weight:700; color:var(--plop-ink-text);">局部变量、函数调用帧、返回地址</span>
+                </div>
+                <div style="background:#FFFFFF; border:1.8px dashed var(--plop-ink); border-radius:8px; padding:6px 10px; display:flex; justify-content:space-between;">
+                  <span>↕️ 文件映射与匿名映射区 (mmap / vDSO)</span>
+                  <span style="font-weight:700; color:var(--plop-ink-soft);">动态库 .so、大块 malloc(初始 ≥128KB)</span>
+                </div>
+                <div style="background:var(--plop-mustard); border:1.8px solid var(--plop-ink); border-radius:8px; padding:6px 10px; display:flex; justify-content:space-between;">
+                  <span>⬆️ 堆区 Heap（向上增长，靠 brk 扩张）</span>
+                  <span style="font-weight:700; color:var(--plop-ink-text);">小块 malloc / new 动态分配</span>
+                </div>
+                <div style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:8px; padding:6px 10px; display:flex; justify-content:space-between;">
+                  <span>📦 BSS 段（未初始化全局/静态变量）</span>
+                  <span style="font-weight:700; color:var(--plop-ink-text);">磁盘不占空间，加载时映射零页清零</span>
+                </div>
+                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:8px; padding:6px 10px; display:flex; justify-content:space-between;">
+                  <span>📝 Data 数据段（已初始化全局/静态变量）</span>
+                  <span style="font-weight:700; color:var(--plop-ink-soft);">可读写，初始值来自可执行文件</span>
+                </div>
+                <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:8px; padding:6px 10px; display:flex; justify-content:space-between;">
+                  <span>🔒 Text 代码段 &amp;只读常量区 (.rodata)</span>
+                  <span style="font-weight:700; color:var(--plop-tomato);">存机器指令与字符串常量（只读防篡改）</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+<div class="plop-code-box" style="margin-top:16px;">
+  <div class="plop-code-head"><span>🧩 对照真实代码 · 每个名字对应哪一块内存？</span></div>
+  <pre class="plop-code-pre"><code><span class="c-cm">#include &lt;stdlib.h&gt;</span>
+
+<span class="c-kw">int</span> g_init = 42;  <span class="c-cm">// ① 有初始值的全局变量：数据段（Data）</span>
+<span class="c-kw">int</span> g_zero;       <span class="c-cm">// ② 默认初始化为 0 的全局变量：BSS 段</span>
+
+<span class="c-kw">int</span> <span class="c-fn">main</span>(<span class="c-kw">void</span>) {
+    <span class="c-kw">int</span> x = 1;          <span class="c-cm">// ③ 局部变量：通常用栈来理解</span>
+    <span class="c-kw">char</span> *p = <span class="c-fn">malloc</span>(64); <span class="c-cm">// ④ 指针 p 与它指向的内存，是两样东西</span>
+    <span class="c-kw">if</span> (p == NULL) <span class="c-kw">return</span> 1;
+
+    p[0] = 'A';         <span class="c-cm">// ⑤ 把 A 写进申请出来的那块内存</span>
+    <span class="c-fn">free</span>(p);            <span class="c-cm">// ⑥ 释放申请的内存，p 本身是局部变量</span>
+    <span class="c-kw">return</span> x - 1;
+}</code></pre>
+</div>
+<div class="plop-callout tip"><strong>最容易混淆的是 <code>p</code>：</strong>它本身只是一个保存地址的局部变量，可以把它想成“写着房间地址的纸条”；<code>malloc(64)</code> 申请的 64 字节才是“房间”。<code>p[0] = 'A'</code> 修改的是房间里的内容。</div>
+<div class="table-wrap"><table class="plop-table">
+<thead><tr><th>代码里看到的东西</th><th>对应右图哪里</th><th>里面放什么</th></tr></thead>
+<tbody>
+<tr><td><code>main</code> 函数的机器指令</td><td>代码段（Text）</td><td>编译后的指令，例如调用 malloc、写入数据、返回结果。</td></tr>
+<tr><td><code>g_init</code></td><td>数据段（Data）</td><td>有初始值的全局变量，这里的初始值是 42。</td></tr>
+<tr><td><code>g_zero</code></td><td>BSS 段</td><td>运行时初始值为 0；可执行文件记录所需空间，不必存一大串零。</td></tr>
+<tr><td>局部变量 <code>x</code> 和指针变量 <code>p</code> 本身</td><td>栈（Stack，概念示意）</td><td>x 保存整数；p 保存地址。函数调用结束后，局部变量的生命周期结束。</td></tr>
+<tr><td><code>malloc(64)</code> 申请的区域</td><td>动态分配内存，通常称为堆内存</td><td>64 字节可用空间；这里首字节被写成 A，由 free 释放。</td></tr>
+</tbody></table></div>
+<p style="font-size:12.8px; color:var(--plop-ink-soft);">这张对照用于建立概念：编译器优化后，局部变量可能放在寄存器里，甚至被消除；malloc 使用的区域也取决于分配器实现。先分清“变量本身”和“它指向的对象”，再深入这些细节。</p>
+
+
+          <details class="plop-drawer"><summary><span class="plop-drawer-title">📎 进阶阅读 · 堆、栈与内核映射的补充</span></summary><div class="drawer-body">
+<div class="plop-callout info">
+            <strong>💡 高频必答：1. 堆（Heap）和栈（Stack）有什么区别？ 2. 为什么所有进程要共享映射同一份内核空间（以及开启 KPTI 后的变化）？</strong><br/>
+            • <strong>栈 vs 堆：</strong>栈由编译器自动分配释放（移动 <code>RSP</code> 栈顶指针即可，速度快、无碎片，但空间小默认 <code>8MB</code>，递归太深会 Stack Overflow）；堆由程序员手动 <code>malloc/free</code> 或语言 GC 管理（空间大、生命周期灵活，但分配相对慢、易产生内存碎片与内存泄漏）。<br/>
+            • <strong>为什么每个进程高地址都映射同一份内核空间？</strong>在经典设计（或开启 <code>nopti</code>）下，当进程执行 <code>syscall</code> 从用户态陷入内核态时，<strong>由于内核空间已映射在当前进程页表的高地址区，CPU 只需把特权级切到 Ring 0 就能直接访问内核代码和当前进程数据，无需切换 <code>CR3</code> 页表</strong>（用户态 Ring 3 因页表项权限位 <code>U/S=0</code> 限制，直接访问高地址会触发 <code>SIGSEGV</code>）。<br/>
+            • <strong>📌 与 01.2 KPTI（内核页表隔离）的衔接：</strong>自 Meltdown 漏洞补丁 <strong>KPTI</strong> 默认开启后，为防止用户态侧信道窥探内核内存，<strong>用户态页表的高地址区只保留极少量的内核入口跳板代码（Trampoline，如 <code>entry_SYSCALL_64</code> 与中断入口）</strong>；陷入 Ring 0 后，入口代码会立即将 <code>CR3</code> 切换到包含完整内核映射的内核页表（借助硬件 <code>PCID</code> 避免全量刷空 TLB）。
+          </div>
+</div></details>
+        </div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">❓ 02.2 · 进程五态怎么转换？为什么 kill -9 都杀不掉 D 状态和 Z（僵尸）状态的进程？</div>
+          <h3 id="pstate">🔄 02.2 进程五态模型与 Linux 真实状态（<code>R / S / D / Z / T</code>）</h3>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div class="table-wrap" style="margin:0;"><div style="display:grid; min-width:520px; grid-template-columns:1fr auto 1.2fr auto 1.2fr auto 1fr; gap:8px; align-items:center; text-align:center;">
+              <div style="background:#F8FAFC; border:2px solid var(--plop-ink); border-radius:10px; padding:10px 8px;">
+                <div style="font-weight:900; font-size:14px;">🆕 创建 New</div>
+                <div style="font-size:12px; color:var(--plop-ink-soft); font-weight:700;">分配 PCB 与资源</div>
+              </div>
+              <div style="font-weight:900; color:var(--plop-ink);">──▶</div>
+              <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px 8px;">
+                <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text);">🟢 就绪 Ready</div>
+                <div style="font-size:12px; font-weight:800; color:var(--plop-ink-text);">万事俱备，排在就绪队列只等 CPU</div>
+              </div>
+              <div style="font-weight:900; font-size:12px; color:var(--plop-tomato);">
+                ──调度上CPU──▶<br/>◀──时间片用完──
+              </div>
+              <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px 8px;">
+                <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text);">🔥 运行 Running</div>
+                <div style="font-size:12px; font-weight:800; color:var(--plop-ink-text);">正占用 CPU 核执行指令</div>
+              </div>
+              <div style="font-weight:900; color:var(--plop-ink);">──▶</div>
+              <div style="background:#F8FAFC; border:2px solid var(--plop-ink); border-radius:10px; padding:10px 8px;">
+                <div style="font-weight:900; font-size:14px;">🏁 终止 Exit</div>
+                <div style="font-size:12px; color:var(--plop-ink-soft); font-weight:700;">释放内存/fd，等回收</div>
+              </div>
+            </div></div>
+
+            <div style="text-align:center; padding:8px 0; font-weight:900; font-size:13px; color:var(--plop-ink);">
+              ⬆️ 事件就绪后<strong>只能先回「就绪态 Ready」排队（绝不能直接跳回运行态！）</strong> &nbsp;｜&nbsp; ⬇️ 运行中主动等 I/O、等锁、sleep 让出 CPU
+            </div>
+
+            <div style="max-width:560px; margin:0 auto; background:var(--plop-periwinkle); border:2.2px solid var(--plop-ink); border-radius:10px; padding:10px 14px; text-align:center;">
+              <div style="font-weight:900; font-size:14px; color:var(--plop-ink-text);">⏸️ 阻塞态 Blocked / Waiting（睡眠态）</div>
+              <div style="font-size:12.4px; font-weight:700; color:var(--plop-ink-text);">卡在磁盘 I/O、网卡收包、互斥锁或定时器上，主动放弃 CPU，不消耗 CPU 时间</div>
+            </div>
+          </div>
+
+          <h4>🐧 Linux <code>ps / top</code> 中的 5 种真实状态码 <span class="plop-tag mint">Linux 实战</span></h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:14%">状态码</th>
+                  <th style="width:28%">内核名称</th>
+                  <th>精准含义与生产故障信号</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong><code>R</code></strong></td>
+                  <td><code>TASK_RUNNING</code></td>
+                  <td><strong>运行态 + 就绪态合体</strong>：既包括正在 CPU 上跑的，也包括排在运行队列（Runqueue）里等待 CPU 的。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>S</code></strong></td>
+                  <td><code>TASK_INTERRUPTIBLE</code></td>
+                  <td><strong>可中断睡眠（最常见）：</strong>在等网络 socket 数据、<code>sleep</code> 或 <code>futex</code> 锁，<strong>收到信号（如 <code>kill</code>）可以立刻被唤醒响应</strong>。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>D</code></strong></td>
+                  <td><code>TASK_UNINTERRUPTIBLE</code><br/><span style="font-size:11.5px; color:var(--plop-ink-soft);">(及 <code>TASK_KILLABLE</code>)</span></td>
+                  <td><strong>不可中断睡眠：</strong>正在内核深处跟硬件打交道（如等待磁盘 DMA 同步读写、NFS 网络存储挂死）。传统 <code>TASK_UNINTERRUPTIBLE</code> 屏蔽所有信号，<strong style="color:var(--plop-tomato);">连 <code>kill -9</code> 都无法立刻终止它</strong>（需等底层 I/O 返回）；线上出现大量 <code>D</code> 态进程且 <code>load average</code> 飙升，通常说明磁盘或存储网络发生阻塞。<br/>
+                  <span style="font-size:12px; color:var(--plop-ink-soft);">💡 <em>进阶补充：Linux 2.6.25 起引入了 <code>TASK_KILLABLE</code>（<code>TASK_UNINTERRUPTIBLE | TASK_WAKEKILL</code>），在 <code>ps/top</code> 中同样显示为 <code>D</code>，但允许响应 <code>SIGKILL</code> 等致命信号（现代 NFS 客户端与部分 VFS 锁路径已采用该状态以支持 <code>kill -9</code> 脱困）。</em></span></td>
+                </tr>
+                <tr>
+                  <td><strong><code>Z</code></strong></td>
+                  <td><code>EXIT_ZOMBIE</code></td>
+                  <td><strong>僵尸态（Zombie）：</strong>子进程已经执行完 <code>exit()</code> 退出了（它占用的用户态内存和打开的文件都已释放），但<strong>父进程还没有调用 <code>wait()/waitpid()</code> 读取它的退出状态码</strong>，因此内核还保留着它那几 KB 的 <code>task_struct</code> 结构体和 PID 编号，等待父进程来读取回收。</td>
+                </tr>
+                <tr>
+                  <td><strong><code>T / t</code></strong></td>
+                  <td><code>TASK_STOPPED / TRACED</code></td>
+                  <td><strong>暂停/跟踪态：</strong>收到 <code>SIGSTOP</code>（如终端按 <code>Ctrl+Z</code> 挂起后台）或被 <code>gdb / strace</code> 断点暂停。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-callout warn">
+            <strong>🚨 必考辨析：僵尸进程（Zombie）vs 孤儿进程（Orphan）—— 怎么清理僵尸进程？容器里为什么容易堆积僵尸进程？</strong><br/>
+            1. <strong>孤儿进程（无害）：</strong>父进程先退出了，子进程还在运行 → 子进程会被 <strong><code>init / systemd</code>（PID = 1，或容器内的 init 进程）自动收养</strong>，等子进程结束时由 PID 1 负责调用 <code>wait</code> 回收。<br/>
+            2. <strong>僵尸进程（有害）：</strong>子进程退出了，父进程还在运行却没有调用 <code>wait/waitpid</code> 也没有处理 <code>SIGCHLD</code> 信号 → 残留的 PCB 一直占着 PID 编号，积累过多会导致系统无法创建新进程（报 <code>fork: Resource temporarily unavailable</code>，PID 上限见 <code>/proc/sys/kernel/pid_max</code>）。<br/>
+            3. <strong>为什么 <code>kill -9 僵尸PID</code> 没用？怎么清理？</strong>因为僵尸进程<strong>已经退出了</strong>，信号无法再作用于已终止的进程。正确的清理方法：给它的<strong>父进程</strong>发送 <code>kill -SIGCHLD 父PID</code>，或者<strong>终止未正确回收子进程的父进程</strong>——父进程退出后，这些僵尸进程就会过继给 <code>PID 1 (init)</code>，由 <code>init</code> 调用 <code>wait</code> 统一回收。<br/>
+            4. <strong>🐳 容器（Docker/K8s）常见坑：</strong>容器里业务主进程往往直接作为 <strong>容器内的 <code>PID 1</code></strong> 运行。如果业务进程（或子进程）拉起了其他子进程且没有写 <code>wait()</code> 回收逻辑，就会在容器里堆积僵尸进程。<strong>解法：</strong>Dockerfile 使用 <code>tini</code> / <code>dumb-init</code> 作为 <code>ENTRYPOINT</code>（或 <code>docker run --init</code>），让专门的轻量级 init 进程担任 <code>PID 1</code> 负责回收。
+          </div>
+        </div>
+
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape periwinkle"></div>
+          <div class="chapter-q-pill" id="ptc">❓ 02.3 · 进程、线程、协程到底怎么区分？同一进程的多线程共享什么、独占什么？</div>
+          <h3 id="thread">🧵 02.3 线程本质与「进程 vs 线程 vs 协程」对比 <span class="plop-tag tomato">重点回顾</span></h3>
+          <p>
+            早期只有进程时，干多件事就得 <code>fork</code> 多个进程——但进程之间虚拟内存完全隔离，传点数据都得走昂贵的 IPC，切换还要刷页表。于是人们把“资源所有权”和“CPU 执行流”拆开：<strong>进程只管占着那套房子（虚拟内存、文件句柄），而在房子里跑的多条独立执行流就是「线程（Thread）」——线程是 CPU 调度的基本单位！</strong>
+          </p>
+
+
+          <div class="wb-grid-2" style="margin:12px 0;">
+            <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:6px;">
+                🏠 同进程多线程「共享」什么？（房子里的公共设施）
+              </div>
+              <ul style="margin:0; font-size:13.2px; line-height:1.6;">
+                <li><strong>整套虚拟地址空间（页表 <code>mm_struct</code>）：</strong>代码段（Text）、已初始化/未初始化数据段（Data/BSS，即<strong>全局变量与静态变量</strong>）、<strong>堆内存（Heap）</strong>、动态库映射区。</li>
+                <li><strong>进程级内核资源：</strong>打开的<strong>文件描述符表（<code>fd table</code>）</strong>、当前工作目录、用户/组 ID、进程 PID、信号的<strong>处理函数配置（Signal Dispositions）</strong>。</li>
+              </ul>
+            </div>
+
+            <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px; box-shadow:3px 4px 0 var(--plop-shadow);">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:6px;">
+                🎒 每个线程「独占」什么？（每条执行流随身背的包）
+              </div>
+              <ul style="margin:0; font-size:13.2px; line-height:1.6;">
+                <li><strong>独立的调用栈（Stack）：</strong>包括用户态栈（存各自函数的局部变量、参数、返回地址）和独立的内核栈。<span style="color:var(--plop-tomato); font-weight:800;">（注意：线程栈在同一个虚拟地址空间里，若指针越界传出去，别的线程其实也能访问到，但逻辑上各自独立！）</span></li>
+                <li><strong>独立的 CPU 寄存器上下文：</strong>程序计数器 <code>PC/RIP</code>（当前执行到哪行指令）、栈指针 <code>SP</code>、通用寄存器。</li>
+                <li><strong>线程专属元数据：</strong>线程 ID（<code>TID</code>）、<strong>线程局部存储（<code>TLS / __thread</code>）</strong>、独立的 <code>errno</code>、独立的<strong>信号屏蔽字（Signal Mask）</strong>与调度优先级。</li>
+              </ul>
+            </div>
+          </div>
+
+          <h4 style="margin-top:16px;">📊 进程 vs 线程 vs 协程（Coroutine / Goroutine）三维全景对照表</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:16%">对比维度</th>
+                  <th style="width:28%">进程 (Process)</th>
+                  <th style="width:28%">内核级线程 (Thread / KLT)</th>
+                  <th>用户态协程 (Coroutine / Goroutine)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>核心定位</strong></td>
+                  <td><strong>资源分配</strong>的基本单位</td>
+                  <td><strong>操作系统 CPU 调度</strong>的基本单位</td>
+                  <td><strong>用户态运行时调度</strong>的轻量级执行流</td>
+                </tr>
+                <tr>
+                  <td><strong>谁负责调度</strong></td>
+                  <td>OS 内核抢占式调度（需陷入 Ring 0）</td>
+                  <td>OS 内核抢占式调度（需陷入 Ring 0）</td>
+                  <td><strong>用户态语言运行时（如 Go GMP / Python asyncio）在 Ring 3 自己调度，内核完全不知情！</strong></td>
+                </tr>
+                <tr>
+                  <td><strong>地址空间与栈</strong></td>
+                  <td>独立虚拟地址空间，隔离性最强</td>
+                  <td>共享所属进程地址空间；<strong>固定栈较大（Linux 默认 8MB）</strong></td>
+                  <td>共享所属进程地址空间；<strong>初始栈极小（如 Go 仅 2KB，按需动态扩缩容）</strong>，单机轻松开百万个</td>
+                </tr>
+                <tr>
+                  <td><strong>切换成本</strong></td>
+                  <td><strong>最重（通常涉及更多状态处理）：</strong>陷入内核 + 换 <code>CR3</code> 页表 + <strong>刷 TLB 快表</strong> + 缓存失效</td>
+                  <td><strong>中等（成本依赖平台与负载）：</strong>陷入内核 + 换内核栈与寄存器（<strong>通常共享地址空间，避免跨地址空间切换</strong>）</td>
+                  <td><strong>极轻（几十纳秒）：</strong><strong>全程在用户态</strong>保存/恢复三五个寄存器（<code>PC/SP/BP</code>），快一个数量级</td>
+                </tr>
+                <tr>
+                  <td><strong>崩溃与阻塞影响</strong></td>
+                  <td><strong>互相隔离：</strong>一个进程段错误崩掉不影响其他进程（如 Chrome 多进程、Nginx worker）</td>
+                  <td><strong>一损俱损：</strong>一个线程野指针触发 <code>SIGSEGV</code> 会直接杀掉整个进程；但单个线程 I/O 阻塞不影响同进程其他线程</td>
+                  <td>若采用纯 <code>N:1</code> 模型，一个协程调阻塞 syscall 会卡死整个底层线程；<strong>Go 采用 <code>M:N</code> + <code>netpoller(epoll)</code> 实现了只挂起协程不阻塞线程</strong></td>
+                </tr>
+                <tr>
+                  <td><strong>最佳适用场景</strong></td>
+                  <td>要求高强隔离与稳定性（浏览器 Tab、PostgreSQL backend）</td>
+                  <td><strong>CPU 密集型计算</strong>（吃满多核）或常规多核并行服务</td>
+                  <td><strong>海量高并发 I/O 密集型业务</strong>（网关、微服务、长连接推送）</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-callout info">
+            <strong>🐧 Linux 内核的秘密：在 Linux 内核眼里，其实根本没有“线程”这个特殊结构！</strong><br/>
+            Linux 采用<strong>「轻量级进程（LWP）」+ 用户态 <code>NPTL</code> 1:1 模型</strong>：内核里无论进程还是线程，<strong>统统都是一个 <code>struct task_struct</code></strong>，并且底层全部调用同一个 <code>clone()</code> 系统调用创建！<br/>
+            • 当你调 <code>fork()</code> 创建<strong>新进程</strong>时：相当于调 <code>clone(SIGCHLD, 0)</code>，内核把父进程的虚拟内存描述符 <code>mm_struct</code>、文件表 <code>files_struct</code> 等<strong>独立复制一份</strong>；<br/>
+            • 当你调 <code>pthread_create()</code> 创建<strong>新线程</strong>时：相当于调 <code>clone(CLONE_VM | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD, ...)</code>，新造出来的 <code>task_struct</code> <strong>直接把指针指向父任务的同一个 <code>mm_struct</code> 和 <code>files_struct</code></strong>！在内核看来，线程就是一群共享了同一套房子的 <code>task_struct</code>！
+          </div>
+        </div>
+
+
+        <div class="wb-card" id="ctxswitch" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill" id="fork">❓ 02.4 · 进程切换到底慢在哪里？fork() 一次返回两次和写时复制 (COW) 是怎么工作的？</div>
+          <h3>⚡ 02.4 上下文切换成本拆解 &amp; <code>fork() / execve()</code> 写时复制 (COW)</h3>
+
+          <h4>1️⃣ 三种切换粒度的真实成本对比</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:22%">切换类型</th>
+                  <th style="width:36%">硬件与内核做了什么？</th>
+                  <th>主要的额外性能开销在哪？</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>① 特权模式切换</strong><br/>(用户态 ↔ 内核态)</td>
+                  <td>同一线程内，Ring 3 ↔ Ring 0，保存通用寄存器到内核栈。</td>
+                  <td>开销最小（~百纳秒），主要损耗在指令流水线冲刷与 KPTI 页表切换。</td>
+                </tr>
+                <tr>
+                  <td><strong>② 同进程线程切换</strong><br/>(Thread A → Thread B)</td>
+                  <td>陷入内核，保存 Thread A 的 CPU 寄存器与内核栈指针，恢复 Thread B 的寄存器与栈；<strong><code>CR3</code> 页表基址不变！</strong></td>
+                  <td><strong>TLB 快表不失效！</strong>但若切到不同逻辑核或访问不同数据，L1/L2 Cache 热度可能下降（~1 μs）。</td>
+                </tr>
+                <tr>
+                  <td><strong>③ 跨进程上下文切换</strong><br/>(Process A → Process B)</td>
+                  <td>除保存/恢复寄存器与内核栈外，<strong>必须把新进程的顶级页表地址写入 <code>CR3</code> 寄存器，切换整个虚拟地址空间！</strong></td>
+                  <td>切换地址空间需要额外处理。TLB 是否刷新取决于 PCID 等机制；缓存中的共享代码或数据仍可能复用。局部性下降会增加后续访存成本，但不意味着缓存全部失效。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-top:16px;">2️⃣ Linux 创建进程的组合机制：<code>fork()</code> + <code>execve()</code> + 写时复制 (COW) <span class="plop-tag tomato">重点回顾</span></h4>
+          <p>在 Shell 中启动新程序，常见思路是先创建子进程，再让子进程调用 <code>execve()</code> 加载目标程序。<strong>fork 创建新进程；execve 替换当前进程的程序映像，成功时不返回。</strong>这是便于理解的一条路径，并非所有进程都必须依次执行这两个调用；实际还会使用 clone、vfork、posix_spawn 等接口。</p>
+
+          <div class="plop-code-box">
+            <div class="plop-code-head">
+              <span>🐧 fork_exec_demo.c · 为什么 fork() 调用一次，却会返回两次？</span>
+            </div>
+            <pre class="plop-code-pre"><code><span class="c-fn">pid_t</span> pid = <span class="c-fn">fork</span>();  <span class="c-cm">// 克隆当前进程：内核复制 PCB 与页表，父子从下一行同时往下跑！</span>
+
+<span class="c-kw">if</span> (pid == 0) &#123;
+    <span class="c-cm">// ① 返回 0 ──▶ 说明当前执行流是【子进程】（子进程调 getpid() 拿自己 PID，getppid() 拿父 PID）</span>
+    <span class="c-fn">execve</span>(<span class="c-str">"/bin/ls"</span>, argv, envp); <span class="c-cm">// 用 /bin/ls 的代码段/数据段彻底替换当前虚拟内存，一去不复返</span>
+&#125; <span class="c-kw">else if</span> (pid &gt; 0) &#123;
+    <span class="c-cm">// ② 返回 &gt; 0（子进程真实的 PID）──▶ 说明当前执行流是【父进程】</span>
+    <span class="c-fn">waitpid</span>(pid, &amp;status, 0);      <span class="c-cm">// 父进程等待子进程结束并回收 PCB，防止产生僵尸进程</span>
+&#125;</code></pre>
+          </div>
+
+
+          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
+            <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:10px;">
+              🧬 写时复制（Copy-On-Write, COW）三步物理推演：为什么 <code>fork()</code> 不直接拷贝物理内存？
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap:12px;">
+              <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">Step 1 · 刚 <code>fork()</code> 完瞬间</div>
+                <div style="font-size:12.8px; color:var(--plop-ink-text); margin-top:4px; line-height:1.55; font-weight:700;">
+                  内核创建子进程并复制必要的管理信息。以普通的<strong>私有可写内存</strong>为例，父子最初共享物理页，相关映射被设为只读，用来捕获后续写入。并不是所有映射都采用同一种处理。
+                </div>
+              </div>
+              <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">Step 2 · 父或子尝试修改某页</div>
+                <div style="font-size:12.8px; color:var(--plop-ink-text); margin-top:4px; line-height:1.55; font-weight:700;">
+                  只读取这些共享页时，通常不必复制；一旦父进程（或子进程）往<strong>某一个 4KB 页写入数据</strong>，MMU 发现该页是只读的，当场触发<strong>写保护缺页异常（Page Fault）</strong>陷入内核！
+                </div>
+              </div>
+              <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:10px; padding:12px;">
+                <div style="font-weight:900; font-size:13.8px; color:var(--plop-tomato);">Step 3 · 按需分配新页并解绑</div>
+                <div style="font-size:12.8px; color:var(--plop-ink-text); margin-top:4px; line-height:1.55; font-weight:700;">
+                  若原页仍被共享，内核为写入方复制页面、更新其映射并允许写入；另一方保留原映射，<strong>不会一并直接恢复为可写</strong>。若已可独占原页，则可能无需复制。这里以普通 4KB 页为例。
+                </div>
+              </div>
+            </div>
+
+            <div class="plop-callout info"><strong>📎 联系 Redis 快照：</strong><code>BGSAVE</code> 由子进程后台生成 RDB，但创建子进程的 <code>fork()</code> 阶段仍会让主线程停顿，之后的写入也可能付出 COW 成本。透明大页（THP）的复制、拆分或内存规整可能进一步影响延迟，具体路径依赖内核版本和页面状态，不能只用某个版本号划出统一规则。Redis 官方建议关闭 THP；其他数据库应按自身文档与实测配置。</div>
+          </div>
+
+          <div class="plop-callout tip"><strong>📝 本章先记住：</strong>进程组织资源，线程执行代码；等待的任务可以把 CPU 让出去。</div>
+
+        </div>
+<div class="plop-bridge"><span>🧭 下一章：<a href="#hierarchy">03 · 虚拟内存与内存分配 →</a></span></div>
