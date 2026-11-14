@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="从第一性原理理解 Go：基础语法与 Go Modules、slice/map/defer/interface/error 底层内存结构、GMP 协程调度与 SIGURG 异步抢占、Channel 与 select 多路复用、Mutex/sync.Map/TCMalloc 内存分配器与三色标记混合写屏障 GC、Context/泛型/内存模型与 pprof 调优。" />
-  <title>Go 语言全览：从内存布局、GMP 调度到混合写屏障 GC · note-garden 技术知识花园</title>
+  <meta name="description" content="Go 语言基础与项目实战篇：从第一个程序与 25 个关键字出发，系统讲解变量与基础数据类型（bool/int/float/string/byte/rune）、复合容器（数组/slice/map）、指针与结构体接口、函数与错误处理、协程与 Channel 并发用法，以及真实 Go 项目目录搭建与 Web 服务实战。" />
+  <title>Go 语言 · 基础与实战篇 · note-garden 技术知识花园</title>
   <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
   <link rel="stylesheet" href="../assets/plop-garden.css" />
   <script src="../assets/plop-garden.js"></script>
@@ -23,8 +23,11 @@
       <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
         <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
         <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
-        <span class="plop-tag mint">🐹 GO 1.18 ~ 1.24 体系全览</span>
       </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" class="active" aria-current="page" title="循序渐进：从基础数据类型、语法用法到真实项目目录搭建">🌱 基础与实战篇</a>
+        <a href="principles.html" data-edition-target="principles.html" title="切换到当前章节的底层内存布局、扩容机制、GMP 调度与 GC 原理">📘 核心原理篇 ↗</a>
+      </nav>
     </div>
 
     <div class="console-group">
@@ -39,7 +42,7 @@
 
   <div class="plop-desk-stage">
     <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + Go 速查小票 ==================== -->
-    <aside class="plop-side-rail left" aria-label="本篇章节导航与参数速查">
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与语法速查">
       <div class="rail-sticky-cluster">
         <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
         <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
@@ -58,62 +61,62 @@
         </div>
 
         <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
-        <nav class="plop-index-tabs" id="toc-tabs" aria-label="Go 章节书签">
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="Go 基础与实战章节书签">
           <a href="#why" class="plop-ear-tab active" data-toc="why">
             <span class="ear-dot"></span>
-            <span>00 第一性原理导读</span>
+            <span>00 环境安装与首个程序</span>
           </a>
           <a href="#basic" class="plop-ear-tab" data-toc="basic">
             <span class="ear-dot mint"></span>
-            <span>01 基础语法与包管理</span>
+            <span>01 变量、基础类型与控制流</span>
           </a>
           <a href="#slice" class="plop-ear-tab" data-toc="slice">
             <span class="ear-dot periwinkle"></span>
-            <span>02 内置类型底层解剖</span>
+            <span>02 数组、切片与字典用法</span>
           </a>
           <a href="#gmp" class="plop-ear-tab" data-toc="gmp">
             <span class="ear-dot mustard"></span>
-            <span>03 协程与GMP调度器</span>
+            <span>03 指针、结构体与接口</span>
           </a>
           <a href="#channel" class="plop-ear-tab" data-toc="channel">
             <span class="ear-dot pink"></span>
-            <span>04 Channel与Select</span>
+            <span>04 函数、defer与错误处理</span>
           </a>
           <a href="#mutex" class="plop-ear-tab" data-toc="mutex">
             <span class="ear-dot periwinkle"></span>
-            <span>05 锁、分配器与GC</span>
+            <span>05 并发编程：协程与通道</span>
           </a>
           <a href="#context" class="plop-ear-tab" data-toc="context">
             <span class="ear-dot mint"></span>
-            <span>06 工程化、泛型与自测</span>
+            <span>06 项目搭建与开发实战</span>
           </a>
         </nav>
 
-        <!-- 3. 打孔小票贴纸：Go Runtime 关键机制与阈值速查 -->
+        <!-- 3. 打孔小票贴纸：Go 语言日常开发速查 -->
         <div class="plop-side-ticket tilt-right">
           <div class="plop-side-ticket-head">
-            <span>GO RUNTIME 黄金数字</span>
-            <span>#1.24</span>
+            <span>GO 语言基础速查</span>
+            <span>阅读书签</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>Goroutine 初始栈</span>
-            <span>2 KiB (动态连续栈)</span>
+            <span>保留关键字数量</span>
+            <span>仅 25 个</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>Slice 扩容拐点</span>
-            <span>256 (2x → 1.25x平滑)</span>
+            <span>字符类型区分</span>
+            <span>byte(1B) / rune(4B)</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>Map 翻倍扩容阈值</span>
-            <span>负载因子 &gt; 6.5</span>
+            <span>循环关键字</span>
+            <span>仅 for 一种</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>P 本地队列 / 抢占</span>
-            <span>256 槽 / 10ms SIGURG</span>
+            <span>导出可见性规则</span>
+            <span>首字母大写即公开</span>
           </div>
           <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
-            <span>Mutex 饥饿切换</span>
-            <span>队头等待 &gt; 1ms</span>
+            <span>底层实现深挖</span>
+            <span>点击顶部 📘核心原理篇</span>
           </div>
         </div>
       </div>
@@ -123,13 +126,13 @@
     <main class="plop-workbench" id="content">
       <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
       <nav class="plop-mobile-toc" aria-label="章节快速跳转">
-        <a href="#why" class="active">00 第一性原理</a>
-        <a href="#basic">01 语法与模块</a>
-        <a href="#slice">02 类型底层</a>
-        <a href="#gmp">03 GMP调度</a>
-        <a href="#channel">04 Channel</a>
-        <a href="#mutex">05 锁与GC</a>
-        <a href="#context">06 工程与自测</a>
+        <a href="#why" class="active">00 第一个程序</a>
+        <a href="#basic">01 基础类型</a>
+        <a href="#slice">02 切片与字典</a>
+        <a href="#gmp">03 结构体与接口</a>
+        <a href="#channel">04 函数与错误</a>
+        <a href="#mutex">05 并发用法</a>
+        <a href="#context">06 项目搭建</a>
       </nav>
 
       <div class="wb-sheet plop-journal-book">
@@ -138,50 +141,45 @@
         <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
         <div class="journal-spine-rings" aria-hidden="true"></div>
 
-        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三遍读法车票 -->
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三步阅读车票 -->
         <header class="wb-masthead">
           <div class="wb-card wb-date-card" style="background:var(--plop-mint);">
             <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">BACKEND / 01</span>
             <div style="font-family:var(--font-head); font-style:italic; font-size:38px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">Go</div>
-            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">1.18 · 1.22 · 1.24</span>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">基础与实战篇</span>
           </div>
 
           <div class="wb-masthead-main">
             <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
-              <span class="plop-tag tomato">FIRST-PRINCIPLES RUNTIME</span>
-              <span class="plop-tag mint">SLICE · MAP · INTERFACE · CHANNEL</span>
-              <span class="plop-tag periwinkle">GMP SCHEDULER · TCMALLOC · HYBRID GC</span>
+              <span class="plop-tag mint">🌱 基础与实战篇</span>
+              <span class="plop-tag periwinkle">基础数据类型 · 切片与字典 · 结构体与接口</span>
+              <span class="plop-tag tomato">并发编程 · 标准项目目录搭建</span>
             </div>
-            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
-              Go 语言全览：从内置类型内存布局，到 GMP 调度与混合写屏障 GC
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              Go 语言 · 基础与实战篇
             </h1>
-            <p style="font-size:14.8px; color:var(--plop-ink-soft); margin:0 0 14px; font-weight:600;">
-              从第一性原理穿透 Go 语言设计与 Runtime 源码：为什么 Go 全是值传递？<code>slice</code> 扩容为什么算完还要做内存对齐取整？<code>map</code> 渐进驱逐与 Go 1.24 Swiss Table 怎么工作？GMP 如何配合 <code>netpoller</code> 和 <code>SIGURG</code> 信号支撑百万并发？TCMalloc 三级无锁分配器与混合写屏障又如何把 GC STW 压进亚毫秒级？
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0 0 14px; font-weight:600;">
+              从开发环境安装与第一个可运行程序出发，依次梳理变量与基础数据类型、控制流、数组与切片、字典、结构体与接口、错误处理以及并发协程的日常用法，最后通过一个完整的 Web 服务演示标准 Go 项目的目录组织与启动流程。若需深入底层内存布局、扩容机制与运行时调度，可随时切换至 <a href="principles.html">📘 核心原理篇 ↗</a>。
             </p>
 
-            <!-- 三遍读法手账小票卡片 -->
+            <!-- 三阶段手账小票卡片 -->
             <div class="wb-kpi-grid">
-              <a href="#slice" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 第一遍：立住底座</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 00—02：先搞懂为什么造 Go、值传递本质，以及 slice/map/interface 内存结构</div>
+              <a href="#basic" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 环境安装与基础语法</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—02：环境安装与首个程序、变量与基础类型用法、数组/切片/字典日常操作</div>
               </a>
               <a href="#gmp" class="plop-ticket-kpi" style="background:var(--plop-mint);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 第二遍：啃透运行时</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 03—05：GMP 调度流转、hchan 跨栈直拷、Mutex 双模式、TCMalloc 与混合写屏障 GC</div>
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 结构体、函数与并发</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 03—05：指针与结构体方法、接口解耦、defer 与错误处理、协程与 Channel 配合</div>
               </a>
               <a href="#context" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 第三遍：工程与自测</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 06：Context 取消树、泛型 GCShape、Go 1.22 分水岭、pprof → 18 道闭卷自测题</div>
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 实际项目搭建与实战</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 06：go mod 依赖管理、企业级目录结构（cmd/internal/pkg）与 Web 服务实战</div>
               </a>
             </div>
           </div>
         </header>
 
-        <!-- ====================================================================
-             7 大章节纯 HTML 子模块（由 assets/plop-garden.js 自动并行加载拼装）
-             平时修改某个章节，直接编辑 go/sections/ 下的对应小文件即可；
-             每个挂载点内预置静态章节摘要与直达链接，兼顾搜索引擎、阅读器、AI 抓取与无 JS 环境可达性
-             ==================================================================== -->
         <noscript>
           <div class="plop-callout warn" style="margin:14px 0;">
             <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
@@ -190,75 +188,72 @@
 
         <div data-plop-section="sections/00-why.html">
           <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 第一性原理导读：为什么有了 C++、Java 和 Python，Google 还要造一门 Go？</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">从多核时代高并发 I/O、超大规模工程极速编译与云原生静态单二进制部署三大诉求出发，建立 Go 语言「核心数据结构、GMP 并发与 Channel、内存分配与混合写屏障 GC、工程化调优」全景图。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 认识 Go、环境安装与第一个程序：工具链配置、Hello World 与 25 个保留关键字</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">了解 Go 的应用场景，完成编译器安装与国内 `GOPROXY` 镜像配置，运行第一个程序并一览 25 个保留关键字。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/01-basic.html">
           <section class="wb-card" id="basic" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-basic.html">01 · 基础语法全览与 Go Modules：<code>string/byte/rune</code>、结构体组合、方法接收者、<code>make vs new</code> 与值传递铁律</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖 UTF-8 编码与 `strings.Builder`、结构体 Embedding 与值/指针接收者实现接口的方法集规则、为什么“Go 只有值传递”、以及 `init()` 初始化顺序与 Go Modules MVS 最小版本选择算法。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-basic.html">01 · 变量、常量与基础数据类型：<code>bool / int / float / string / byte / rune</code> 与控制流</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">系统梳理变量声明、零值机制、常量与 `iota`、基本数值与字符串日常操作，以及 `if / for / switch` 控制流语法。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/02-types.html">
           <section class="wb-card" id="slice" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-types.html">02 · 核心内置类型底层解剖：<code>slice</code> 扩容与共享陷阱、<code>map</code> (<code>hmap</code> + Go 1.24 Swiss Table)、<code>defer/panic/recover</code> 与 <code>interface</code> (<code>eface/iface</code>)</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">深入剖析 24 字节 `sliceHeader` 与 Go 1.18+ 平滑扩容公式、`map` 翻倍/等量渐进式扩容与 Go 1.24 Swiss Table 开放寻址演进、`defer` 开放编码与参数预计算、以及 `nil` 接口不等价于 `nil` 指针的经典陷阱。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-types.html">02 · 复合数据类型：数组 <code>[N]T</code>、动态切片 <code>[]T</code> 与键值字典 <code>map[K]V</code> 的日常用法</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">掌握切片的创建、追加、截取、拷贝，以及字典的增删改查、存在性判断与容量预留技巧。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/03-gmp.html">
           <section class="wb-card" id="gmp" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-gmp.html">03 · 为什么引入协程 &amp; GMP 调度器底层全景：2KB 动态连续栈、Work Stealing、Hand Off 与 Go 1.14 <code>SIGURG</code> 异步抢占</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比 OS 内核线程与 Goroutine，详解 G/M/P/schedt 四大组件、为什么必须在 M 和 G 之间加一层 P、寻找可运行 G 的五步优先级（含 `runnext` 与 `schedtick%61`）、三大阻塞场景（Channel / Netpoller / Syscall）与 `sysmon` 监控线程。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-gmp.html">03 · 指针、结构体（<code>struct</code>）与接口（<code>interface</code>）：Go 的组合式面向对象</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">理解值传递与指针、结构体的定义与嵌套、方法接收者的选择、JSON 结构体标签，以及接口多态与泛型。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/04-channel.html">
           <section class="wb-card" id="channel" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-channel.html">04 · Channel 管道底层解剖与 <code>select</code> 多路复用：<code>runtime.hchan</code>、<code>sendDirect</code> 跨栈直拷、收发关真值表与优雅关闭</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解 `hchan` 环形队列与 `sendq/recvq` 双向链表、`sudog` 跨协程栈直接拷贝优化、未初始化/正常/已关闭三种 Channel 状态的读写关行为，以及 `select` 的 `pollorder` 随机洗牌防饥饿与 `lockorder` 地址排序防死锁。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-channel.html">04 · 函数特性、<code>defer</code> 资源清理与显式错误处理（<code>error</code>）</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">掌握多返回值函数、闭包、用 `defer` 关闭文件与释放锁，以及 `error` 包装与判断的标准写法。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/05-sync-gc.html">
           <section class="wb-card" id="mutex" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-sync-gc.html">05 · 并发同步、内存分配与 GC：<code>sync.Mutex</code> 双模式、<code>WaitGroup/Once/sync.Map</code>、TCMalloc 三级分配器与混合写屏障 GC</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖 Mutex 正常模式 vs 1ms 饥饿模式、`sync.Map` 读写分离双 Map、微/小/大对象分级分配（`mspan → mcache → mcentral → mheap`）、并发三色标记法与 Go 1.8 混合写屏障、以及 `GOGC + GOMEMLIMIT` 与逃逸分析。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-sync-gc.html">05 · 并发编程入门：启动协程 <code>go</code>、通道 <code>channel</code> 通信与同步工具（<code>WaitGroup / Mutex / Context</code>）</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">学会在实际代码中开启协程、用通道传递任务与结果、用 `WaitGroup` 等待完成、用锁保护共享变量，以及用 `Context` 控制超时。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/06-engineering.html">
           <section class="wb-card" id="context" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-engineering.html">06 · 工程实践与闭卷自测：<code>context</code> 取消树、泛型 GCShape、Go 1.22 循环变量分水岭、<code>errgroup/singleflight</code>、<code>pprof</code> 与 18 问自测</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解 `cancelCtx / timerCtx / valueCtx` 树形传播、Go 1.18+ 泛型 GCShape 单态化 + Dictionary、结构体内存对齐、`sync.Pool` P 本地池与 Victim 缓存、以及线上 `pprof` 排查 Goroutine/内存泄漏与 18 道高频面试自测题。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-engineering.html">06 · 实际开发中 Go 项目怎么搭建与实战：<code>go mod</code>、标准目录结构与 HTTP 服务</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">从 `go mod init` 开始，详解真实项目的 `cmd / internal / pkg` 分层目录结构、包导入规则，并手写一个完整的 HTTP JSON 服务与单元测试。</p>
           </section>
         </div>
 
       </div>
     </main>
 
-    <!-- ==================== 右侧手账贴纸栏：常用诊断命令便签 + 全站主题跳转 ==================== -->
-    <aside class="plop-side-rail right" aria-label="Go 常用诊断命令与跨专题导航">
+    <!-- ==================== 右侧手账贴纸栏：学习路线便签 + 全站主题跳转 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷导航与跨专题切换">
       <div class="rail-sticky-cluster">
         <div class="plop-sticky-note mint tilt-right">
           <div class="plop-pin"></div>
           <div class="sticky-title">
             <span style="display:inline-flex; align-items:center; gap:5px;">
               <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
-              <span>📋 诊断命令速拷</span>
+              <span>🌱 按现在的需要读</span>
             </span>
-            <span>COPY</span>
           </div>
-          <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
-            <button type="button" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('cmd-go-escape', this)">
-              🔍 复制逃逸分析编译命令
-            </button>
-            <button type="button" class="plop-pill-sticker mustard" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('cmd-go-pprof', this)">
-              🔥 复制 pprof 火焰图命令
-            </button>
+          <div style="display:flex; flex-direction:column; gap:7px; margin-top:8px;">
+            <a class="plop-pill-sticker" href="#basic">基础类型还不熟？</a>
+            <a class="plop-pill-sticker periwinkle" href="#slice">切片和 map 怎么用？</a>
+            <a class="plop-pill-sticker mustard" href="#context">项目目录怎么搭建？</a>
+            <a class="plop-pill-sticker" href="principles.html">想深挖底层原理？↗</a>
           </div>
         </div>
 

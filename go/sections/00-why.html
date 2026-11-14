@@ -1,196 +1,223 @@
 <!-- ====================================================================
-     PART 00: 第一性原理导读 · 为什么有了 C++/Java/Python，Google 还要造 Go？
+     PART 00: 认识 Go、环境安装与第一个程序
      ==================================================================== -->
-<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+<div class="wb-sec-header" id="why">
   <span class="wb-sec-num">00</span>
-  <span class="wb-sec-title">第一性原理导读 · 为什么有了 C++、Java 和 Python，Google 还要造一门 Go？</span>
-  <span class="plop-tag tomato">FIRST PRINCIPLES · 必读心法</span>
+  <span class="wb-sec-title">认识 Go、环境安装与第一个程序</span>
+  <span class="plop-tag mint">SETUP × HELLO GO × 25 KEYWORDS</span>
 </div>
 
-<!-- 00.1 · 三大历史痛点与全景演进图 -->
-<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+<!-- 00.1 · Go 语言的设计定位与日常应用场景 -->
+<div class="wb-card" id="go-intro" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🧭 00.1 · 别把 Go 当成一堆孤立的源码结构体来背，先看它在解决什么痛点</div>
-  <h3>💡 从第一性原理出发：2007 年 Google 机房里的三堵高墙</h3>
+  <div class="chapter-q-pill">🧭 00.1 · 语言定位：Go 语言的设计特点与常见应用领域</div>
+  <h3>🧭 00.1 Go 语言的设计特点与常见应用领域</h3>
+
   <p>
-    学习一门语言最忌讳一上来就死背语法糖和源码字段。先回到 2007 年 Google 的机房现场：面对千万行级代码库、多核时代的百万级网络并发、以及跨团队微服务协作，传统语言依次撞上了<strong>三堵逃不掉的高墙（工程编译墙 → C100K/C10M 并发墙 → 内存停顿墙）</strong>。Go 的所有设计取舍——<strong>“少即是多（25 个关键字） + 原生 CSP 协程调度（GMP） + 亚毫秒级非移动并发 GC + 工具链大一统”</strong>——全是被这三大痛点一步步逼出来的：
+    Go（又称 Golang）由 Google 于 2009 年开源，由 Ken Thompson（Unix 与 UTF-8 共同设计者）、Rob Pike 与 Robert Griesemer 主持设计。它的核心目标是<strong>把静态编译语言的运行效率，与动态脚本语言的开发简洁性结合起来</strong>：
   </p>
 
-  <div class="wb-grid-3" style="margin:14px 0;">
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-        <span class="plop-tag tomato">痛点 ① · 编译与协作</span>
-        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Ch.01~02</span>
-      </div>
-      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">C++ 编译动辄半小时 vs 秒级编译大一统</div>
-      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
-        C++ 头文件递归展开与模板膨胀让大型编译痛苦不堪，且十个程序员写出十种 C++ 子集。Go 砍掉宏、继承、隐式转换与重载，强制 <code>gofmt</code> 与无循环依赖，让<strong>万人团队写出的代码像同一个人写的</strong>。
-      </p>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; margin:12px 0; font-size:13.2px; line-height:1.65;">
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px;">
+      <strong>① 语法极简，团队代码风格统一</strong><br>
+      整门语言只有 <strong>25 个保留关键字</strong>，仅有一种循环写法（<code>for</code>），并自带官方格式化工具 <code>gofmt</code>，不同工程师写出的代码长相几乎一致，阅读他人代码非常轻松。
     </div>
-
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-        <span class="plop-tag periwinkle">痛点 ② · 百万级并发</span>
-        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Ch.03~04</span>
-      </div>
-      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">OS 线程太重 vs 回调地狱 → GMP + netpoller</div>
-      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
-        OS 线程栈占 <code>1~8MB</code>、内核切换微秒级；异步回调又把逻辑割裂得支离破碎。Go 在 Runtime 内置 <strong>2KB 动态栈 Goroutine + GMP 调度器 + epoll 网络轮询器</strong>，让你<strong>用同步直白的代码跑出异步非阻塞的百万并发</strong>。
-      </p>
+    <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px;">
+      <strong>② 原生支持高并发（<code>goroutine</code>）</strong><br>
+      在任意函数前加一个 <code>go</code> 关键字就能启动一个轻量级协程，初始仅占 <code>2KB</code> 内存，单机可轻松并发处理数万个网络连接。
     </div>
-
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-        <span class="plop-tag mint">痛点 ③ · 内存与低延迟</span>
-        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Ch.05~06</span>
-      </div>
-      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">手动 free 易崩 vs 长 STW → 逃逸 + 混合写屏障</div>
-      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
-        C/C++ 手动管理内存易出悬垂指针；早期 JVM 分代压缩 GC 在大堆下易出现数十毫秒 STW。Go 采用<strong>Struct 连续内存 + 编译期逃逸分析（短命对象留栈上零 GC） + 混合写屏障并发 GC</strong>，将 STW 压在 <strong>0.5ms 以内</strong>。
-      </p>
+    <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px;">
+      <strong>③ 编译极快，单二进制文件直接部署</strong><br>
+      几万行代码通常只需几秒即可编译完成；编译产物是一个包含了运行时（Runtime）的独立可执行文件，拷到服务器上无需安装虚拟机或依赖库即可直接运行。
     </div>
   </div>
 
-  <!-- 手绘 SVG：Go 知识体系全景演进地图 -->
-  <svg viewBox="0 0 960 365" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Go 语言知识体系全景手绘图">
-    <rect x="8" y="8" width="944" height="349" rx="12" fill="#FFFDF7" stroke="var(--plop-ink)" stroke-width="2"/>
-
-    <!-- 阶段一：左侧底座（Ch.01 - Ch.02） -->
-    <g transform="translate(20, 22)">
-      <rect x="0" y="0" width="268" height="320" rx="12" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2.2"/>
-      <rect x="12" y="12" width="244" height="28" rx="7" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="134" y="30" text-anchor="middle" fill="var(--plop-ink-text)" font-size="12.2" font-weight="900">🌱 阶段一：语言底座与数据结构</text>
-
-      <!-- Ch.01 -->
-      <rect x="12" y="50" width="244" height="114" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="22" y="71" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.01 基础语法与 Go Modules</text>
-      <text x="22" y="90" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• 变量/iota · string(UTF-8) · rune</text>
-      <text x="22" y="108" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• 100% 值传递本质 · make vs new</text>
-      <text x="22" y="126" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Struct 组合 · 值/指针接收者法则</text>
-      <text x="22" y="144" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• go.mod / internal / MVS 算法</text>
-
-      <!-- Ch.02 -->
-      <rect x="12" y="176" width="244" height="130" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="22" y="197" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.02 内置类型底层内存布局</text>
-      <text x="22" y="216" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• slice：24B表头 + 平滑扩容与对齐</text>
-      <text x="22" y="234" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• map：hmap/bmap · Swiss Table</text>
-      <text x="22" y="252" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• defer：开放编码 · panic/recover</text>
-      <text x="22" y="270" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• interface：eface/iface · nil 坑</text>
-      <text x="22" y="288" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• error：%w 包装链 · errors.Is/As</text>
-    </g>
-
-    <!-- 连接箭头 Stage 1 -> Stage 2 -->
-    <path d="M 291 182 L 313 182" stroke="#D2381E" stroke-width="3" stroke-dasharray="4 3"/>
-    <polygon points="318,182 309,176 309,188" fill="#D2381E"/>
-
-    <!-- 阶段二：中部 Runtime 并发与内存双引擎（Ch.03 - Ch.05） -->
-    <g transform="translate(321, 22)">
-      <rect x="0" y="0" width="338" height="320" rx="12" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2.2"/>
-      <rect x="12" y="12" width="314" height="28" rx="7" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="169" y="30" text-anchor="middle" fill="var(--plop-ink-text)" font-size="12.2" font-weight="900">🚀 阶段二：Runtime 调度、并发与 GC 引擎</text>
-
-      <!-- Ch.03 GMP -->
-      <rect x="12" y="50" width="314" height="82" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="22" y="70" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.03 协程原理与 GMP 调度器</text>
-      <text x="22" y="88" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• 2KB 动态连续栈 · M:N 复用 · P 本地队列</text>
-      <text x="22" y="105" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• runnext → 本地环 → 61次全局 → Work Stealing</text>
-      <text x="22" y="122" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Syscall Handoff · Netpoller · SIGURG 抢占</text>
-
-      <!-- Ch.04 Channel -->
-      <rect x="12" y="142" width="314" height="76" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="22" y="162" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.04 Channel 通信与 Select 多路复用</text>
-      <text x="22" y="180" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• hchan 环形缓冲 + sendq/recvq 等待队列</text>
-      <text x="22" y="196" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• sendDirect 跨栈直拷 · 读写关状态真值表</text>
-      <text x="22" y="212" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• select 随机 pollorder + 加锁序 lockorder</text>
-
-      <!-- Ch.05 Sync & GC -->
-      <rect x="12" y="228" width="314" height="78" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="22" y="247" fill="#1F8A65" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.05 锁、TCMalloc 分配器与混合写屏障 GC</text>
-      <text x="22" y="265" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Mutex 正常/饥饿(1ms) · Once · sync.Map</text>
-      <text x="22" y="281" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• mspan / mcache / mcentral / mheap 分配</text>
-      <text x="22" y="297" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• 三色标记 + 混合写屏障 · 逃逸分析 · GOMEMLIMIT</text>
-    </g>
-
-    <!-- 连接箭头 Stage 2 -> Stage 3 -->
-    <path d="M 662 182 L 684 182" stroke="#1F8A65" stroke-width="3" stroke-dasharray="4 3"/>
-    <polygon points="689,182 680,176 680,188" fill="#1F8A65"/>
-
-    <!-- 阶段三：右侧工程实战与性能调优（Ch.06） -->
-    <g transform="translate(692, 22)">
-      <rect x="0" y="0" width="248" height="320" rx="12" fill="#E9F9F1" stroke="var(--plop-ink)" stroke-width="2.2"/>
-      <rect x="12" y="12" width="224" height="28" rx="7" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="124" y="30" text-anchor="middle" fill="var(--plop-ink-text)" font-size="12.2" font-weight="900">🛡️ 阶段三：工程架构与调优</text>
-
-      <rect x="12" y="50" width="224" height="256" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="22" y="72" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">Ch.06 工程化、泛型与调优</text>
-      <text x="22" y="95" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Context 取消树底层与铁律</text>
-      <text x="22" y="117" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Generics 泛型 GCShape 字典</text>
-      <text x="22" y="139" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• -race 竞态与 Happens-Before</text>
-      <text x="22" y="161" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Go 1.22 循环变量分水岭</text>
-      <text x="22" y="183" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• errgroup 与 singleflight</text>
-      <text x="22" y="205" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• 表驱动测试 / Benchmark</text>
-      <text x="22" y="227" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• Struct 对齐 · sync.Pool 复用</text>
-      <text x="22" y="249" fill="var(--plop-ink-text)" font-size="11.3" font-weight="700">• unsafe 零拷贝 · pprof 火焰图</text>
-      <text x="22" y="278" fill="#D2381E" font-size="11.8" font-weight="900">★ 18 道高频真题闭卷抽屉</text>
-    </g>
-  </svg>
+  <p style="margin:8px 0 0; font-size:13.5px; color:var(--plop-ink-soft);">
+    <strong>💼 在实际开发中，我们通常用 Go 来写什么？</strong><br>
+    1. <strong>互联网后端微服务与 API 网关</strong>（高并发 HTTP / gRPC 接口服务）；<br>
+    2. <strong>云原生基础设施与容器工具</strong>（Docker、Kubernetes、etcd、Prometheus、Terraform 等全部由 Go 编写）；<br>
+    3. <strong>高性能中间件、消息推送、爬虫与跨平台命令行工具（CLI）</strong>。
+  </p>
 </div>
 
-<!-- 00.2 · Go 与主流后端语言底层定位对照卡 -->
-<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
-  <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">📊 00.2 · 横向坐标：Go 在现代后端技术栈中处于什么位置？</div>
-  <h3>⚖️ Go vs Java vs C++/Rust vs Python 核心取舍对照表</h3>
+<!-- 00.2 · 开发环境安装、国内镜像配置与编辑器准备 -->
+<div class="wb-card" id="go-install" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🛠️ 00.2 · 环境搭建：Go 编译器安装、<code>GOPROXY</code> 国内镜像配置与开发工具准备</div>
+  <h3>🛠️ 00.2 开发环境安装、国内镜像配置与编辑器准备</h3>
 
-  <div class="table-wrap">
+  <p>
+    在动手写代码前，需要先在本地安装 Go 官方工具链（包含编译器、标准库与包管理工具），并配置好国内下载镜像。
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>💻 Step 1 · 三大操作系统安装 Go 工具链</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-install', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-install"><code><span class="c-cm"># 【macOS】推荐使用 Homebrew 一键安装（或从官网下载 .pkg 安装包）</span>
+$ brew install go
+
+<span class="c-cm"># 【Windows】使用 Winget 安装（或从 go.dev/dl 下载 .msi 安装包双击安装）</span>
+<span class="c-cm"># 安装程序会自动将 C:\Program Files\Go\bin 添加到系统 PATH 环境变量</span>
+$ winget install GoLang.Go
+
+<span class="c-cm"># 【Linux】解压官方压缩包至 /usr/local/go 并配置 PATH</span>
+$ sudo rm -rf /usr/local/go &amp;&amp; sudo tar -C /usr/local -xzf go1.24.0.linux-amd64.tar.gz
+$ export PATH=$PATH:/usr/local/go/bin</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚡ Step 2 · 验证安装并配置国内模块代理（必配）</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-env', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-env"><code><span class="c-cm"># 1. 验证安装是否成功</span>
+$ go version
+go version go1.24.0 darwin/arm64
+
+<span class="c-cm"># 2. 开启 Go Modules 并配置国内加速镜像（防止下载第三方库和插件超时）</span>
+$ go env -w GO111MODULE=on
+$ go env -w GOPROXY=https://goproxy.cn,direct
+
+<span class="c-cm"># 3. 查看当前生效的核心环境配置</span>
+$ go env GOROOT GOPATH GOPROXY</code></pre>
+    </div>
+  </div>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
     <table class="plop-table">
       <thead>
         <tr>
-          <th style="width:15%">核心维度</th>
-          <th style="width:26%">Go (Golang)</th>
-          <th style="width:21%">Java (JVM 21+)</th>
-          <th style="width:20%">C++ / Rust</th>
-          <th style="width:18%">Python / Node.js</th>
+          <th style="width:18%">核心环境变量</th>
+          <th style="width:32%">作用说明</th>
+          <th>初学者常见疑问与实践建议</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td><strong>编译产物与部署</strong></td>
-          <td><strong>AOT 静态编译单二进制</strong>，无虚拟机依赖，容器镜像可小至 <code>10~20MB</code>，冷启动毫秒级</td>
-          <td>字节码 + JIT 预热（或 GraalVM），镜像体积与基础内存占用较大</td>
-          <td>AOT 原生机器码，极致性能，但编译慢、心智负担高（Rust 借用检查 / C++ 手动管理）</td>
-          <td>解释执行 / V8 JIT，依赖运行环境，动态类型重构风险高</td>
+          <td><strong><code>GOROOT</code></strong></td>
+          <td>Go 编译器与官方标准库（如 <code>fmt</code>、<code>net/http</code>）的安装路径</td>
+          <td>安装好后自动识别，<strong>无需手动修改</strong>。</td>
         </tr>
         <tr>
-          <td><strong>并发模型</strong></td>
-          <td><strong>原生 Goroutine (2KB 栈) + GMP + Channel (CSP)</strong>，语言级一等公民</td>
-          <td>传统 OS 线程（JDK 21 引入 Virtual Threads 虚拟线程追赶 Go 模式）</td>
-          <td>OS 线程 + <code>async/await</code> 无栈协程（Tokio / C++20 Coroutines）</td>
-          <td>单线程事件循环（Event Loop）+ 多进程（受 GIL 限制或回调传染）</td>
+          <td><strong><code>GOPATH</code></strong></td>
+          <td>第三方依赖包缓存（<code>$GOPATH/pkg/mod</code>）与命令行工具（<code>$GOPATH/bin</code>）的存放目录</td>
+          <td>默认在用户目录的 <code>~/go</code> 下。<strong>注意</strong>：现代 Go 采用 <code>go.mod</code> 管理项目，<strong>你自己的项目代码可以新建在电脑任意文件夹下（如桌面）</strong>，完全不需要放进 <code>GOPATH</code> 里。</td>
         </tr>
         <tr>
-          <td><strong>内存管理与 GC</strong></td>
-          <td><strong>逃逸分析（优先栈分配） + 非移动并发三色标记 GC</strong>（STW &lt; 0.5ms，吞吐略低于分代 GC）</td>
-          <td>分代/分区移动式 GC（G1 / ZGC），高吞吐但内存元数据开销较高</td>
-          <td>无 GC（RAII / Ownership 编译期零成本抽象），延迟最稳定</td>
-          <td>引用计数 + 分代回收（Python）/ V8 分代 GC</td>
-        </tr>
-        <tr>
-          <td><strong>最擅长战场</strong></td>
-          <td><strong>云原生基础设施（K8s/Docker/etcd）、高并发微服务网关、RPC 中间件、AI Agent 编排后端</strong></td>
-          <td>超大型复杂业务域建模（DDD）、金融核心交易、大数据生态（Flink/Kafka）</td>
-          <td>操作系统内核、数据库存储引擎、游戏引擎、音视频与高频交易</td>
-          <td>AI 模型训练/推理胶水层、快速原型验证、BFF 轻量聚合层</td>
+          <td><strong><code>GOPROXY</code></strong></td>
+          <td>拉取第三方依赖包时的镜像代理地址</td>
+          <td>默认的 <code>proxy.golang.org</code> 在国内无法直连，首次装好后执行 <code>go env -w GOPROXY=https://goproxy.cn,direct</code> 即可永久生效。</td>
         </tr>
       </tbody>
     </table>
   </div>
 
-  <div class="plop-callout tip">
-    <strong>💡 一句话记住 Go 的哲学：</strong>Go 从不追求语言特性的“炫技”，而是把<strong>编译速度、并发心智负担、GC 尾延迟与团队可维护性</strong>的乘积做到了工业界最优解。
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>🧰 代码编辑器（IDE）选择建议：</strong><br>
+    • <strong>VS Code（免费轻量）</strong>：在扩展商店搜索安装官方 <strong><code>Go</code></strong> 插件（由 Go Team at Google 发布）。装好后按 <code>Cmd+Shift+P</code>（Windows 按 <code>Ctrl+Shift+P</code>），输入并执行 <code>Go: Install/Update Tools</code>，全选安装代码补全工具 <code>gopls</code>（上面配好 <code>GOPROXY</code> 后几秒即可装完）。<br>
+    • <strong>JetBrains GoLand（功能完备）</strong>：安装后开箱即用，直接点击 <code>New Project → Go</code> 即可开始编写代码。
   </div>
 </div>
 
-<div class="plop-bridge">
-  🔗 搞懂了 Go 为什么这样设计，接下来进入 <strong>第 01 章</strong>：用 10 分钟扫清 Go 的极简语法、<code>string/byte/rune</code> 编码真相、<strong>100% 值传递铁律</strong>与 Go Modules 包管理机制 ➔
+<!-- 00.3 · 第一个 Go 程序：结构拆解与运行方式 -->
+<div class="wb-card" id="hello-go" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🚀 00.3 · 第一个程序：<code>main.go</code> 的组成部分与编译运行命令</div>
+  <h3>🚀 00.3 第一个 Go 程序：<code>main.go</code> 的结构与运行方式</h3>
+
+  <p>
+    每个可独立运行的 Go 程序，都从 <strong><code>main</code> 包（<code>package main</code>）里的 <code>main()</code> 函数</strong>开始执行。下面是最基础的源码结构与常用运行命令：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 main.go · 最小可运行程序拆解</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-hello-go', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-hello-go"><code><span class="c-cm">// 1. 声明所属包名：只有名为 main 的包才能编译成可执行程序</span>
+<span class="c-kw">package</span> main
+
+<span class="c-cm">// 2. 导入标准库格式化输出包 fmt</span>
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-cm">// 3. 程序唯一入口函数：无参数、无返回值</span>
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"Hello, Go!"</span>)
+    <span class="c-cm">// 输出: Hello, Go!</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>💻 Terminal · 编译与运行命令</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-hello-cmd', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-hello-cmd"><code><span class="c-cm"># 方式一：开发调试时直接编译并运行（不在当前目录留下二进制文件）</span>
+$ go run main.go
+Hello, Go!
+
+<span class="c-cm"># 方式二：编译生成独立可执行文件（适合部署上线）</span>
+$ go build -o app main.go
+$ ./app
+Hello, Go!</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 00.4 · Go 语言的 25 个保留关键字与内置标识符全景 -->
+<div class="wb-card" id="keywords-25" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">📋 00.4 · 语法全景：25 个保留关键字分类表与预声明内置标识符</div>
+  <h3>📋 00.4 语法全景：25 个保留关键字与预声明内置标识符</h3>
+
+  <p>
+    在开始学习具体的数据类型之前，可以先对 Go 的全部关键字有一个整体印象。Go 语言一共只有 <strong>25 个保留关键字</strong>，按用途正好分为四类：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">分类（共 25 个）</th>
+          <th style="width:36%">保留关键字清单</th>
+          <th>对应的语法设计说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 包与声明（6 个）</strong></td>
+          <td><code>package</code>、<code>import</code>、<code>var</code>、<code>const</code>、<code>type</code>、<code>func</code></td>
+          <td>• <strong>可见性规则</strong>：没有 <code>public / private</code> 关键字，直接通过<strong>标识符首字母大小写</strong>控制可见性（首字母大写如 <code>Println</code> 可被外部包调用，首字母小写仅在当前包内可见）。<br>• <strong>常量枚举</strong>：没有 <code>enum</code>，通过 <code>const</code> 配合 <code>iota</code> 定义枚举。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 复合类型（4 个）</strong></td>
+          <td><code>struct</code>、<code>interface</code>、<code>map</code>、<code>chan</code></td>
+          <td>• <code>struct</code> 定义结构体；<code>interface</code> 定义行为接口；<code>map</code> 定义键值字典；<code>chan</code> 定义协程间通信通道。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 流程控制（12 个）</strong></td>
+          <td><code>if</code>、<code>else</code>、<code>switch</code>、<code>case</code>、<code>default</code>、<code>for</code>、<code>range</code>、<code>break</code>、<code>continue</code>、<code>goto</code>、<code>fallthrough</code>、<code>return</code></td>
+          <td>• <strong>循环只有 <code>for</code></strong>：没有 <code>while / do</code>，所有循环统一用 <code>for</code>。<br>• <strong>分支默认不穿透</strong>：<code>switch</code> 的每个 <code>case</code> 执行完自动结束，不用手写 <code>break</code>。<br>• <strong>错误处理</strong>：没有 <code>try / catch</code>，函数直接将 <code>error</code> 作为返回值返回。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 并发与延迟（3 个）</strong></td>
+          <td><code>go</code>、<code>select</code>、<code>defer</code></td>
+          <td>• <code>go</code> 启动并发协程；<code>select</code> 同时监听多个通道；<code>defer</code> 在函数退出前执行资源清理。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>💡 除了 25 个保留关键字，Go 还预先提供了三类「预声明标识符（builtin）」：</strong><br>
+    平时写代码经常用到的 <code>int</code>、<code>string</code>、<code>true</code>、<code>nil</code>、<code>make</code>、<code>len</code> 等并不在上面 25 个关键字里，它们是语言内置提供好的标识符：<br>
+    1. <strong>内置基础类型名</strong>：<code>bool</code>、<code>byte</code>、<code>rune</code>、<code>int / int8..int64</code>、<code>uint / uint8..uint64</code>、<code>float32 / float64</code>、<code>string</code>、<code>error</code>、<code>any</code>；<br>
+    2. <strong>内置常量值与计数器</strong>：<code>true</code>、<code>false</code>、<code>nil</code>（空值）、<code>iota</code>（常量行计数器）；<br>
+    3. <strong>内置操作函数</strong>：<code>make</code>、<code>new</code>、<code>len</code>、<code>cap</code>、<code>append</code>、<code>copy</code>、<code>delete</code>、<code>close</code>、<code>clear</code>、<code>panic</code>、<code>recover</code>。<br>
+    接下来第 01 节，我们就从最基础的变量声明和这些内置数据类型开始讲起。
+  </div>
 </div>

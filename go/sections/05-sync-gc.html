@@ -1,344 +1,216 @@
 <!-- ====================================================================
-     PART 05: 并发同步原语、TCMalloc 内存分配器与混合写屏障 GC
+     PART 05: 并发编程：协程 goroutine、通道 channel 与同步工具
      ==================================================================== -->
 <div class="wb-sec-header periwinkle" id="mutex">
   <span class="wb-sec-num">05</span>
-  <span class="wb-sec-title">并发同步原语、TCMalloc 内存分配器与混合写屏障 GC</span>
-  <span class="plop-tag tomato">MUTEX × TCMALLOC × HYBRID BARRIER GC</span>
+  <span class="wb-sec-title">并发编程：协程 goroutine、通道 channel 与同步工具</span>
+  <span class="plop-tag tomato">GOROUTINE × CHANNEL × SYNC</span>
 </div>
 
-<!-- 05.1 · sync.Mutex 底层位图与双模式切换 -->
-<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+<!-- 05.1 · 启动协程 go 与等待任务完成 sync.WaitGroup -->
+<div class="wb-card" id="goroutine-wg" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🔒 05.1 · <code>sync.Mutex</code> 为什么既要支持自旋插队，又要在等待超 1ms 时切到饥饿模式？</div>
-  <h3>⚙️ 05.1 <code>sync.Mutex</code>：正常模式 vs 饥饿模式（1ms 阈值）与三大使用铁律</h3>
+  <div class="chapter-q-pill">⚡ 05.1 · 并发执行：用 <code>go</code> 启动轻量级协程，配合 <code>sync.WaitGroup</code> 等待完成</div>
+  <h3>⚡ 05.1 启动协程（<code>go</code>）与等待完成（<code>sync.WaitGroup</code>）</h3>
+
   <p>
-    <code>sync.Mutex</code> 并非一抢不到锁就立刻进操作系统内核睡觉，而是采用<strong>“先用户态自旋抢锁（保吞吐） → 抢不到再睡眠排队 → 排队超 1ms 切饥饿模式（保公平）”</strong>的自适应混合设计：
+    在 Go 中发起并发任务非常简单：只需要在函数调用前加上 <strong><code>go</code></strong> 关键字，这个函数就会在一个独立的轻量级协程（Goroutine）中异步运行。<br>
+    需要注意的是：如果主函数 <code>main()</code> 执行完毕退出，整个程序就会立即结束，不会自动等待后台还在跑的协程。因此日常开发中最常用的配合方式是使用标准库的 <strong><code>sync.WaitGroup</code>（等待组）</strong>：
   </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong><code>wg.Add(1)</code></strong>：在启动协程<strong>之前</strong>，把待完成任务计数加 1；</li>
+    <li><strong><code>defer wg.Done()</code></strong>：在协程函数内部开头注册，协程执行完时自动把计数减 1；</li>
+    <li><strong><code>wg.Wait()</code></strong>：在主函数中调用，会一直等待直到计数器归零（即所有协程都执行完）才继续往下走。</li>
+  </ul>
 
-  <div class="table-wrap" style="margin-top:10px;">
-    <table class="plop-table">
-      <thead>
-        <tr>
-          <th style="width:22%">锁模式</th>
-          <th>核心行为与切换阈值（Go 1.9+）</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><strong>① 正常模式</strong><br>（默认 · 高吞吐优先）</td>
-          <td>当持锁者释放锁唤醒等待队列队头的老协程时，<strong>不会直接把锁给它</strong>，而是让老协程与<strong>此时正在 CPU 上运行的自旋新协程</strong>同台竞争。新协程已经在 CPU 上、拥有热寄存器和缓存，大概率能插队抢赢，从而省去上下文切换开销；但代价是<strong>队头老协程可能被源源不断的新协程反复插队饿死</strong>。</td>
-        </tr>
-        <tr>
-          <td><strong>② 饥饿模式</strong><br>（队头等待 <code>&gt; 1ms</code>）</td>
-          <td>一旦队头老协程醒来抢锁失败且<strong>累计等待超过 <code>1ms</code></strong>，Mutex 立即切换为饥饿模式：<strong><code>Unlock()</code> 直接将锁所有权手递手移交给队头老协程</strong>，新来的协程<strong>严禁自旋、严禁插队</strong>，直接排入队尾睡眠！当持锁者发现自己是队列最后一个等待者，或等待时间 <code>&lt; 1ms</code> 时，自动切回正常模式。</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="plop-callout warn">
-    <strong>🚨 Mutex 三大夺命坑：</strong>① <strong>不可重入</strong>（同一 G 连续两次 <code>mu.Lock()</code> 当场死锁）；② <strong>严禁值拷贝</strong>（含 Mutex 的结构体传参必须传指针 <code>*T</code>，否则连带锁状态一起复制，可用 <code>go vet</code> 检查）；③ <strong><code>RWMutex</code> 写锁防饿死</strong>（一旦有写锁 <code>Lock()</code> 在等待，会阻塞后续所有新来的 <code>RLock()</code> 读请求，防止读者源源不断饿死写者）。
-  </div>
-
-  <details class="plop-drawer">
-    <summary>🔍 深入源码：Mutex 32 位 state 位域拆解与自旋（Spinning）的 4 大苛刻条件</summary>
-    <div class="drawer-body">
-      <p style="margin:0 0 8px;">
-        <code>sync.Mutex</code> 结构体仅占 8 字节（<code>state int32</code> + 信号量 <code>sema uint32</code>），其中一个 32 位整数 <code>state</code> 被切分为 4 个位域，且用户态自旋有着极其严格的限制以防白耗 CPU：
-      </p>
-      <div class="plop-code-box" style="margin:6px 0 0;">
-        <div class="plop-code-head">
-          <span>📐 sync/mutex.go · 32 位 state 字段的 4 个位域与自旋条件</span>
-          <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mutex-state', this)">复制代码</button>
-        </div>
-        <pre class="plop-code-pre" id="code-mutex-state"><code><span class="c-cm">// 高 29 位 (Bits 3..31)        | Bit 2    | Bit 1  | Bit 0</span>
-<span class="c-cm">// [ WaiterCount 阻塞等待协程数 ] | Starving | Woken  | Locked</span>
-<span class="c-cm">//         state &gt;&gt; 3          |  (4:饥饿) | (2:唤醒)| (1:已锁)</span>
-
-<span class="c-cm">// ★ 自旋（Spinning）必须同时满足的 4 大苛刻条件：</span>
-<span class="c-cm">// 1. 处于【正常模式】（饥饿模式严禁自旋）且是多核 CPU (ncpu &gt; 1)</span>
-<span class="c-cm">// 2. 当前自旋次数 &lt; 4 (每轮执行 30 次 CPU PAUSE 指令，总共仅百纳秒级)</span>
-<span class="c-cm">// 3. GOMAXPROCS &gt; 1 且至少有另一个正在运行的 P</span>
-<span class="c-cm">// 4. 当前 P 的本地队列 runq 为空（没别的协程急着等 CPU）</span></code></pre>
-      </div>
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 goroutine_waitgroup.go · 并发执行 3 个任务并等待全部完成</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-wg', this)">复制代码</button>
     </div>
-  </details>
-</div>
+    <pre class="plop-code-pre" id="code-go-wg"><code><span class="c-kw">package</span> main
 
-<!-- 05.2 · atomic / WaitGroup / Once / sync.Map -->
-<div class="wb-card" id="atomic" style="background:var(--plop-paper); margin-bottom:20px;">
-  <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill" id="sync">🧰 05.2 · 为什么 <code>sync.Once</code> 不能只用一句 <code>CAS(0, 1)</code> 实现？<code>sync.Map</code> 为什么读不用加锁？</div>
-  <h3>⚡ 05.2 <code>atomic / WaitGroup / sync.Once / sync.Map</code> 底层原理精要</h3>
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"sync"</span>
+)
 
-  <div class="table-wrap">
-    <table class="plop-table">
-      <thead>
-        <tr>
-          <th style="width:20%">并发原语</th>
-          <th style="width:24%">适用场景</th>
-          <th>源码实现亮点与面试必问细节</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><strong><code>sync/atomic</code></strong></td>
-          <td>计数器、状态标志位、无锁配置热替换</td>
-          <td>由 CPU 硬件级指令（<code>LOCK CMPXCHG</code>）保证，纳秒级开销；Go 1.19+ 提供泛型类型安全封装 <code>atomic.Int64 / atomic.Pointer[T]</code>。</td>
-        </tr>
-        <tr>
-          <td><strong><code>sync.WaitGroup</code></strong></td>
-          <td>等待一组并发子任务全部完成</td>
-          <td>高 32 位存剩余任务数 <code>counter</code>、低 32 位存等待者数 <code>waiter</code>。<strong>铁律：<code>wg.Add(n)</code> 必须在 <code>go func()</code> 之前调用</strong>，防止主协程先执行 <code>Wait()</code> 提前放行。</td>
-        </tr>
-        <tr>
-          <td><strong><code>sync.Once</code></strong></td>
-          <td>单例初始化、配置懒加载（全局仅跑 1 次）</td>
-          <td><strong>为什么不能只写 <code>if CAS(&amp;done, 0, 1) { f() }</code>？</strong>因为若协程 A 抢赢 CAS 还在慢速执行 <code>f()</code>，协程 B 看到已是 1 就会<strong>直接拿到未初始化完的半成品</strong>！因此源码采用 <strong><code>atomic.Load == 0</code> 快路径 + <code>Mutex</code> 慢路径阻塞等待 + <code>defer atomic.Store(&amp;done, 1)</code></strong>。</td>
-        </tr>
-        <tr>
-          <td><strong><code>sync.Map</code></strong></td>
-          <td><strong>读多写少</strong>，或各协程操作不相交的 Key</td>
-          <td>• <strong>Go 1.9~1.23（读写分离双字典）</strong>：维护 <code>read</code>（只读原子字典，命中完全无锁）+ <code>dirty</code>（加锁全量字典）；每次读穿透 <code>read</code> 计 <code>misses++</code>，当 <strong><code>misses &gt;= len(dirty)</code> 时将 <code>dirty</code> 原子提升（Promote）为新 <code>read</code></strong>。<br>• <strong>Go 1.24+（并发 Hash-Trie 树）</strong>：底层重写为并发哈希前缀树（<code>HashTrieMap</code>），按哈希位逐层分叉并采用细粒度节点锁，彻底消除了整表 <code>dirty</code> 拷贝与提升毛刺。</td>
-        </tr>
-      </tbody>
-    </table>
+<span class="c-kw">func</span> <span class="c-fn">fetchData</span>(id <span class="c-fn">int</span>, wg *sync.WaitGroup) {
+    <span class="c-kw">defer</span> wg.<span class="c-fn">Done</span>() <span class="c-cm">// 2. 当前协程退出时，自动将计数器减 1</span>
+    fmt.<span class="c-fn">Printf</span>(<span class="c-str">"任务 #%d 执行完成\n"</span>, id)
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-kw">var</span> wg sync.WaitGroup
+
+    <span class="c-kw">for</span> i := 1; i &lt;= 3; i++ {
+        wg.<span class="c-fn">Add</span>(1)              <span class="c-cm">// 1. 启动协程前，先登记 +1</span>
+        <span class="c-kw">go</span> <span class="c-fn">fetchData</span>(i, &amp;wg) <span class="c-cm">//    注意传入 &amp;wg 指针，共享同一个计数器</span>
+    }
+
+    wg.<span class="c-fn">Wait</span>() <span class="c-cm">// 3. 阻塞等待，直到 3 个协程全部调用完 Done()</span>
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"所有并发任务均已完成！"</span>)
+}</code></pre>
   </div>
 </div>
 
-<!-- 05.3 · Go 内存分配器 TCMalloc 架构 -->
-<div class="wb-card" id="allocator" style="background:var(--plop-paper); margin-bottom:20px;">
+<!-- 05.2 · 通道 channel 与 select 多路监听 -->
+<div class="wb-card" id="channel-usage" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🧱 05.3 · Go 协程每次 <code>new</code> 对象都去抢全局堆锁吗？为什么分配小对象能做到零加锁？</div>
-  <h3>🏗️ 05.3 Go 内存分配器全景：TCMalloc 三级缓存（<code>mspan → mcache → mcentral → mheap</code>）</h3>
+  <div class="chapter-q-pill">📮 05.2 · 协程间通信：用 <code>chan</code> 安全传递数据与 <code>select</code> 多路监听</div>
+  <h3>📮 05.2 通道（<code>channel</code>）与 <code>select</code> 多路监听</h3>
+
   <p>
-    为避免高并发下成千上万个协程争抢全局堆锁与产生内存碎片，Go 借鉴 Google <strong>TCMalloc（Thread-Caching Malloc）</strong> 构建了<strong>67 档规格分级（Size Classes） + P 本地无锁缓存 <code>mcache</code> + 微/小/大三级对象分流</strong>的分配体系：
+    当一个协程算出了结果，怎么安全地交给另一个协程？Go 提供了 <strong>通道（<code>chan</code>）</strong>，就像在两个协程之间接了一根并发安全的传送管道：
   </p>
-
-  <!-- 手绘 SVG：Go 内存分配器架构 -->
-  <svg viewBox="0 0 950 250" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Go TCMalloc 内存分配器架构图">
-    <rect x="8" y="8" width="934" height="234" rx="12" fill="#FFFDF7" stroke="var(--plop-ink)" stroke-width="2"/>
-
-    <!-- 左侧：三级对象分流入口 -->
-    <g transform="translate(22, 22)">
-      <rect x="0" y="0" width="235" height="205" rx="10" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
-      <rect x="10" y="10" width="215" height="26" rx="5" fill="#D2381E"/>
-      <text x="117" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.8" font-weight="900">mallocgc 按大小分流三通道</text>
-
-      <rect x="12" y="44" width="211" height="46" rx="6" fill="#FFFFFF" stroke="#1F8A65" stroke-width="1.6"/>
-      <text x="20" y="61" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">① 微对象 Tiny (&lt; 16B 且无指针)</text>
-      <text x="20" y="79" fill="var(--plop-ink-text)" font-size="10.8" font-weight="700">多个小变量拼进 mcache 同一个 16B 格</text>
-
-      <rect x="12" y="98" width="211" height="46" rx="6" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
-      <text x="20" y="115" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">② 小对象 Small (16B ~ 32KB)</text>
-      <text x="20" y="133" fill="var(--plop-ink-text)" font-size="10.8" font-weight="700">查 67 档规格表 → 从 P.mcache 无锁取</text>
-
-      <rect x="12" y="152" width="211" height="44" rx="6" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.6"/>
-      <text x="20" y="169" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">③ 大对象 Large (&gt; 32KB)</text>
-      <text x="20" y="186" fill="var(--plop-ink-text)" font-size="10.8" font-weight="700">跳过缓存，直接向全局 mheap 申请连续页</text>
-    </g>
-
-    <!-- 中部：L1 P.mcache -> L2 mcentral -> L3 mheap -->
-    <g transform="translate(278, 22)">
-      <rect x="0" y="0" width="205" height="205" rx="10" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
-      <rect x="10" y="10" width="185" height="26" rx="5" fill="#1F8A65"/>
-      <text x="102" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.8" font-weight="900">L1: mcache (绑定在 P 上)</text>
-      <text x="14" y="54" fill="#1F8A65" font-size="11.5" font-weight="900">★ 全程零加锁 (Lock-Free)！</text>
-      <text x="14" y="74" fill="var(--plop-ink-text)" font-size="11" font-weight="700">持有 68×2=136 个 mspan：</text>
-      <rect x="14" y="84" width="177" height="50" rx="5" fill="#FFFFFF" stroke="#1F8A65" stroke-width="1.5"/>
-      <text x="22" y="102" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.8" font-weight="800">alloc[0..67] scan (含指针)</text>
-      <text x="22" y="122" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.8" font-weight="800">alloc[0..67] noscan(无指针)</text>
-      <text x="14" y="154" fill="var(--plop-ink-soft)" font-size="10.8" font-weight="700">为什么分 scan / noscan？</text>
-      <text x="14" y="170" fill="#D2381E" font-size="10.8" font-weight="800">GC 扫描时直接跳过所有 noscan</text>
-      <text x="14" y="186" fill="#D2381E" font-size="10.8" font-weight="800">span，大幅降低 GC 标记开销！</text>
-    </g>
-
-    <path d="M 485 124 L 509 124" stroke="var(--plop-ink)" stroke-width="2.5"/>
-    <polygon points="511,124 503,119 503,129" fill="var(--plop-ink)"/>
-
-    <g transform="translate(513, 22)">
-      <rect x="0" y="0" width="195" height="205" rx="10" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
-      <rect x="10" y="10" width="175" height="26" rx="5" fill="var(--plop-ink)"/>
-      <text x="97" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.8" font-weight="900">L2: mcentral (中央规格表)</text>
-      <text x="14" y="54" fill="var(--plop-ink-text)" font-size="11" font-weight="700">全局共 136 个 mcentral，每个</text>
-      <text x="14" y="70" fill="var(--plop-ink-text)" font-size="11" font-weight="700">管同一种规格的 mspan 链表</text>
-      <text x="14" y="90" fill="#D2381E" font-size="11" font-weight="800">（细粒度按规格加锁）：</text>
-      <rect x="14" y="100" width="167" height="38" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.4"/>
-      <text x="22" y="123" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.8" font-weight="800">partial: 还有空槽的 span</text>
-      <rect x="14" y="146" width="167" height="38" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.4"/>
-      <text x="22" y="169" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.8" font-weight="800">full: 已被填满的 span</text>
-    </g>
-
-    <path d="M 710 124 L 734 124" stroke="#D2381E" stroke-width="2.5"/>
-    <polygon points="736,124 728,119 728,129" fill="#D2381E"/>
-
-    <g transform="translate(738, 22)">
-      <rect x="0" y="0" width="190" height="205" rx="10" fill="#FFE8E5" stroke="#D2381E" stroke-width="2"/>
-      <rect x="10" y="10" width="170" height="26" rx="5" fill="#D2381E"/>
-      <text x="95" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.8" font-weight="900">L3: mheap (全局页堆)</text>
-      <text x="14" y="54" fill="var(--plop-ink-text)" font-size="11" font-weight="700">以 8KB 页 (Page) 为单位管</text>
-      <text x="14" y="70" fill="var(--plop-ink-text)" font-size="11" font-weight="700">理虚拟内存（64MB heapArena）</text>
-      <text x="14" y="96" fill="var(--plop-ink-text)" font-size="11" font-weight="700">• mcentral 空了向 mheap 切页</text>
-      <text x="14" y="116" fill="var(--plop-ink-text)" font-size="11" font-weight="700">• &gt;32KB 大对象直接在此分配</text>
-      <text x="14" y="136" fill="var(--plop-ink-text)" font-size="11" font-weight="700">• 不足时调系统 mmap 申请</text>
-      <text x="14" y="156" fill="var(--plop-ink-text)" font-size="11" font-weight="700">• 空闲页由 sysmon 调 madvise</text>
-      <text x="14" y="172" fill="var(--plop-ink-text)" font-size="11" font-weight="700">  归还给 OS 内核</text>
-    </g>
-  </svg>
-
-  <!-- 图下文字版核心拆解（方便手机端阅读） -->
-  <div class="wb-grid-2" style="margin-top:12px;">
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 四大核心结构（从底向上怎么管内存？）</div>
-      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
-        <li><strong>基本单元 <code>mspan</code></strong>：把连续的 8KB 内存页切成等大的小槽位（共划分 <code>8B、16B、24B ... 32KB</code> 等 67 种规格），用位图记录哪个槽位空闲。</li>
-        <li><strong>L1 本地无锁缓存 <code>mcache</code></strong>：绑定在每个逻辑处理器 <code>P</code> 上，同一时刻只有一个线程 M 使用，因此<strong>从 <code>mcache</code> 拿槽位 100% 零加锁</strong>！且每种规格分为含指针 <code>scan</code> 与不含指针 <code>noscan</code> 两份（GC 扫描时直接跳过 <code>noscan</code>）。</li>
-        <li><strong>L2 中央缓存 <code>mcentral</code> 与 L3 页堆 <code>mheap</code></strong>：当 <code>P.mcache</code> 某规格用光时，加细粒度规格锁去全局 <code>mcentral</code> 领一块新 <code>mspan</code>；<code>mcentral</code> 也空了则向全局页堆 <code>mheap</code>（乃至 OS <code>mmap</code>）切页。</li>
-      </ul>
-    </div>
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;">📖 <code>mallocgc</code> 按对象大小分流的三条通道</div>
-      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
-        <li><strong>① 微对象 Tiny（<code>&lt; 16B</code> 且不含指针）</strong>：如 <code>bool / int8 / 小字符串</code>，多个微变量直接拼进 <code>P.mcache</code> 同一个 16B 槽位里，极致节省碎片。</li>
-        <li><strong>② 小对象 Small（<code>16B ~ 32KB</code>，占业务 99%）</strong>：向上对齐到 67 档规格之一，直接从当前 <code>P.mcache</code> 对应规格的 <code>mspan</code> 中<strong>零加锁分配</strong>。</li>
-        <li><strong>③ 大对象 Large（<code>&gt; 32KB</code>）</strong>：直接跳过 <code>mcache</code> 和 <code>mcentral</code>，按 8KB 页数向上取整后直接从全局 <code>mheap</code> 分配连续页。</li>
-      </ul>
-    </div>
-  </div>
-</div>
-
-<!-- 05.4 · GC 三色标记与混合写屏障 -->
-<div class="wb-card" id="gc" style="background:var(--plop-paper); margin-bottom:20px;">
-  <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🎨 05.4 · 并发标记为什么会漏标误删存活对象？Go 1.8 的混合写屏障是怎么把 STW 压进 0.5ms 的？</div>
-  <h3>🧹 05.4 并发三色标记法、漏标充要条件与 Go 1.8 混合写屏障（Hybrid Write Barrier）</h3>
-  <p>
-    Go GC 采用<strong>并发三色标记清除法（Tri-color Mark-and-Sweep）</strong>——不移动对象，而是把堆上所有对象按扫描进度分成三种颜色推进波面：<strong>⚪ 白色</strong>（尚未被 GC 访问到的对象；标记开始时全员白色，标记结束仍为白色的对象即被当作垃圾回收）、<strong>🔘 灰色</strong>（已被发现存活，但它内部指向的子对象还没扫描完，存放在待扫描队列中）、<strong>⚫ 黑色</strong>（自身已存活且子引用已全部扫完，绝不再重复扫描）：
-  </p>
-
-  <!-- 手绘 SVG：三色标记与混合写屏障 -->
-  <svg viewBox="0 0 950 265" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Go GC 三色标记与混合写屏障图解">
-    <rect x="8" y="8" width="934" height="249" rx="12" fill="#FFFDF7" stroke="var(--plop-ink)" stroke-width="2"/>
-
-    <!-- 左侧：三色定义 -->
-    <g transform="translate(22, 22)">
-      <rect x="0" y="0" width="250" height="220" rx="10" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
-      <rect x="10" y="10" width="230" height="26" rx="5" fill="var(--plop-ink)"/>
-      <text x="125" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="12" font-weight="900">1. 三色标记状态机</text>
-
-      <circle cx="34" cy="64" r="14" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="2"/>
-      <text x="58" y="60" fill="var(--plop-ink-text)" font-size="12" font-weight="900">白色对象（未访问/候选垃圾）</text>
-      <text x="58" y="76" fill="var(--plop-ink-soft)" font-size="11" font-weight="700">初始全白；标记结束仍白 → 清除回收</text>
-
-      <circle cx="34" cy="118" r="14" fill="#9AA7CC" stroke="var(--plop-ink)" stroke-width="2"/>
-      <text x="58" y="114" fill="var(--plop-ink-text)" font-size="12" font-weight="900">灰色对象（波面待扫描队列）</text>
-      <text x="58" y="130" fill="var(--plop-ink-soft)" font-size="11" font-weight="700">自身已存活，但其子引用还未扫完</text>
-
-      <circle cx="34" cy="172" r="14" fill="#182B69" stroke="var(--plop-ink)" stroke-width="2"/>
-      <text x="58" y="168" fill="var(--plop-ink-text)" font-size="12" font-weight="900">黑色对象（确认存活）</text>
-      <text x="58" y="184" fill="var(--plop-ink-soft)" font-size="11" font-weight="700">自身与子引用全扫完，绝不再扫描</text>
-    </g>
-
-    <!-- 中部：并发漏标（误删存活对象）的两个充要条件 -->
-    <g transform="translate(292, 22)">
-      <rect x="0" y="0" width="305" height="220" rx="10" fill="#FFE8E5" stroke="#D2381E" stroke-width="2"/>
-      <rect x="10" y="10" width="285" height="26" rx="5" fill="#D2381E"/>
-      <text x="152" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.8" font-weight="900">2. 为什么并发标记会漏标误删？</text>
-
-      <text x="14" y="54" fill="var(--plop-ink-text)" font-size="11.5" font-weight="800">当用户代码与 GC 同时跑，若同时发生以下两步：</text>
-      <circle cx="52" cy="105" r="20" fill="#182B69"/><text x="52" y="109" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11" font-weight="900">黑 A</text>
-      <circle cx="152" cy="105" r="20" fill="#9AA7CC" stroke="var(--plop-ink)" stroke-width="2"/><text x="152" y="109" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11" font-weight="900">灰 B</text>
-      <circle cx="252" cy="105" r="20" fill="#FFFFFF" stroke="#D2381E" stroke-width="2.2"/><text x="252" y="109" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">白 C</text>
-
-      <path d="M 66 88 Q 152 46 236 88" fill="none" stroke="#D2381E" stroke-width="2.2"/>
-      <text x="152" y="66" text-anchor="middle" fill="#D2381E" font-size="10.8" font-weight="900">条件①：黑 A 新增指向白 C</text>
-
-      <path d="M 174 105 L 230 105" stroke="var(--plop-ink-soft)" stroke-width="2" stroke-dasharray="4 3"/>
-      <text x="202" y="124" text-anchor="middle" fill="#D2381E" font-size="11" font-weight="900">✕ 条件②：灰 B 删掉对白 C 引用</text>
-
-      <rect x="14" y="142" width="277" height="66" rx="6" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.5"/>
-      <text x="20" y="161" fill="#D2381E" font-size="11.2" font-weight="900">💥 灾难后果：黑 A 已扫过不会再扫，</text>
-      <text x="20" y="179" fill="var(--plop-ink-text)" font-size="11" font-weight="700">灰 B 又断开了 C 的链路 → 明明被 A 引用的</text>
-      <text x="20" y="196" fill="var(--plop-ink-text)" font-size="11" font-weight="700">存活对象 C 保持白色被当垃圾误删！</text>
-    </g>
-
-    <!-- 右侧：Go 1.8 混合写屏障 -->
-    <g transform="translate(616, 22)">
-      <rect x="0" y="0" width="312" height="220" rx="10" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
-      <rect x="10" y="10" width="292" height="26" rx="5" fill="#1F8A65"/>
-      <text x="156" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.8" font-weight="900">3. Go 1.8+ 混合写屏障 (Hybrid Barrier)</text>
-
-      <text x="14" y="53" fill="#1F8A65" font-family="var(--font-mono)" font-size="11.2" font-weight="900">伪代码：writePointer(slot, ptr)</text>
-      <rect x="14" y="61" width="284" height="58" rx="6" fill="#FFFFFF" stroke="#1F8A65" stroke-width="1.5"/>
-      <text x="20" y="79" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.8" font-weight="800">shade(*slot) <tspan fill="#D2381E">// ① 旧引用标灰(删除屏障)</tspan></text>
-      <text x="20" y="97" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.8" font-weight="800">shade(ptr)   <tspan fill="var(--plop-ink)">// ② 新引用标灰(插入屏障)</tspan></text>
-      <text x="20" y="113" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.8" font-weight="800">*slot = ptr  <tspan fill="var(--plop-ink-soft)">// ③ 完成堆指针赋值</tspan></text>
-
-      <text x="14" y="138" fill="var(--plop-ink-text)" font-size="11" font-weight="800">★ 配合两条栈规则（为什么栈上不挂写屏障？）：</text>
-      <text x="14" y="156" fill="var(--plop-ink-text)" font-size="10.8" font-weight="700">• 栈操作极高频，给栈挂写屏障会让程序慢一倍；</text>
-      <text x="14" y="174" fill="var(--plop-ink-text)" font-size="10.8" font-weight="700">• 混合屏障规定：GC 开始时栈上可达对象全标黑，</text>
-      <text x="14" y="191" fill="#1F8A65" font-size="10.8" font-weight="900">  GC 期间栈上新分配对象直接生而为【黑】！</text>
-      <text x="14" y="208" fill="#D2381E" font-size="10.8" font-weight="900">  → 彻底省去结束时 STW 重扫栈的几十毫秒！</text>
-    </g>
-  </svg>
-
-  <!-- 图下文字版核心拆解（方便手机端阅读） -->
-  <div class="wb-grid-2" style="margin-top:12px;">
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;">📖 为什么并发标记会“漏标误删”？（两大充要条件）</div>
-      <p style="font-size:13px; margin:0; line-height:1.62;">
-        当用户协程与 GC 并发运行时，只有<strong>同时满足以下两个条件</strong>才会发生存活对象被误删的灾难：<br>
-        <strong>条件①</strong>：一个已经被扫完的<strong>黑色对象 A</strong>，新增了一条指向<strong>白色对象 C</strong> 的引用；<br>
-        <strong>条件②</strong>：原本指向 C 的<strong>灰色对象 B</strong>，删掉了通往 C 的最后一条引用链路。<br>
-        此时黑 A 不会再被扫描，灰 B 又找不到 C，导致明明被 A 引用的 C 一直保持白色被当垃圾回收！只要用<strong>写屏障（Write Barrier，编译器在写指针时插入的一小段钩子代码）</strong>破坏任意一个条件即可防漏标。
-      </p>
-    </div>
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 Go 1.8 混合写屏障是怎么消灭“重扫栈 STW”的？</div>
-      <p style="font-size:13px; margin:0; line-height:1.62;">
-        由于协程栈上的局部变量指针读写极其高频，<strong>Go 绝不在栈上开启写屏障</strong>（否则普通代码会慢一倍）。在 Go 1.5~1.7（仅插入写屏障）中，如果栈上黑色对象偷偷指向了堆上白对象，必须在 GC 结束前<strong>STW 暂停全进程、重新扫描成千上万个协程栈（耗时 10~100ms）</strong>。<br>
-        <strong>Go 1.8 混合写屏障</strong>规定：① GC 扫描栈时把栈上可达对象全标黑，且 GC 期间栈上新建对象一律<strong>直接标黑</strong>；② 只要<strong>堆上</strong>任何指针 <code>*slot = ptr</code> 发生修改，<strong>同时把被覆盖的旧对象 <code>*slot</code> 和新指向的对象 <code>ptr</code> 双双染灰</strong>。如此一来，堆上白对象绝不可能躲进黑栈里而漏标，彻底砍掉了结束时的重扫栈 STW！
-      </p>
-    </div>
-  </div>
-</div>
-
-<!-- 05.5 · GC 触发策略、GOMEMLIMIT 与逃逸分析 -->
-<div class="wb-card" id="gc-trigger" style="background:var(--plop-paper); margin-bottom:20px;">
-  <div class="washi-tape"></div>
-  <div class="chapter-q-pill" id="escape">📈 05.5 · 8GB 容器存活堆到 4.5GB 时，为什么等 <code>GOGC=100</code> 翻倍触发会直接 OOM？逃逸分析怎么查？</div>
-  <h3>🔬 05.5 GC 四阶段、<code>GOGC + GOMEMLIMIT</code> 黄金组合与编译期逃逸分析</h3>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong>无缓冲通道 <code>make(chan T)</code></strong>：管道里不存东西，发送方 <code>ch &lt;- v</code> 会等待接收方 <code>&lt;-ch</code> 来接，适合两边严格同步交接；</li>
+    <li><strong>有缓冲通道 <code>make(chan T, cap)</code></strong>：带有容量为 <code>cap</code> 的队列，只要队列没满，发送方放进去就能立刻继续干活，适合生产者-消费者任务队列。</li>
+  </ul>
 
   <div class="wb-grid-2">
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
-      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">① GC 周期两处极短 STW 与 <code>GOMEMLIMIT</code> 救星</div>
-      <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.65;">
-        <li><strong>两处亚毫秒 STW</strong>：仅在开始的 <strong>Mark Setup（开启写屏障，<code>~10-50μs</code>）</strong> 和结束的 <strong>Mark Termination（关闭写屏障，<code>~50-200μs</code>）</strong> 停顿；中间并发标记若分配过快会触发 <strong>Mark Assist（谁分配快谁帮忙标记）</strong>。</li>
-        <li><strong><code>GOGC=100</code> + <code>GOMEMLIMIT</code>（Go 1.19+）</strong>：默认堆比上次存活堆翻倍（+100%）触发 GC；在容器中配 <code>GOMEMLIMIT=6.8GiB</code>（容器上限的 80%~85%），逼近软上限时自动提前 GC，彻底告别翻倍 OOM！</li>
-      </ul>
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 channel_worker.go · 发送、接收与关闭通道</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-chan-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-chan-basic"><code><span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// 创建一个缓冲容量为 3 的字符串通道</span>
+    jobs := <span class="c-fn">make</span>(<span class="c-kw">chan</span> <span class="c-fn">string</span>, 3)
+
+    <span class="c-cm">// 生产者协程：发送 3 个任务后关闭通道，通知接收方“发完了”</span>
+    <span class="c-kw">go</span> <span class="c-kw">func</span>() {
+        jobs &lt;- <span class="c-str">"订单A"</span>
+        jobs &lt;- <span class="c-str">"订单B"</span>
+        jobs &lt;- <span class="c-str">"订单C"</span>
+        <span class="c-fn">close</span>(jobs) <span class="c-cm">// 由发送方负责调用 close</span>
+    }()
+
+    <span class="c-cm">// 消费者：使用 for range 自动从通道读取，通道关闭且读空后自动退出循环</span>
+    <span class="c-kw">for</span> item := <span class="c-kw">range</span> jobs {
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"处理:"</span>, item)
+    }
+}</code></pre>
     </div>
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🔍 escape_analysis.go · 编译期逃逸分析五大常见场景</span>
-        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('cmd-go-escape', this)">复制命令</button>
+        <span>🐹 select_timeout.go · 用 select 同时监听通道与超时</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-select-timeout', this)">复制代码</button>
       </div>
-      <pre class="plop-code-pre" id="cmd-go-escape"><code><span class="c-cm">// 诊断命令：go build -gcflags="-m -l" .</span>
-<span class="c-kw">func</span> <span class="c-fn">escapeCases</span>() *User {
-    u1 := User{ID: 1}        <span class="c-cm">// ✅ 不逃逸：纯局部使用，留栈上零 GC 压力</span>
-    u2 := &amp;User{ID: 2}       <span class="c-cm">// ❌ 逃逸①：返回局部变量指针</span>
-    fmt.<span class="c-fn">Println</span>(u1)          <span class="c-cm">// ❌ 逃逸②：传给 any(interface{}) 触发反射</span>
-    s := <span class="c-fn">make</span>([]<span class="c-fn">int</span>, 100000) <span class="c-cm">// ❌ 逃逸③：对象过大超出栈帧容量(&gt;64KB)</span>
-    n := <span class="c-fn">getDynamicLen</span>()
-    s2 := <span class="c-fn">make</span>([]<span class="c-fn">int</span>, n)     <span class="c-cm">// ❌ 逃逸④：切片长度在编译期未知</span>
-    _, _ = s, s2
-    <span class="c-kw">return</span> u2
+      <pre class="plop-code-pre" id="code-select-timeout"><code><span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"time"</span>
+)
+
+<span class="c-cm">// select 语法类似 switch，但它专门用来同时等待多个通道操作，</span>
+<span class="c-cm">// 哪个分支先准备好就执行哪个：</span>
+<span class="c-kw">func</span> <span class="c-fn">waitResult</span>(resCh <span class="c-kw">chan</span> <span class="c-fn">string</span>) {
+    <span class="c-kw">select</span> {
+    <span class="c-kw">case</span> data := &lt;-resCh:
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"收到结果:"</span>, data)
+    <span class="c-kw">case</span> &lt;-time.<span class="c-fn">After</span>(500 * time.Millisecond):
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"等待超过 500ms，触发超时保护"</span>)
+    }
 }</code></pre>
     </div>
   </div>
 </div>
 
-<div class="plop-bridge">
-  🔗 拿下了锁、内存分配器与 GC 三大硬骨头，进入最后一章 <strong>第 06 章</strong>：<code>Context</code> 取消树、泛型 <code>GCShape</code>、Go 1.22 循环变量分水岭、<code>pprof</code> 调优与 <strong>18 道闭卷自测抽屉</strong> ➔
+<!-- 05.3 · 互斥锁 sync.Mutex、读写锁 sync.RWMutex 与请求超时控制 context.Context -->
+<div class="wb-card" id="mutex-context" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🔒 05.3 · 并发锁与超时控制：互斥锁 <code>sync.Mutex</code>、读写锁 <code>sync.RWMutex</code> 与 <code>context.Context</code></div>
+  <h3>🔒 05.3 互斥锁（<code>Mutex</code>）、读写锁（<code>RWMutex</code>）与超时控制（<code>Context</code>）</h3>
+
+  <p>
+    当多个协程需要同时读写同一块共享内存（例如全局计数器或内存字典缓存）时，必须加锁保护。Go 标准库 <code>sync</code> 提供了两把最常用的锁，按业务读写比例选择：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">锁类型</th>
+          <th style="width:28%">加锁与解锁方法</th>
+          <th style="width:24%">并发互斥规则</th>
+          <th>典型适用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>互斥锁<br><code>sync.Mutex</code></strong></td>
+          <td>• 加锁：<code>mu.Lock()</code><br>• 解锁：<code>mu.Unlock()</code></td>
+          <td><strong>完全独占</strong>：无论读还是写，同一时刻只允许 <strong>1 个</strong>协程持有锁（读与读也互斥）</td>
+          <td><strong>读写频率相近</strong>或每次操作都包含修改的场景（如扣减库存、累加状态计数器、更新连接池状态）</td>
+        </tr>
+        <tr>
+          <td><strong>读写锁<br><code>sync.RWMutex</code></strong></td>
+          <td>• <strong>读锁</strong>：<code>rw.RLock()</code> / <code>RUnlock()</code><br>• <strong>写锁</strong>：<code>rw.Lock()</code> / <code>Unlock()</code></td>
+          <td><strong>读读共享、读写互斥、写写互斥</strong>：允许任意多个协程同时持有读锁；但写锁是独占的</td>
+          <td><strong>读多写少（如 99% 读、1% 写）</strong>场景（如本地配置中心缓存、路由表、用户信息内存缓存），并发读取吞吐量远高于 <code>Mutex</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 rwmutex_cache.go · 用读写锁 sync.RWMutex 保护读多写少的配置缓存</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mutex-map', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mutex-map"><code><span class="c-kw">type</span> ConfigCache <span class="c-kw">struct</span> {
+    rw   sync.RWMutex      <span class="c-cm">// 读写锁（零值直接可用）</span>
+    data <span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">string</span> <span class="c-cm">// 记得在构造函数中用 make 初始化！</span>
+}
+
+<span class="c-cm">// 1. 高频读取：加【读锁 RLock】，允许成百上千个协程同时并发读取，互不阻塞</span>
+<span class="c-kw">func</span> (c *ConfigCache) <span class="c-fn">Get</span>(k <span class="c-fn">string</span>) <span class="c-fn">string</span> {
+    c.rw.<span class="c-fn">RLock</span>()
+    <span class="c-kw">defer</span> c.rw.<span class="c-fn">RUnlock</span>()
+    <span class="c-kw">return</span> c.data[k]
+}
+
+<span class="c-cm">// 2. 低频更新：加【写锁 Lock】，独占访问（期间其他读写协程均会等待）</span>
+<span class="c-kw">func</span> (c *ConfigCache) <span class="c-fn">Set</span>(k, v <span class="c-fn">string</span>) {
+    c.rw.<span class="c-fn">Lock</span>()
+    <span class="c-kw">defer</span> c.rw.<span class="c-fn">Unlock</span>()
+    c.data[k] = v
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 context_timeout.go · 用 context.WithTimeout 控制请求超时</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ctx-timeout', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-ctx-timeout"><code><span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"time"</span>
+)
+
+<span class="c-cm">// 在后端处理 HTTP 请求或查数据库时，习惯把 ctx 作为函数的第 1 个参数，</span>
+<span class="c-cm">// 用来统一控制超时时间（WithTimeout）或取消信号传递：</span>
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// 派生一个最多允许执行 2 秒的上下文 ctx</span>
+    ctx, cancel := context.<span class="c-fn">WithTimeout</span>(context.<span class="c-fn">Background</span>(), 2*time.Second)
+    <span class="c-kw">defer</span> <span class="c-fn">cancel</span>() <span class="c-cm">// 函数结束时自动释放底层计时器资源</span>
+
+    <span class="c-cm">// 将 ctx 传给下游查询函数（如 db.QueryContext(ctx, "SELECT ...")）</span>
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"当前上下文错误状态:"</span>, ctx.<span class="c-fn">Err</span>())
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:8px;">
+    <strong>💡 使用 <code>Mutex / RWMutex</code> 的两个实用细节：</strong><br>
+    1. <strong>方法接收者必须用指针 <code>(c *ConfigCache)</code></strong>：锁变量包含内部状态，绝不能通过值传递复制；<br>
+    2. <strong>不可重入与防写饥饿</strong>：同一个协程里不能在还没解锁时再次加锁（包括持有 <code>RLock</code> 期间在同一协程内直接调用 <code>Lock</code>），否则会导致死锁；此外当有写协程调用 <code>rw.Lock()</code> 排队时，Go 会自动拦住后面新来的 <code>RLock()</code> 请求，确保写操作不会被源源不断的读请求饿死。
+  </div>
+
+  <div style="font-size:12.8px; color:var(--plop-ink-soft);">
+    👉 想深入了解百万协程背后的 <strong>GMP 调度器原理</strong>、<strong>Channel 环形队列 <code>hchan</code></strong>、<strong><code>Mutex / RWMutex</code> 底层状态位</strong> 以及 <strong>三色标记 GC</strong>，可点击查看 <a href="principles.html#gmp">📘 核心原理篇 · 第 03 ~ 05 节 ↗</a>。
+  </div>
 </div>

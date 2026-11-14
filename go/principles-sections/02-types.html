@@ -1,0 +1,658 @@
+<!-- ====================================================================
+     PART 02: 核心内置类型底层解剖 · slice / map / defer / interface / error
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="slice">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">核心内置类型底层解剖 · slice / map / defer / interface / error</span>
+  <span class="plop-tag tomato">RUNTIME MEMORY LAYOUT</span>
+</div>
+
+<!-- 02.1 · Slice 切片底层、共享数组与平滑扩容 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">📐 02.1 · 动态数组视图：<code>slice</code> 截取语法、24 字节表头结构与扩容机制</div>
+  <h3>🔪 02.1 <code>slice</code> 切片：截取语法、24 字节视图表头与扩容规则</h3>
+
+  <!-- Step 1: 概念说明 -->
+  <p>
+    <strong>① 切片的设计定位与表头结构：</strong>固定长度数组 <code>[4]int</code> 的长度属于类型的一部分，无法动态追加元素，且赋值与传参时会复制整块数组。因此日常开发中动态列表均使用 <strong><code>[]int</code> 切片（Slice）</strong>——切片本身不直接存储元素，而是一个指向底层连续数组的 <strong>24 字节轻量级视图表头（<code>{ array 指针 8B, len 长度 8B, cap 容量 8B }</code>）</strong>。
+  </p>
+
+  <!-- Step 2: 代码示例与结果解析 -->
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 slice_basic.go · 切片截取与底层数组共享示例</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-slice-basic"><code>a := []<span class="c-fn">int</span>{10, 20, 30, 40} <span class="c-cm">// 下标: [0]=10, [1]=20, [2]=30, [3]=40</span>
+
+<span class="c-cm">// 截取语法 a[起始下标 : 结束下标]（左闭右开：包含下标 1 和 2，不包含 3）</span>
+b := a[1:3]
+fmt.<span class="c-fn">Println</span>(b, <span class="c-fn">len</span>(b), <span class="c-fn">cap</span>(b)) <span class="c-cm">// 输出: [20 30]  len=2  cap=3</span>
+
+<span class="c-cm">// 向子切片 b 追加元素 99，观察 b 与原切片 a 的变化：</span>
+b = <span class="c-fn">append</span>(b, 99)
+fmt.<span class="c-fn">Println</span>(<span class="c-str">"b ="</span>, b)          <span class="c-cm">// 输出: b = [20 30 99]</span>
+fmt.<span class="c-fn">Println</span>(<span class="c-str">"a ="</span>, a)          <span class="c-cm">// 输出: a = [10 20 30 99]（a[3] 被修改为 99）</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 切片截取与 <code>len / cap</code> 计算规则：</div>
+      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
+        <li><strong>1. 左闭右开区间 <code>a[1:3]</code></strong>：从下标 <code>1</code> 截取至下标 <code>3</code> 之前（即 <code>a[1]</code> 与 <code>a[2]</code>），因此 <code>b</code> 的内容为 <code>[20, 30]</code>，<strong>长度 <code>len = 3 - 1 = 2</code></strong>（注：<code>a[:3]</code> 为 <code>a[0:3]</code> 的简写）。</li>
+        <li><strong>2. 容量 <code>cap(b)</code> 的计算</strong>：截取操作不会复制底层数组，<code>b</code> 的内部指针直接指向原数组的 <code>a[1]</code>；从 <code>a[1]</code> 到原数组末尾共有 3 个元素槽位（<code>a[1], a[2], a[3]</code>），因此 <strong><code>cap = 4 - 1 = 3</code></strong>。</li>
+        <li><strong>3. 共享底层数组的写入表现</strong>：由于 <code>b</code> 当前 <code>len=2, cap=3</code>（尚余 1 个空闲容量），执行 <code>append(b, 99)</code> 时不会分配新数组，而是直接写入第 3 个槽位（即原数组的 <code>a[3]</code>）。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Step 3: 底层原理图解 SVG -->
+  <svg viewBox="0 0 920 232" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Go slice 底层内存布局手绘图">
+    <!-- 左侧 slice a 表头 -->
+    <g transform="translate(20, 16)">
+      <rect x="0" y="0" width="248" height="86" rx="8" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="12" y="20" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="12" font-weight="900">a := []int{10, 20, 30, 40}</text>
+      <rect x="12" y="28" width="70" height="46" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="47" y="47" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">array*</text>
+      <text x="47" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">8B 指针</text>
+
+      <rect x="89" y="28" width="70" height="46" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="124" y="47" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">len = 4</text>
+      <text x="124" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">8B 长度</text>
+
+      <rect x="166" y="28" width="70" height="46" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="201" y="47" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">cap = 4</text>
+      <text x="201" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">8B 容量</text>
+    </g>
+
+    <!-- 左侧 slice b 表头 -->
+    <g transform="translate(20, 124)">
+      <rect x="0" y="0" width="248" height="86" rx="8" fill="#FFF3E0" stroke="#D2381E" stroke-width="2"/>
+      <text x="12" y="20" fill="#D2381E" font-family="var(--font-mono)" font-size="12" font-weight="900">b := a[1:3] (共享底层数组)</text>
+      <rect x="12" y="28" width="70" height="46" rx="5" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.6"/>
+      <text x="47" y="47" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">array*</text>
+      <text x="47" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">指向 [1]</text>
+
+      <rect x="89" y="28" width="70" height="46" rx="5" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.6"/>
+      <text x="124" y="47" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">len = 2</text>
+      <text x="124" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">可见 2 个</text>
+
+      <rect x="166" y="28" width="70" height="46" rx="5" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.6"/>
+      <text x="201" y="47" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">cap = 3</text>
+      <text x="201" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">从[1]到尾</text>
+    </g>
+
+    <!-- 底层连续数组 -->
+    <g transform="translate(330, 42)">
+      <text x="0" y="-10" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="12.5" font-weight="900">堆/栈上的底层连续数组 [4]int （共 32 Bytes）</text>
+      <rect x="0" y="0" width="142" height="76" rx="6" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="71" y="26" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="11">idx [0]</text>
+      <text x="71" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="17" font-weight="900">10</text>
+
+      <rect x="142" y="0" width="142" height="76" rx="6" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="213" y="26" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="800">idx [1] (b[0])</text>
+      <text x="213" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="17" font-weight="900">20</text>
+
+      <rect x="284" y="0" width="142" height="76" rx="6" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="355" y="26" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="800">idx [2] (b[1])</text>
+      <text x="355" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="17" font-weight="900">30</text>
+
+      <rect x="426" y="0" width="142" height="76" rx="6" fill="#FFE8E5" stroke="#D2381E" stroke-width="2.2" stroke-dasharray="5 3"/>
+      <text x="497" y="22" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">idx [3] (a[3])</text>
+      <text x="497" y="45" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="13.5" font-weight="900">40 → 99 (被覆盖)</text>
+      <text x="497" y="64" text-anchor="middle" fill="#D2381E" font-size="10.5" font-weight="700">append(b, 99) 写这里</text>
+
+      <rect x="0" y="108" width="568" height="60" rx="8" fill="#E9F9F1" stroke="#1F8A65" stroke-width="1.8"/>
+      <text x="14" y="130" fill="#1F8A65" font-family="var(--font-mono)" font-size="11.8" font-weight="900">★ 解决方案：三索引切片 Full Slice Expression —— b := a[1:3:3]</text>
+      <text x="14" y="152" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">语法 a[low:high:max] 将 cap 限定为 max - low = 2，append(b, 99) 会直接扩容分配新数组</text>
+    </g>
+
+    <!-- 指针连线：从 array* 底部绕行空白通道，不穿过 len/cap -->
+    <path d="M 67 90 L 67 112 L 296 112 L 296 80 L 324 80" fill="none" stroke="var(--plop-ink)" stroke-width="2.2" stroke-linejoin="round"/>
+    <polygon points="328,80 319,75 319,85" fill="var(--plop-ink)"/>
+
+    <path d="M 67 198 L 67 220 L 308 220 L 308 134 L 543 134 L 543 122" fill="none" stroke="#D2381E" stroke-width="2.2" stroke-dasharray="4 3" stroke-linejoin="round"/>
+    <polygon points="543,118 538,127 548,127" fill="#D2381E"/>
+  </svg>
+
+  <!-- Step 3.5: 切片扩容机制与两步容量计算规则 -->
+  <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:16px 18px; margin-top:12px;">
+    <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:8px;">📈 切片扩容机制与容量计算规则（Go 1.18+）</div>
+    <p style="margin:0 0 10px; font-size:13.8px; line-height:1.7;">
+      调用 <code>append(s, x...)</code> 追加元素时，运行时会先检查当前底层数组的剩余空间是否足够（设原长度为 <code>oldLen</code>、原容量为 <code>oldCap</code>、追加后的期望总长度为 <code>newLen</code>）：
+    </p>
+    <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.7;">
+      <li><strong>容量充足（<code>newLen &lt;= oldCap</code>，不触发扩容）</strong>：直接在原底层数组的空闲格子 <code>[oldLen : newLen]</code> 中写入新元素，返回的新切片描述卡片把 <code>len</code> 更新为 <code>newLen</code>，<code>ptr</code> 仍指向<strong>原底层数组</strong>（如上图 <code>b = append(b, 99)</code> 直接改写了原数组的 <code>a[3]</code>）。</li>
+      <li><strong>容量不足（<code>newLen &gt; oldCap</code>，触发扩容）</strong>：原数组已经装不下了，运行时会在堆上<strong>重新分配一块容量更大的新底层数组</strong>，把旧数组里的元素完整复制过去，再写入新追加的元素，最后返回一张指向<strong>新底层数组</strong>的切片描述卡片。<strong>扩容完成后，新切片与原底层数组彻底脱钩</strong>，后续再修改新切片不会影响原数组。</li>
+    </ul>
+
+    <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin:12px 0 6px;">① 第一步：按规则预估目标容量（<code>runtime.nextslicecap</code>）</div>
+    <p style="margin:0 0 8px; font-size:13.4px; line-height:1.65;">
+      触发扩容时，Go 并不是每次都简单翻倍，而是以 <strong><code>256</code></strong> 为分界线分三种情况预估基础容量 <code>newcap</code>：
+    </p>
+    <table class="plop-table" style="margin:6px 0 10px;">
+      <thead>
+        <tr>
+          <th style="width:24%;">扩容场景分支</th>
+          <th style="width:28%;">触发条件</th>
+          <th style="width:24%;">预估容量计算方式</th>
+          <th>设计考量与具体数值示例</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 一次性跨倍追加</strong></td>
+          <td>期望长度超过旧容量的 2 倍<br>（<code>newLen &gt; 2 * oldCap</code>）</td>
+          <td><code>newcap = newLen</code><br>（直接按需取期望长度）</td>
+          <td>例如 <code>oldCap = 2</code>，一次性追加 3 个元素使 <code>newLen = 5 &gt; 4</code>，直接取预估容量 <code>newcap = 5</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 小切片翻倍扩容</strong></td>
+          <td>旧容量小于 256<br>（<code>oldCap &lt; 256</code>）</td>
+          <td><code>newcap = 2 * oldCap</code><br>（直接 <strong>2 倍</strong>翻倍）</td>
+          <td>小切片占内存极小，翻倍扩容可减少频繁分配与拷贝次数。容量变化轨迹：<code>2 → 4 → 8 → 16 → 32 → 64 → 128 → 256</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 大切片平滑扩容</strong></td>
+          <td>旧容量达到或超过 256<br>（<code>oldCap &gt;= 256</code>）</td>
+          <td>循环累加直到 <code>newcap &gt;= newLen</code>：<br><code>newcap += (newcap + 3*256) / 4</code><br>（等价于 <strong><code>1.25 * newcap + 192</code></strong>）</td>
+          <td>
+            把公式拆开就是 <strong>每次乘 1.25 倍再加上常数 192</strong>：<br>
+            • 刚满 <code>256</code> 时：<code>256 × 1.25 + 192 = 512</code>（正好 <strong>2.0 倍</strong>）；<br>
+            • <code>512</code> 再扩容：<code>512 × 1.25 + 192 = 832</code>（约 <strong>1.63 倍</strong>）；<br>
+            • <code>1024</code> 再扩容：<code>1024 × 1.25 + 192 = 1472</code>（约 <strong>1.44 倍</strong>）；<br>
+            • 容量越大，常数 <code>192</code> 占比越小，扩容倍数从 <strong>2.0x 平滑衰减到 1.25x</strong>，既避免大切片直接翻倍浪费内存，又消除了旧版（Go 1.17 及以前在 <code>1024</code> 处从 <code>2x</code> 突变到 <code>1.25x</code>）的容量断崖。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin:12px 0 6px;">② 第二步：按内存分配器规格向上取整（<code>runtime.roundupsize</code>）</div>
+    <p style="margin:0; font-size:13.4px; line-height:1.68;">
+      算出第一步的预估容量 <code>newcap</code> 后，往往还不是最终的 <code>cap(s)</code>。因为 Go 的内存分配器不是按任意字节数分配内存的，而是划分了固定的<strong>内存规格档位（Size Classes：<code>8B, 16B, 24B, 32B, 48B, 64B, 80B...</code>，详见 05.3 节）</strong>。<br>
+      运行时会先计算所需总字节数 <code>所需字节 = newcap × 单个元素字节大小</code>，再去匹配<strong>大于等于该字节数的最小规格档位</strong>，最后除以单个元素大小得到最终容量：<br>
+      <span style="display:inline-block; margin-top:5px; padding:5px 10px; background:#F4EFE6; border:1.5px solid var(--plop-ink); border-radius:6px; font-size:13px;">
+        <strong>💡 经典验证示例</strong>：<code>s := []int{1, 2}</code>（<code>oldCap = 2</code>，64 位下每个 <code>int</code> 占 <code>8B</code>），执行 <code>s = append(s, 3, 4, 5)</code>（期望长度 <code>newLen = 5</code>）：<br>
+        <strong>第一步预估</strong>：因为 <code>newLen(5) &gt; 2 * oldCap(4)</code>，走分支 1 得到预估容量 <code>newcap = 5</code>；<br>
+        <strong>第二步对齐</strong>：<code>5 个 int × 8B = 40 Bytes</code> → 内存分配器没有 <code>40B</code> 档位，向上匹配到 <strong><code>48 Bytes</code></strong> 档位 → 最终实际容量 <code>cap(s) = 48B / 8B = 6</code>（而不是 5）。
+      </span>
+    </p>
+  </div>
+
+  <!-- Step 4: 常见工程场景与误区修复对照 -->
+  <div class="wb-grid-2" style="margin-top:12px;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">🛠️ 切片工程开发常见规范</div>
+      <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.68;">
+        <li><strong>已知容量上限时优先预分配</strong>：使用 <code>make([]T, 0, n)</code> 一次性分配好底层数组，避免循环 <code>append</code> 过程中多次分配新数组与拷贝旧数据。</li>
+        <li><strong><code>nil</code> 切片与空切片的区分</strong>：<br>
+          • <code>var s1 []int</code>（<code>nil</code> 切片）：<code>ptr = nil, len = 0, cap = 0</code>，不分配底层数组，<code>json.Marshal</code> 序列化结果为 <code>null</code>；<br>
+          • <code>s2 := []int{}</code> 或 <code>make([]int, 0)</code>（空切片）：<code>ptr</code> 指向全局零大小基地址 <code>zerobase</code>（<code>s2 != nil</code>），<code>json.Marshal</code> 序列化结果为前端友好的 <code>[]</code>；<br>
+          • 两者在直接读取长度、遍历 <code>for range</code> 以及调用 <code>append</code> 时行为完全一致。</li>
+        <li><strong>子切片隔离与大数组释放</strong>：不希望子切片 <code>append</code> 意外改写原数组时，使用三索引切片 <code>a[low:high:max]</code> 将容量锁死；从大数组中截取极小片段长期保存时，使用 <code>bytes.Clone</code> 或 <code>slices.Clone</code> 拷贝独立底层数组，让原大数组可被 GC 回收。</li>
+      </ul>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚠️ slice_traps.go · 三索引切片隔离与大切片内存释放</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-trap', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-slice-trap"><code><span class="c-cm">// 场景①：使用三索引切片 a[low:high:max] 锁死子切片容量，避免 append 改写原数组</span>
+a := []<span class="c-fn">int</span>{10, 20, 30, 40}
+b := a[1:3:3]       <span class="c-cm">// ✅ 第 3 个参数限定最大容量下标：len = 3-1 = 2, cap = 3-1 = 2</span>
+b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==cap 强制触发扩容分配新数组，原数组 a[3] 仍为 40</span>
+
+<span class="c-cm">// 场景②：从 10MB 大切片截取前 16 字节返回时，复制独立副本以释放原大数组</span>
+<span class="c-kw">func</span> <span class="c-fn">readHeaderBad</span>(huge10MB []<span class="c-fn">byte</span>) []<span class="c-fn">byte</span> {
+    <span class="c-kw">return</span> huge10MB[0:16]              <span class="c-cm">// ❌ 卡片 ptr 仍钉住 10MB 底层数组，阻碍 GC 回收</span>
+}
+<span class="c-kw">func</span> <span class="c-fn">readHeaderGood</span>(huge10MB []<span class="c-fn">byte</span>) []<span class="c-fn">byte</span> {
+    <span class="c-kw">return</span> bytes.<span class="c-fn">Clone</span>(huge10MB[0:16]) <span class="c-cm">// ✅ 拷贝出独立的 16B 新切片，原 10MB 数组可被回收</span>
+}</code></pre>
+    </div>
+  </div>
+
+  <details class="plop-drawer">
+    <summary>🔍 源码细节：runtime/slice.go 中的 growslice 与 nextslicecap 实现</summary>
+    <div class="drawer-body">
+      <p style="margin:0 0 8px;">
+        以下是 Go 运行时 <code>runtime/slice.go</code> 中计算扩容容量的核心逻辑简化实现，对应上面讲到的“三分支预估 + 规格档位向上对齐”两个阶段：
+      </p>
+      <div class="plop-code-box" style="margin:6px 0 0;">
+        <div class="plop-code-head">
+          <span>🔥 runtime/slice.go · nextslicecap + roundupsize 核心逻辑</span>
+          <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-grow', this)">复制代码</button>
+        </div>
+        <pre class="plop-code-pre" id="code-slice-grow"><code><span class="c-kw">func</span> <span class="c-fn">nextslicecap</span>(newLen, oldCap <span class="c-fn">int</span>) <span class="c-fn">int</span> {
+    newcap := oldCap
+    doublecap := newcap + newcap
+    <span class="c-kw">if</span> newLen &gt; doublecap {
+        <span class="c-kw">return</span> newLen <span class="c-cm">// 分支 1：期望长度超过 2 倍旧容量，直接返回 newLen</span>
+    }
+    <span class="c-kw">const</span> threshold = 256
+    <span class="c-kw">if</span> oldCap &lt; threshold {
+        <span class="c-kw">return</span> doublecap <span class="c-cm">// 分支 2：旧容量 &lt; 256，直接 2 倍翻倍</span>
+    }
+    <span class="c-kw">for</span> {
+        <span class="c-cm">// 分支 3：旧容量 &gt;= 256，每次增加 (newcap + 3*256) / 4，即 1.25*newcap + 192</span>
+        newcap += (newcap + 3*threshold) &gt;&gt; 2
+        <span class="c-kw">if</span> <span class="c-fn">uint</span>(newcap) &gt;= <span class="c-fn">uint</span>(newLen) {
+            <span class="c-kw">break</span>
+        }
+    }
+    <span class="c-kw">return</span> newcap
+}
+
+<span class="c-cm">// 随后在 growslice 中按元素字节大小去内存分配器对齐规格档位：</span>
+<span class="c-cm">// capmem := roundupsize(uintptr(newcap) * et.Size_)</span>
+<span class="c-cm">// newcap = int(capmem / et.Size_)</span></code></pre>
+      </div>
+    </div>
+  </details>
+</div>
+
+<!-- 02.2 · Map 哈希表底层：hmap + bmap 内存布局、寻址过程与渐进式扩容 -->
+<div class="wb-card" id="map" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🗂️ 02.2 · 哈希表底层：<code>hmap + bmap</code> 三层内存布局、哈希寻址与渐进式扩容</div>
+  <h3>🧭 02.2 <code>map</code> 哈希表底层：<code>hmap + bmap</code> 内存布局与渐进式扩容</h3>
+
+  <p style="margin:6px 0 8px;">
+    （<code>map</code> 的日常增删改查用法见 <a href="index.html#map">🌱 基础与实战篇 · 02.2 字典日常用法</a>）<br>
+    <strong>1. <code>map</code> 在内存里长什么样？（三层结构：指针 → 表头 <code>hmap</code> → 哈希桶数组 <code>[]bmap</code>）</strong>
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.7;">
+    <li><strong>第一层（表头总管 <code>runtime.hmap</code>）</strong>：<code>make(map[K]V)</code> 返回的变量本身只是一个 8 字节指针（<code>*hmap</code>）。表头里记录了：
+      <br>• <strong><code>count</code></strong>：当前元素个数（即 <code>len(m)</code>）；
+      <br>• <strong><code>B</code>（桶数量的 2 次方指数）</strong>：Go 规定哈希桶的数量<strong>永远是 2 的整数次方</strong>（1、2、4、8、16...）。<code>hmap</code> 里存的是指数 <code>B</code>，代表底层共有 <strong><code>2^B</code> 个哈希桶</strong>。例如 <code>B = 2</code> 代表共有 <code>2^2 = 4</code> 个桶（编号 <code>0 ~ 3</code> 对应二进制 <code>00 ~ 11</code>，正好占 2 个二进制位），<strong>所以 <code>B</code> 是几，选桶时就看哈希值二进制的最后几位</strong>；
+      <br>• <strong><code>buckets</code></strong>：指向底层哈希桶数组的指针；<strong><code>flags</code></strong>：记录当前是否有协程正在写（并发写冲突就是靠它检测出来的）。
+    </li>
+    <li><strong>第二层（哈希桶数组 <code>buckets</code>）</strong>：一块连续分配的数组，包含 <code>2^B</code> 个桶（每个桶叫 <code>bmap</code>）。</li>
+    <li><strong>第三层（单个哈希桶 <code>runtime.bmap</code>，固定最多装 8 对键值）</strong>：每个桶内部有 <strong>8 个槽位（Slot 0 ~ 7）</strong>，分为三块：
+      <br>• <strong><code>tophash[8]</code></strong>：存桶内 8 个 Key 哈希值的<strong>高 8 位</strong>（1 字节数字指纹），进桶后先比对这 1 字节整数，匹配了才去比对完整的 Key；
+      <br>• <strong><code>keys[8]</code> 与 <code>elems[8]</code></strong>：<strong>先把 8 个 Key 紧挨着存完，再把 8 个 Value 紧挨着存</strong>（消除不同大小键值交替排列产生的内存对齐空洞）；
+      <br>• <strong><code>overflow</code> 溢出桶指针</strong>：如果同一个桶装满 8 对键值还有新元素落进来，就在末尾通过指针挂接一个新的溢出桶。
+    </li>
+  </ul>
+
+  <!-- 手绘 SVG：hmap + 一次查找三步走 + bmap 内部解剖 -->
+  <svg viewBox="0 0 980 276" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:12px 0;" role="img" aria-label="Go map hmap 与 bmap 寻址过程图">
+    <!-- 顶部标题条 -->
+    <text x="20" y="24" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="12.5" font-weight="900">📌 图解：执行 m["alice"] 时如何定位槽位（例：当前 B = 2，即共有 2^2 = 4 个桶，选桶只需看二进制最后 2 位）</text>
+
+    <!-- 左侧 1：hmap 表头 -->
+    <g transform="translate(20, 38)">
+      <rect x="0" y="0" width="215" height="218" rx="8" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="195" height="26" rx="5" fill="var(--plop-ink)"/>
+      <text x="107" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="12" font-weight="900">1. 表头 runtime.hmap</text>
+
+      <text x="14" y="56" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.2" font-weight="800">count: 6 <tspan fill="var(--plop-ink-soft)">(当前共 6 个元素)</tspan></text>
+      <text x="14" y="78" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.2" font-weight="800">B: 2 <tspan fill="var(--plop-ink-soft)">(桶数 = 2^2 = 4 个)</tspan></text>
+      <text x="14" y="100" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.2" font-weight="800">hash0: 0x9f3a... <tspan fill="var(--plop-ink-soft)">(随机种子)</tspan></text>
+
+      <rect x="12" y="114" width="191" height="28" rx="5" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="107" y="132" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.2" font-weight="900">buckets ──► 指向现役桶数组</text>
+
+      <line x1="12" y1="154" x2="203" y2="154" stroke="var(--plop-ink)" stroke-width="1" stroke-dasharray="3 3"/>
+      <text x="14" y="172" fill="var(--plop-ink-soft)" font-size="10.8" font-weight="700">扩容与并发检测字段：</text>
+      <text x="14" y="190" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.8" font-weight="800">oldbuckets <tspan fill="var(--plop-ink-soft)">(扩容时存旧桶)</tspan></text>
+      <text x="14" y="208" fill="#D2381E" font-family="var(--font-mono)" font-size="10.8" font-weight="800">flags <tspan fill="var(--plop-ink-soft)">(并发写冲突检测标志)</tspan></text>
+    </g>
+
+    <!-- 中间 2：Hash 切分与选桶 -->
+    <g transform="translate(260, 38)">
+      <!-- Step ① 算哈希切分（完整 64 位三段式长条：8位 + 54位 + 2位 = 64位） -->
+      <rect x="0" y="0" width="242" height="84" rx="8" fill="#FFF6E5" stroke="#D2381E" stroke-width="1.8"/>
+      <text x="10" y="19" fill="#D2381E" font-family="var(--font-mono)" font-size="10.8" font-weight="900">① "alice" 的 64 位二进制哈希值：</text>
+
+      <!-- 三段拼接的 64-bit 二进制条 -->
+      <!-- 左段：高 8 位 -->
+      <rect x="10" y="26" width="86" height="48" rx="4" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.5"/>
+      <text x="53" y="42" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10" font-weight="900">高8位:10100101</text>
+      <text x="53" y="56" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.5" font-weight="800">(即 0xA5)</text>
+      <text x="53" y="69" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.2">作 tophash 指纹</text>
+
+      <!-- 中段：中间 54 位 -->
+      <rect x="98" y="26" width="60" height="48" rx="3" fill="#F4EFE6" stroke="var(--plop-ink-soft)" stroke-width="1.2" stroke-dasharray="3 2"/>
+      <text x="128" y="47" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="9.5" font-weight="700">...54位...</text>
+      <text x="128" y="63" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9">中间位不用</text>
+
+      <!-- 右段：低 B(2) 位 -->
+      <rect x="160" y="26" width="72" height="48" rx="4" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="196" y="42" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="900">低2位: 01</text>
+      <text x="196" y="56" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.5" font-weight="800">(即 1 号桶)</text>
+      <text x="196" y="69" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.2">因B=2看末2位</text>
+
+      <!-- Step ② buckets 数组选桶 -->
+      <rect x="0" y="96" width="242" height="122" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="12" y="115" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.2" font-weight="900">2. buckets 桶数组 (共 2^2 = 4 个)</text>
+      <rect x="12" y="123" width="218" height="21" rx="4" fill="#EEF3FF" stroke="var(--plop-ink)"/>
+      <text x="20" y="137" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.5" font-weight="800">bucket[0] (二进制 00)</text>
+      <rect x="12" y="148" width="218" height="23" rx="4" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.8"/>
+      <text x="20" y="163" fill="#D2381E" font-family="var(--font-mono)" font-size="10.5" font-weight="900">② bucket[1] (二进制 01 命中) ──►</text>
+      <rect x="12" y="175" width="218" height="21" rx="4" fill="#EEF3FF" stroke="var(--plop-ink)"/>
+      <text x="20" y="189" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.5" font-weight="800">bucket[2] (二进制 10)</text>
+      <rect x="12" y="198" width="218" height="16" rx="3" fill="#EEF3FF" stroke="var(--plop-ink)"/>
+      <text x="20" y="210" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10" font-weight="800">bucket[3] (二进制 11)</text>
+    </g>
+
+    <!-- 连接线：hmap.buckets -> buckets 数组 -->
+    <path d="M 223 166 L 254 166" fill="none" stroke="var(--plop-ink)" stroke-width="2.2"/>
+    <polygon points="258,166 250,161 250,171" fill="var(--plop-ink)"/>
+
+    <!-- 连接线：bucket[1] -> 右侧 bmap -->
+    <path d="M 490 197 L 524 197" fill="none" stroke="#D2381E" stroke-width="2.2"/>
+    <polygon points="528,197 520,192 520,202" fill="#D2381E"/>
+
+    <!-- 右侧 3：单个 bmap 内部解剖 -->
+    <g transform="translate(530, 38)">
+      <rect x="0" y="0" width="430" height="218" rx="8" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
+      <rect x="10" y="10" width="410" height="26" rx="5" fill="#1F8A65"/>
+      <text x="215" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="12" font-weight="900">3. 进入 bucket[1] (单个 bmap 桶，8 个槽位)</text>
+
+      <!-- tophash[8] -->
+      <rect x="12" y="44" width="406" height="44" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="215" y="61" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.8" font-weight="900">③ 先扫 tophash[8] 比对高 8 位指纹 0xA5（1 字节比对极快）：</text>
+      <text x="215" y="79" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.5" font-weight="800">[0]:0x12 | [1]:0x7F | <tspan fill="#D2381E" font-weight="900">[2]:0xA5 (命中槽位 2)</tspan> | [3..7]:...</text>
+
+      <!-- keys[8] 与 elems[8] -->
+      <rect x="12" y="96" width="198" height="50" rx="5" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="111" y="115" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">④ 核对 keys[2] == "alice"</text>
+      <text x="111" y="134" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">[k0, k1, <tspan fill="#D2381E" font-weight="900">k2:"alice"</tspan> ... k7]</text>
+
+      <rect x="220" y="96" width="198" height="50" rx="5" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="319" y="115" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">⑤ 取出对应 elems[2]</text>
+      <text x="319" y="134" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5">[v0, v1, <tspan fill="#1F8A65" font-weight="900">v2: 95</tspan> ... v7]</text>
+
+      <!-- 键值分离说明 -->
+      <rect x="12" y="154" width="406" height="26" rx="5" fill="#FFFFFF" stroke="#1F8A65" stroke-width="1.4"/>
+      <text x="215" y="171" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">💡 8 个 Key 紧挨着存、8 个 Value 紧挨着存（消除内存对齐空洞）</text>
+
+      <!-- overflow -->
+      <rect x="12" y="186" width="406" height="24" rx="5" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.5"/>
+      <text x="215" y="202" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.5" font-weight="900">overflow *bmap ──► 若 8 个槽位未找到，顺着溢出桶链表继续找</text>
+    </g>
+  </svg>
+
+  <!-- 把查找过程用一段通俗文字串起来 -->
+  <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:12px 15px; margin:10px 0 14px; font-size:13.4px; line-height:1.7;">
+    <strong>🔍 对照上图，把查找 <code>m["alice"]</code> 的过程串起来只要三步：</strong><br>
+    <strong>第一步（看二进制最后 <code>B</code> 位选桶）</strong>：把 <code>"alice"</code> 代入哈希函数算出 64 位二进制哈希值。因为当前 <code>B = 2</code>（代表共有 <code>2^2 = 4</code> 个桶，编号 <code>0 ~ 3</code> 对应二进制 <code>00 ~ 11</code>），所以直接截取哈希值的<strong>最后 2 个二进制位</strong>（图中为 <code>01</code>，即十进制 <code>1</code>），立马锁定去 <strong><code>bucket[1]</code> 号桶</strong>找。<br>
+    <strong>第二步（看高 8 位指纹快速筛查）</strong>：进到 <code>bucket[1]</code> 号桶后，先拿哈希值的<strong>高 8 位（<code>10100101</code> 即 <code>0xA5</code>）</strong>去跟桶开头的 <code>tophash[0..7]</code> 做 1 字节整数比对——发现只有<strong>槽位 2（<code>tophash[2] == 0xA5</code>）</strong>匹配。<br>
+    <strong>第三步（核对完整 Key 并取值）</strong>：再去核对第 2 号槽位的完整 Key（<code>keys[2] == "alice"</code>），确认相等后，直接取出第 2 号槽位的 Value（<code>elems[2] = 95</code>）返回！
+  </div>
+
+  <!-- 扩容机制（精简清晰版，回答为什么不能对元素取地址） -->
+  <p style="margin:12px 0 8px;">
+    <strong>2. <code>map</code> 满了怎么扩容？（这正是“不能对元素取地址 / 直接改结构体字段”的根本原因）</strong><br>
+    当不断往 <code>map</code> 写入数据导致桶变拥挤时，Go 会分配一块新的桶数组，并把旧桶里的键值对<strong>搬迁到新桶的新内存地址上</strong>——正因为元素地址在扩容后会改变，所以 Go 编译器直接禁止了 <code>&amp;m[k]</code> 取地址和 <code>m[k].Field = x</code>！
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">扩容机制与演进</th>
+          <th>触发条件与核心原理</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 翻倍扩容<br>（桶不够用了）</strong></td>
+          <td>当<strong>平均每个桶装的元素超过 6.5 个</strong>（即负载因子 <code>count / 2^B &gt; 6.5</code>，满载为 8 个）时触发：将 <code>B</code> 加 1，分配一块<strong>容量翻倍（<code>2^(B+1)</code> 个桶）</strong>的新桶数组。</td>
+        </tr>
+        <tr>
+          <td><strong>② 等量扩容<br>（桶够用，但空洞太多）</strong></td>
+          <td>平均每个桶没超过 6.5 个，但<strong><code>overflow</code> 溢出桶太多</strong>（通常是因为大量写入后又大量 <code>delete</code> 删空，导致链表很长但全是空槽位）：保持 <code>B</code> 不变，重新分配一块同大小的新桶数组，把剩下的有效元素紧凑排列，甩掉空的溢出桶。</td>
+        </tr>
+        <tr>
+          <td><strong>③ 渐进式分批搬迁<br>（避免一次性卡顿）</strong></td>
+          <td>触发扩容时不会一次性搬完所有数据（否则百万级 <code>map</code> 会卡顿几十毫秒），而是把旧桶挂在 <code>oldbuckets</code> 上，之后<strong>每次执行写入或删除操作时顺手搬迁 1～2 个旧桶</strong>，将耗时平摊到日常操作中。</td>
+        </tr>
+        <tr>
+          <td><strong>④ Go 1.24+ Swiss Table</strong></td>
+          <td>Go 1.24 起将 <code>map</code> 底层升级为基于开放寻址的 <strong>Swiss Table</strong>，用 64 位控制字单条指令并行比对 8 个槽位的指纹，移除了传统溢出桶链表，查找更快且更省内存。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 02.3 · defer 开放编码演进与 panic / recover 异常恢复机制 -->
+<div class="wb-card" id="defer" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">⏱️ 02.3 · 延迟调用与异常恢复：<code>defer</code> 开放编码演进、<code>panic</code> 栈展开与 <code>recover</code> 捕获实战</div>
+  <h3>🪃 02.3 <code>defer</code> 底层演进与 <code>panic / recover</code> 异常捕获机制</h3>
+
+  <p>
+    （<code>defer</code> 的先进后出 LIFO 栈结构与 <code>return</code> 三步执行时机见 <a href="index.html#channel">🌱 基础与实战篇 · 04.2 节</a>）<br>
+    当程序遇到不可继续执行的运行时致命错误（如数组越界、空指针解引用、向已关闭通道发送数据，或主动调用 <code>panic("...")</code>）时，当前协程会立刻停止往下执行，开始<strong>沿着调用栈自底向上逐层弹出并执行已注册的 <code>defer</code> 函数（栈展开 Stack Unwinding）</strong>。<br>
+    如果在某个 <code>defer</code> 匿名函数里调用了 <strong><code>recover()</code></strong>，就能拦截这次崩溃、将程序恢复到正常执行流；若一直回溯到该协程栈顶都没有 <code>recover()</code> 拦截，<strong>整个 Go 进程会直接打印调用栈并崩溃退出</strong>：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🛡️ panic_recover.go · 用 defer + recover 拦截崩溃并转为 error 返回</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-defer-rules', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-defer-rules"><code><span class="c-cm">// 场景 1：拦截函数内部的 panic，并通过命名返回值 err 优雅返回给调用方</span>
+<span class="c-kw">func</span> <span class="c-fn">SafeDivide</span>(a, b <span class="c-fn">int</span>) (res <span class="c-fn">int</span>, err <span class="c-fn">error</span>) {
+    <span class="c-kw">defer</span> <span class="c-kw">func</span>() {
+        <span class="c-cm">// ★ recover() 必须在 defer 的第一层匿名函数内直接调用！</span>
+        <span class="c-kw">if</span> r := <span class="c-fn">recover</span>(); r != <span class="c-kw">nil</span> {
+            <span class="c-cm">// 拦截成功！将 panic 原因赋值给命名返回值 err</span>
+            err = fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"捕获运行时异常: %v"</span>, r)
+        }
+    }()
+
+    <span class="c-kw">return</span> a / b, <span class="c-kw">nil</span> <span class="c-cm">// 当 b == 0 时触发 runtime panic: integer divide by zero</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    val, err := <span class="c-fn">SafeDivide</span>(10, 0)
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"程序未崩溃! val ="</span>, val, <span class="c-str">"err ="</span>, err)
+    <span class="c-cm">// 输出: 程序未崩溃! val = 0 err = 捕获运行时异常: runtime error: integer divide by zero</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 safe_goroutine.go · 工程必备：防止后台子协程 panic 搞崩整个服务</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-safe-go', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-safe-go"><code><span class="c-cm">// ⚠️ 核心边界：每个协程拥有自己独立的调用栈与 _defer 链表，</span>
+<span class="c-cm">// 主协程的 recover 绝对抓不到子协程 go func() 里的 panic！</span>
+<span class="c-cm">// 工程规范：启动后台异步协程时，统一使用带 recover 保护的 SafeGo 包装器：</span>
+<span class="c-kw">func</span> <span class="c-fn">SafeGo</span>(fn <span class="c-kw">func</span>()) {
+    <span class="c-kw">go</span> <span class="c-kw">func</span>() {
+        <span class="c-kw">defer</span> <span class="c-kw">func</span>() {
+            <span class="c-kw">if</span> r := <span class="c-fn">recover</span>(); r != <span class="c-kw">nil</span> {
+                <span class="c-cm">// 打印崩溃值和完整调用栈 debug.Stack()，保住主进程不挂</span>
+                fmt.<span class="c-fn">Printf</span>(<span class="c-str">"[子协程异常恢复] err=%v\n%s"</span>, r, debug.<span class="c-fn">Stack</span>())
+            }
+        }()
+        <span class="c-fn">fn</span>()
+    }()
+}
+
+<span class="c-cm">// 调用方式：SafeGo(func() { sendAsyncEmail(userID) })</span></code></pre>
+    </div>
+  </div>
+
+  <div class="wb-grid-2" style="margin-bottom:10px;">
+    <div class="plop-callout warn" style="margin:0;">
+      <strong>⚠️ 为什么 <code>recover()</code> 必须在 <code>defer func()</code> 第一层直接调用？</strong><br>
+      底层函数 <code>runtime.gorecover</code> 会严格校验调用栈帧指针（<code>gp._panic.argp == getcallersp()</code>）：<br>
+      • ❌ <strong>直接写 <code>defer recover()</code> 无效</strong>（注册时当场求值，此时还没发生 panic）；<br>
+      • ❌ <strong>多套一层辅助函数 <code>defer func() { myRecover() }()</code> 也无效</strong>（栈帧隔了一层，<code>argp</code> 校验不匹配，返回 <code>nil</code>）；<br>
+      • ⚠️ <strong>不可恢复的 Fatal Throw</strong>：像<strong>并发写同一个 <code>map</code></strong>、栈内存耗尽（Stack Overflow）调用的是底层 <code>runtime.fatal / throw</code>，<strong><code>recover()</code> 无法拦截</strong>，进程必定直接终止。
+    </div>
+
+    <div class="plop-callout tip" style="margin:0;">
+      <strong>⚡ <code>defer</code> 三代底层实现演进（为什么现代 Go <code>defer</code> 几乎零开销？）：</strong><br>
+      • <strong>Go 1.12 前（堆分配 <code>~35ns</code>）</strong>：每次 <code>defer</code> 都在堆上分配 <code>_defer</code> 节点挂入协程链表，增加 GC 负担。<br>
+      • <strong>Go 1.13（栈分配 <code>~25ns</code>）</strong>：非循环内的 <code>defer</code> 改为在当前函数栈帧上分配。<br>
+      • <strong>Go 1.14+（开放编码 Open-coded Defer <code>~1ns</code>）</strong>：当函数内 <code>defer &lt;= 8</code> 个且不在循环中时，编译器直接在栈上用 <strong>1 字节位掩码（<code>deferBits</code>，每位代表一个 <code>defer</code> 是否已注册）</strong> 记录状态，并在函数退出处像普通函数一样直接内联展开调用！
+    </div>
+  </div>
+</div>
+
+<!-- 02.4 · Interface 底层 eface / iface 双指针结构与判空原理 -->
+<div class="wb-card" id="interface" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill" id="error">🧩 02.4 · 接口底层结构：<code>eface / iface</code> 16 字节双指针布局、方法集匹配与 <code>nil</code> 判等原理</div>
+  <h3>🎭 02.4 <code>interface</code> 底层：<code>eface / iface</code> 16 字节双指针结构与 <code>nil</code> 判空原理</h3>
+
+  <!-- Step 1: 概念说明 -->
+  <p>
+    （接口与 <code>error</code> 的日常用法见 <a href="index.html#gmp">🌱 基础与实战篇 · 03.3 &amp; 04.3</a>）<br>
+    在 Go 运行时中，任何一个接口变量在内存里都固定占用 <strong>16 个字节（两个 8 字节指针：<code>类型信息指针</code> + <code>数据指针 data</code>）</strong>。根据接口是否包含方法，底层分为两种结构：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.7;">
+    <li><strong>空接口 <code>any</code>（底层为 <code>runtime.eface</code>）</strong>：包含 <code>_type *类型元数据</code>（记录动态类型是 <code>int</code> 还是 <code>User</code>）与 <code>data unsafe.Pointer</code>（指向具体数据的内存地址）。</li>
+    <li><strong>带方法的接口（如 <code>error</code>、<code>io.Reader</code>，底层为 <code>runtime.iface</code>）</strong>：包含 <code>tab *itab</code>（不仅记录动态类型，还缓存了该类型实现的接口方法函数指针表 <code>fun[]</code>，用于实现虚函数动态派发）与 <code>data unsafe.Pointer</code>。</li>
+  </ul>
+
+  <svg viewBox="0 0 940 236" style="width:100%; max-width:940px; height:auto; display:block; margin:8px auto 14px; border:2.4px solid var(--plop-ink); border-radius:14px; background:#FFFDF7;" role="img" aria-label="Go interface 底层 eface 与 iface 16B 双指针内存结构图解">
+    <defs>
+      <marker id="arr-if-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#15803D"/>
+      </marker>
+      <marker id="arr-if-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#1D4ED8"/>
+      </marker>
+    </defs>
+
+    <!-- 栏 1：空接口 any (eface) -->
+    <rect x="14" y="14" width="284" height="208" rx="10" fill="#F0FDF4" stroke="#15803D" stroke-width="2"/>
+    <text x="156" y="35" text-anchor="middle" font-family="var(--font-mono)" font-size="11.8" font-weight="900" fill="#15803D">1. 空接口 any：var a any = 42</text>
+    <text x="156" y="52" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" fill="#475569">底层 runtime.eface (16B 双指针卡片)</text>
+
+    <!-- 左卡片 eface -->
+    <rect x="24" y="64" width="118" height="110" rx="7" fill="#FFF" stroke="#15803D" stroke-width="1.8"/>
+    <text x="83" y="81" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="900" fill="#15803D">变量 a (16B)</text>
+    <rect x="31" y="88" width="104" height="36" rx="4" fill="#DCFCE7" stroke="#15803D" stroke-width="1.3"/>
+    <text x="83" y="103" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="900" fill="#15803D">① _type (8B)</text>
+    <text x="83" y="117" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="#475569">类型描述指针</text>
+    <rect x="31" y="130" width="104" height="36" rx="4" fill="#F8FAFC" stroke="#15803D" stroke-width="1.3"/>
+    <text x="83" y="145" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="900" fill="#1E293B">② data (8B)</text>
+    <text x="83" y="159" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="#475569">数据地址 0x400</text>
+
+    <path d="M 135 106 L 162 92" fill="none" stroke="#15803D" stroke-width="2" marker-end="url(#arr-if-green)"/>
+    <path d="M 135 148 L 162 152" fill="none" stroke="#15803D" stroke-width="2" marker-end="url(#arr-if-green)"/>
+
+    <!-- 右目标块 -->
+    <rect x="166" y="64" width="122" height="50" rx="6" fill="#FFF" stroke="#15803D" stroke-width="1.6"/>
+    <text x="227" y="84" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="900" fill="#15803D">_type 元信息</text>
+    <text x="227" y="102" text-anchor="middle" font-family="var(--font-mono)" font-size="9.8" fill="#1E293B">类型: int (8B)</text>
+
+    <rect x="166" y="124" width="122" height="50" rx="6" fill="#FFF" stroke="#15803D" stroke-width="1.6"/>
+    <text x="227" y="143" text-anchor="middle" font-family="var(--font-mono)" font-size="9.8" fill="#475569">数据内存 (0x400)</text>
+    <text x="227" y="163" text-anchor="middle" font-family="var(--font-mono)" font-size="13" font-weight="900" fill="#15803D">42</text>
+
+    <text x="156" y="202" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="800" fill="#15803D">无方法表，仅记录动态类型与值地址</text>
+
+    <!-- 栏 2：带方法接口 (iface) -->
+    <rect x="310" y="14" width="316" height="208" rx="10" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="2"/>
+    <text x="468" y="35" text-anchor="middle" font-family="var(--font-mono)" font-size="11.8" font-weight="900" fill="#1D4ED8">2. 带方法接口：var r Runner = &amp;Dog{}</text>
+    <text x="468" y="52" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" fill="#475569">底层 runtime.iface (16B 双指针卡片)</text>
+
+    <!-- 左卡片 iface -->
+    <rect x="320" y="64" width="118" height="110" rx="7" fill="#FFF" stroke="#1D4ED8" stroke-width="1.8"/>
+    <text x="379" y="81" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="900" fill="#1D4ED8">变量 r (16B)</text>
+    <rect x="327" y="88" width="104" height="36" rx="4" fill="#DBEAFE" stroke="#1D4ED8" stroke-width="1.3"/>
+    <text x="379" y="103" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="900" fill="#1D4ED8">① tab (8B)</text>
+    <text x="379" y="117" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="#475569">指向 itab 方法表</text>
+    <rect x="327" y="130" width="104" height="36" rx="4" fill="#F8FAFC" stroke="#1D4ED8" stroke-width="1.3"/>
+    <text x="379" y="145" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="900" fill="#1E293B">② data (8B)</text>
+    <text x="379" y="159" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="#475569">数据地址 0x500</text>
+
+    <path d="M 431 106 L 458 92" fill="none" stroke="#1D4ED8" stroke-width="2" marker-end="url(#arr-if-blue)"/>
+    <path d="M 431 148 L 458 152" fill="none" stroke="#1D4ED8" stroke-width="2" marker-end="url(#arr-if-blue)"/>
+
+    <!-- 右目标块 itab + Dog -->
+    <rect x="462" y="64" width="152" height="54" rx="6" fill="#FFF" stroke="#1D4ED8" stroke-width="1.6"/>
+    <text x="538" y="81" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="900" fill="#1D4ED8">itab (类型 + 方法表)</text>
+    <text x="538" y="96" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" fill="#1E293B">_type: *Dog</text>
+    <text x="538" y="110" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" font-weight="800" fill="#D9381E">fun[0]: (*Dog).Run</text>
+
+    <rect x="462" y="126" width="152" height="48" rx="6" fill="#FFF" stroke="#1D4ED8" stroke-width="1.6"/>
+    <text x="538" y="144" text-anchor="middle" font-family="var(--font-mono)" font-size="9.8" fill="#475569">数据内存 (0x500)</text>
+    <text x="538" y="163" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="900" fill="#1D4ED8">Dog{"旺财"}</text>
+
+    <text x="468" y="202" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="800" fill="#1D4ED8">调 r.Run() 即查 tab.fun[0](r.data)</text>
+
+    <!-- 栏 3：nil 接口判空真相 -->
+    <rect x="638" y="14" width="288" height="208" rx="10" fill="#FFF5F2" stroke="#D9381E" stroke-width="2"/>
+    <text x="782" y="35" text-anchor="middle" font-family="var(--font-mono)" font-size="11.8" font-weight="900" fill="#D9381E">3. 为什么装了 nil 指针却 != nil？</text>
+    <text x="782" y="52" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" fill="#475569">只有两个 8B 格子全为 nil 时，接口才 == nil</text>
+
+    <!-- 上：真 nil -->
+    <rect x="650" y="64" width="264" height="50" rx="7" fill="#F0FDF4" stroke="#15803D" stroke-width="1.8"/>
+    <text x="782" y="82" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="900" fill="#15803D">✅ goodCall() 直接 return nil：</text>
+    <text x="782" y="102" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="900" fill="#1E293B">① tab: nil  |  ② data: nil  ➔ (err == nil)</text>
+
+    <!-- 下：假 nil -->
+    <rect x="650" y="122" width="264" height="54" rx="7" fill="#FEF08A" stroke="#D9381E" stroke-width="2"/>
+    <text x="782" y="140" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="900" fill="#D9381E">❌ badCall() 返回 var p *MyError = nil：</text>
+    <text x="782" y="156" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="900" fill="#D9381E">① tab: *MyError (非空!)  |  ② data: nil</text>
+    <text x="782" y="170" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" font-weight="800" fill="#D9381E">➔ 因第 1 格非空，导致 err != nil 恒为 true！</text>
+
+    <text x="782" y="202" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="800" fill="#D9381E">判断 err == nil 时，底层同时检查第 1 格和第 2 格</text>
+  </svg>
+
+  <!-- Step 2: 代码示例（接口接收者方法集 + nil 接口判空） -->
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🔌 interface_receiver.go · 方法接收者对接口赋值的影响</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-iface-recv', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-iface-recv"><code><span class="c-kw">type</span> Runner <span class="c-kw">interface</span> { <span class="c-fn">Run</span>() }
+
+<span class="c-kw">type</span> Dog <span class="c-kw">struct</span>{ Name <span class="c-fn">string</span> }
+<span class="c-cm">// Run() 声明为指针接收者 *Dog</span>
+<span class="c-kw">func</span> (d *Dog) <span class="c-fn">Run</span>() { fmt.<span class="c-fn">Println</span>(d.Name) }
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    d := Dog{Name: <span class="c-str">"旺财"</span>}
+    <span class="c-kw">var</span> r1 Runner = &amp;d <span class="c-cm">// ✅ 指针类型 *Dog 满足 Runner 接口</span>
+    <span class="c-kw">var</span> r2 Runner = d  <span class="c-cm">// ❌ 值类型 Dog 不满足 Runner 接口（编译报错）</span>
+    _ = r1
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚠️ nil_interface_trap.go · 接口变量的 nil 判等条件</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-nil-iface', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-nil-iface"><code><span class="c-kw">type</span> MyError <span class="c-kw">struct</span>{ Msg <span class="c-fn">string</span> }
+<span class="c-kw">func</span> (e *MyError) <span class="c-fn">Error</span>() <span class="c-fn">string</span> { <span class="c-kw">return</span> e.Msg }
+
+<span class="c-kw">func</span> <span class="c-fn">badCall</span>() <span class="c-fn">error</span> {
+    <span class="c-kw">var</span> p *MyError = <span class="c-kw">nil</span> <span class="c-cm">// 具体类型的空指针</span>
+    <span class="c-kw">return</span> p             <span class="c-cm">// ❌ 装入 error 接口盒子后：{tab: *MyError, data: nil} != nil</span>
+}
+<span class="c-kw">func</span> <span class="c-fn">goodCall</span>() <span class="c-fn">error</span> {
+    <span class="c-kw">return</span> <span class="c-kw">nil</span>           <span class="c-cm">// ✅ 直接返回 nil：{tab: nil, data: nil} == nil</span>
+}</code></pre>
+    </div>
+  </div>
+
+  <!-- Step 3: 底层原理拆解 -->
+  <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px; margin-top:12px;">
+    <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 结合 16 字节双指针结构解释上面两个现象：</div>
+    <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.68;">
+      <li><strong>为什么值类型 <code>Dog</code> 不能赋值给要求指针接收者方法的接口？（左图）</strong>：把值 <code>d</code> 装进接口盒子时，<code>iface.data</code> 指向的是堆上新拷贝的一份不可寻址（Unaddressable）副本，如果允许对副本调用指针方法 <code>(*Dog).Run()</code>，任何字段修改都会改在副本上并丢失，因此编译器直接禁止。反之，若方法定义为值接收者 <code>(d Dog)</code>，则 <code>Dog</code> 与 <code>*Dog</code> 均满足该接口。</li>
+      <li><strong>为什么 <code>badCall()</code> 返回了值为 <code>nil</code> 的指针，外层判断 <code>err != nil</code> 却是 <code>true</code>？（右图）</strong>：因为接口变量是双指针结构 <code>{tab, data}</code>，<strong>只有当 <code>tab == nil</code> 且 <code>data == nil</code> 两个格子全为空时，接口才等于 <code>nil</code></strong>。当返回 <code>var p *MyError = nil</code> 时，虽然 <code>data = nil</code>，但第一个格子 <code>tab</code> 已经填上了 <code>*MyError</code> 的类型描述信息，所以整个接口盒子不再是 <code>nil</code>。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="plop-bridge">
+  🔗 梳理完单机内存中的核心数据结构后，接下来进入 <strong>第 03 章</strong>，学习 Goroutine 轻量级协程与 GMP 并发调度器的运行机制 ➔
+</div>

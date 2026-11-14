@@ -1,209 +1,239 @@
 <!-- ====================================================================
-     PART 04: Channel 管道底层解剖与 Select 多路复用
+     PART 04: 函数特性、defer 资源清理与显式错误处理
      ==================================================================== -->
 <div class="wb-sec-header pink" id="channel">
   <span class="wb-sec-num">04</span>
-  <span class="wb-sec-title">Channel 管道底层解剖与 Select 多路复用</span>
-  <span class="plop-tag tomato">CSP COMMUNICATION × HCHAN</span>
+  <span class="wb-sec-title">函数特性、defer 资源清理与显式错误处理</span>
+  <span class="plop-tag mint">FUNC × DEFER × ERROR</span>
 </div>
 
-<!-- 04.1 · hchan 底层结构与 sendDirect 跨栈直拷 -->
-<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+<!-- 04.1 · 函数定义、多返回值、可变参数与闭包 -->
+<div class="wb-card" id="func-features" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🔄 04.1 · 当已有接收协程阻塞在 <code>&lt;-ch</code> 时，发送者写的数据还会进环形缓冲区 <code>buf</code> 吗？</div>
-  <h3>🧬 04.1 <code>runtime.hchan</code> 底层结构与 <code>sendDirect</code> 跨协程栈直接拷贝优化</h3>
+  <div class="chapter-q-pill">🔧 04.1 · 函数用法：多返回值、可变参数 <code>...T</code> 与匿名函数闭包</div>
+  <h3>🔧 04.1 函数特性：多返回值、可变参数与闭包</h3>
+
   <p>
-    Rob Pike 名言：<strong>“不要通过共享内存来通信，而要通过通信来共享内存。”</strong> 调用 <code>make(chan int, 4)</code> 会在堆上分配一个 <code>hchan</code> 结构体并返回指针。它内部由<strong>环形缓冲区 <code>buf</code>、阻塞协程等待队列 <code>sendq / recvq</code>（节点类型为 <code>sudog</code>，即把休眠协程 <code>G</code> 与其收发变量栈地址打包成的等待节点）以及一把互斥锁 <code>lock</code></strong> 组成：
+    Go 语言中的函数是一等公民（可以赋值给变量、作为参数传递或作为返回值）。日常开发中最常用的三个特性是<strong>多返回值</strong>、<strong>可变参数 <code>...T</code></strong> 与<strong>匿名闭包函数</strong>：
   </p>
-
-  <!-- 手绘 SVG：hchan 底层结构与 sendDirect 跨栈直拷 -->
-  <svg viewBox="0 0 950 280" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Go Channel hchan 底层结构图">
-    <rect x="8" y="8" width="934" height="264" rx="12" fill="#FFFDF7" stroke="var(--plop-ink)" stroke-width="2"/>
-
-    <!-- 左侧 hchan 结构体字段 -->
-    <g transform="translate(22, 22)">
-      <rect x="0" y="0" width="245" height="235" rx="10" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
-      <rect x="10" y="10" width="225" height="26" rx="5" fill="var(--plop-ink)"/>
-      <text x="122" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="12" font-weight="900">runtime.hchan 结构体</text>
-
-      <text x="14" y="54" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.5" font-weight="800">qcount: 2 <tspan fill="var(--plop-ink-soft)">(当前缓冲元素数)</tspan></text>
-      <text x="14" y="74" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.5" font-weight="800">dataqsiz: 4 <tspan fill="var(--plop-ink-soft)">(环形数组容量 cap)</tspan></text>
-      <text x="14" y="94" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">buf: *[4]T <tspan fill="var(--plop-ink-soft)">(环形缓冲区指针)</tspan></text>
-      <text x="14" y="114" fill="#1F8A65" font-family="var(--font-mono)" font-size="11.5" font-weight="900">sendx: 2 / recvx: 0 <tspan fill="var(--plop-ink-soft)">(写/读游标)</tspan></text>
-      <text x="14" y="134" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">closed: 0 <tspan fill="var(--plop-ink-soft)">(0=开启, 1=已关闭)</tspan></text>
-      <text x="14" y="156" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">recvq: waitq <tspan fill="var(--plop-ink-soft)">(阻塞等读的sudog链)</tspan></text>
-      <text x="14" y="176" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">sendq: waitq <tspan fill="var(--plop-ink-soft)">(阻塞等写的sudog链)</tspan></text>
-      <rect x="12" y="190" width="221" height="34" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.5"/>
-      <text x="20" y="211" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11.2" font-weight="900">🔒 lock mutex (保护所有字段并发安全)</text>
-    </g>
-
-    <!-- 中部：环形缓冲区 buf 与 sendq/recvq -->
-    <g transform="translate(290, 22)">
-      <rect x="0" y="0" width="310" height="115" rx="10" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="14" y="22" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="12" font-weight="900">1. 环形缓冲区 buf (有缓冲且未满时走这里)</text>
-      <rect x="16" y="34" width="64" height="44" rx="6" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
-      <text x="48" y="53" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">[0]=10</text>
-      <text x="48" y="70" text-anchor="middle" fill="#1F8A65" font-size="10" font-weight="800">▲ recvx</text>
-
-      <rect x="88" y="34" width="64" height="44" rx="6" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
-      <text x="120" y="53" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">[1]=20</text>
-
-      <rect x="160" y="34" width="64" height="44" rx="6" fill="#FFFFFF" stroke="#D2381E" stroke-width="2" stroke-dasharray="4 2"/>
-      <text x="192" y="53" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">[2] 空</text>
-      <text x="192" y="70" text-anchor="middle" fill="#D2381E" font-size="10" font-weight="800">▲ sendx</text>
-
-      <rect x="232" y="34" width="64" height="44" rx="6" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.5"/>
-      <text x="264" y="53" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="11">[3] 空</text>
-      <text x="16" y="100" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">游标到尾后自动回绕：(sendx + 1) % dataqsiz</text>
-
-      <rect x="0" y="127" width="310" height="108" rx="10" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
-      <text x="14" y="148" fill="#D2381E" font-family="var(--font-mono)" font-size="12" font-weight="900">2. 阻塞等待队列 sendq / recvq (sudog 双向链表)</text>
-      <rect x="14" y="158" width="136" height="64" rx="6" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="1.5"/>
-      <text x="22" y="177" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">sudog (G_recv)</text>
-      <text x="22" y="194" fill="var(--plop-ink-text)" font-size="10.8" font-weight="700">g: *G_recv (_Gwaiting)</text>
-      <text x="22" y="210" fill="#D2381E" font-size="10.8" font-weight="800">elem: &amp;v (接收变量栈址)</text>
-
-      <rect x="160" y="158" width="136" height="64" rx="6" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.5"/>
-      <text x="168" y="177" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">sudog (G_send)</text>
-      <text x="168" y="194" fill="var(--plop-ink-text)" font-size="10.8" font-weight="700">g: *G_send (_Gwaiting)</text>
-      <text x="168" y="210" fill="#D2381E" font-size="10.8" font-weight="800">elem: &amp;x (发送变量栈址)</text>
-    </g>
-
-    <!-- 右侧：sendDirect 跨协程栈直拷优化 -->
-    <g transform="translate(620, 22)">
-      <rect x="0" y="0" width="308" height="235" rx="10" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
-      <rect x="10" y="10" width="288" height="26" rx="5" fill="#1F8A65"/>
-      <text x="154" y="27" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.8" font-weight="900">★ 核心考点：sendDirect 跨栈直接拷贝</text>
-
-      <text x="14" y="54" fill="var(--plop-ink-text)" font-size="11.8" font-weight="800">当发送 ch &lt;- x 时，若发现 recvq 里已有等</text>
-      <text x="14" y="71" fill="var(--plop-ink-text)" font-size="11.8" font-weight="800">待的接收者 G_recv，数据还经过 buf 吗？</text>
-      <text x="14" y="91" fill="#D2381E" font-size="12.2" font-weight="900">答：完全不经过 buf！（仅 1 次内存拷贝）</text>
-
-      <rect x="14" y="102" width="122" height="58" rx="6" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
-      <text x="75" y="124" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">G_send 协程栈</text>
-      <text x="75" y="144" text-anchor="middle" fill="var(--plop-ink-text)" font-size="11" font-weight="700">局部变量 x = 42</text>
-
-      <rect x="172" y="102" width="122" height="58" rx="6" fill="#FFFFFF" stroke="#1F8A65" stroke-width="1.6"/>
-      <text x="233" y="124" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">G_recv 协程栈</text>
-      <text x="233" y="144" text-anchor="middle" fill="#D2381E" font-size="11" font-weight="900">sg.elem (直接写入!)</text>
-
-      <path d="M 136 131 L 170 131" stroke="#D2381E" stroke-width="2.5"/>
-      <polygon points="172,131 164,126 164,136" fill="#D2381E"/>
-
-      <text x="14" y="182" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">• 唯一特例：Go 正常禁止一个 G 写另一个 G 的栈；</text>
-      <text x="14" y="199" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">  但此时 G_recv 处于 _Gwaiting 休眠态，栈绝不</text>
-      <text x="14" y="216" fill="var(--plop-ink-text)" font-size="11.2" font-weight="700">  会发生扩容移动，因此 memmove 跨栈直写绝对安全！</text>
-    </g>
-  </svg>
-
-  <!-- 图下文字版核心拆解（方便手机端阅读） -->
-  <div class="wb-grid-2" style="margin-top:12px;">
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 图解左中区：<code>hchan</code> 三大件与 <code>sudog</code></div>
-      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
-        <li><strong>环形缓冲区 <code>buf</code></strong>：用定长数组配合写游标 <code>sendx</code>、读游标 <code>recvx</code> 构成环形队列（到尾自动取模回绕）。</li>
-        <li><strong>等待节点 <code>sudog</code></strong>：当协程因 Channel 空/满而阻塞时，Runtime 会把该协程指针 <code>g</code> 和它要读写的变量地址 <code>elem</code> 包装成一个 <code>sudog</code> 结构体，挂入读等待链表 <code>recvq</code> 或写等待链表 <code>sendq</code>。</li>
-        <li><strong>内置互斥锁 <code>lock</code></strong>：Channel 并非无锁结构，每次收发都会先加 <code>hchan.lock</code> 保护内部字段。</li>
-      </ul>
-    </div>
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;">📖 图解右半区：发送 <code>ch &lt;- x</code> 的三条分支与跨栈直拷</div>
-      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
-        <li><strong>分支① <code>recvq</code> 已有等待者（<code>sendDirect</code> 跨栈直拷）</strong>：弹出等待的 <code>sudog</code>，<strong>完全绕过 <code>buf</code></strong>，直接将发送者栈上的 <code>x</code> 拷进接收者栈上的接收变量 <code>sg.elem</code>（因为接收者正处于 <code>_Gwaiting</code> 休眠态，栈不会扩容移动，跨栈直写安全且省去一次进出缓冲区的拷贝），随后调 <code>goready()</code> 唤醒接收者。</li>
-        <li><strong>分支② <code>buf</code> 还有空位</strong>：把数据拷进 <code>buf[sendx]</code>，游标后移，立即返回。</li>
-        <li><strong>分支③ <code>buf</code> 已满（或无缓冲）</strong>：将当前协程打包成 <code>sudog</code> 挂入 <code>sendq</code>，调 <code>gopark()</code> 休眠让出 M。</li>
-      </ul>
-    </div>
-  </div>
-</div>
-
-<!-- 04.2 · 收发关状态真值表与优雅关闭原则 -->
-<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
-  <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">📊 04.2 · 向 <code>nil</code> channel 和已关闭 channel 进行读写关分别会发生什么？</div>
-  <h3>🚦 04.2 Channel 三种状态的收/发/关完整真值表与优雅关闭黄金法则</h3>
-
-  <div class="table-wrap">
-    <table class="plop-table">
-      <thead>
-        <tr>
-          <th style="width:16%">操作类型</th>
-          <th style="width:26%">① <code>nil</code> Channel（未 make）</th>
-          <th style="width:24%">② 正常开启的 Channel</th>
-          <th>③ 已关闭的 Channel（<code>close(ch)</code> 后）</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><strong>发送 <code>ch &lt;- v</code></strong></td>
-          <td><strong>永久阻塞</strong>（<code>gopark</code> 永不唤醒）</td>
-          <td>成功写入/交接，或满时阻塞</td>
-          <td>💥 <strong>立即 <code>panic: send on closed channel</code></strong></td>
-        </tr>
-        <tr>
-          <td><strong>接收 <code>v, ok := &lt;-ch</code></strong></td>
-          <td><strong>永久阻塞</strong>（常用于 <code>select</code> 中动态置 <code>ch = nil</code> 屏蔽某分支！）</td>
-          <td>成功读取（<code>ok=true</code>），或空时阻塞</td>
-          <td>✅ <strong>永不阻塞</strong>：先读完缓冲剩余元素（<code>ok=true</code>），缓冲排空后<strong>立即返回类型零值且 <code>ok=false</code></strong></td>
-        </tr>
-        <tr>
-          <td><strong>关闭 <code>close(ch)</code></strong></td>
-          <td>💥 <strong>立即 <code>panic: close of nil channel</code></strong></td>
-          <td>成功置 <code>closed=1</code>，唤醒所有等待者</td>
-          <td>💥 <strong>立即 <code>panic: close of closed channel</code></strong></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="plop-callout warn">
-    <strong>🚨 Channel 关闭铁律：</strong>永远由<strong>发送方（Sender）</strong>关闭 channel，绝不由接收方关！若有多个发送者协程，由 <code>sync.WaitGroup</code> 等所有发送者全部退出后由协调协程统一关闭，或额外引入信号通道 <code>stopCh</code> 配合 <code>sync.Once</code> 广播停写。
-  </div>
-</div>
-
-<!-- 04.3 · select 多路复用底层实现 -->
-<div class="wb-card" id="select" style="background:var(--plop-paper); margin-bottom:20px;">
-  <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill" id="chan-trap">🎲 04.3 · 如果两个协程同时用 <code>select</code> 监听同一对 <code>ch1, ch2</code>，为什么不会发生交叉加锁死锁？</div>
-  <h3>🎛️ 04.3 <code>select</code> 底层实现：<code>pollorder</code> 随机洗牌防饥饿与 <code>lockorder</code> 地址排序防死锁</h3>
 
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🐹 select_worker.go · 标准超时与优雅取消模板</span>
-        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-select-worker', this)">复制代码</button>
+        <span>🐹 func_multi_varargs.go · 多返回值与可变参数</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-func-basic', this)">复制代码</button>
       </div>
-      <pre class="plop-code-pre" id="code-select-worker"><code><span class="c-kw">func</span> <span class="c-fn">worker</span>(ctx context.Context, jobCh &lt;-<span class="c-kw">chan</span> Job) <span class="c-fn">error</span> {
-    <span class="c-cm">// ★ 用 NewTicker 代替循环内 time.After，防止旧版本 Timer 内存泄漏</span>
-    ticker := time.<span class="c-fn">NewTicker</span>(5 * time.Second)
-    <span class="c-kw">defer</span> ticker.<span class="c-fn">Stop</span>()
-
-    <span class="c-kw">for</span> {
-        <span class="c-kw">select</span> {
-        <span class="c-kw">case</span> job, ok := &lt;-jobCh:
-            <span class="c-kw">if</span> !ok { <span class="c-kw">return</span> <span class="c-kw">nil</span> } <span class="c-cm">// 通道已关闭且排空，优雅退出</span>
-            <span class="c-fn">handle</span>(job)
-        <span class="c-kw">case</span> &lt;-ticker.C:
-            <span class="c-fn">reportHeartbeat</span>()
-        <span class="c-kw">case</span> &lt;-ctx.<span class="c-fn">Done</span>():        <span class="c-cm">// 上游超时或取消（close 广播）</span>
-            <span class="c-kw">return</span> ctx.<span class="c-fn">Err</span>()
-        }
+      <pre class="plop-code-pre" id="code-func-basic"><code><span class="c-cm">// 1. 多返回值：Go 函数最常见的模式是同时返回 (结果, 错误)</span>
+<span class="c-kw">func</span> <span class="c-fn">Divide</span>(a, b <span class="c-fn">float64</span>) (<span class="c-fn">float64</span>, <span class="c-fn">error</span>) {
+    <span class="c-kw">if</span> b == 0 {
+        <span class="c-kw">return</span> 0, fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"除数不能为 0"</span>)
     }
-}</code></pre>
+    <span class="c-kw">return</span> a / b, <span class="c-kw">nil</span>
+}
+
+<span class="c-cm">// 2. 可变参数 (...int)：允许调用者传入任意个数的参数，函数内部将其视为切片 []int</span>
+<span class="c-kw">func</span> <span class="c-fn">SumAll</span>(nums ...<span class="c-fn">int</span>) <span class="c-fn">int</span> {
+    total := 0
+    <span class="c-kw">for</span> _, n := <span class="c-kw">range</span> nums {
+        total += n
+    }
+    <span class="c-kw">return</span> total
+}
+<span class="c-cm">// 调用方式：SumAll(1, 2, 3) 或将切片展开传入 SumAll(slice...)</span></code></pre>
     </div>
 
-    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; margin-top:10px;">
-      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:8px;">🔍 源码级揭秘：<code>runtime.selectgo</code> 四步执行流</div>
-      <ol style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.65;">
-        <li><strong><code>pollorder</code>（随机洗牌防饿死）</strong>：用 <code>fastrandn</code> 随机打乱所有 case 的检查顺序，防止排在前面的高频 case 把后面的 case 饿死。</li>
-        <li><strong><code>lockorder</code>（地址排序防死锁 ★必考）</strong>：将所有 case 涉及的 <code>hchan</code> <strong>按内存虚拟地址从小到大进行堆排序</strong>，严格按此顺序依次加锁（解锁时逆序），彻底消除多协程交叉加锁的 AB-BA 死锁！</li>
-        <li><strong>第一轮非阻塞扫描</strong>：按 <code>pollorder</code> 检查是否有就绪分支，有则立即解锁执行；若全未就绪且有 <code>default</code>，走 <code>default</code>。</li>
-        <li><strong>挂起与唤醒摘除</strong>：将当前 G 挂入所有 case 的等待队列并 <code>gopark()</code>；任一分支唤醒后，再次按 <code>lockorder</code> 加锁并将自己从其余未触发队列中摘除。</li>
-      </ol>
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 func_closure.go · 函数作为参数与闭包</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-func-closure', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-func-closure"><code><span class="c-cm">// 闭包（Closure）：内部匿名函数引用了外部函数的局部变量 count，</span>
+<span class="c-cm">// 只要返回的匿名函数还在使用，count 的生命周期就会一直延续：</span>
+<span class="c-kw">func</span> <span class="c-fn">NewCounter</span>() <span class="c-kw">func</span>() <span class="c-fn">int</span> {
+    count := 0
+    <span class="c-kw">return</span> <span class="c-kw">func</span>() <span class="c-fn">int</span> {
+        count++
+        <span class="c-kw">return</span> count
+    }
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    next := <span class="c-fn">NewCounter</span>()
+    fmt.<span class="c-fn">Println</span>(<span class="c-fn">next</span>(), <span class="c-fn">next</span>(), <span class="c-fn">next</span>()) <span class="c-cm">// 输出: 1 2 3</span>
+}</code></pre>
     </div>
   </div>
 </div>
 
-<div class="plop-bridge">
-  🔗 看完了用 Channel 通信，如果我们需要保护高频读写的共享状态，或者排查 GC 内存问题呢？进入 <strong>第 05 章</strong>：拆解 <code>Mutex</code>、TCMalloc 内存分配器与三色标记混合写屏障 GC ➔
+<!-- 04.2 · 延迟调用 defer：成对释放资源的优雅方式 -->
+<div class="wb-card" id="defer" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">⏱️ 04.2 · 延迟调用 <code>defer</code>：先进后出（LIFO）调用栈、<code>return</code> 三步执行时机与参数求值规则</div>
+  <h3>⏱️ 04.2 延迟调用（<code>defer</code>）：先进后出栈与 <code>return</code> 执行时机拆解</h3>
+
+  <p>
+    在日常开发中，我们经常需要“先打开文件再关闭”或“先加锁再解锁”。Go 提供了 <strong><code>defer</code></strong> 关键字用于注册延迟调用。要真正用好 <code>defer</code>，需要掌握它的三个核心机制：<strong>① 先进后出（LIFO）的栈结构</strong>、<strong>② 在 <code>return</code> 真正退出前执行的三步时机</strong>，以及 <strong>③ 注册时参数当场求值规则</strong>：
+  </p>
+
+  <svg viewBox="0 0 920 218" style="width:100%; max-width:920px; height:auto; display:block; margin:10px auto 14px; border:2.4px solid var(--plop-ink); border-radius:14px; background:#FFFDF7;" role="img" aria-label="defer 先进后出栈结构与 return 三步执行时机图解">
+    <defs>
+      <marker id="arr-df-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#1D4ED8"/>
+      </marker>
+      <marker id="arr-df-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#D9381E"/>
+      </marker>
+      <marker id="arr-df-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#15803D"/>
+      </marker>
+    </defs>
+
+    <!-- 左栏：defer 先进后出 (LIFO) 栈结构 -->
+    <rect x="16" y="14" width="424" height="190" rx="10" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="2"/>
+    <text x="228" y="35" text-anchor="middle" font-family="var(--font-mono)" font-size="12" font-weight="900" fill="#1D4ED8">1. defer 是一个「先进后出 (LIFO)」的延迟调用栈</text>
+    <text x="228" y="52" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="#475569">先注册的压在栈底最后执行，后注册的在栈顶最先弹出执行</text>
+
+    <!-- 左侧压栈说明 -->
+    <text x="72" y="84" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" font-weight="900" fill="#1D4ED8">注册压栈</text>
+    <path d="M 72 92 L 72 156" fill="none" stroke="#1D4ED8" stroke-width="2" stroke-dasharray="4,2" marker-end="url(#arr-df-blue)"/>
+    <text x="72" y="172" text-anchor="middle" font-family="var(--font-mono)" font-size="9.8" fill="#475569">① ➔ ② ➔ ③</text>
+
+    <!-- 中间栈容器 -->
+    <rect x="122" y="64" width="204" height="114" rx="7" fill="#FFF" stroke="#1D4ED8" stroke-width="2"/>
+    <rect x="132" y="72" width="184" height="30" rx="5" fill="#FEF08A" stroke="#D9381E" stroke-width="1.8"/>
+    <text x="224" y="91" text-anchor="middle" font-family="var(--font-mono)" font-size="10.8" font-weight="900" fill="#D9381E">栈顶：defer ③ (第 1 个执行)</text>
+    <rect x="132" y="106" width="184" height="30" rx="5" fill="#DBEAFE" stroke="#1D4ED8" stroke-width="1.5"/>
+    <text x="224" y="125" text-anchor="middle" font-family="var(--font-mono)" font-size="10.8" font-weight="800" fill="#1D4ED8">中部：defer ② (第 2 个执行)</text>
+    <rect x="132" y="140" width="184" height="30" rx="5" fill="#F8FAFC" stroke="#64748B" stroke-width="1.5"/>
+    <text x="224" y="159" text-anchor="middle" font-family="var(--font-mono)" font-size="10.8" font-weight="800" fill="#334155">栈底：defer ① (最后执行)</text>
+
+    <!-- 右侧出栈说明 -->
+    <text x="382" y="84" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" font-weight="900" fill="#D9381E">退出弹出</text>
+    <path d="M 382 156 L 382 92" fill="none" stroke="#D9381E" stroke-width="2.2" marker-end="url(#arr-df-red)"/>
+    <text x="382" y="172" text-anchor="middle" font-family="var(--font-mono)" font-size="9.8" font-weight="800" fill="#D9381E">③ ➔ ② ➔ ①</text>
+
+    <text x="228" y="194" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="800" fill="#1D4ED8">设计原因：后申请的资源（如事务 tx）常依赖先申请的资源（如连接 db），需先释放</text>
+
+    <!-- 右栏：return 语句的三步真实拆解 -->
+    <rect x="454" y="14" width="450" height="190" rx="10" fill="#FFF5F2" stroke="#D9381E" stroke-width="2"/>
+    <text x="679" y="35" text-anchor="middle" font-family="var(--font-mono)" font-size="12" font-weight="900" fill="#D9381E">2. 重点：return xxx 并非一步完成，而是拆成三步执行</text>
+    <text x="679" y="52" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="#475569">所有的 defer 都在「返回值赋值之后、函数真正退出之前」执行</text>
+
+    <!-- 步骤 1 -->
+    <rect x="468" y="66" width="422" height="32" rx="6" fill="#FFF" stroke="#1D4ED8" stroke-width="1.8"/>
+    <text x="679" y="86" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="900" fill="#1D4ED8">第 1 步：先执行返回值赋值（例如把结果赋给返回值变量 res = x）</text>
+
+    <path d="M 679 98 L 679 109" fill="none" stroke="#D9381E" stroke-width="2" marker-end="url(#arr-df-red)"/>
+
+    <!-- 步骤 2 -->
+    <rect x="468" y="111" width="422" height="36" rx="6" fill="#FEF08A" stroke="#D9381E" stroke-width="2"/>
+    <text x="679" y="127" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="900" fill="#D9381E">★ 第 2 步：按 LIFO 逆序执行当前函数注册的所有 defer 函数</text>
+    <text x="679" y="141" text-anchor="middle" font-family="var(--font-mono)" font-size="9.8" font-weight="800" fill="#D9381E">（若函数声明了命名返回值 func() (res int)，defer 在这一步还能修改 res 的值！）</text>
+
+    <path d="M 679 147 L 679 158" fill="none" stroke="#15803D" stroke-width="2" marker-end="url(#arr-df-green)"/>
+
+    <!-- 步骤 3 -->
+    <rect x="468" y="160" width="422" height="32" rx="6" fill="#F0FDF4" stroke="#15803D" stroke-width="1.8"/>
+    <text x="679" y="180" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="900" fill="#15803D">第 3 步：执行底层 RET 指令，真正携带最终返回值退出函数</text>
+  </svg>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 defer_lifo_file.go · LIFO 栈顺序与成对释放资源</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-defer-file', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-defer-file"><code><span class="c-kw">func</span> <span class="c-fn">CopyFile</span>(srcPath, dstPath <span class="c-fn">string</span>) <span class="c-fn">error</span> {
+    src, err := os.<span class="c-fn">Open</span>(srcPath)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">defer</span> src.<span class="c-fn">Close</span>() <span class="c-cm">// ① 先压入栈底（函数退出时最后关闭 src）</span>
+
+    dst, err := os.<span class="c-fn">Create</span>(dstPath)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err <span class="c-cm">// 即使这里提前返回，上面已注册的 src.Close() 也会自动执行！</span>
+    }
+    <span class="c-kw">defer</span> dst.<span class="c-fn">Close</span>() <span class="c-cm">// ② 后压入栈顶（函数退出时最先关闭 dst，再关闭 src）</span>
+
+    _, err = io.<span class="c-fn">Copy</span>(dst, src)
+    <span class="c-kw">return</span> err
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 defer_return_eval.go · return 前执行 defer 与参数求值时机</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-defer-order', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-defer-order"><code><span class="c-cm">// 1. 验证 return 三步拆解：defer 在 return 赋值之后、真正退出之前执行</span>
+<span class="c-kw">func</span> <span class="c-fn">calc</span>() (res <span class="c-fn">int</span>) {
+    <span class="c-kw">defer</span> <span class="c-kw">func</span>() {
+        res += 10 <span class="c-cm">// 第 2 步执行 defer：把已经赋值为 5 的命名返回值 res 改成了 15</span>
+    }()
+    <span class="c-kw">return</span> 5 <span class="c-cm">// 第 1 步先执行 res = 5 ➔ 第 2 步跑 defer (res=15) ➔ 第 3 步真正返回 15</span>
+}
+
+<span class="c-cm">// 2. 参数求值时机：直接传参在注册那一行当场求值；闭包在退出时读取最新值</span>
+<span class="c-kw">func</span> <span class="c-fn">evalTiming</span>() {
+    x := 1
+    <span class="c-kw">defer</span> fmt.<span class="c-fn">Println</span>(<span class="c-str">"直接传参 x ="</span>, x)             <span class="c-cm">// 注册时当场求值，固定存下 x=1</span>
+    <span class="c-kw">defer</span> <span class="c-kw">func</span>() { fmt.<span class="c-fn">Println</span>(<span class="c-str">"闭包读取 x ="</span>, x) }() <span class="c-cm">// 退出时才去读变量 x，读到 x=2</span>
+    x = 2
+} <span class="c-cm">// 输出顺序（LIFO）：先打印 "闭包读取 x = 2"，再打印 "直接传参 x = 1"</span></code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 04.3 · 显式错误处理 error：创建、包装与判断 -->
+<div class="wb-card" id="error" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mustard"></div>
+  <div class="chapter-q-pill">🛡️ 04.3 · 错误处理：<code>error</code> 显式返回、<code>%w</code> 包装错误链与 <code>errors.Is / As</code></div>
+  <h3>🛡️ 04.3 错误处理（<code>error</code>）：显式返回、包装与判断</h3>
+
+  <p>
+    Go 语言没有采用 <code>try / catch</code> 抛出异常的方式，而是把错误设计为一个普通的内置接口 <code>type error interface { Error() string }</code>，作为函数的最后一个返回值显式传递。<br>
+    这样做的好处是：<strong>看一眼函数调用代码，就能清楚知道哪一步可能出错，并当场处理或补充上下文信息往上返回</strong>：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:10px;">
+    <div class="plop-code-head">
+      <span>🐹 error_handling.go · 定义错误、%w 附加上下文与 errors.Is 判断</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-err-basic', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-err-basic"><code><span class="c-kw">import</span> (
+    <span class="c-str">"errors"</span>
+    <span class="c-str">"fmt"</span>
+)
+
+<span class="c-cm">// 1. 定义可复用的预定义错误（习惯以 Err 开头）</span>
+<span class="c-kw">var</span> ErrUserNotFound = errors.<span class="c-fn">New</span>(<span class="c-str">"user not found"</span>)
+
+<span class="c-kw">func</span> <span class="c-fn">queryDB</span>(id <span class="c-fn">int</span>) <span class="c-fn">error</span> {
+    <span class="c-kw">if</span> id &lt;= 0 {
+        <span class="c-kw">return</span> ErrUserNotFound
+    }
+    <span class="c-kw">return</span> <span class="c-kw">nil</span>
+}
+
+<span class="c-cm">// 2. 往上层返回错误时，使用 fmt.Errorf("当前操作说明: %w", err) 包装原始错误</span>
+<span class="c-kw">func</span> <span class="c-fn">GetUserProfile</span>(id <span class="c-fn">int</span>) <span class="c-fn">error</span> {
+    <span class="c-kw">if</span> err := <span class="c-fn">queryDB</span>(id); err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"查询用户(id=%d)资料失败: %w"</span>, id, err)
+    }
+    <span class="c-kw">return</span> <span class="c-kw">nil</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    err := <span class="c-fn">GetUserProfile</span>(-1)
+    <span class="c-cm">// 3. 调用方使用 errors.Is 即可穿透多层 %w 包装，精准判断底层原因：</span>
+    <span class="c-kw">if</span> errors.<span class="c-fn">Is</span>(err, ErrUserNotFound) {
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"提示前端：该用户不存在 ->"</span>, err)
+    }
+}</code></pre>
+  </div>
+
+  <div style="font-size:12.8px; color:var(--plop-ink-soft);">
+    👉 想进一步了解 <code>defer</code> 与返回值修改规则、<code>panic / recover</code> 异常恢复边界以及接口底层的 <code>iface / eface</code> 内存结构，可点击查看 <a href="principles.html#slice">📘 核心原理篇 · 02.3 ~ 02.4 ↗</a>。
+  </div>
 </div>
