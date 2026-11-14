@@ -1,0 +1,259 @@
+<!-- ====================================================================
+     PART 00: 认识 Node.js、环境安装与第一个程序
+     ==================================================================== -->
+<div class="wb-sec-header" id="why">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">认识 Node.js、环境安装与第一个程序</span>
+  <span class="plop-tag mint">SETUP × HELLO NODE.JS × BUILT-IN MODULES</span>
+</div>
+
+<!-- 00.1 · Node.js 的设计定位与日常应用场景 -->
+<div class="wb-card" id="node-intro" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧭 00.1 · 运行时定位：Node.js 的设计特点与常见应用领域</div>
+  <h3>🧭 00.1 Node.js 的设计特点与常见应用领域</h3>
+
+  <p>
+    在早期 Web 开发中，JavaScript 只能在浏览器里运行，用来操作页面 DOM 和发起网络请求。2009 年，Ryan Dahl 基于 Google Chrome 的 <strong>V8 引擎</strong>与跨平台异步 I/O 库 <strong>libuv</strong> 构建了 <strong>Node.js</strong>——它是一个<strong>让 JavaScript 脱离浏览器、直接在服务器和本地操作系统上运行的跨平台 JavaScript 运行时（Runtime）</strong>：
+  </p>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; margin:12px 0; font-size:13.2px; line-height:1.65;">
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px;">
+      <strong>① 前后端统一使用 JavaScript / TypeScript</strong><br>
+      前端与服务端共享同一套语法、类型定义（<code>interface / type</code>）与参数校验逻辑，天然适合全栈开发与服务端渲染（SSR）。
+    </div>
+    <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px;">
+      <strong>② 非阻塞异步 I/O，擅长高并发网络服务</strong><br>
+      遇到文件读写、数据库查询或外部 HTTP 调用时不会原地阻塞主线程，单个进程即可同时维护数万个并发网络连接。
+    </div>
+    <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px;">
+      <strong>③ 丰富的标准库与 npm 开源生态</strong><br>
+      内置文件（<code>node:fs</code>）、网络（<code>node:http</code>）、流（<code>node:stream</code>）等系统级 API，并拥有全球规模最大的 <code>npm</code> 包生态。
+    </div>
+  </div>
+
+  <p style="margin:8px 0 0; font-size:13.5px; color:var(--plop-ink-soft);">
+    <strong>💼 在实际开发中，我们通常用 Node.js 来写什么？</strong><br>
+    1. <strong>Web 后端接口与 BFF（Backend For Frontend）聚合中间层</strong>（如 NestJS / Koa / Fastify 接口服务、SSR 服务端渲染、AI 流式网关）；<br>
+    2. <strong>前端工程化与命令行工具（CLI）</strong>（Vite、Webpack、ESLint、TypeScript 编译器以及各类自动化构建脚手架均运行在 Node.js 上）；<br>
+    3. <strong>实时通信服务与跨平台桌面客户端</strong>（WebSocket 实时推送、在线协作文档、基于 Electron 的 VS Code 桌面应用）。
+  </p>
+</div>
+
+<!-- 00.2 · 开发环境安装、多版本管理工具（n / nvm / fnm / Volta）与国内镜像配置 -->
+<div class="wb-card" id="node-install" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🛠️ 00.2 · 环境搭建：Node.js 版本管理工具（<code>n / nvm / fnm / Volta</code>）、国内镜像源（<code>nrm</code>）与开发工具准备</div>
+  <h3>🛠️ 00.2 开发环境安装、多版本管理工具与国内镜像配置</h3>
+
+  <p>
+    在实际开发中，一台电脑往往要同时维护多个时期的项目（例如老项目依赖 <code>Node.js 18</code>，新项目使用 <code>Node.js 22 LTS</code>）。因此除了去官网（<code>nodejs.org</code>）直接下载安装包外，工程师通常会使用<strong>多版本管理工具（<code>n</code>、<code>nvm</code>、<code>fnm</code> 或 <code>Volta</code>）</strong>来随时安装和切换不同版本的 Node.js：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>💻 Step 1 · 使用版本管理工具安装与切换 Node.js 22 LTS</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-node-install', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-node-install"><code><span class="c-cm"># 【工具一：n】极简交互式版本管理（macOS / Linux 常用，无需配复杂 Shell 钩子）</span>
+$ npm install -g n                    <span class="c-cm"># 若已有 node 可直接通过 npm 全局安装（或 brew install n）</span>
+$ sudo n lts                          <span class="c-cm"># 一键下载并激活最新 LTS 长期支持版（或 sudo n 22）</span>
+$ n                                   <span class="c-cm"># 直接输入 n，用键盘上下方向键交互式切换已安装的各个版本</span>
+
+<span class="c-cm"># 【工具二：nvm】最经典的多版本管理器（各版本全局包完全隔离）</span>
+$ nvm install 22 &amp;&amp; nvm use 22        <span class="c-cm"># 安装并切换到 Node.js 22</span>
+$ nvm alias default 22                <span class="c-cm"># 将 22 设为新终端默认版本</span>
+
+<span class="c-cm"># 【工具三：fnm】Rust 编写的跨平台极速管理器（支持 macOS / Windows / Linux）</span>
+$ fnm install 22 &amp;&amp; fnm default 22</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚡ Step 2 · 配置国内镜像源（npmmirror / nrm）与启用 pnpm</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-node-env', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-node-env"><code><span class="c-cm"># 1. 验证 node 与内置 npm 是否安装成功</span>
+$ node -v &amp;&amp; npm -v
+v22.11.0
+10.9.0
+
+<span class="c-cm"># 2. 配置 npm 国内镜像源（或使用 nrm 工具在淘宝源/官方源/公司私服间一键切换）</span>
+$ npm config set registry https://registry.npmmirror.com
+$ npx nrm use taobao                  <span class="c-cm"># 也可使用 nrm 快速切换源（npx nrm ls 查看所有源）</span>
+
+<span class="c-cm"># 3. 配置 n / nvm 下载 Node.js 本体时的国内二进制加速镜像</span>
+$ export N_NODE_MIRROR=https://npmmirror.com/mirrors/node
+
+<span class="c-cm"># 4. 启用 Node.js 内置的 Corepack，无需额外安装即可直接使用 pnpm / yarn</span>
+$ corepack enable &amp;&amp; pnpm -v</code></pre>
+    </div>
+  </div>
+
+  <!-- 四大主流 Node.js 版本管理工具与周边工具对比表 -->
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">工具 / 概念</th>
+          <th style="width:16%">支持系统</th>
+          <th style="width:34%">核心设计特点与常用命令</th>
+          <th>选型与使用建议</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. <code>n</code></strong></td>
+          <td>macOS / Linux / WSL</td>
+          <td>• 由 Express 作者 TJ 编写，<strong>无需修改终端启动脚本</strong>，直接覆盖更新系统目录（默认 <code>/usr/local</code>）下的 <code>node</code> 二进制文件。<br>• 常用命令：<code>n lts</code>、<code>n 20</code>、输入 <code>n</code> 回车上下键切换、<code>n rm 18.19.0</code>。</td>
+          <td>喜欢极简命令行交互的 macOS / Linux 开发者首选；可通过设置环境变量 <code>export N_PREFIX=$HOME/.n</code> 免去每次输入 <code>sudo</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>2. <code>nvm</code></strong></td>
+          <td>macOS / Linux（Windows 用 <code>nvm-windows</code>）</td>
+          <td>• 社区历史最久，将每个 Node 版本安装在独立目录（<code>~/.nvm/versions/node/v22.x</code>），<strong>不同版本的全局 <code>npm -g</code> 包彼此隔离</strong>。<br>• 常用命令：<code>nvm ls</code>、<code>nvm install 22</code>、<code>nvm use 22</code>。</td>
+          <td>需要严格隔离不同 Node 版本全局依赖包时非常适合；缺点是每次打开新终端加载 Shell 脚本稍慢（约 0.2~0.5 秒）。</td>
+        </tr>
+        <tr>
+          <td><strong>3. <code>fnm</code></strong></td>
+          <td>全平台（macOS / Windows / Linux）</td>
+          <td>• 使用 Rust 编写的现代替代方案，终端启动耗时在毫秒级，同时兼容读取项目根目录的 <code>.nvmrc</code> 与 <code>.node-version</code> 文件。<br>• 常用命令：<code>fnm install 22</code>、<code>fnm use 22</code>、<code>fnm default 22</code>。</td>
+          <td>追求终端秒开速度、或者同时使用 Windows 与 macOS 开发的工程师推荐选用。</td>
+        </tr>
+        <tr>
+          <td><strong>4. <code>Volta</code></strong></td>
+          <td>全平台（macOS / Windows / Linux）</td>
+          <td>• 基于垫片（Shim）机制的团队版本锁定工具：执行 <code>volta pin node@22 pnpm@9</code> 会将版本号直接写入项目 <code>package.json</code>。</td>
+          <td>非常适合多人协作团队：新同事拉下代码进入目录运行命令时，Volta 会自动按 <code>package.json</code> 切换到一致的 Node 与包管理器版本。</td>
+        </tr>
+        <tr>
+          <td><strong>5. <code>nrm</code> 与 <code>Corepack</code></strong></td>
+          <td>全平台通用</td>
+          <td>• <strong><code>nrm</code>（镜像源管理器）</strong>：通过 <code>nrm ls / nrm use taobao / nrm test</code> 一键测速并切换 npm 镜像源；<br>• <strong><code>Corepack</code>（内置包管理器桥接）</strong>：Node.js 16.9+ 自带，执行 <code>corepack enable</code> 即可激活 <code>pnpm</code> 与 <code>yarn</code>。</td>
+          <td>日常装包用国内 <code>taobao (npmmirror)</code> 源；当需要执行 <code>npm publish</code> 发布自己的开源包时，用 <code>nrm use npm</code> 切回官方源即可。</td>
+        </tr>
+        <tr>
+          <td><strong>6. <code>LTS</code> vs <code>Current</code></strong></td>
+          <td>版本号规范</td>
+          <td>• <strong>偶数年号（如 <code>v20 / v22</code>）为 <code>LTS</code>（长期支持版）</strong>，提供长达 30 个月的安全与稳定维护；<br>• 奇数年号（如 <code>v21 / v23</code>）为 <code>Current</code> 尝鲜版，维护期仅 6 个月。</td>
+          <td><strong>个人学习与企业生产环境请始终选择偶数年号的 <code>LTS</code> 版本</strong>，第三方 C++ 原生插件与框架兼容性最好。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>🧰 代码编辑器（IDE）与调试工具建议：</strong><br>
+    • <strong>VS Code（免费首选）</strong>：自带完整的 JavaScript / TypeScript 智能提示与内置断点调试器（打开终端面板旁边的下拉箭头，选择 <strong><code>JavaScript Debug Terminal</code></strong>，直接在代码行号旁点击打上红点并运行 <code>node app.js</code> 即可单步调试）；推荐安装 <strong><code>ESLint</code></strong>（代码检查）与 <strong><code>Prettier</code></strong>（保存自动格式化）两个扩展。<br>
+    • <strong>JetBrains WebStorm</strong>：开箱即用，内置了对多版本 Node.js 切换、<code>npm / pnpm</code> 脚本树与单元测试的图形化支持。
+  </div>
+</div>
+
+<!-- 00.3 · 第一个 Node.js 程序：命令行脚本与最小 Web 服务 -->
+<div class="wb-card" id="hello-node" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🚀 00.3 · 第一个程序：最小脚本与原生 HTTP 服务的编写及运行命令</div>
+  <h3>🚀 00.3 第一个 Node.js 程序：最小脚本与运行命令</h3>
+
+  <p>
+    安装好 Node.js 后，只需新建一个 <code>.js</code> 文件，即可在终端通过 <strong><code>node 文件名.js</code></strong> 直接执行。下面展示最基础的脚本与一个 10 行代码的内置 HTTP 服务：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🟢 hello.js · 第一个 Node.js 脚本与 HTTP 服务</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-hello-node', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-hello-node"><code><span class="c-cm">// 1. 导入 Node.js 内置的 http 模块（推荐带上 node: 官方前缀）</span>
+<span class="c-kw">import</span> http <span class="c-kw">from</span> <span class="c-str">'node:http'</span>;
+
+<span class="c-cm">// 2. 打印当前运行环境的 Node.js 版本与操作系统平台</span>
+console.<span class="c-fn">log</span>(<span class="c-str">`运行版本: ${process.version}, 平台: ${process.platform}`</span>);
+
+<span class="c-cm">// 3. 创建一个最小 HTTP 服务并监听本地 3000 端口</span>
+<span class="c-kw">const</span> server = http.<span class="c-fn">createServer</span>((req, res) =&gt; {
+  res.<span class="c-fn">writeHead</span>(200, { <span class="c-str">'Content-Type'</span>: <span class="c-str">'text/plain; charset=utf-8'</span> });
+  res.<span class="c-fn">end</span>(<span class="c-str">'Hello, Node.js\n'</span>);
+});
+
+server.<span class="c-fn">listen</span>(3000, () =&gt; {
+  console.<span class="c-fn">log</span>(<span class="c-str">'服务已启动: http://localhost:3000'</span>);
+});</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>💻 Terminal · 常用运行与开发调试命令</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-hello-node-cmd', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-hello-node-cmd"><code><span class="c-cm"># 1. 直接运行脚本文件</span>
+$ node hello.js
+运行版本: v22.11.0, 平台: darwin
+服务已启动: http://localhost:3000
+
+<span class="c-cm"># 2. 开发模式：使用内置 --watch 参数，保存文件后自动重启进程</span>
+$ node --watch hello.js
+
+<span class="c-cm"># 3. 交互式命令行（REPL）：不带文件名直接输入 node，可随时测试一行 JS 表达式</span>
+$ node
+&gt; Buffer.from('hello').toString('hex')
+'68656c6c6f'</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 00.4 · Node.js 运行环境全景：全局对象与核心内置模块分类表 -->
+<div class="wb-card" id="globals-builtins" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">📋 00.4 · 环境全景：浏览器与 Node.js 环境差异、全局对象与核心内置模块速查</div>
+  <h3>📋 00.4 运行环境全景：全局对象与核心内置模块分类表</h3>
+
+  <p>
+    从浏览器转向 Node.js 开发时，首先需要明确运行环境的边界：<strong>Node.js 中没有浏览器的 <code>window</code>、<code>document</code> 等 DOM / BOM 对象，取而代之的是控制进程、内存和系统底层资源的全局对象与内置核心模块</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">分类</th>
+          <th style="width:32%">常用全局对象 / 核心内置模块</th>
+          <th>主要功能与日常使用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 全局对象（无需导入）</strong></td>
+          <td><code>globalThis</code>、<code>process</code>、<code>Buffer</code>、<code>console</code>、<code>fetch</code>、<code>setTimeout / setImmediate</code></td>
+          <td>• <code>process</code>：读取环境变量（<code>process.env</code>）、命令行参数、当前工作目录与进程退出控制；<br>• <code>Buffer</code>：在内存中直接存放和操作原始二进制字节数据；<br>• <code>fetch</code> / <code>URL</code>：与现代浏览器保持一致的 Web 标准网络请求与 URL 解析接口。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 文件与路径模块</strong></td>
+          <td><code>node:fs</code>（及 <code>node:fs/promises</code>）、<code>node:path</code>、<code>node:os</code></td>
+          <td>• <code>node:fs/promises</code>：基于 Promise 异步读写文件、创建目录、查看文件大小；<br>• <code>node:path</code>：自动抹平 Windows（<code>\</code>）与 macOS/Linux（<code>/</code>）路径分隔符差异；<br>• <code>node:os</code>：查询服务器 CPU 核数、可用内存与临时目录。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 事件与流式传输</strong></td>
+          <td><code>node:events</code>、<code>node:stream</code>、<code>node:zlib</code></td>
+          <td>• <code>node:events</code>：提供 <code>EventEmitter</code> 事件发布/订阅基类（Node.js 中大量对象的底层基石）；<br>• <code>node:stream</code>：以小块字节流的方式边读边写大文件或网络数据，避免撑爆内存。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 网络与安全加密</strong></td>
+          <td><code>node:http</code>、<code>node:https</code>、<code>node:net</code>、<code>node:crypto</code></td>
+          <td>• <code>node:http</code>：创建 HTTP 服务端或客户端；<code>node:net</code> 处理底层 TCP 套接字；<br>• <code>node:crypto</code>：生成随机 UUID、计算 SHA-256 哈希摘要、加解密与签名校验。</td>
+        </tr>
+        <tr>
+          <td><strong>5. 多进程、多线程与测试</strong></td>
+          <td><code>node:child_process</code>、<code>node:worker_threads</code>、<code>node:cluster</code>、<code>node:test</code></td>
+          <td>• <code>child_process</code> 执行外部 Shell/系统命令；<code>worker_threads</code> 开启多线程处理耗时计算；<br>• <code>node:test</code> + <code>node:assert</code>：无需安装第三方测试框架即可直接运行单元测试。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout info" style="margin:0;">
+    <strong>💡 延伸阅读：</strong>想深入了解 Node.js 为什么能用单线程处理高并发请求，以及 <code>V8 + libuv</code> 四层运行时是如何与操作系统内核协作的，可点击查看 <a href="principles.html#why">📘 核心原理篇 · 00 非阻塞 I/O 模型与 V8 + libuv 分层架构 ↗</a>。
+  </div>
+</div>

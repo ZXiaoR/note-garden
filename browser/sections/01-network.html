@@ -1,0 +1,242 @@
+<!-- ====================================================================
+     PART 01: 网址解析与网络请求基础 · URL 组成、HTTP 报文与 Fetch API
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="navigation">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">网址解析与网络请求基础 · URL 组成、HTTP 报文与 Fetch API 日常调用</span>
+  <span class="plop-tag tomato">URL × HTTP × FETCH API</span>
+</div>
+
+<!-- 01.1 · URL 网址的六个组成部分与浏览器解析规则 -->
+<div class="wb-card" id="url-structure" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🔗 01.1 · 网址解剖：标准 URL 的六个组成部分与 location / URL 对象解析方法</div>
+  <h3>🔗 01.1 标准 URL 的六个组成部分与解析方法</h3>
+
+  <p>
+    浏览器访问任何网络资源都从解析统一资源定位符（URL）开始。以访问地址 <code>https://store.example.com:8443/products/detail?id=42&amp;from=nav#reviews</code> 为例，一个完整的 URL 由六个部分按固定语法拼接而成：
+  </p>
+
+  <!-- URL 组成部分视觉拆解图（Editorial SVG） -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 960 220" style="width:100%; min-width:860px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="url-anatomy-title url-anatomy-desc">
+        <title id="url-anatomy-title">标准 URL 的六个组成部分拆解图</title>
+        <desc id="url-anatomy-desc">展示协议、主机名、端口号、路径、查询参数与片段标识在 URL 中的位置及各自是否随 HTTP 请求发送给服务器。</desc>
+        <defs>
+          <marker id="url-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="url-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors drawn BEFORE boxes (Rule: arrows before boxes) -->
+        <line x1="76" y1="68" x2="76" y2="108" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#url-arrow)"/>
+        <line x1="224" y1="68" x2="224" y2="108" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#url-arrow)"/>
+        <line x1="364" y1="68" x2="364" y2="108" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#url-arrow)"/>
+        <line x1="504" y1="68" x2="504" y2="108" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#url-arrow)"/>
+        <line x1="688" y1="68" x2="688" y2="108" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#url-arrow)"/>
+        <line x1="864" y1="68" x2="864" y2="108" stroke="#bf4520" stroke-width="1.5" marker-end="url(#url-arrow-accent)"/>
+
+        <!-- Top URL segment boxes -->
+        <rect x="24" y="24" width="104" height="44" rx="6" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.6"/>
+        <text x="76" y="51" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="14" font-weight="700">https://</text>
+
+        <rect x="136" y="24" width="176" height="44" rx="6" fill="#EEF3FF" stroke="#2d3142" stroke-width="1.6"/>
+        <text x="224" y="51" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="14" font-weight="700">store.example.com</text>
+
+        <rect x="320" y="24" width="88" height="44" rx="6" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.6"/>
+        <text x="364" y="51" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="14" font-weight="700">:8443</text>
+
+        <rect x="416" y="24" width="176" height="44" rx="6" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.6"/>
+        <text x="504" y="51" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="14" font-weight="700">/products/detail</text>
+
+        <rect x="600" y="24" width="176" height="44" rx="6" fill="#EEF3FF" stroke="#2d3142" stroke-width="1.6"/>
+        <text x="688" y="51" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="14" font-weight="700">?id=42&amp;from=nav</text>
+
+        <rect x="784" y="24" width="152" height="44" rx="6" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="860" y="51" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="14" font-weight="700">#reviews</text>
+
+        <!-- Bottom explanation cards -->
+        <rect x="24" y="112" width="104" height="84" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="76" y="136" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">① 协议 (protocol)</text>
+        <text x="76" y="156" text-anchor="middle" fill="#4f5d75" font-size="11">加密传输 HTTPS</text>
+        <text x="76" y="176" text-anchor="middle" fill="#1F8A65" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">默认端口 443</text>
+
+        <rect x="136" y="112" width="176" height="84" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="224" y="136" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">② 主机名 (hostname)</text>
+        <text x="224" y="156" text-anchor="middle" fill="#4f5d75" font-size="11">经 DNS 解析为服务器 IP</text>
+        <text x="224" y="176" text-anchor="middle" fill="#2e5aa8" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">随 Host 请求头发送</text>
+
+        <rect x="320" y="112" width="88" height="84" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="364" y="136" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">③ 端口 (port)</text>
+        <text x="364" y="156" text-anchor="middle" fill="#4f5d75" font-size="11">区分服务进程</text>
+        <text x="364" y="176" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="10.5">省略则用默认</text>
+
+        <rect x="416" y="112" width="176" height="84" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="504" y="136" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">④ 路径 (pathname)</text>
+        <text x="504" y="156" text-anchor="middle" fill="#4f5d75" font-size="11">服务器上资源的逻辑路径</text>
+        <text x="504" y="176" text-anchor="middle" fill="#2e5aa8" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">随请求行发送</text>
+
+        <rect x="600" y="112" width="176" height="84" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="688" y="136" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">⑤ 查询参数 (search)</text>
+        <text x="688" y="156" text-anchor="middle" fill="#4f5d75" font-size="11">以 ? 开头、&amp; 分隔键值对</text>
+        <text x="688" y="176" text-anchor="middle" fill="#2e5aa8" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">随请求行发送</text>
+
+        <rect x="784" y="112" width="152" height="84" rx="6" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="860" y="136" text-anchor="middle" fill="#bf4520" font-size="12.5" font-weight="700">⑥ 片段锚点 (hash)</text>
+        <text x="860" y="156" text-anchor="middle" fill="#4f5d75" font-size="11">页面内滚动定位或前端路由</text>
+        <text x="860" y="176" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">不发送给服务器</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p>
+    在日常开发中，如果需要在脚本里安全地读取或拼接 URL 参数，推荐使用浏览器内置的 <code>URL</code> 与 <code>URLSearchParams</code> 构造函数，而不必手写复杂的字符串分割：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🔎 url_parse.js · 使用内置 URL 与 URLSearchParams 解析和构造网址参数</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-url', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-browser-url"><code><span class="c-cm">// 1. 解析任意 URL 字符串（若要解析当前页面地址，可传入 window.location.href）</span>
+<span class="c-kw">const</span> targetUrl = <span class="c-kw">new</span> <span class="c-fn">URL</span>(<span class="c-str">'https://store.example.com:8443/products/detail?id=42&amp;from=nav#reviews'</span>);
+
+console.<span class="c-fn">log</span>(targetUrl.origin);   <span class="c-cm">// "https://store.example.com:8443"（协议 + 主机 + 端口）</span>
+console.<span class="c-fn">log</span>(targetUrl.pathname); <span class="c-cm">// "/products/detail"</span>
+console.<span class="c-fn">log</span>(targetUrl.hash);     <span class="c-cm">// "#reviews"（仅在浏览器端生效，不会随 HTTP 请求发往服务端）</span>
+
+<span class="c-cm">// 2. 通过 searchParams 安全读取、修改或新增查询参数（自动处理中文 URL 编码）</span>
+console.<span class="c-fn">log</span>(targetUrl.searchParams.<span class="c-fn">get</span>(<span class="c-str">'id'</span>)); <span class="c-cm">// "42"</span>
+targetUrl.searchParams.<span class="c-fn">set</span>(<span class="c-str">'keyword'</span>, <span class="c-str">'机械键盘'</span>);
+console.<span class="c-fn">log</span>(targetUrl.<span class="c-fn">toString</span>());
+<span class="c-cm">// 输出："https://store.example.com:8443/products/detail?id=42&amp;from=nav&amp;keyword=%E6%9C%BA%E6%A2%B0%E9%94%AE%E7%9B%98#reviews"</span></code></pre>
+  </div>
+</div>
+
+<!-- 01.2 · HTTP 请求与响应报文结构及常见状态码 -->
+<div class="wb-card" id="http-basics" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">📡 01.2 · 通信格式：HTTP 请求方法、响应状态码分类与关键首部字段</div>
+  <h3>📡 01.2 HTTP 请求方法、状态码分类与关键首部字段</h3>
+
+  <p>
+    解析出目标主机和路径后，浏览器会向服务器发起 HTTP（或加密的 HTTPS）请求。一次完整的 HTTP 通信包含<strong>浏览器发出的请求报文（Request）</strong>和<strong>服务器返回的响应报文（Response）</strong>：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📤 HTTP 请求报文结构（Request）</span>
+      </div>
+      <pre class="plop-code-pre"><code><span class="c-cm"># ① 请求行：请求方法 + 路径与查询参数 + 协议版本</span>
+GET /products/detail?id=42 HTTP/1.1
+<span class="c-cm"># ② 请求头（Headers）：描述客户端环境与内容格式</span>
+Host: store.example.com:8443
+Accept: application/json
+Content-Type: application/json
+<span class="c-cm"># ③ 空行后可跟请求体（Body，GET 请求通常无请求体）</span></code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📥 HTTP 响应报文结构（Response）</span>
+      </div>
+      <pre class="plop-code-pre"><code><span class="c-cm"># ① 状态行：协议版本 + 三位数字状态码 + 状态短语</span>
+HTTP/1.1 200 OK
+<span class="c-cm"># ② 响应头（Headers）：告知浏览器响应类型与缓存规则</span>
+Content-Type: application/json; charset=utf-8
+Cache-Control: max-age=60
+<span class="c-cm"># ③ 空行后为响应体（Body）：实际返回的 HTML 或 JSON 数据</span>
+{"id": 42, "name": "无线机械键盘", "stock": 18}</code></pre>
+    </div>
+  </div>
+
+  <div class="table-wrap" style="margin-bottom:0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">状态码区间</th>
+          <th style="width:28%">代表性状态码</th>
+          <th>含义与日常排障判断</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>2xx</code> 成功</strong></td>
+          <td><code>200 OK</code> · <code>201 Created</code> · <code>204 No Content</code></td>
+          <td>服务器成功处理了请求。<code>200</code> 表示正常返回响应体；<code>204</code> 常用于删除或更新成功且无需返回正文的接口。</td>
+        </tr>
+        <tr>
+          <td><strong><code>3xx</code> 重定向 / 缓存</strong></td>
+          <td><code>301 永久重定向</code> · <code>302 临时重定向</code> · <code>304 Not Modified</code></td>
+          <td><code>301/302</code> 会让浏览器自动跳转到响应头 <code>Location</code> 指向的新网址；<strong><code>304</code> 表示本地缓存经服务器验证仍然有效</strong>，无需重新下载响应体。</td>
+        </tr>
+        <tr>
+          <td><strong><code>4xx</code> 客户端错误</strong></td>
+          <td><code>400 参数错误</code> · <code>401 未登录</code> · <code>403 无权限</code> · <code>404 未找到</code></td>
+          <td>先检查前端传参、请求路径（URL 拼写）以及是否漏传了登录身份凭证（如 <code>Authorization</code> 请求头或 Cookie）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>5xx</code> 服务端错误</strong></td>
+          <td><code>500 内部错误</code> · <code>502 网关错误</code> · <code>504 网关超时</code></td>
+          <td>请求格式正确，但后端服务抛出未捕获异常、进程未启动或下游数据库查询超时，需结合后端服务日志排查。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 01.3 · 使用原生 Fetch API 发起 GET / POST 请求与错误处理 -->
+<div class="wb-card" id="fetch-api" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">⚡ 01.3 · 接口调用：使用浏览器原生 <code>fetch</code> 发送 JSON 请求与处理非 2xx 状态</div>
+  <h3>⚡ 01.3 使用原生 <code>fetch</code> 发送请求与异常处理</h3>
+
+  <p>
+    在网页脚本中向后端请求数据，现代浏览器统一提供了基于 <code>Promise</code> 的原生 <code>fetch(url, options)</code> 接口。使用 <code>fetch</code> 时有两个最核心的细节需要注意：
+  </p>
+  <ol style="font-size:13.5px; line-height:1.7;">
+    <li><strong>读取响应体是第二步异步操作</strong>：<code>await fetch(url)</code> 在收到服务器<strong>响应头</strong>时就会完成，此时响应体可能还在传输中；需要再调用一次 <code>await response.json()</code>（或 <code>response.text()</code>）才能拿到解析后的数据。</li>
+    <li><strong><code>404 / 500</code> 状态码不会自动触发 <code>catch</code></strong>：只有当网络断开或域名无法解析时，<code>fetch</code> 才会直接抛出异常；对于服务器返回的 <code>404</code> 或 <code>500</code>，必须主动检查 <code>response.ok</code>（状态码在 <code>200~299</code> 之间时为 <code>true</code>）。</li>
+  </ol>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🌐 fetch_example.js · 发送 POST JSON 请求并包含超时控制与状态码检查</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-fetch', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-browser-fetch"><code><span class="c-cm">// 定义一个异步函数（async 关键字允许在函数内部使用 await 等待异步结果）</span>
+<span class="c-kw">async function</span> <span class="c-fn">createOrder</span>(productId, count) {
+  <span class="c-kw">try</span> {
+    <span class="c-kw">const</span> response = <span class="c-kw">await</span> <span class="c-fn">fetch</span>(<span class="c-str">'/api/orders'</span>, {
+      method: <span class="c-str">'POST'</span>, <span class="c-cm">// 指定请求方法（不写时默认为 GET）</span>
+      headers: {
+        <span class="c-str">'Content-Type'</span>: <span class="c-str">'application/json'</span> <span class="c-cm">// 告知服务器请求体是 JSON 格式字符串</span>
+      },
+      body: JSON.<span class="c-fn">stringify</span>({ productId, count }), <span class="c-cm">// 将 JS 对象序列化为 JSON 字符串</span>
+      signal: AbortSignal.<span class="c-fn">timeout</span>(<span class="c-num">5000</span>) <span class="c-cm">// 超过 5000 毫秒（5 秒）自动取消请求</span>
+    });
+
+    <span class="c-cm">// 关键检查：HTTP 4xx / 5xx 不会自动进 catch，需判断 response.ok（即 status 为 200~299）</span>
+    <span class="c-kw">if</span> (!response.ok) {
+      <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">`请求失败，HTTP 状态码：${response.status}`</span>);
+    }
+
+    <span class="c-cm">// 等待完整响应体接收完毕并解析为 JavaScript 对象</span>
+    <span class="c-kw">const</span> data = <span class="c-kw">await</span> response.<span class="c-fn">json</span>();
+    <span class="c-kw">return</span> data;
+  } <span class="c-kw">catch</span> (err) {
+    console.<span class="c-fn">error</span>(<span class="c-str">'下单请求出错：'</span>, err.message);
+    <span class="c-kw">return null</span>;
+  }
+}</code></pre>
+  </div>
+
+  <div class="plop-callout tip" style="margin-top:12px; margin-bottom:0;">
+    <strong>📘 底层延伸：</strong>当我们在地址栏按下回车或调用 <code>fetch</code> 时，浏览器内部究竟是由哪个进程发起 DNS 查询？HTTP/1.1 的队头阻塞是如何被 HTTP/2 的二进制多路复用和 HTTP/3 的 QUIC 协议解决的？详见 <a href="principles.html#navigation">📘 核心原理篇 · Ch.01 页面导航与网络协议演进 ↗</a>。
+  </div>
+</div>

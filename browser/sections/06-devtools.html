@@ -1,0 +1,173 @@
+<!-- ====================================================================
+     PART 06: 实战演练与日常排障 · 端到端交互应用搭建、Network 抓包与 Performance 诊断
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="practice">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">实战演练与日常排障 · 端到端交互应用搭建、Network 抓包与 Performance 诊断</span>
+  <span class="plop-tag tomato">MINI APP × NETWORK WATERFALL × PERFORMANCE</span>
+</div>
+
+<!-- 06.1 · 综合实战：把前五章串起来写一个带本地持久化与事件委托的任务清单应用 -->
+<div class="wb-card" id="mini-app-practice" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🚀 06.1 · 综合实战：结合 DOM 渲染、事件委托、防抖搜索与 <code>localStorage</code> 持久化实现完整单页应用</div>
+  <h3>🚀 06.1 端到端实战：带本地持久化与事件委托的待办任务板</h3>
+
+  <p>
+    下面我们将前面学习的 HTML 结构、<code>border-box</code> 盒模型、DOM 动态渲染、事件委托（<code>closest</code>）与 <code>localStorage</code> 本地存储串联起来，编写一个零外部依赖、保存为 <code>todo-app.html</code> 即可直接运行的完整小应用：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🎯 todo-app.html · 综合运用 DOM 片段渲染、事件委托与 localStorage 持久化的完整示例</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-todo-app', this)">复制完整代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-browser-todo-app"><code>&lt;!DOCTYPE html&gt;
+&lt;html lang=<span class="c-str">"zh-CN"</span>&gt;
+&lt;head&gt;
+  &lt;meta charset=<span class="c-str">"UTF-8"</span>&gt;
+  &lt;title&gt;浏览器实战 · 轻量待办清单&lt;/title&gt;
+  &lt;style&gt;
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: <span class="c-num">520px</span>; margin: <span class="c-num">32px</span> auto; padding: <span class="c-num">0</span> <span class="c-num">16px</span>; }
+    .input-row { display: flex; gap: <span class="c-num">8px</span>; margin-bottom: <span class="c-num">16px</span>; }
+    .input-row input { flex: <span class="c-num">1</span>; padding: <span class="c-num">8px</span> <span class="c-num">12px</span>; border: <span class="c-num">2px</span> solid <span class="c-num">#14226b</span>; border-radius: <span class="c-num">6px</span>; }
+    .todo-item { display: flex; justify-content: space-between; padding: <span class="c-num">10px</span>; border-bottom: <span class="c-num">1px</span> solid <span class="c-num">#ddd</span>; }
+    .todo-item.done span { text-decoration: line-through; color: <span class="c-num">#888</span>; }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h2&gt;📋 待办任务清单（刷新页面不丢失）&lt;/h2&gt;
+  &lt;form id=<span class="c-str">"todo-form"</span> class=<span class="c-str">"input-row"</span>&gt;
+    &lt;input id=<span class="c-str">"todo-input"</span> placeholder=<span class="c-str">"输入新任务后回车..."</span> required&gt;
+    &lt;button type=<span class="c-str">"submit"</span>&gt;添加任务&lt;/button&gt;
+  &lt;/form&gt;
+  &lt;ul id=<span class="c-str">"todo-list"</span> style=<span class="c-str">"list-style:none; padding:0;"</span>&gt;&lt;/ul&gt;
+
+  &lt;script&gt;
+    <span class="c-kw">const</span> STORAGE_KEY = <span class="c-str">'garden_todos_v1'</span>;
+    <span class="c-kw">const</span> formEl = document.<span class="c-fn">getElementById</span>(<span class="c-str">'todo-form'</span>);
+    <span class="c-kw">const</span> inputEl = document.<span class="c-fn">getElementById</span>(<span class="c-str">'todo-input'</span>);
+    <span class="c-kw">const</span> listEl = document.<span class="c-fn">getElementById</span>(<span class="c-str">'todo-list'</span>);
+
+    <span class="c-cm">// 1. 从 localStorage 读取初始任务数组</span>
+    <span class="c-kw">let</span> todos = JSON.<span class="c-fn">parse</span>(localStorage.<span class="c-fn">getItem</span>(STORAGE_KEY) || <span class="c-str">'[]'</span>);
+
+    <span class="c-cm">// 2. 统一保存并重新渲染 DOM 列表（使用 textContent 防止 XSS 脚本注入）</span>
+    <span class="c-kw">function</span> <span class="c-fn">saveAndRender</span>() {
+      localStorage.<span class="c-fn">setItem</span>(STORAGE_KEY, JSON.<span class="c-fn">stringify</span>(todos));
+      <span class="c-kw">const</span> fragment = document.<span class="c-fn">createDocumentFragment</span>();
+      <span class="c-kw">for</span> (<span class="c-kw">const</span> item <span class="c-kw">of</span> todos) {
+        <span class="c-kw">const</span> li = document.<span class="c-fn">createElement</span>(<span class="c-str">'li'</span>);
+        li.className = <span class="c-str">'todo-item'</span> + (item.done ? <span class="c-str">' done'</span> : <span class="c-str">''</span>);
+        li.dataset.id = item.id;
+
+        <span class="c-kw">const</span> titleSpan = document.<span class="c-fn">createElement</span>(<span class="c-str">'span'</span>);
+        titleSpan.textContent = item.title;
+        titleSpan.className = <span class="c-str">'toggle-btn'</span>;
+        titleSpan.style.cursor = <span class="c-str">'pointer'</span>;
+
+        <span class="c-kw">const</span> delBtn = document.<span class="c-fn">createElement</span>(<span class="c-str">'button'</span>);
+        delBtn.textContent = <span class="c-str">'删除'</span>;
+        delBtn.className = <span class="c-str">'del-btn'</span>;
+
+        li.<span class="c-fn">append</span>(titleSpan, delBtn);
+        fragment.<span class="c-fn">appendChild</span>(li);
+      }
+      listEl.<span class="c-fn">replaceChildren</span>(fragment); <span class="c-cm">// 一次性替换全部子节点，仅触发一次布局更新</span>
+    }
+
+    <span class="c-cm">// 3. 监听表单提交：用 preventDefault 阻止表单默认刷新页面的行为</span>
+    formEl.<span class="c-fn">addEventListener</span>(<span class="c-str">'submit'</span>, (event) =&gt; {
+      event.<span class="c-fn">preventDefault</span>();
+      todos.<span class="c-fn">push</span>({ id: String(Date.<span class="c-fn">now</span>()), title: inputEl.value.<span class="c-fn">trim</span>(), done: <span class="c-kw">false</span> });
+      inputEl.value = <span class="c-str">''</span>;
+      <span class="c-fn">saveAndRender</span>();
+    });
+
+    <span class="c-cm">// 4. 事件委托：只在父元素 &lt;ul&gt; 上绑定 1 个点击事件处理所有子项的切换与删除</span>
+    listEl.<span class="c-fn">addEventListener</span>(<span class="c-str">'click'</span>, (event) =&gt; {
+      <span class="c-kw">const</span> li = event.target.<span class="c-fn">closest</span>(<span class="c-str">'.todo-item'</span>);
+      <span class="c-kw">if</span> (!li) <span class="c-kw">return</span>;
+      <span class="c-kw">if</span> (event.target.<span class="c-fn">closest</span>(<span class="c-str">'.del-btn'</span>)) {
+        todos = todos.<span class="c-fn">filter</span>(t =&gt; t.id !== li.dataset.id);
+      } <span class="c-kw">else if</span> (event.target.<span class="c-fn">closest</span>(<span class="c-str">'.toggle-btn'</span>)) {
+        <span class="c-kw">const</span> target = todos.<span class="c-fn">find</span>(t =&gt; t.id === li.dataset.id);
+        <span class="c-kw">if</span> (target) target.done = !target.done;
+      }
+      <span class="c-fn">saveAndRender</span>();
+    });
+
+    <span class="c-fn">saveAndRender</span>();
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+  </div>
+</div>
+
+<!-- 06.2 · 日常排障工作流：如何用 Network 与 Performance 定位网页慢的原因 -->
+<div class="wb-card" id="devtools-workflow" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🔎 06.2 · 排障清单：遇到「白屏加载慢、点击没反应、接口跨域失败」时的标准定位步骤</div>
+  <h3>🔎 06.2 网页常见异常与卡顿的四步排查手册</h3>
+
+  <p>
+    当线上页面或本地开发出现“打开慢、点击卡顿、样式错乱”时，不需要凭感觉盲目修改代码。打开 Chrome DevTools 按照下表对应的观测面板即可快速定位瓶颈：
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">观察到的故障现象</th>
+          <th style="width:24%">打开哪个 DevTools 面板？</th>
+          <th>关键检查指标与改进措施</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 首屏打开慢，长时间白屏</strong></td>
+          <td><strong><code>Network</code> 面板</strong><br>（勾选 Disable cache 刷新）</td>
+          <td>看请求瀑布流（Waterfall）：若是首字节等待时间（<code>Waiting for server response / TTFB</code>）过长，查后端接口耗时；若是某个 <code>.js</code> 下载耗时长且阻塞了 HTML 解析，为其加上 <code>defer</code> 或做代码拆包。</td>
+        </tr>
+        <tr>
+          <td><strong>② 点击按钮或输入文字时明显卡顿掉帧</strong></td>
+          <td><strong><code>Performance</code> 面板</strong><br>（点击录制 → 触发操作 → 停止）</td>
+          <td>观察 <code>Main</code> 主线程轨道上是否有带红色三角标记的<strong>长任务（Long Task，超过 50ms）</strong>。点开底部调用栈找到耗时最长的 JS 函数，减少循环内重复读取 <code>offsetWidth</code> 或将重计算移入 <code>Web Worker</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>③ 发版后用户看到的还是老版本页面</strong></td>
+          <td><strong><code>Network</code> 面板</strong><br>（查看 <code>Size</code> 列与响应头）</td>
+          <td>检查主文档 <code>index.html</code> 的 <code>Size</code> 列是否显示 <code>(disk cache)</code> 且未发请求。若是，需将服务端对 <code>.html</code> 文件的响应头改为 <code>Cache-Control: no-cache</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>④ 图片加载出来的瞬间把下方文字往下顶（页面跳动）</strong></td>
+          <td><strong><code>Elements</code> 面板</strong><br>（检查 <code>&lt;img&gt;</code> 标签属性）</td>
+          <td>图片下载完成前浏览器不知道它的高度，原本高度为 0，下载完突然撑开导致大面积重排。<strong>解决：在 <code>&lt;img&gt;</code> 标签上显式写明 <code>width</code> 和 <code>height</code> 属性（或设置 CSS <code>aspect-ratio</code>）提前预留空间。</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>📊 nav_timing.js · 在控制台一键打印当前页面的网络导航各阶段耗时（毫秒）</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-nav-timing', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-browser-nav-timing"><code><span class="c-cm">// 在任意 HTTP/HTTPS 网页的 Console 面板粘贴执行，即可查看本次加载各阶段精确耗时</span>
+<span class="c-kw">const</span> nav = performance.<span class="c-fn">getEntriesByType</span>(<span class="c-str">'navigation'</span>)[<span class="c-num">0</span>];
+<span class="c-kw">if</span> (nav) {
+  console.<span class="c-fn">table</span>({
+    <span class="c-str">'① DNS 域名解析耗时 (ms)'</span>: Math.<span class="c-fn">round</span>(nav.domainLookupEnd - nav.domainLookupStart),
+    <span class="c-str">'② TCP + TLS 建连耗时 (ms)'</span>: Math.<span class="c-fn">round</span>(nav.connectEnd - nav.connectStart),
+    <span class="c-str">'③ 请求发送至收到首字节 TTFB (ms)'</span>: Math.<span class="c-fn">round</span>(nav.responseStart - nav.requestStart),
+    <span class="c-str">'④ HTML 文档下载耗时 (ms)'</span>: Math.<span class="c-fn">round</span>(nav.responseEnd - nav.responseStart),
+    <span class="c-str">'⑤ DOM 解析与 defer 脚本完成 (ms)'</span>: Math.<span class="c-fn">round</span>(nav.domContentLoadedEventEnd - nav.responseEnd)
+  });
+}</code></pre>
+  </div>
+
+  <div class="plop-callout tip" style="margin-top:12px; margin-bottom:0;">
+    <strong>🎓 下一站 · 深入《📘 核心原理篇》：</strong>恭喜你完成了《🌱 基础与实战篇》的全部内容！如果你希望进一步弄懂 Chromium 内部的多进程 IPC 架构、HTTP/2 与 HTTP/3 QUIC 的底层差异、Blink 从 DOM 到 GPU 合成图层的 6 阶段流水线、HTML 标准事件循环与一帧渲染时机，以及 XSS/CSRF 安全攻防与 Core Web Vitals（LCP/INP/CLS）指标体系，请点击进入 <a href="principles.html">📘 浏览器 · 核心原理篇 ↗</a>。
+  </div>
+</div>

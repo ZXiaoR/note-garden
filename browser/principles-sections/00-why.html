@@ -1,0 +1,211 @@
+<!-- ====================================================================
+     PART 00: 架构导读与多进程隔离 · Chromium 多进程模型、Mojo IPC 与站点隔离
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">架构导读与多进程隔离 · Chromium 多进程模型、Mojo IPC 与站点隔离</span>
+  <span class="plop-tag tomato">MULTI-PROCESS × MOJO IPC × SITE ISOLATION</span>
+</div>
+
+<!-- 00.1 · 从单进程浏览器痛点到 Chromium 多进程沙箱架构 -->
+<div class="wb-card" id="chromium-multi-process" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🏗️ 00.1 · 架构演进：早期单进程浏览器的三大工程瓶颈与 Chromium 多进程沙箱隔离模型</div>
+  <h3>🏗️ 00.1 从单进程架构瓶颈到 Chromium 多进程分工</h3>
+
+  <p>
+    在 2008 年 Chrome 诞生之前，早期的桌面浏览器普遍采用<strong>单进程多线程架构</strong>：浏览器主界面、网络请求、HTML/CSS 渲染、JavaScript 执行以及第三方插件全部运行在同一个操作系统进程的地址空间内。随着 Web 应用日益复杂，单进程模型暴露出三个难以克服的工程瓶颈：
+  </p>
+
+  <div class="wb-grid-3" style="margin:14px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag tomato">瓶颈 ① · 稳定性与容错</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">Crash Isolation</span>
+      </div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">单个页面崩溃或死循环拖垮整个浏览器</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        单进程内任意一个标签页触发底层内存越界或主线程无限死循环，都会导致整个浏览器进程崩溃或所有标签页同时卡死。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag periwinkle">瓶颈 ② · 安全与侧信道攻击</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">OS Sandbox</span>
+      </div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">共享虚拟地址空间难以防御底层漏洞</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        不同网站的脚本在同一进程内存空间运行，一旦渲染引擎出现内存漏洞或遭遇 Spectre 幽灵侧信道攻击，恶意页面即可跨站读取其他标签页的隐私数据。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag mint">瓶颈 ③ · 内存回收碎片</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">Memory Reclaim</span>
+      </div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">关闭复杂页面后内存难以彻底归还系统</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        多个标签页交错分配堆内存会产生严重内存碎片；而多进程架构下，关闭标签页直接终止对应渲染进程，操作系统即可瞬间回收其全部物理内存页。
+      </p>
+    </div>
+  </div>
+
+  <!-- Chromium 多进程架构与 IPC 协同全景图 (Editorial SVG) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 960 400" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="chromium-arch-title chromium-arch-desc">
+        <title id="chromium-arch-title">Chromium 多进程架构与渲染进程内部线程分工图</title>
+        <desc id="chromium-arch-desc">展示特权级 Browser 主进程如何通过 Mojo IPC 协调 Network Service、GPU 进程以及处于受限沙箱中的 Renderer 渲染进程（含主线程、合成线程与光栅线程池）。</desc>
+        <defs>
+          <marker id="arch-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="arch-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="arch-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- 1. Zone Containers drawn first -->
+        <!-- Left Zone: Privileged & Service Processes -->
+        <rect x="24" y="24" width="380" height="352" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.16)" stroke-width="1"/>
+        <rect x="36" y="28" width="216" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="144" y="38" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.1em">PRIVILEGED &amp; SERVICE PROCESSES</text>
+
+        <!-- Right Zone: Sandboxed Renderer Process -->
+        <rect x="468" y="24" width="468" height="352" rx="8" fill="rgba(191,69,32,0.03)" stroke="#bf4520" stroke-width="1.2" stroke-dasharray="5,4"/>
+        <rect x="480" y="28" width="268" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="614" y="38" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.1em">OS SANDBOX · RENDERER PROCESS (PER SITE)</text>
+
+        <!-- 2. Orthogonal Connectors drawn BEFORE node boxes -->
+        <!-- Browser Process (bottom edge x=140, y=136) -> Network Service (top edge x=140, y=176) -->
+        <line x1="140" y1="136" x2="140" y2="176" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#arch-arrow)"/>
+
+        <!-- Browser Process (right edge x=384, y=92) -> Main Thread (left edge x=492, y=92) -->
+        <line x1="384" y1="92" x2="492" y2="92" stroke="#bf4520" stroke-width="1.8" marker-end="url(#arch-arrow-accent)"/>
+        <rect x="400" y="68" width="76" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="438" y="78" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">MOJO IPC</text>
+
+        <!-- Network Service (right edge x=384, y=216) -> Main Thread (left edge x=492, y=116) via orthogonal r=8 -->
+        <path d="M 384,216 H 432 Q 440,216 440,208 V 124 Q 440,116 448,116 H 492" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arch-arrow-link)"/>
+        <rect x="402" y="224" width="72" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="438" y="234" text-anchor="middle" fill="#2e5aa8" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">HTML STREAM</text>
+
+        <!-- Main Thread (bottom edge x=702, y=144) -> Compositor Thread (top edge x=702, y=184) -->
+        <line x1="702" y1="144" x2="702" y2="184" stroke="#bf4520" stroke-width="1.6" marker-end="url(#arch-arrow-accent)"/>
+        <rect x="712" y="156" width="88" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="756" y="166" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">COMMIT TREE</text>
+
+        <!-- Compositor Thread (bottom edge x=702, y=252) -> Tile Worker Threads (top edge x=702, y=288) -->
+        <line x1="702" y1="252" x2="702" y2="288" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#arch-arrow)"/>
+        <rect x="712" y="262" width="84" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="754" y="272" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">RASTER TILES</text>
+
+        <!-- Compositor Thread (left edge x=492, y=220) -> GPU Process (right edge x=384, y=316) via orthogonal r=8 -->
+        <path d="M 492,220 H 456 Q 448,220 448,228 V 308 Q 448,316 440,316 H 384" fill="none" stroke="#bf4520" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arch-arrow-accent)"/>
+        <rect x="394" y="324" width="88" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="438" y="334" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">COMPOSITOR FRAME</text>
+
+        <!-- 3. Node Boxes drawn AFTER arrows -->
+        <!-- Node 1: Browser Process -->
+        <rect x="44" y="56" width="340" height="80" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.6"/>
+        <rect x="54" y="64" width="64" height="14" rx="2" fill="#EEF3FF" stroke="#2d3142" stroke-width="0.8"/>
+        <text x="86" y="74" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="8" font-weight="700">COORDINATOR</text>
+        <text x="214" y="86" text-anchor="middle" fill="#2d3142" font-size="14" font-weight="700">① Browser 主进程（全局唯一）</text>
+        <text x="214" y="106" text-anchor="middle" fill="#4f5d75" font-size="11.5">管理地址栏/书签 UI、标签页生命周期、导航调度</text>
+        <text x="214" y="124" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="10">UI Thread · IO Thread (IPC Router)</text>
+
+        <!-- Node 2: Network Service -->
+        <rect x="44" y="176" width="340" height="76" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <rect x="54" y="184" width="56" height="14" rx="2" fill="#E9F9F1" stroke="#2d3142" stroke-width="0.8"/>
+        <text x="82" y="194" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="8" font-weight="700">NETWORK</text>
+        <text x="214" y="204" text-anchor="middle" fill="#2d3142" font-size="14" font-weight="700">② Network Service 网络服务进程</text>
+        <text x="214" y="224" text-anchor="middle" fill="#4f5d75" font-size="11.5">DNS 解析、TCP/TLS/QUIC 连接池、HTTP 缓存与 CORB</text>
+        <text x="214" y="242" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="10">Mojo DataPipe 流式传输响应体</text>
+
+        <!-- Node 3: GPU Process -->
+        <rect x="44" y="280" width="340" height="76" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <rect x="54" y="288" width="56" height="14" rx="2" fill="#FFF6E5" stroke="#2d3142" stroke-width="0.8"/>
+        <text x="82" y="298" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="8" font-weight="700">VIZ / GPU</text>
+        <text x="214" y="308" text-anchor="middle" fill="#2d3142" font-size="14" font-weight="700">③ GPU 进程（图形硬件加速与合成显示）</text>
+        <text x="214" y="328" text-anchor="middle" fill="#4f5d75" font-size="11.5">汇总各渲染进程的 CompositorFrame，调用 OpenGL/Metal</text>
+        <text x="214" y="346" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="10">Viz Display Compositor · VSync 交换缓冲区</text>
+
+        <!-- Node 4 (Focal): Renderer Main Thread -->
+        <rect x="492" y="56" width="420" height="88" rx="6" fill="#FFE8E5" stroke="#bf4520" stroke-width="2"/>
+        <rect x="504" y="64" width="68" height="14" rx="2" fill="#FFFDF7" stroke="#bf4520" stroke-width="0.8"/>
+        <text x="538" y="74" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8" font-weight="700">MAIN THREAD</text>
+        <text x="702" y="84" text-anchor="middle" fill="#bf4520" font-size="14.5" font-weight="700">④ 渲染主线程（Blink + V8 核心瓶颈点）</text>
+        <text x="702" y="106" text-anchor="middle" fill="#2d3142" font-size="11.5">解析 HTML 构建 DOM、计算 CSS 样式、构建 Layout 树</text>
+        <text x="702" y="126" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">执行 V8 JavaScript · 事件循环 · 生成绘制指令列表</text>
+
+        <!-- Node 5: Compositor Thread -->
+        <rect x="492" y="184" width="420" height="68" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <rect x="504" y="192" width="68" height="14" rx="2" fill="#EEF3FF" stroke="#2d3142" stroke-width="0.8"/>
+        <text x="538" y="202" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="8" font-weight="700">COMPOSITOR</text>
+        <text x="702" y="212" text-anchor="middle" fill="#2d3142" font-size="13.5" font-weight="700">⑤ 合成器线程（Compositor Thread / impl 线程）</text>
+        <text x="702" y="234" text-anchor="middle" fill="#4f5d75" font-size="11.5">优先接收滚动/缩放手势，将图层切分为图块（Tiles）并打包合成帧</text>
+
+        <!-- Node 6: Tile Worker Threads -->
+        <rect x="492" y="288" width="420" height="68" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <rect x="504" y="296" width="68" height="14" rx="2" fill="#E9F9F1" stroke="#2d3142" stroke-width="0.8"/>
+        <text x="538" y="306" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="8" font-weight="700">RASTER POOL</text>
+        <text x="702" y="316" text-anchor="middle" fill="#2d3142" font-size="13.5" font-weight="700">⑥ 光栅工作线程池 + Web Worker / Service Worker 线程</text>
+        <text x="702" y="338" text-anchor="middle" fill="#4f5d75" font-size="11.5">将图块绘制指令栅格化为 GPU 纹理位图（视口附近图块优先处理）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p>
+    理解上图中的<strong>渲染进程双线程协作（主线程 vs 合成线程）</strong>，就能解释为什么有些页面在 JavaScript 卡死时仍然可以流畅滚动：当用户用手指滑动屏幕或滚动鼠标滚轮时，Browser 主进程先将输入事件发送给渲染进程的<strong>合成线程（Compositor Thread）</strong>；只要页面对应区域没有绑定非被动的滚动阻塞监听（即使用了 <code>passive: true</code>），合成线程无需等待繁忙的主线程，直接利用已栅格化好的图块生成新的合成帧交给 GPU 进程上屏。
+  </p>
+</div>
+
+<!-- 00.2 · 站点隔离（Site Isolation）与 Mojo 共享内存通信机制 -->
+<div class="wb-card" id="site-isolation-ipc" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🔒 00.2 · 进程分配边界：为什么不是「一个标签页固定一个渲染进程」？<code>Site Isolation</code> 与跨站 <code>iframe</code> 隔离</div>
+  <h3>🔒 00.2 站点隔离（Site Isolation）与 Mojo IPC 通信机制</h3>
+
+  <p>
+    在面试与工程分析中，一个常见误区是认为“每打开一个浏览器标签页（Tab），就会固定创建一个渲染进程”。实际上，现代 Chromium 采用的是<strong>以站点（Site，即协议 + 注册级根域名 <code>eTLD+1</code>）为边界的进程分配模型（Process-per-Site-Instance）</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">页面打开场景</th>
+          <th style="width:28%">渲染进程（Renderer）分配结果</th>
+          <th>底层机制与安全考量</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>场景 ①：包含跨站 <code>&lt;iframe&gt;</code> 的单个标签页</strong></td>
+          <td><strong>1 个标签页拆分为多个渲染进程</strong>（Out-of-Process iframes, <code>OOPIF</code>）</td>
+          <td>若 <code>https://news.com</code> 页面内嵌了 <code>https://pay.bank.com</code> 的支付 <code>iframe</code>，<strong>站点隔离（Site Isolation）</strong>会强制将主页面与跨站 <code>iframe</code> 放入两个独立的渲染进程，即使主页面触发 V8 内存读取漏洞也无法偷取 <code>iframe</code> 进程内存中的银行凭据。</td>
+        </tr>
+        <tr>
+          <td><strong>场景 ②：从页面 A 通过 <code>window.open</code> 打开同站页面 B</strong></td>
+          <td><strong>2 个标签页共享同一个渲染进程</strong>（属于同一浏览上下文组）</td>
+          <td>由于页面 A 与页面 B 属于同一站点且持有同步脚本引用（<code>window.opener</code>），必须放在同一渲染进程中才能支持同步跨窗口 DOM 访问；若链接加上 <code>rel="noopener"</code> 则允许分配到新进程。</td>
+        </tr>
+        <tr>
+          <td><strong>场景 ③：受操作系统沙箱（OS Sandbox）限制的渲染进程</strong></td>
+          <td><strong>禁止直接发起系统调用访问磁盘、网卡或屏幕</strong></td>
+          <td>渲染进程运行在高度受限的操作系统沙箱（如 Linux <code>seccomp-bpf</code> + Namespace、macOS Seatbelt、Windows Restricted Token）内。它要读取本地文件、发送网络包或申请 GPU 显存，<strong>必须通过 Mojo IPC 消息管道委托给外部服务进程代办</strong>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>⚡ Mojo IPC 如何避免大体积数据跨进程拷贝开销？</strong><br>
+    当 Network Service 下载完一张 5MB 的高清图片或数兆字节的 HTML 流时，如果通过普通管道在进程间逐字节拷贝，CPU 开销会非常高。Chromium 的 <strong>Mojo IPC</strong> 区分两类通道：小体积控制指令走基于操作系统的命名管道/域套接字（<code>MessagePipe</code>）；而大体积响应体与光栅化位图则走<strong>基于共享内存页（Shared Memory Buffer）的环形数据管线（<code>DataPipe</code>）</strong>，只通过 IPC 传递共享内存句柄与偏移量，实现跨进程零拷贝传递。
+  </div>
+</div>

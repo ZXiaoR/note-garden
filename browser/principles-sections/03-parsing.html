@@ -1,0 +1,176 @@
+<!-- ====================================================================
+     PART 03: HTML 状态机解析、CSSOM 规则匹配与阻塞模型 · Preload Scanner 与脚本时序
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="parsing">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">HTML 状态机解析、CSSOM 规则匹配与阻塞模型 · 预加载扫描器与脚本时序</span>
+  <span class="plop-tag tomato">HTML TOKENIZER × PRELOAD SCANNER × CSSOM × SCRIPT TIMELINE</span>
+</div>
+
+<!-- 03.1 · HTML5 词法状态机、树构建与预加载扫描器（Preload Scanner） -->
+<div class="wb-card" id="html-parser-preload-scanner" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🌲 03.1 · 流式解析器原理：<code>Bytes → Tokens → Nodes → DOM Tree</code> 管线与投机性预加载扫描器</div>
+  <h3>🌲 03.1 HTML5 状态机流式解析与预加载扫描器（Preload Scanner）</h3>
+
+  <p>
+    渲染进程并不需要等整个 HTML 文件下载完毕才开始工作。一旦 Network Service 通过 Mojo <code>DataPipe</code> 送来第一批字节块（Chunk），主线程的 HTML 解析器就会以<strong>流式增量方式（Streaming Parsing）</strong>推进以下四步转换：
+  </p>
+
+  <div class="wb-grid-2" style="margin:12px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 14px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">
+        ① 字节解码 → 状态机词法分析（Tokenizer）→ 栈式建树
+      </div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.62; color:var(--plop-ink-text);">
+        <li><strong>为什么 HTML 不能用普通的正则表达式或通用 XML 语法分析器解析？</strong>因为 HTML 语言规范允许大量容错省略（如未闭合标签 <code>&lt;p&gt;1&lt;p&gt;2</code>、属性未加引号），且 <code>&lt;script&gt;</code> 内部可能包含任意 <code>&lt;</code> 字符。因此 WHATWG 规范将其定义为包含 80 个状态的<strong>有限状态机（Finite State Machine）</strong>。</li>
+        <li><strong>栈式树构建（Tree Construction）</strong>：解析器维护一个<strong>未闭合元素栈（Stack of Open Elements）</strong>：遇到 <code>StartTag: div</code> 则创建 <code>HTMLDivElement</code> 挂入父节点并压栈；遇到 <code>EndTag: div</code> 则弹出栈顶元素。</li>
+      </ul>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 14px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">
+        ② 为什么主解析器被脚本阻塞时，后面的图片还能并行下载？
+      </div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.62; color:var(--plop-ink-text);">
+        <li>当主 HTML 解析器遇到顶部的同步 <code>&lt;script src="a.js"&gt;</code> 而暂停建树时，如果什么都不做，底下几十张图片和样式表就只能干等。</li>
+        <li>为此，现代浏览器全部内置了一个极其轻量的<strong>投机性预加载扫描器（Preload Scanner / Speculative Parser）</strong>：当主解析器暂停时，它会快速向后扫描原始 HTML 文本中的 <code>&lt;img src&gt;</code>、<code>&lt;link rel="stylesheet"&gt;</code> 和 <code>&lt;script src&gt;</code>，提前通知 Network Service 在后台并行下载（约提升 20% 页面加载速度）。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 03.2 · CSSOM 规则树构建：为什么 CSS 选择器是从右向左匹配的？ -->
+<div class="wb-card" id="cssom-right-to-left" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🎨 03.2 · 样式计算引擎：CSSOM 规则哈希索引、选择器「从右向左」匹配算法与层叠权重</div>
+  <h3>🎨 03.2 CSS 选择器为什么从右向左匹配？CSS 到底阻塞什么？</h3>
+
+  <p>
+    在解析 HTML 的同时，浏览器会将外部样式表（<code>.css</code>）与内联 <code>&lt;style&gt;</code> 解析为<strong>CSS 对象模型（CSSOM / StyleSheetContents）</strong>。围绕 CSS 处理，有两个高频底层原理问题：
+  </p>
+
+  <div class="wb-grid-2" style="margin:12px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 14px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">
+        ① 为什么选择器 <code>.nav ul li a</code> 是从右向左（<code>a → li → ul → .nav</code>）匹配的？
+      </div>
+      <p style="font-size:12.8px; margin:0; line-height:1.65; color:var(--plop-ink-text);">
+        假设一个页面有 2000 个 DOM 节点和 500 条 CSS 规则。如果<strong>从左向右</strong>匹配 <code>.nav ul li a</code>，引擎需要先找到 `.nav`，再向下遍历其整棵子树里所有的 `ul`、`li`，走到最深处的叶子节点才发现它只是个 `span` 而不是 `a`，绝大部分向下遍历都做了无用功。<br>
+        而<strong>从右向左（先看最右侧的关键选择器 Key Selector <code>a</code>）</strong>：Blink 会把所有规则按最右侧选择器建立哈希桶（ID 桶、Class 桶、Tag 桶）。判定一个节点时，先看它是不是 <code>&lt;a&gt;</code>——若不是，<strong>一步即可排除（<code>O(1)</code> 剪枝）</strong>；若是，只需沿着唯一确定的 <code>parentNode</code> 指针向上回溯父节点即可。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 14px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">
+        ② 外部 CSS 加载究竟阻塞什么？不阻塞什么？
+      </div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65; color:var(--plop-ink-text);">
+        <li><strong>CSS 不会阻塞 DOM 树的解析构建</strong>：当 <code>&lt;head&gt;</code> 里的外部 CSS 还在下载时，HTML 解析器完全可以继续向下解析标签生成 DOM 节点。</li>
+        <li><strong>CSS 会严格阻塞页面首次渲染（Render-Blocking）</strong>：在 CSSOM 构建完成前，浏览器不会将 DOM 绘制上屏，以防止用户先看到毫无样式的裸排版再突然闪变成带样式排版（<strong>FOUC，无样式内容闪烁</strong>）。</li>
+        <li><strong>CSS 会阻塞排在它后面的同步 <code>&lt;script&gt;</code> 执行（从而间接阻塞后续 HTML 解析）</strong>：因为后面的 JS 脚本随时可能调用 <code>getComputedStyle(el)</code> 读取元素的样式，所以 JS 必须等待前面的 CSS 下载并构建完 CSSOM 后才能执行。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 03.3 · 四种脚本加载方式与 HTML 解析的精确时间轴对比图 -->
+<div class="wb-card" id="script-timeline-comparison" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">⏱️ 03.3 · 时序全景对比：经典 <code>script</code>、<code>defer</code>、<code>async</code> 与 <code>type="module"</code> 的并行下载与执行时间轴</div>
+  <h3>⏱️ 03.3 四种 <code>&lt;script&gt;</code> 模式与 <code>DOMContentLoaded</code> 时间轴图解</h3>
+
+  <p>
+    将第 03 章的阻塞规则汇总在一张时间轴上，可以清晰对比出四类脚本在<strong>HTML 解析、网络下载、V8 脚本执行以及触发 <code>DOMContentLoaded</code> 事件</strong>上的精确时序关系：
+  </p>
+
+  <!-- 四种 script 加载与执行时序对比图 (Editorial Timeline SVG) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 960 320" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="script-tl-title script-tl-desc">
+        <title id="script-tl-title">四种 script 标签加载与执行时间轴对比图</title>
+        <desc id="script-tl-desc">横向对比普通 script、defer script、async script 与 type=module 在 HTML 解析、脚本下载、脚本执行及 DOMContentLoaded 触发时机上的差异。</desc>
+
+        <!-- Time axis header -->
+        <line x1="220" y1="36" x2="920" y2="36" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="220" y="24" fill="#5a6580" font-family="ui-monospace,monospace" font-size="10" font-weight="700">t = 0ms (开始解析 HTML)</text>
+        <text x="920" y="24" text-anchor="end" fill="#5a6580" font-family="ui-monospace,monospace" font-size="10" font-weight="700">时间流向 (Time) ──▶</text>
+
+        <!-- Row dividers -->
+        <line x1="24" y1="96" x2="936" y2="96" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+        <line x1="24" y1="156" x2="936" y2="156" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+        <line x1="24" y1="216" x2="936" y2="216" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+        <line x1="24" y1="272" x2="936" y2="272" stroke="rgba(45,49,66,0.12)" stroke-width="1"/>
+
+        <!-- Row 1: <script src> -->
+        <text x="32" y="66" fill="#2d3142" font-family="ui-monospace,monospace" font-size="12" font-weight="700">① &lt;script src&gt;</text>
+        <text x="32" y="84" fill="#5a6580" font-size="10.5">下载与执行均阻塞解析</text>
+        <!-- HTML parse 1 -->
+        <rect x="220" y="54" width="140" height="24" rx="4" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="290" y="70" text-anchor="middle" fill="#2d3142" font-size="10.5" font-weight="700">HTML 解析</text>
+        <!-- Download (paused parse) -->
+        <rect x="360" y="54" width="140" height="24" rx="4" fill="#EEF3FF" stroke="#2e5aa8" stroke-width="1.4" stroke-dasharray="4,3"/>
+        <text x="430" y="70" text-anchor="middle" fill="#2e5aa8" font-size="10.5" font-weight="700">暂停 · 下载脚本</text>
+        <!-- Execute (Focal 1) -->
+        <rect x="500" y="54" width="96" height="24" rx="4" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="548" y="70" text-anchor="middle" fill="#bf4520" font-size="10.5" font-weight="700">执行 JS</text>
+        <!-- HTML parse 2 -->
+        <rect x="596" y="54" width="220" height="24" rx="4" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="706" y="70" text-anchor="middle" fill="#2d3142" font-size="10.5" font-weight="700">恢复 HTML 解析</text>
+        <!-- DCL marker -->
+        <line x1="824" y1="48" x2="824" y2="86" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="832" y="70" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10" font-weight="700">DCL</text>
+
+        <!-- Row 2: <script defer> -->
+        <text x="32" y="124" fill="#2d3142" font-family="ui-monospace,monospace" font-size="12" font-weight="700">② &lt;script defer&gt;</text>
+        <text x="32" y="142" fill="#5a6580" font-size="10.5">并行下载，解析完按序执行</text>
+        <!-- Full HTML parse -->
+        <rect x="220" y="106" width="380" height="20" rx="4" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="410" y="120" text-anchor="middle" fill="#2d3142" font-size="10.5" font-weight="700">HTML 连续解析（完全不阻塞）</text>
+        <!-- Parallel download below -->
+        <rect x="320" y="130" width="140" height="18" rx="3" fill="#EEF3FF" stroke="#2e5aa8" stroke-width="1.2"/>
+        <text x="390" y="142" text-anchor="middle" fill="#2e5aa8" font-size="9.5" font-weight="600">后台并行下载 JS</text>
+        <!-- Execute after parse before DCL (Focal 2) -->
+        <rect x="600" y="106" width="104" height="20" rx="4" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="652" y="120" text-anchor="middle" fill="#bf4520" font-size="10.5" font-weight="700">按序执行 JS</text>
+        <line x1="712" y1="102" x2="712" y2="146" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="720" y="120" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10" font-weight="700">DCL</text>
+
+        <!-- Row 3: <script async> -->
+        <text x="32" y="184" fill="#2d3142" font-family="ui-monospace,monospace" font-size="12" font-weight="700">③ &lt;script async&gt;</text>
+        <text x="32" y="202" fill="#5a6580" font-size="10.5">并行下载，下载完立即抢占执行</text>
+        <rect x="220" y="166" width="240" height="20" rx="4" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="340" y="180" text-anchor="middle" fill="#2d3142" font-size="10.5" font-weight="700">HTML 解析</text>
+        <rect x="320" y="190" width="140" height="18" rx="3" fill="#EEF3FF" stroke="#2e5aa8" stroke-width="1.2"/>
+        <text x="390" y="202" text-anchor="middle" fill="#2e5aa8" font-size="9.5" font-weight="600">后台并行下载</text>
+        <rect x="460" y="166" width="96" height="20" rx="4" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="508" y="180" text-anchor="middle" fill="#2d3142" font-size="10.5" font-weight="700">立即打断执行</text>
+        <rect x="556" y="166" width="140" height="20" rx="4" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="626" y="180" text-anchor="middle" fill="#2d3142" font-size="10.5" font-weight="700">继续解析</text>
+        <line x1="704" y1="162" x2="704" y2="206" stroke="#2d3142" stroke-width="2"/>
+        <text x="712" y="180" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10" font-weight="700">DCL</text>
+
+        <!-- Row 4: <script type="module"> -->
+        <text x="32" y="242" fill="#2d3142" font-family="ui-monospace,monospace" font-size="12" font-weight="700">④ type="module"</text>
+        <text x="32" y="260" fill="#5a6580" font-size="10.5">并行下载依赖树，默认 defer</text>
+        <rect x="220" y="224" width="380" height="20" rx="4" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="410" y="238" text-anchor="middle" fill="#2d3142" font-size="10.5" font-weight="700">HTML 连续解析</text>
+        <rect x="320" y="248" width="212" height="18" rx="3" fill="#EEF3FF" stroke="#2e5aa8" stroke-width="1.2"/>
+        <text x="426" y="260" text-anchor="middle" fill="#2e5aa8" font-size="9.5" font-weight="600">并行下载入口 + import 子模块树</text>
+        <rect x="600" y="224" width="104" height="20" rx="4" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="652" y="238" text-anchor="middle" fill="#2d3142" font-size="10.5" font-weight="700">执行模块图</text>
+        <line x1="712" y1="220" x2="712" y2="264" stroke="#2d3142" stroke-width="2"/>
+        <text x="720" y="238" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10" font-weight="700">DCL</text>
+
+        <!-- Bottom Legend strip -->
+        <rect x="220" y="286" width="16" height="12" rx="2" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="242" y="296" fill="#2d3142" font-size="11">HTML 解析阶段</text>
+        <rect x="364" y="286" width="16" height="12" rx="2" fill="#EEF3FF" stroke="#2e5aa8" stroke-width="1.2"/>
+        <text x="386" y="296" fill="#2d3142" font-size="11">网络下载脚本</text>
+        <rect x="504" y="286" width="16" height="12" rx="2" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="526" y="296" fill="#2d3142" font-size="11">V8 执行脚本（阻塞主线程）</text>
+        <text x="708" y="296" fill="#bf4520" font-family="ui-monospace,monospace" font-size="11" font-weight="700">DCL = DOMContentLoaded 事件触发点</text>
+      </svg>
+    </div>
+  </figure>
+</div>

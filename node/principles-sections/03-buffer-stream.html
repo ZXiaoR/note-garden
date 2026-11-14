@@ -1,0 +1,435 @@
+<!-- ====================================================================
+     PART 03: 内存与流式 I/O · Buffer 8KB Slab 内存池、Stream 四种流类型与背压控制
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="stream">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">内存与流式 I/O · Buffer 8KB Slab 内存池、Stream 四种流类型与背压控制</span>
+  <span class="plop-tag tomato">SLAB POOL × STREAM BACKPRESSURE</span>
+</div>
+
+<!-- 03.1 · Buffer 底层结构、8KB Slab 预分配内存池与 alloc vs allocUnsafe -->
+<div class="wb-card" id="buffer" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧱 03.1 · 二进制内存管理：<code>Buffer</code> 视图卡片与 <code>ArrayBuffer</code> 的两层拆分、<code>8KB</code> Slab 共享内存池与 8 字节对齐</div>
+  <h3>⚡ 03.1 <code>Buffer</code> 内存模型、<code>8KB</code> Slab 共享内存池与 <code>alloc / allocUnsafe</code> 机制</h3>
+
+  <!-- 第一层：先讲清 Buffer 和 ArrayBuffer 在内存里到底是怎么拆成两部分的 -->
+  <p>
+    <strong>① 先立核心心智模型：<code>Buffer</code> 变量本身不是那块物理内存，而是一张“视图描述卡片”。</strong><br>
+    初学者看代码时常会疑惑：为什么变量本身已经叫 <code>Buffer</code> 了，访问 <code>b1.buffer</code> 却又能拿出另一个对象？这是因为在 Node.js（及 V8 引擎）底层，二进制内存被拆成了<strong>上下两层结构</strong>：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>下层 · 物理字节条（<code>ArrayBuffer</code>）</strong>：真正向操作系统申请的一段连续原始字节内存（例如一整条 <code>8192 Bytes</code> 的内存块）。它只负责存数据，本身不能直接用 <code>[0]</code> 下标读写。</li>
+    <li><strong>上层 · 视图描述卡片（<code>Buffer</code> 实例，继承自 <code>Uint8Array</code>）</strong>：我们代码里拿到的 <code>b1</code>、<code>b2</code> 其实是轻量级“观察窗口卡片”，卡片自身只记录 <strong>3 个核心字段</strong>：
+      <br>1. <strong><code>buffer</code></strong>（指针）：指向底下那整条物理 <code>ArrayBuffer</code>；
+      <br>2. <strong><code>byteOffset</code></strong>（起始偏移量）：这张卡片从物理内存条的第几个字节开始看（如从第 <code>0</code> 字节或第 <code>104</code> 字节开始）；
+      <br>3. <strong><code>byteLength</code></strong>（可见长度）：这张卡片能读写多少个字节（如 <code>100</code> 字节）。
+    </li>
+  </ul>
+
+  <p>
+    <strong>② 为什么要设计 <code>8KB (8192 Bytes)</code> Slab 共享内存池？</strong><br>
+    在网络服务中，每秒都会产生成千上万个几十到几百字节的小数据包。如果每次创建 100 字节的 <code>Buffer</code> 都向操作系统单独申请一块物理 <code>ArrayBuffer</code>，系统调用与垃圾回收开销极大。<br>
+    既然多个 <code>Buffer</code> 视图卡片可以指向同一条物理 <code>ArrayBuffer</code>（只要各自的 <code>byteOffset</code> 互不重叠即可），Node.js 启动时便预先申请一整条 <strong><code>8192 Bytes (8KB)</code> 的全局共享 <code>ArrayBuffer</code>（称为 Slab 内存池）</strong>，并用一个全局游标变量 <strong><code>poolOffset</code></strong> 记录当前用到了第几个字节。后续创建小 Buffer 时，只需在池子上移动游标、切出一张新的视图卡片即可。
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🧪 buffer_pool.js · 观察两个小 Buffer 如何共享同一块 8KB 物理内存</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-buf-pool', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-buf-pool"><code><span class="c-cm">// 1. 共享池默认总大小 Buffer.poolSize = 8192 字节 (8KB)</span>
+console.<span class="c-fn">log</span>(Buffer.poolSize);               <span class="c-cm">// 输出: 8192</span>
+
+<span class="c-cm">// 2. 连续调用 allocUnsafe 创建两个 100 字节的小 Buffer：</span>
+<span class="c-kw">const</span> b1 = Buffer.<span class="c-fn">allocUnsafe</span>(100);
+<span class="c-kw">const</span> b2 = Buffer.<span class="c-fn">allocUnsafe</span>(100);
+
+<span class="c-cm">// 观察两张视图卡片的 3 个核心属性：</span>
+console.<span class="c-fn">log</span>(b1.buffer === b2.buffer);       <span class="c-cm">// 输出: true (指向同一条 8192B 物理内存)</span>
+console.<span class="c-fn">log</span>(b1.buffer.byteLength);          <span class="c-cm">// 输出: 8192 (底层整块池子的总长度)</span>
+console.<span class="c-fn">log</span>(b1.byteOffset, b1.byteLength);  <span class="c-cm">// 输出: 0   100 (假定池刚初始化，占用 0..99)</span>
+console.<span class="c-fn">log</span>(b2.byteOffset, b2.byteLength);  <span class="c-cm">// 输出: 104 100 (按 8 字节对齐，占用 104..203)</span>
+
+<span class="c-cm">// 3. 对比 Buffer.alloc(100)：不走 8KB 共享池，单独分配一块恰好 100B 且全为 0 的物理内存</span>
+<span class="c-kw">const</span> safeBuf = Buffer.<span class="c-fn">alloc</span>(100);
+console.<span class="c-fn">log</span>(safeBuf.buffer === b1.buffer);  <span class="c-cm">// 输出: false (独享自己的 100B ArrayBuffer)</span>
+console.<span class="c-fn">log</span>(safeBuf.buffer.byteLength);     <span class="c-cm">// 输出: 100</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 游标 <code>poolOffset</code> 切分与推进的 4 个步骤：</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.9px; line-height:1.64;">
+        <li><strong>Step 1 · 建池（<code>createPool</code>）</strong>：分配一块 <code>8192B</code> 的 <code>ArrayBuffer</code>，游标初始化为 <code>poolOffset = 0</code>。</li>
+        <li><strong>Step 2 · 切出 <code>b1(100B)</code></strong>：<code>b1</code> 记录 <code>byteOffset = 0, byteLength = 100</code>（占用下标 <code>0..99</code>），游标推进至 <code>100</code>。</li>
+        <li><strong>Step 3 · 8 字节内存对齐（为什么 <code>b2</code> 从 <code>104</code> 开始？）</strong>：64 位 CPU 按 8 字节（64 bit）字长对齐读取内存最快。每次切完后，Node.js 会把 <code>poolOffset</code> 向上凑整到 <strong>8 的整数倍</strong>（位运算 <code>(100 + 7) &amp; ~7 = 104</code>），中间跳过 <code>4</code> 个字节（<code>100..103</code>）作为对齐留白，因此 <code>b2</code> 从 <code>104</code> 开始（占用 <code>104..203</code>），再加 4 字节对齐（<code>204..207</code>）后游标停在 <code>208</code>。</li>
+        <li><strong>Step 4 · 剩余空间不足时换新池</strong>：若当前池子剩余空间（<code>8192 - poolOffset</code>）不够装下本次请求的 <code>size</code>，则直接调用 <code>createPool()</code> 申请一块全新的 <code>8192B</code> 池子并将 <code>poolOffset</code> 归零。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 双层 SVG 图解：上层 Buffer 视图卡片 (b1, b2, safeBuf) + 下层 8192B 共享 ArrayBuffer 连续内存条 -->
+  <svg viewBox="0 0 920 264" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:12px 0;" role="img" aria-label="Node.js Buffer 视图卡片与 8KB Slab 共享内存池两层结构图">
+    <defs>
+      <marker id="arr-slab-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#D2381E"/>
+      </marker>
+      <marker id="arr-slab-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#1F8A65"/>
+      </marker>
+      <marker id="arr-slab-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#1D4ED8"/>
+      </marker>
+    </defs>
+
+    <!-- 先画正交圆角指针连线（r=8，穿过 y=104..144 纯空白走廊，不穿过任何文字或方框） -->
+    <!-- b1 视图卡片 (x=145, y=104) -> Slab offset 0..99 (x=96, y=150) -->
+    <path d="M 145 104 L 145 119 Q 145 127 137 127 L 104 127 Q 96 127 96 135 L 96 148" fill="none" stroke="#D2381E" stroke-width="2.2" marker-end="url(#arr-slab-red)"/>
+    <!-- b2 视图卡片 (x=425, y=104) -> Slab offset 104..203 (x=304, y=150) -->
+    <path d="M 425 104 L 425 119 Q 425 127 417 127 L 312 127 Q 304 127 304 135 L 304 148" fill="none" stroke="#1F8A65" stroke-width="2.2" marker-end="url(#arr-slab-green)"/>
+    <!-- safeBuf 视图卡片 (x=755, y=104) -> 独立 100B ArrayBuffer (x=755, y=144) -->
+    <path d="M 755 104 L 755 142" fill="none" stroke="#1D4ED8" stroke-width="2.2" marker-end="url(#arr-slab-blue)"/>
+
+    <!-- 上层：JS 堆内的 3 张 Buffer (Uint8Array) 视图描述卡片 -->
+    <g transform="translate(20, 14)">
+      <text x="0" y="14" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">① 上层 · JS 变量持有的 Buffer 视图描述卡片（继承自 Uint8Array，仅存 buffer / byteOffset / byteLength）</text>
+
+      <!-- b1 卡片 -->
+      <rect x="0" y="24" width="250" height="66" rx="8" fill="#FFF6E5" stroke="#D2381E" stroke-width="2"/>
+      <text x="125" y="43" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.8" font-weight="900">b1 = Buffer.allocUnsafe(100)</text>
+      <text x="125" y="62" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10" font-weight="700">buffer: 指向共享池 ｜ offset: 0</text>
+      <text x="125" y="79" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="9.8" font-weight="700">byteLength: 100</text>
+
+      <!-- b2 卡片 -->
+      <rect x="280" y="24" width="250" height="66" rx="8" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
+      <text x="405" y="43" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.8" font-weight="900">b2 = Buffer.allocUnsafe(100)</text>
+      <text x="405" y="62" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10" font-weight="700">buffer: 指向共享池 ｜ offset: 104</text>
+      <text x="405" y="79" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="9.8" font-weight="700">byteLength: 100</text>
+
+      <!-- safeBuf 卡片 -->
+      <rect x="590" y="24" width="290" height="66" rx="8" fill="#EEF3FF" stroke="#1D4ED8" stroke-width="2"/>
+      <text x="735" y="43" text-anchor="middle" fill="#1D4ED8" font-family="var(--font-mono)" font-size="10.8" font-weight="900">safeBuf = Buffer.alloc(100)</text>
+      <text x="735" y="62" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10" font-weight="700">buffer: 指向独立块 ｜ offset: 0</text>
+      <text x="735" y="79" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="9.8" font-weight="700">byteLength: 100 (不走 8KB 共享池)</text>
+    </g>
+
+    <!-- 下层：底层物理 ArrayBuffer 内存块（左侧 8192B 共享 Slab 池 vs 右侧 100B 独立清零内存） -->
+    <g transform="translate(20, 144)">
+      <!-- 左侧：8192B 共享 Slab 池大底座 -->
+      <rect x="0" y="0" width="564" height="96" rx="8" fill="#F8FAFC" stroke="var(--plop-ink)" stroke-width="2.2"/>
+      <text x="282" y="84" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="900">② 下层左 · 全局共享 ArrayBuffer (Slab 内存池，总长 8192B，下标 0..8191 连续切分)</text>
+
+      <!-- Segment 1: b1 (0..99) -->
+      <rect x="6" y="8" width="140" height="58" rx="5" fill="#FFF6E5" stroke="#D2381E" stroke-width="2"/>
+      <text x="76" y="31" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.4" font-weight="900">b1 切片 (100B)</text>
+      <text x="76" y="51" text-anchor="middle" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">字节 0..99</text>
+
+      <!-- Segment 2: +4B 对齐 (100..103) -->
+      <rect x="146" y="8" width="68" height="58" fill="#FFE8E5" stroke="var(--plop-ink)" stroke-width="1.5" stroke-dasharray="3 2"/>
+      <text x="180" y="31" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.6" font-weight="900">+4B 对齐</text>
+      <text x="180" y="51" text-anchor="middle" fill="#D2381E" font-size="9.4" font-weight="700">100..103</text>
+
+      <!-- Segment 3: b2 (104..203) -->
+      <rect x="214" y="8" width="140" height="58" rx="5" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
+      <text x="284" y="31" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.4" font-weight="900">b2 切片 (100B)</text>
+      <text x="284" y="51" text-anchor="middle" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">字节 104..203</text>
+
+      <!-- Segment 4: +4B 对齐 (204..207) -->
+      <rect x="354" y="8" width="68" height="58" fill="#FFE8E5" stroke="var(--plop-ink)" stroke-width="1.5" stroke-dasharray="3 2"/>
+      <text x="388" y="31" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.6" font-weight="900">+4B 对齐</text>
+      <text x="388" y="51" text-anchor="middle" fill="#D2381E" font-size="9.4" font-weight="700">204..207</text>
+
+      <!-- Segment 5: 空闲区 (208..8191) -->
+      <rect x="422" y="8" width="136" height="58" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6" stroke-dasharray="5 3"/>
+      <text x="490" y="31" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="900">空闲 208..8191</text>
+      <text x="490" y="51" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.4" font-weight="700">poolOffset = 208</text>
+
+      <!-- 右侧：safeBuf 独享的 100B 已清零 ArrayBuffer -->
+      <rect x="590" y="0" width="290" height="96" rx="8" fill="#EEF3FF" stroke="#1D4ED8" stroke-width="2.2"/>
+      <rect x="600" y="8" width="270" height="58" rx="5" fill="#FFFFFF" stroke="#1D4ED8" stroke-width="1.8"/>
+      <text x="735" y="31" text-anchor="middle" fill="#1D4ED8" font-family="var(--font-mono)" font-size="10.4" font-weight="900">独立 ArrayBuffer (100B, 字节 0..99)</text>
+      <text x="735" y="51" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="9.8" font-weight="700">全部字节已初始化为 0x00 (安全清零)</text>
+      <text x="735" y="84" text-anchor="middle" fill="#1D4ED8" font-family="var(--font-mono)" font-size="10" font-weight="900">② 下层右 · 独享内存：回收 safeBuf 立即释放</text>
+    </g>
+  </svg>
+
+  <!-- 第三层：什么时候走 8KB 共享池？什么时候单独分配？（完整规则对照表） -->
+  <p style="margin:12px 0 8px;">
+    <strong>③ 哪些 API 会走 <code>8KB</code> 共享内存池？为什么分界线是 <code>4096 Bytes (4KB)</code>？</strong><br>
+    因为共享池总大小只有 <code>8192 Bytes</code>，如果允许 <code>5KB</code>、<code>6KB</code> 的较大请求也进池，一个请求就会占掉大半个池子，导致旧池子剩余的几 KB 装不下后续请求而被迫直接丢弃换新池，反而造成内存浪费。因此 Node.js 规定：<strong>只有请求大小严格小于池容量的一半（即 <code>size &lt; (Buffer.poolSize &gt;&gt;&gt; 1)</code>，小于 <code>4096</code> 字节）时，才允许进入共享池</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:26%">创建方式 / API</th>
+          <th style="width:20%">是否走 8KB 共享池</th>
+          <th style="width:18%">内存是否清零</th>
+          <th>底层分配行为与适用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>Buffer.alloc(size)</code></strong></td>
+          <td>❌ <strong>永不走池</strong>（无论大小）</td>
+          <td>✅ 全部初始化为 <code>0x00</code></td>
+          <td>直接向底层申请一块长度为 <code>size</code> 且已清零的独立 <code>ArrayBuffer</code>。<strong>日常业务开发最推荐的默认安全写法</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Buffer.allocUnsafe(size)</code></strong><br>（当 <code>size &lt; 4096B</code> 时）</td>
+          <td>✅ <strong>走 8KB 共享池</strong></td>
+          <td>❌ 未清零（含旧残留字节）</td>
+          <td>直接从全局 <code>8KB</code> 共享池当前 <code>poolOffset</code> 处切出视图返回，省去系统调用与清零开销；<strong>必须在紧接着的代码里将整块区域写满新数据</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Buffer.allocUnsafe(size)</code></strong><br>（当 <code>size &gt;= 4096B</code> 时）</td>
+          <td>❌ 不走共享池</td>
+          <td>❌ 未清零</td>
+          <td>因大于等于 <code>4KB</code> 阈值，直接单独申请一块长度为 <code>size</code> 的未清零独立 <code>ArrayBuffer</code>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Buffer.from(str)</code></strong><br>或 <strong><code>Buffer.concat(list)</code></strong></td>
+          <td>✅ 总字节数 <code>&lt; 4096B</code> 时<strong>走 8KB 共享池</strong></td>
+          <td>✅ 立即被传入的字符串/数组完整覆写</td>
+          <td>内部先调用池化分配切出空间，随后立即将字符串编码字节完整写入该切片，<strong>既享受了共享池的高性能，又不会泄露旧内存数据</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Buffer.allocUnsafeSlow(size)</code></strong></td>
+          <td>❌ <strong>强制不走池</strong></td>
+          <td>❌ 未清零</td>
+          <td>哪怕只有 10 个字节也强制单独申请独立 <code>ArrayBuffer</code>——专用于<strong>需要长期驻留在全局缓存中</strong>的小 Buffer，防止它拖住整块 8KB 共享池无法释放。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 第四层：由共享内存池机制推导出的两大工程注意事项（❌ 错误写法 vs ✅ 正确写法） -->
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚠️ 注意事项 ① · allocUnsafe 未写满即发送导致旧内存数据泄露</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-buf-pitfall1', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-buf-pitfall1"><code><span class="c-cm">// ❌ 错误写法：申请了 64 字节未清零池化切片，只写入 5 字节就把整个 buf 发出去</span>
+<span class="c-cm">// 后面的第 5..63 字节里可能残留着刚才其他请求留下的密钥或隐私字符串</span>
+<span class="c-kw">const</span> unsafeBuf = Buffer.<span class="c-fn">allocUnsafe</span>(64);
+<span class="c-kw">const</span> written = unsafeBuf.<span class="c-fn">write</span>(<span class="c-str">'hello'</span>);
+<span class="c-cm">// socket.write(unsafeBuf); // 危险：把未覆写的 59 字节旧内存一并发给了客户端</span>
+
+<span class="c-cm">// ✅ 正确写法 A：直接用 Buffer.alloc(64)（默认全 0）或 Buffer.from('hello')</span>
+<span class="c-kw">const</span> safeBuf = Buffer.<span class="c-fn">alloc</span>(64);
+
+<span class="c-cm">// ✅ 正确写法 B：若使用 allocUnsafe，只截取实际写入的 [0, written) 区间发送</span>
+<span class="c-kw">const</span> validSlice = unsafeBuf.<span class="c-fn">subarray</span>(0, written);</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚠️ 注意事项 ② · 长期缓存小切片导致整块 8KB 共享池无法被 GC 回收</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-buf-pitfall2', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-buf-pitfall2"><code><span class="c-kw">const</span> globalCache = [];
+
+<span class="c-cm">// ❌ 错误写法：subarray(0, 16) 只是新建了一张 16B 的视图卡片，</span>
+<span class="c-cm">// 它的 .buffer 依然强引用着底下整块 8KB ArrayBuffer，放进全局数组会导致 8KB 无法回收</span>
+<span class="c-kw">function</span> <span class="c-fn">cacheHeaderBad</span>(packetBuf) {
+  globalCache.<span class="c-fn">push</span>(packetBuf.<span class="c-fn">subarray</span>(0, 16));
+}
+
+<span class="c-cm">// ✅ 正确写法：需要长期缓存小片段时，用 Uint8Array.prototype.slice 拷贝出独立的 16B 内存</span>
+<span class="c-kw">function</span> <span class="c-fn">cacheHeaderGood</span>(packetBuf) {
+  <span class="c-kw">const</span> independentCopy = Buffer.<span class="c-fn">from</span>(Uint8Array.prototype.slice.<span class="c-fn">call</span>(packetBuf, 0, 16));
+  globalCache.<span class="c-fn">push</span>(independentCopy); <span class="c-cm">// 仅占 16B 独立内存，原 8KB 池可正常释放</span>
+}</code></pre>
+    </div>
+  </div>
+
+  <!-- 源码折叠抽屉：Node.js lib/buffer.js 真实的 8KB 内存池实现 -->
+  <details class="plop-drawer">
+    <summary>🔍 展开查看 Node.js 源码（<code>lib/buffer.js</code>）：<code>createPool()</code> 与 <code>allocate(size)</code> 真实实现</summary>
+    <div class="drawer-body">
+      <div class="plop-code-box" style="margin:0;">
+        <div class="plop-code-head">
+          <span>📜 node/lib/buffer.js · 8KB Slab 共享池分配与 8 字节对齐核心源码</span>
+          <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-buf-src', this)">复制源码</button>
+        </div>
+        <pre class="plop-code-pre" id="code-buf-src"><code>Buffer.poolSize = 8 * 1024; <span class="c-cm">// 默认 8192 Bytes</span>
+<span class="c-kw">let</span> poolSize, poolOffset, allocPool;
+
+<span class="c-kw">function</span> <span class="c-fn">createPool</span>() {
+  poolSize = Buffer.poolSize;
+  allocPool = <span class="c-fn">createUnsafeArrayBuffer</span>(poolSize); <span class="c-cm">// 向底层申请未清零的 8192B ArrayBuffer</span>
+  poolOffset = 0;                                <span class="c-cm">// 游标归零</span>
+}
+<span class="c-fn">createPool</span>(); <span class="c-cm">// Node.js 启动时立即预分配第一个 8KB 池</span>
+
+<span class="c-kw">function</span> <span class="c-fn">alignPool</span>() {
+  <span class="c-cm">// 位运算向上取 8 的整数倍：若 poolOffset 为 100，(100 + 7) &amp; ~7 === 104</span>
+  <span class="c-kw">if</span> (poolOffset &amp; 0x7) {
+    poolOffset |= 0x7;
+    poolOffset++;
+  }
+}
+
+<span class="c-kw">function</span> <span class="c-fn">allocate</span>(size) {
+  <span class="c-cm">// 1. 若请求字节数 &lt; 4096 (即 poolSize &gt;&gt;&gt; 1)，进入 8KB 共享池分配分支：</span>
+  <span class="c-kw">if</span> (size &lt; (Buffer.poolSize &gt;&gt;&gt; 1)) {
+    <span class="c-kw">if</span> (size &gt; (poolSize - poolOffset))
+      <span class="c-fn">createPool</span>(); <span class="c-cm">// 当前池剩余空间不足时，申请一个新的 8KB 池</span>
+    <span class="c-kw">const</span> b = <span class="c-kw">new</span> <span class="c-fn">FastBuffer</span>(allocPool, poolOffset, size); <span class="c-cm">// 创建指向共享池的视图卡片</span>
+    poolOffset += size;
+    <span class="c-fn">alignPool</span>();    <span class="c-cm">// 游标做 8 字节对齐，供下一次分配使用</span>
+    <span class="c-kw">return</span> b;
+  }
+  <span class="c-cm">// 2. 若请求字节数 &gt;= 4096，不走共享池，单独分配一块未清零的 ArrayBuffer</span>
+  <span class="c-kw">return</span> <span class="c-fn">createUnsafeBuffer</span>(size);
+}</code></pre>
+      </div>
+    </div>
+  </details>
+</div>
+
+<!-- 03.2 · Stream 内部状态结构与背压（Backpressure）核心机制 -->
+<div class="wb-card" id="backpressure" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🌊 03.2 · 流式缓冲与限流状态机：<code>_readableState / _writableState</code> 与背压控制机制</div>
+  <h3>🚰 03.2 <code>Stream</code> 内部缓冲状态机、<code>highWaterMark</code> 水位线与背压（Backpressure）流转</h3>
+
+  <p>
+    在流式传输中，当<strong>上游磁盘读取速度（如 <code>500MB/s</code>）远快于下游客户端网络接收速度（如 <code>1MB/s</code>）</strong>时，若不对上游限速，未发送的数据块会在可写流内部持续积压直至内存溢出。<br>
+    从底层对象结构来看，每个 <code>Readable</code> 实例内部维护一个 <strong><code>_readableState</code> 状态对象</strong>，每个 <code>Writable</code> 实例内部维护一个 <strong><code>_writableState</code> 状态对象</strong>（<code>Duplex</code> 双工流则同时拥有这两个相互独立的状态对象）。背压（Backpressure）的本质就是<strong>围绕这两个状态对象中的队列长度 <code>length</code> 与水位线阈值 <code>highWaterMark</code> 进行的布尔信号反馈</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">底层状态对象与核心字段</th>
+          <th style="width:24%">默认值 / 数据结构</th>
+          <th>在背压（Backpressure）流转中的具体作用</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>_readableState.buffer</code></strong></td>
+          <td><code>BufferList</code> 双向链表</td>
+          <td>暂存已从底层数据源（如磁盘 fd）读出、但尚未被下游消费的数据块，避免数组头部弹出时的 <code>O(N)</code> 搬移开销。</td>
+        </tr>
+        <tr>
+          <td><strong><code>_readableState.flowing</code></strong></td>
+          <td><code>null / true / false</code></td>
+          <td>标识可读流当前模式：<code>true</code> 为自动持续推送数据的流动模式；调用 <code>readable.pause()</code> 后变为 <code>false</code>，停止向底层读取。</td>
+        </tr>
+        <tr>
+          <td><strong><code>_writableState.length</code></strong></td>
+          <td><code>number</code>（字节数或对象数）</td>
+          <td>记录当前可写流内部待写入底层内核的缓冲队列累计字节数；每次调用 <code>writable.write(chunk)</code> 时累加。</td>
+        </tr>
+        <tr>
+          <td><strong><code>_writableState.highWaterMark</code></strong></td>
+          <td>普通流 <code>16KB</code> / 文件流 <code>64KB</code> / 对象流 <code>16</code></td>
+          <td>可写流缓冲区的安全水位线上限。当写入后满足 <strong><code>state.length &gt;= state.highWaterMark</code></strong> 时，<code>write()</code> 立即返回 <code>false</code> 并设置 <code>needDrain = true</code>；待队列排空至 <code>0</code> 时触发 <code>'drain'</code> 事件。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🔧 manual_backpressure.js · write 返回值检查、pause 暂停与 drain 恢复原理</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-bp-manual', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-bp-manual"><code>readable.<span class="c-fn">on</span>(<span class="c-str">'data'</span>, (chunk) =&gt; {
+  <span class="c-cm">// 1. 向下游写入数据块，并根据返回值判断写缓冲是否已满</span>
+  <span class="c-kw">const</span> canContinue = writable.<span class="c-fn">write</span>(chunk);
+
+  <span class="c-cm">// 2. 返回 false 表示下游缓冲区已达到 highWaterMark 水位线</span>
+  <span class="c-kw">if</span> (!canContinue) {
+    readable.<span class="c-fn">pause</span>(); <span class="c-cm">// 暂停从上游可读流继续读取</span>
+  }
+});
+
+<span class="c-cm">// 3. 当下游将积压的写缓冲区排空后，自动触发 'drain' 事件：</span>
+writable.<span class="c-fn">on</span>(<span class="c-str">'drain'</span>, () =&gt; {
+  readable.<span class="c-fn">resume</span>();  <span class="c-cm">// 恢复上游可读流继续读取</span>
+});</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>❌ vs ✅ stream_pipeline.mjs · 传统 .pipe() 缺陷与 stream.pipeline 标准写法</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-bp-pipeline', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-bp-pipeline"><code><span class="c-kw">import</span> { pipeline } <span class="c-kw">from</span> <span class="c-str">'node:stream/promises'</span>;
+<span class="c-kw">import</span> fs <span class="c-kw">from</span> <span class="c-str">'node:fs'</span>;
+<span class="c-kw">import</span> zlib <span class="c-kw">from</span> <span class="c-str">'node:zlib'</span>;
+
+<span class="c-cm">// ❌ 错误写法：直接使用裸 .pipe() 串联流</span>
+<span class="c-cm">//    若下游客户端中途断开，上游文件流不会自动关闭，容易造成文件描述符 (FD) 泄漏</span>
+<span class="c-cm">// fs.createReadStream('a.log').pipe(zlib.createGzip()).pipe(res);</span>
+
+<span class="c-cm">// ✅ 正确写法：使用 pipeline 自动管理背压，并在任一环节报错或关闭时自动销毁全部流</span>
+<span class="c-kw">await</span> <span class="c-fn">pipeline</span>(
+  fs.<span class="c-fn">createReadStream</span>(<span class="c-str">'./huge-2gb.log'</span>),
+  zlib.<span class="c-fn">createGzip</span>(),
+  fs.<span class="c-fn">createWriteStream</span>(<span class="c-str">'./huge-2gb.log.gz'</span>)
+);</code></pre>
+    </div>
+  </div>
+
+  <!-- Stream 背压闭环 SVG -->
+  <svg viewBox="0 0 920 205" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:12px 0;" role="img" aria-label="Node.js Stream 背压 Backpressure 反馈控制图">
+    <defs>
+      <marker id="arr-bp-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#15803D"/>
+      </marker>
+      <marker id="arr-bp-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#D2381E"/>
+      </marker>
+    </defs>
+
+    <!-- 上游 Readable -->
+    <g transform="translate(24, 30)">
+      <rect x="0" y="0" width="230" height="122" rx="10" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="115" y="24" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.2" font-weight="900">上游 Readable (高速磁盘文件)</text>
+      <rect x="16" y="36" width="198" height="34" rx="6" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="115" y="57" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.6" font-weight="800">highWaterMark: 64 KB</text>
+      <text x="115" y="92" text-anchor="middle" fill="#D2381E" font-size="10.4" font-weight="800">收到 false ➔ pause() 暂停</text>
+      <text x="115" y="110" text-anchor="middle" fill="#15803D" font-size="10.4" font-weight="800">收到 drain ➔ resume() 恢复</text>
+    </g>
+
+    <!-- 中间双向控制信号 -->
+    <g transform="translate(264, 30)">
+      <text x="165" y="20" text-anchor="middle" fill="#15803D" font-family="var(--font-mono)" font-size="10.8" font-weight="900">① writable.write(chunk) 输送数据块</text>
+      <path d="M 10 30 L 320 30" stroke="#15803D" stroke-width="2.5" marker-end="url(#arr-bp-green)"/>
+
+      <rect x="25" y="48" width="280" height="28" rx="6" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.6"/>
+      <text x="165" y="66" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.4" font-weight="900">② 缓冲 &gt;= 16KB ➔ 返回 false</text>
+      <path d="M 320 84 L 10 84" stroke="#D2381E" stroke-width="2.2" stroke-dasharray="5 3" marker-end="url(#arr-bp-red)"/>
+
+      <text x="165" y="108" text-anchor="middle" fill="#15803D" font-family="var(--font-mono)" font-size="10.4" font-weight="900">③ 缓冲排空 ➔ 触发 'drain' 事件</text>
+      <path d="M 320 116 L 10 116" stroke="#15803D" stroke-width="2.2" marker-end="url(#arr-bp-green)"/>
+    </g>
+
+    <!-- 下游 Writable -->
+    <g transform="translate(598, 30)">
+      <rect x="0" y="0" width="298" height="122" rx="10" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
+      <text x="149" y="24" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.2" font-weight="900">下游 Writable (慢速客户端 Socket)</text>
+      <rect x="18" y="36" width="262" height="40" rx="6" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.8"/>
+      <rect x="20" y="38" width="205" height="36" rx="4" fill="#FFE8E5"/>
+      <line x1="225" y1="36" x2="225" y2="76" stroke="#D2381E" stroke-width="2.5" stroke-dasharray="3 2"/>
+      <text x="122" y="60" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.4" font-weight="900">内部写缓冲队列 (水位线 16KB)</text>
+      <text x="149" y="96" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.4" font-weight="700">网卡向外发送数据，当队列排空降回 0 时</text>
+      <text x="149" y="112" text-anchor="middle" fill="#15803D" font-family="var(--font-mono)" font-size="10.4" font-weight="900">emit('drain') 通知上游恢复生产</text>
+    </g>
+
+    <text x="460" y="182" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.6" font-weight="900">💡 工程规范：生产环境建议使用 stream.pipeline() 替代裸 .pipe()，确保任意流异常中断时自动销毁整条流链路。</text>
+  </svg>
+</div>
+
+<div class="plop-bridge">
+  🔗 了解堆外 <code>Buffer</code> 与流式背压后，接下来进入 <strong>第 04 章</strong>：解析 V8 堆内的 <strong>隐藏类优化、新老生代分代垃圾回收（GC）与线上内存泄漏排查方法</strong> ➔
+</div>

@@ -1,0 +1,284 @@
+<!-- ====================================================================
+     PART 01: 模块化机制与工程配置 · CommonJS、ES Module 与 package.json 规范
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="module">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">模块化机制与工程配置 · CommonJS、ES Module、循环依赖与 package.json</span>
+  <span class="plop-tag tomato">CJS VALUE COPY × ESM LIVE BINDING</span>
+</div>
+
+<!-- 01.1 · CommonJS vs ESM：值拷贝 vs 实时只读绑定 -->
+<div class="wb-card" id="cjs-esm" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">📦 01.1 · 模块加载与导出机制：CommonJS 运行时值拷贝与 ES Module 编译期实时绑定</div>
+  <h3>📦 01.1 CommonJS（运行时值拷贝）与 ES Module（编译期静态实时绑定）</h3>
+
+  <p>
+    Node.js 支持两套模块化规范：早期内置的 <strong>CommonJS（使用 <code>require / module.exports</code>，文件扩展名通常为 <code>.cjs</code> 或默认 <code>.js</code>）</strong> 与语言标准 <strong>ES Module（使用 <code>import / export</code>，扩展名为 <code>.mjs</code> 或在 <code>package.json</code> 中声明 <code>"type": "module"</code>）</strong>。<br>
+    两者的核心区别在于：<strong>CommonJS 在代码运行到 <code>require()</code> 时同步加载模块，并导出那一刻的对象属性拷贝；而 ES Module 在编译阶段静态解析依赖树，导出指向原模块变量内存槽位的只读实时引用（Live Binding）</strong>。
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📦 counter_cjs.cjs · CommonJS 导出运行时的值拷贝</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-cjs-copy', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-cjs-copy"><code><span class="c-cm">// --- counter.cjs ---</span>
+<span class="c-kw">let</span> count = 1;
+<span class="c-kw">function</span> <span class="c-fn">inc</span>() { count++; }
+module.exports = { count, inc }; <span class="c-cm">// 导出瞬间将 count=1 的值复制进导出对象</span>
+
+<span class="c-cm">// --- main.cjs ---</span>
+<span class="c-kw">const</span> { count, inc } = <span class="c-fn">require</span>(<span class="c-str">'./counter.cjs'</span>);
+console.<span class="c-fn">log</span>(count); <span class="c-cm">// 输出: 1</span>
+<span class="c-fn">inc</span>();              <span class="c-cm">// 模块内变量变为 2，但已导出的拷贝对象不受影响</span>
+console.<span class="c-fn">log</span>(count); <span class="c-cm">// 输出: 1</span></code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚡ counter_esm.mjs · ES Module 导出实时内存引用</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-esm-live', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-esm-live"><code><span class="c-cm">// --- counter.mjs ---</span>
+<span class="c-kw">export let</span> count = 1;
+<span class="c-kw">export function</span> <span class="c-fn">inc</span>() { count++; }
+
+<span class="c-cm">// --- main.mjs ---</span>
+<span class="c-kw">import</span> { count, inc } <span class="c-kw">from</span> <span class="c-str">'./counter.mjs'</span>;
+console.<span class="c-fn">log</span>(count); <span class="c-cm">// 输出: 1</span>
+<span class="c-fn">inc</span>();              <span class="c-cm">// 修改同一个内存槽位的数据</span>
+console.<span class="c-fn">log</span>(count); <span class="c-cm">// 输出: 2（外部读取到实时更新后的值）</span>
+<span class="c-cm">// count = 99;      // ❌ TypeError: Assignment to constant variable (导入方只读)</span></code></pre>
+    </div>
+  </div>
+
+  <svg viewBox="0 0 940 246" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:12px 0;" role="img" aria-label="CommonJS 五步加载与函数包装器原理图">
+    <defs>
+      <marker id="arr-mod-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#1D4ED8"/>
+      </marker>
+    </defs>
+
+    <!-- 顶部：require('./utils') 五步流水线 -->
+    <g transform="translate(18, 14)">
+      <text x="0" y="15" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.8" font-weight="900">🔄 CommonJS Module._load(request) 五步同步加载流程：</text>
+
+      <rect x="0" y="25" width="166" height="54" rx="7" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="83" y="45" text-anchor="middle" fill="#1D4ED8" font-family="var(--font-mono)" font-size="10.8" font-weight="900">① 路径解析 Resolve</text>
+      <text x="83" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="700">核心模块 → 文件路径</text>
+
+      <path d="M 168 52 L 184 52" stroke="#1D4ED8" stroke-width="2" marker-end="url(#arr-mod-blue)"/>
+
+      <rect x="186" y="25" width="168" height="54" rx="7" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="270" y="45" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.8" font-weight="900">② 查缓存 _cache</text>
+      <text x="270" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="700">命中直接返回 exports</text>
+
+      <path d="M 356 52 L 372 52" stroke="#1D4ED8" stroke-width="2" marker-end="url(#arr-mod-blue)"/>
+
+      <rect x="374" y="25" width="166" height="54" rx="7" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="457" y="45" text-anchor="middle" fill="#1D4ED8" font-family="var(--font-mono)" font-size="10.8" font-weight="900">③ 扩展名补全定位</text>
+      <text x="457" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="700">.js / .json / .node</text>
+
+      <path d="M 542 52 L 558 52" stroke="#1D4ED8" stroke-width="2" marker-end="url(#arr-mod-blue)"/>
+
+      <rect x="560" y="25" width="170" height="54" rx="7" fill="#E9F9F1" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="645" y="45" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.8" font-weight="900">④ 先入缓存再编译</text>
+      <text x="645" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="700">先挂 _cache 防循环死锁</text>
+
+      <path d="M 732 52 L 748 52" stroke="#1D4ED8" stroke-width="2" marker-end="url(#arr-mod-blue)"/>
+
+      <rect x="750" y="25" width="154" height="54" rx="7" fill="#FEF08A" stroke="#D2381E" stroke-width="1.8"/>
+      <text x="827" y="45" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.5" font-weight="900">⑤ 返回导出对象</text>
+      <text x="827" y="64" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="800">返回 module.exports</text>
+    </g>
+
+    <!-- 下半部分：左侧 CJS Wrapper vs 右侧 ESM Module Record -->
+    <g transform="translate(18, 102)">
+      <rect x="0" y="0" width="465" height="128" rx="9" fill="#FFFDF7" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="445" height="24" rx="5" fill="var(--plop-ink)"/>
+      <text x="232" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.5" font-weight="900">📦 CommonJS 底层：将模块代码包裹进 5 参数函数中执行</text>
+      <text x="14" y="52" fill="#D2381E" font-family="var(--font-mono)" font-size="10.2" font-weight="900">(function(exports, require, module, __filename, __dirname){</text>
+      <text x="24" y="72" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.2" font-weight="700">// 初始关系: const exports = module.exports = {};</text>
+      <text x="24" y="90" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.2" font-weight="700">// 执行模块内业务代码...</text>
+      <text x="14" y="108" fill="#D2381E" font-family="var(--font-mono)" font-size="10.2" font-weight="900">}).call(module.exports, module.exports, req, module, f, d);</text>
+    </g>
+
+    <g transform="translate(498, 102)">
+      <rect x="0" y="0" width="424" height="128" rx="9" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
+      <rect x="10" y="10" width="404" height="24" rx="5" fill="#1F8A65"/>
+      <text x="212" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.5" font-weight="900">⚡ ES Module 底层：三阶段异步状态机 (无包裹函数)</text>
+      <text x="16" y="52" fill="var(--plop-ink-text)" font-size="10.2" font-weight="800">① 构造 Construction：静态解析 AST 的 import 依赖树</text>
+      <text x="16" y="75" fill="var(--plop-ink-text)" font-size="10.2" font-weight="800">② 实例化 Instantiation：分配内存槽，绑定导入导出地址</text>
+      <text x="16" y="98" fill="var(--plop-ink-text)" font-size="10.2" font-weight="800">③ 求值 Evaluation：自底向上执行代码（支持顶层 await）</text>
+      <text x="16" y="118" fill="#D2381E" font-family="var(--font-mono)" font-size="10" font-weight="900">★ 无外层函数包裹，使用 import.meta.dirname 获取目录</text>
+    </g>
+  </svg>
+
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">对比维度</th>
+          <th style="width:41%">CommonJS (<code>require / module.exports</code>)</th>
+          <th style="width:41%">ES Module (<code>import / export</code>)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>导出语义</strong></td>
+          <td><strong>运行时值的浅拷贝</strong>（导出后原模块修改基础类型变量不影响外部）</td>
+          <td><strong>编译期静态实时只读绑定（Live Binding）</strong>（指向同一内存槽，内部修改外部同步可见）</td>
+        </tr>
+        <tr>
+          <td><strong>加载时机</strong></td>
+          <td><strong>运行时同步加载</strong>：支持动态拼接路径 <code>require('./' + name)</code>，不利于静态 Tree-Shaking</td>
+          <td><strong>编译期静态解析 + 异步加载</strong>：支持打包工具静态 Tree-Shaking 与顶层 <code>await</code></td>
+        </tr>
+        <tr>
+          <td><strong>顶层作用域</strong></td>
+          <td>顶层 <code>this === module.exports</code>；通过包装函数注入 <code>__dirname / __filename</code></td>
+          <td>默认严格模式，顶层 <code>this === undefined</code>；使用 <code>import.meta.dirname</code>（Node 20.11+）</td>
+        </tr>
+        <tr>
+          <td><strong>互操作性</strong></td>
+          <td><strong>Node 22.12+ 默认支持同步 <code>require(esm)</code></strong>（前提是目标 ESM 不含顶层 <code>await</code>）</td>
+          <td>ESM 可直接 <code>import cjs from './a.cjs'</code>（将 <code>module.exports</code> 作为默认导出）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>❌ vs ✅ exports_vs_module_exports.cjs · 形参重赋值误区与正确导出写法</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-exports-diff', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-exports-diff"><code><span class="c-cm">// 包装函数内部隐含初始关系：let exports = module.exports = {};</span>
+
+<span class="c-cm">// ❌ 错误写法：直接给形参 exports 赋新对象，切断了与 module.exports 的引用关系</span>
+<span class="c-cm">//    由于 require() 最终只返回 module.exports，外部拿到的是空对象 {}</span>
+exports = { add: (a, b) =&gt; a + b };
+
+<span class="c-cm">// ✅ 正确写法 A：顺着引用往原对象上挂载属性</span>
+exports.add = (a, b) =&gt; a + b;
+
+<span class="c-cm">// ✅ 正确写法 B：直接替换 module.exports 对象本身</span>
+module.exports = { add: (a, b) =&gt; a + b };</code></pre>
+    </div>
+
+    <div class="plop-callout warn" style="margin:0; display:flex; flex-direction:column; justify-content:center;">
+      <div>
+        <strong>⚠️ 常见误区说明：<code>exports</code> 与 <code>module.exports</code> 的引用关系</strong><br>
+        在 CommonJS 包装函数中，<code>exports</code> 只是传入函数的形参变量，初始时与 <code>module.exports</code> 指向同一个空对象 <code>{}</code>。通过 <code>exports.key = val</code> 可以修改该共享对象；但如果直接执行 <code>exports = { ... }</code>，只会让形参变量指向新内存地址，而模块加载器第 ⑤ 步固定返回 <code>module.exports</code>。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 01.2 · 循环依赖（Circular Dependency）：CJS vs ESM 执行结果对比 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔄 01.2 · 循环依赖处理机制：CommonJS 半成品缓存导出与 ES Module 静态内存连线</div>
+  <h3>🧩 01.2 循环依赖（A ⇄ B）对比：CommonJS 半成品对象与 ESM 实时引用</h3>
+
+  <p>
+    当模块 A 引用模块 B，而模块 B 又反过来引用模块 A 时，Node.js <strong>不会陷入无限递归死循环</strong>，因为模块在首次加载进入前就会被登记到缓存中。但由于两套规范的加载阶段不同，在循环引用点读取到的值存在明显差异：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📦 cycle_cjs.cjs · CommonJS 循环依赖：读取已执行部分的半成品对象</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-cycle-cjs', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-cycle-cjs"><code><span class="c-cm">// --- a.cjs (入口: node a.cjs) ---</span>
+exports.done = <span class="c-kw">false</span>;            <span class="c-cm">// ① 先挂载属性 done = false</span>
+<span class="c-kw">const</span> b = <span class="c-fn">require</span>(<span class="c-str">'./b.cjs'</span>);   <span class="c-cm">// ② 暂停 a.cjs，同步进入 b.cjs 执行</span>
+exports.done = <span class="c-kw">true</span>;             <span class="c-cm">// ⑤ b.cjs 执行完毕返回，将 a.done 改为 true</span>
+console.<span class="c-fn">log</span>(<span class="c-str">'在 a 中, b.done ='</span>, b.done);
+
+<span class="c-cm">// --- b.cjs ---</span>
+<span class="c-kw">const</span> a = <span class="c-fn">require</span>(<span class="c-str">'./a.cjs'</span>);   <span class="c-cm">// ③ 命中 _cache，拿到 a 当前的半成品 {done: false}</span>
+console.<span class="c-fn">log</span>(<span class="c-str">'在 b 中, a.done ='</span>, a.done); <span class="c-cm">// ④ 输出: false</span>
+exports.done = <span class="c-kw">true</span>;
+<span class="c-cm">// 完整输出: 在 b 中, a.done = false ➔ 在 a 中, b.done = true</span></code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚡ cycle_esm.mjs · ES Module 循环依赖：函数声明提升与暂时性死区（TDZ）</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-cycle-esm', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-cycle-esm"><code><span class="c-cm">// --- a.mjs (入口: node a.mjs) ---</span>
+<span class="c-kw">import</span> { bVal } <span class="c-kw">from</span> <span class="c-str">'./b.mjs'</span>;  <span class="c-cm">// ① 编译期静态建图，求值阶段先深度优先执行 b.mjs</span>
+<span class="c-kw">export function</span> <span class="c-fn">fnA</span>() { <span class="c-kw">return</span> <span class="c-str">'ok'</span>; } <span class="c-cm">// function 声明在实例化阶段已完成提升</span>
+<span class="c-kw">export const</span> aVal = <span class="c-str">'hello'</span>;
+
+<span class="c-cm">// --- b.mjs ---</span>
+<span class="c-kw">import</span> { fnA, aVal } <span class="c-kw">from</span> <span class="c-str">'./a.mjs'</span>;
+console.<span class="c-fn">log</span>(<span class="c-fn">fnA</span>());              <span class="c-cm">// ✅ 输出: 'ok'（函数声明在实例化阶段已就绪）</span>
+<span class="c-cm">// console.log(aVal);            // ❌ 错误写法：a.mjs 尚未求值，同步读取 const/let</span>
+                                 <span class="c-cm">//    会触发 ReferenceError (暂时性死区 TDZ)</span>
+<span class="c-kw">export const</span> bVal = <span class="c-str">'world'</span>;</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout tip">
+    <strong>💡 循环依赖机制总结：</strong><br>
+    • <strong>CommonJS（边执行边导出）</strong>：进入 <code>a.cjs</code> 时先在 <code>Module._cache</code> 中注册该模块的 <code>exports</code> 对象。当 <code>b.cjs</code> 反过来调用 <code>require('./a.cjs')</code> 时，直接从缓存中拿到<strong>当前只执行了一半的导出对象</strong>（后续尚未执行到的属性值为 <code>undefined</code>）。<br>
+    • <strong>ES Module（先绑定内存槽再求值）</strong>：实例化阶段已将所有导入与导出标识符连向同一内存槽。求值阶段先执行 <code>b.mjs</code> 时，<code>a.mjs</code> 的 <code>export function</code> 因函数提升可直接调用；但若在模块顶层同步读取尚未执行初始化的 <code>export let / const</code> 变量，则会触发<strong>暂时性死区（Temporal Dead Zone, TDZ）<code>ReferenceError</code></strong>。
+  </div>
+</div>
+
+<!-- 01.3 · package.json 现代双模块配置与 Node 22 原生新特性 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">⚙️ 01.3 · 工程包配置规范：package.json 条件导出（Conditional Exports）与 Node 22 内置能力</div>
+  <h3>🛠️ 01.3 <code>package.json</code> 条件导出配置与现代 Node.js 原生工具链</h3>
+
+  <p>
+    在发布需要同时兼容 <code>import</code>（ESM）和 <code>require</code>（CJS）的公共库时，可通过 <code>package.json</code> 的 <strong><code>exports</code> 条件导出字段</strong>按调用方式映射不同的入口文件，并利用 <code>imports</code> 定义项目内部私有路径别名。
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📄 package.json · 双模块条件导出与内部路径映射示例</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pkg-json', this)">复制配置</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pkg-json"><code>{
+  <span class="c-str">"name"</span>: <span class="c-str">"my-modern-sdk"</span>,
+  <span class="c-str">"type"</span>: <span class="c-str">"module"</span>, <span class="c-cm">// 声明当前包下 .js 文件默认按 ES Module 规范解析</span>
+  <span class="c-str">"exports"</span>: {
+    <span class="c-str">"."</span>: {
+      <span class="c-str">"types"</span>: <span class="c-str">"./dist/index.d.ts"</span>,   <span class="c-cm">// types 条件需放在最前，供 TypeScript 类型解析</span>
+      <span class="c-str">"import"</span>: <span class="c-str">"./dist/index.mjs"</span>,   <span class="c-cm">// 外部使用 import 时加载该文件</span>
+      <span class="c-str">"require"</span>: <span class="c-str">"./dist/index.cjs"</span>  <span class="c-cm">// 外部使用 require() 时加载该文件</span>
+    }
+  },
+  <span class="c-str">"imports"</span>: {
+    <span class="c-str">"#db/*"</span>: <span class="c-str">"./src/internal/db/*.js"</span> <span class="c-cm">// 必须以 # 开头，提供原生内部路径别名</span>
+  }
+}</code></pre>
+    </div>
+
+    <div>
+      <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; font-size:13px; line-height:1.62;">
+        <strong>🚀 Node.js 20 ~ 22 LTS 常用原生工程特性：</strong>
+        <ul style="margin:6px 0 0; padding-left:18px;">
+          <li><strong>内置模块 <code>node:</code> 协议前缀</strong>：编写 <code>import fs from 'node:fs/promises'</code> 时跳过文件目录查找，直接加载内核模块，并防止被 <code>node_modules</code> 中的同名第三方包覆盖。</li>
+          <li><strong>原生执行 TypeScript（Node 22.6+）</strong>：通过 <code>node --experimental-strip-types app.ts</code> 直接剥离类型注解并运行 TS 文件。</li>
+          <li><strong>原生环境变量加载与文件监听</strong>：使用 <code>node --env-file=.env --watch app.js</code>，无需额外部署 <code>dotenv</code> 与 <code>nodemon</code>。</li>
+          <li><strong>模块封装保护</strong>：一旦声明了 <code>exports</code> 字段，外部调用方将无法深层引入未在 <code>exports</code> 中列出的内部私有文件路径（触发 <code>ERR_PACKAGE_PATH_NOT_EXPORTED</code>）。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="plop-bridge">
+  🔗 梳理完模块加载机制后，接下来进入 <strong>第 02 章</strong>：解析 <strong><code>libuv</code> 事件循环的六个阶段、微任务队列优先级与工作线程池分工</strong> ➔
+</div>

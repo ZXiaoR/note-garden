@@ -109,7 +109,7 @@
                       <code>[ len (已用长度) | alloc (分配总容量) | flags (1B 类型头) | buf[] 字节数组 + '\0' ]</code>
                     </div>
                     <div style="font-size:12.5px; font-weight:800; color:var(--plop-tomato); margin-top:5px;">
-                      ✅ $O(1)$ 获取长度（不扫 <code>\0</code>） · 二进制安全（中间有 <code>\0</code> 也不截断，可存图片/序列化字节） · 空间预分配杜绝缓冲区溢出
+                      ✅ <code>O(1)</code> 获取长度（不扫 <code>\0</code>） · 二进制安全（中间有 <code>\0</code> 也不截断，可存图片/序列化字节） · 空间预分配杜绝缓冲区溢出
                     </div>
                   </div>
                 </div>
@@ -193,15 +193,15 @@
             <!-- 3：skiplist 跳表 -->
             <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
               <div class="chapter-q-pill">❓ 02.2 · ZSet 为什么用「跳表 skiplist + dict」而不是红黑树或 B+ 树？</div>
-              <h4>🪜 跳表（Skiplist）：多层稀疏索引的有序链表（$O(\log N)$）</h4>
+              <h4>🪜 跳表（Skiplist）：多层稀疏索引的有序链表（<code>O(log N)</code>）</h4>
               <p>
-                ZSet 大数据量时同时组合了 <strong><code>dict</code> + <code>skiplist</code></strong>：<code>dict</code> 存 <code>member → score</code>，保证 <code>ZSCORE</code> 按成员查分值 <strong>$O(1)$</strong>；<code>skiplist</code> 按 <code>score</code> 从小到大排列，支持 <code>ZRANGE</code> 范围查询 <strong>$O(\log N + M)$</strong>。
+                ZSet 大数据量时同时组合了 <strong><code>dict</code> + <code>skiplist</code></strong>：<code>dict</code> 存 <code>member → score</code>，保证 <code>ZSCORE</code> 按成员查分值 <strong><code>O(1)</code></strong>；<code>skiplist</code> 按 <code>score</code> 从小到大排列，支持 <code>ZRANGE</code> 范围查询 <strong><code>O(log N + M)</code></strong>。
               </p>
 
               <!-- Skiplist 跳表 HTML/CSS 手绘卡片图 -->
               <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:8px 0;">
                 <div style="font-size:13px; font-weight:900; color:var(--plop-ink); margin-bottom:10px;">
-                  🔍 查 <code>score = 27</code> 的多层跳跃路径（每层以 $p = 1/4$ 概率向上生长，下密上疏）：
+                  🔍 查 <code>score = 27</code> 的多层跳跃路径（每层以 <code>p = 1/4</code> 概率向上生长，下密上疏）：
                 </div>
 
                 <div style="overflow-x:auto;">
@@ -297,8 +297,8 @@
           <details class="plop-drawer" id="history">
             <summary>🔍 进阶 · intset 为什么“只升级不降级”？为什么必须整体升级？</summary>
             <div class="drawer-body">
-              <p><strong>为什么必须整体升级：</strong><code>intset</code> 是一整块<strong>等宽的连续整数数组</strong>（<code>int16 / int32 / int64</code>）。正因为每个元素占相同字节，才能用 <code>base + i × width</code> 在 $O(1)$ 算位置并做<strong>二分查找（$O(\log N)$）</strong>。如果存入一个超过 <code>int16</code>（32767）的数 <code>40000</code>，只把这一个元素存成 4 字节，数组就变成宽窄不一，二分查找立刻作废！所以必须把整个数组重新分配升级到 <code>int32</code>。</p>
-              <p><strong>为什么不降级：</strong>如果删掉大数后想判断是否能降级，每次删除都要遍历全数组找新的最大值（$O(N)$），代价太高且收益极低，因此编码升级一律单向不可逆。</p>
+              <p><strong>为什么必须整体升级：</strong><code>intset</code> 是一整块<strong>等宽的连续整数数组</strong>（<code>int16 / int32 / int64</code>）。正因为每个元素占相同字节，才能用 <code>base + i × width</code> 在 <code>O(1)</code> 算位置并做<strong>二分查找（<code>O(log N)</code>）</strong>。如果存入一个超过 <code>int16</code>（32767）的数 <code>40000</code>，只把这一个元素存成 4 字节，数组就变成宽窄不一，二分查找立刻作废！所以必须把整个数组重新分配升级到 <code>int32</code>。</p>
+              <p><strong>为什么不降级：</strong>如果删掉大数后想判断是否能降级，每次删除都要遍历全数组找新的最大值（<code>O(N)</code>），代价太高且收益极低，因此编码升级一律单向不可逆。</p>
             </div>
           </details>
         </div>

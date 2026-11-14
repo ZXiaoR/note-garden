@@ -1,0 +1,172 @@
+<!-- ====================================================================
+     PART 04: Blink 渲染流水线与合成器架构 · Layout 树、合成层提升、分块光栅化与重排重绘
+     ==================================================================== -->
+<div class="wb-sec-header mustard" id="rendering">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">Blink 渲染流水线与合成器架构 · Layout 树、合成层、光栅化与重排重绘</span>
+  <span class="plop-tag tomato">BLINK PIPELINE × COMPOSITING LAYERS × REFLOW/REPAINT</span>
+</div>
+
+<!-- 04.1 · 从 DOM + CSSOM 到屏幕像素的完整六阶段渲染流水线 -->
+<div class="wb-card" id="blink-render-pipeline" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🖼️ 04.1 · 渲染引擎核心管线：主线程（Style → Layout → Layer → Paint）与合成线程（Tiling → Raster → DrawQuad）分工</div>
+  <h3>🖼️ 04.1 Blink + Viz 渲染流水线的六个核心阶段</h3>
+
+  <p>
+    当 DOM 树与 CSSOM 规则准备就绪后，Chromium 的渲染引擎（Blink）与合成器（CC / Viz）通过<strong>主线程 → 合成线程 → 光栅线程池 → GPU 进程</strong>的四级流水线，将内存中的树结构转化为屏幕上的像素帧：
+  </p>
+
+  <!-- Blink + Viz 跨线程渲染流水线图 (Editorial Data-Flow / Architecture SVG) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 960 356" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="blink-pipe-title blink-pipe-desc">
+        <title id="blink-pipe-title">Blink 主线程与合成器线程六阶段渲染流水线图</title>
+        <desc id="blink-pipe-desc">展示主线程依次完成样式计算、布局树构建、图层与属性树划分、绘制指令记录后提交给合成线程，再由合成线程与光栅线程完成分块栅格化并交由 GPU 进程合成上屏。</desc>
+        <defs>
+          <marker id="bp-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="bp-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- 1. Zone Containers drawn first -->
+        <!-- Top Zone: Renderer Main Thread -->
+        <rect x="24" y="24" width="912" height="140" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.16)" stroke-width="1"/>
+        <rect x="36" y="28" width="248" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="160" y="38" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.08em">STAGE 1–4 · RENDERER MAIN THREAD (BLINK)</text>
+
+        <!-- Bottom Zone: Compositor + Raster Pool + GPU Process -->
+        <rect x="24" y="192" width="912" height="140" rx="8" fill="rgba(191,69,32,0.03)" stroke="#bf4520" stroke-width="1.2" stroke-dasharray="5,4"/>
+        <rect x="36" y="196" width="328" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="200" y="206" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.08em">STAGE 5–6 · COMPOSITOR THREAD &amp; GPU VIZ (OFF-MAIN-THREAD)</text>
+
+        <!-- 2. Orthogonal Connectors drawn BEFORE node boxes -->
+        <!-- Top row left -> right -->
+        <line x1="224" y1="96" x2="260" y2="96" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#bp-arrow)"/>
+        <line x1="444" y1="96" x2="480" y2="96" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#bp-arrow)"/>
+        <line x1="664" y1="96" x2="700" y2="96" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#bp-arrow)"/>
+
+        <!-- Stage 4 Paint (bottom x=806, y=140) -> Stage 5 Tiling & Raster (top x=604, y=224) via orthogonal r=8 -->
+        <path d="M 806,140 V 172 Q 806,180 798,180 H 612 Q 604,180 604,188 V 224" fill="none" stroke="#bf4520" stroke-width="1.8" marker-end="url(#bp-arrow-accent)"/>
+        <rect x="656" y="160" width="96" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="704" y="170" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="700">COMMIT TO IMPL</text>
+
+        <!-- Stage 5 Tiling & Raster (left x=476, y=268) -> Stage 6 Composite (right x=416, y=268) -->
+        <line x1="476" y1="268" x2="416" y2="268" stroke="#bf4520" stroke-width="1.8" marker-end="url(#bp-arrow-accent)"/>
+
+        <!-- 3. Node Boxes drawn AFTER arrows -->
+        <!-- Stage 1: Style (Recalc Style) -->
+        <rect x="44" y="52" width="180" height="88" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="134" y="76" text-anchor="middle" fill="#2d3142" font-size="13" font-weight="700">① 样式计算 (Style)</text>
+        <text x="134" y="96" text-anchor="middle" fill="#4f5d75" font-size="11">DOM + CSSOM 匹配层叠</text>
+        <text x="134" y="114" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="10">产出 ComputedStyle</text>
+
+        <!-- Stage 2 (Focal 1): Layout (Reflow) -->
+        <rect x="260" y="52" width="184" height="88" rx="6" fill="#FFE8E5" stroke="#bf4520" stroke-width="2"/>
+        <text x="352" y="76" text-anchor="middle" fill="#bf4520" font-size="13" font-weight="700">② 布局计算 (Layout)</text>
+        <text x="352" y="96" text-anchor="middle" fill="#2d3142" font-size="11">仅遍历可见节点算坐标宽高</text>
+        <text x="352" y="114" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10" font-weight="700">产出 LayoutObject Tree</text>
+
+        <!-- Stage 3: Layer & Property Trees -->
+        <rect x="480" y="52" width="184" height="88" rx="6" fill="#EEF3FF" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="572" y="76" text-anchor="middle" fill="#2d3142" font-size="13" font-weight="700">③ 分层与属性树 (Layer)</text>
+        <text x="572" y="96" text-anchor="middle" fill="#4f5d75" font-size="11">按层叠上下文与 3D 变换</text>
+        <text x="572" y="114" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="10">产出 Layer + PropertyTrees</text>
+
+        <!-- Stage 4: Paint (Record DisplayItems) -->
+        <rect x="700" y="52" width="212" height="88" rx="6" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="806" y="76" text-anchor="middle" fill="#2d3142" font-size="13" font-weight="700">④ 绘制记录 (Paint)</text>
+        <text x="806" y="96" text-anchor="middle" fill="#4f5d75" font-size="11">不画像素，仅记录 Skia 绘制指令</text>
+        <text x="806" y="114" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="10">产出 PaintArtifact 指令表</text>
+
+        <!-- Stage 5: Tiling & Raster -->
+        <rect x="476" y="224" width="436" height="88" rx="6" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="694" y="248" text-anchor="middle" fill="#2d3142" font-size="13.5" font-weight="700">⑤ 图块切分与 GPU 加速光栅化 (Tiling &amp; Raster)</text>
+        <text x="694" y="270" text-anchor="middle" fill="#4f5d75" font-size="11.5">合成线程将长图层切为 256×256 或 512×512 图块（Tiles），视口内优先；</text>
+        <text x="694" y="290" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="10">由光栅线程池配合 GPU 进程将绘制指令转化为 GPU 显存中的纹理位图</text>
+
+        <!-- Stage 6 (Focal 2): Composite & Display -->
+        <rect x="44" y="224" width="372" height="88" rx="6" fill="#FFE8E5" stroke="#bf4520" stroke-width="2"/>
+        <text x="230" y="248" text-anchor="middle" fill="#bf4520" font-size="13.5" font-weight="700">⑥ 合成上屏 (Composite &amp; Viz Display)</text>
+        <text x="230" y="270" text-anchor="middle" fill="#2d3142" font-size="11.5">合成线程生成包含图块纹理矩阵的 DrawQuad 合成帧，</text>
+        <text x="230" y="290" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10" font-weight="700">通过 IPC 提交给 GPU 进程在 VSync 信号到来时上屏</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p>
+    <strong>为什么第 ② 步的布局树（<code>Layout Tree</code>，早期常统称为 Render Tree）与 DOM 树不是一一对应的？</strong>
+  </p>
+  <ul style="font-size:13.5px; line-height:1.68;">
+    <li><strong>在 DOM 树中存在、但不在 Layout 树中的节点</strong>：<code>&lt;head&gt;</code>、<code>&lt;script&gt;</code> 以及任何设置了 <code>display: none</code> 的元素，由于不占据任何几何空间，会被完全剔除出 Layout 树（注意：<code>visibility: hidden</code> 和 <code>opacity: 0</code> 仍然占据几何空间，因此<strong>保留在 Layout 树中</strong>）。</li>
+    <li><strong>不在 DOM 树中、但会出现在 Layout 树中的节点</strong>：CSS 伪元素（如 <code>::before</code>、<code>::after</code>）以及多行文本自动折行生成的匿名行盒（Anonymous Inline/Block Boxes），虽然在 DOM 中没有对应标签，但会在 Layout 树中生成独立的布局节点。</li>
+  </ul>
+</div>
+
+<!-- 04.2 · 重排（Reflow）、重绘（Repaint）与直接合成（Composite-only）三条渲染路径对比 -->
+<div class="wb-card" id="reflow-repaint-composite" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">⚡ 04.2 · 页面更新开销分级：为什么说「重排必引发重绘，而 <code>transform / opacity</code> 动画可以跳过主线程」？</div>
+  <h3>⚡ 04.2 重排（Reflow）、重绘（Repaint）与直接合成（Composite）对比</h3>
+
+  <p>
+    当页面初次渲染完成后，JavaScript 或 CSS 动画对元素样式的每一次修改，都会根据受影响的属性种类走完不同长度的流水线。理解这三条路径的成本差异，是前端渲染性能调优的核心：
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">更新级别</th>
+          <th style="width:28%">经历的流水线阶段</th>
+          <th style="width:24%">常见触发属性或 API</th>
+          <th>性能开销与线程占用分析</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 重排 / 回流<br>（Reflow / Layout）</strong></td>
+          <td><code>Style ➔ Layout ➔ Layer ➔ Paint ➔ Raster ➔ Composite</code>（全流程重跑）</td>
+          <td>修改 <code>width / height / margin / padding / top / left / font-size</code>、增删 DOM 节点、改变窗口大小</td>
+          <td>🔴 <strong>开销最大（重排必触发重绘）</strong>：元素的几何尺寸或位置改变会牵一发而动全身，导致父子节点及后续兄弟节点在<strong>主线程</strong>重新计算坐标。</td>
+        </tr>
+        <tr>
+          <td><strong>② 重绘<br>（Repaint / Paint）</strong></td>
+          <td><code>Style ➔ Paint ➔ Raster ➔ Composite</code>（<strong>跳过 Layout 与分层</strong>）</td>
+          <td>修改 <code>color / background-color / border-color / visibility / box-shadow</code></td>
+          <td>🟡 <strong>开销中等（重绘不一定触发重排）</strong>：元素几何位置和宽高完全没变，但像素外观改变，需在<strong>主线程</strong>重新记录绘制指令并重新光栅化对应图块。</td>
+        </tr>
+        <tr>
+          <td><strong>③ 仅合成<br>（Composite-only）</strong></td>
+          <td><code>Style ➔ Composite</code>（<strong>完全跳过 Layout、Paint 与重新光栅化</strong>）</td>
+          <td>在独立合成层上修改 <strong><code>transform</code>（平移/缩放/旋转）</strong> 与 <strong><code>opacity</code>（透明度）</strong></td>
+          <td>🟢 <strong>开销最低（硬件加速快车道）</strong>：图块纹理早已在 GPU 显存中，CSS 动画甚至可完全由<strong>合成线程与 GPU</strong> 通过矩阵变换直接合成新帧，主线程耗时为 <code>0</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2" style="margin-bottom:0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px;">
+      <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:6px;">
+        ⚠️ 警惕一：强制同步布局（Forced Synchronous Layout / 布局抖动）
+      </div>
+      <p style="font-size:12.8px; margin:0; line-height:1.62; color:var(--plop-ink-text);">
+        现代浏览器为了减少重排，会将同一轮 JS 任务中的多次样式修改放入队列<strong>延迟批量计算</strong>。但如果你在循环中<strong>刚写完 <code>el.style.width = ...</code>，紧接着立刻读取 <code>el.offsetWidth / offsetTop / scrollTop / getBoundingClientRect()</code></strong>，浏览器为了给你返回最新尺寸，会被迫放弃批量合并，在 JS 执行中途<strong>立即强制同步执行一次 Layout</strong>。解决原则：<strong>读写分离（先集中读完所有几何属性存入变量，再集中修改样式）</strong>。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px;">
+      <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:6px;">
+        ⚠️ 警惕二：独立合成层提升条件与「层爆炸（Layer Explosion）」
+      </div>
+      <p style="font-size:12.8px; margin:0; line-height:1.62; color:var(--plop-ink-text);">
+        拥有 3D 变换（<code>translate3d / translateZ(0)</code>）、<code>&lt;video&gt; / &lt;canvas&gt;</code>、<code>transform / opacity</code> 过渡动画或显式声明 <code>will-change: transform</code> 的元素会被提升为<strong>独立合成层（Compositing Layer）</strong>。<br>
+        <strong>切勿滥用 <code>will-change</code></strong>：每一个独立合成层都需要单独分配 GPU 显存纹理；而且若一个低 <code>z-index</code> 元素提升为合成层，压在它上方的其他普通元素也会被浏览器<strong>隐式提升（Implicit Compositing）</strong>为独立合成层，引发“层爆炸”耗尽移动端显存。
+      </p>
+    </div>
+  </div>
+</div>

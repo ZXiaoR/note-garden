@@ -1,0 +1,212 @@
+<!-- ====================================================================
+     PART 06: 实际开发中 Node.js 项目怎么搭建与实战
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="engineering">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">实际开发中 Node.js 项目怎么搭建与实战</span>
+  <span class="plop-tag tomato">PROJECT LAYOUT × LAYERED API × NODE:TEST</span>
+</div>
+
+<!-- 06.1 · 实际开发中 Node.js 项目的标准分层目录结构 -->
+<div class="wb-card" id="project-layout" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🗂️ 06.1 · 工程目录架构：企业级 Node.js 项目的标准分层目录（<code>routes / controllers / services / middlewares</code>）</div>
+  <h3>🗂️ 06.1 实际开发中，一个标准 Node.js 项目的目录是怎么搭建的</h3>
+
+  <p>
+    在写小脚本时，我们可以把代码都放在一个 <code>app.js</code> 里；但在实际团队开发中，一个后端或 BFF 服务往往包含几十个业务接口、参数校验、权限拦截和数据库访问。Node.js 工程普遍采用职责清晰的<strong>四层标准目录结构（入口与路由层 → 控制器层 → 业务逻辑层 → 数据访问层）</strong>：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📂 order-service/ · 真实 Node.js 项目的标准目录树</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-node-proj-tree', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-node-proj-tree"><code>order-service/
+├── package.json            <span class="c-cm"># 项目依赖与启动脚本（声明 "type": "module"）</span>
+├── package-lock.json       <span class="c-cm"># 依赖版本精确锁定文件</span>
+├── .env                    <span class="c-cm"># 本地环境变量配置（不提交到 Git）</span>
+├── src/
+│   ├── server.js           <span class="c-cm"># 【启动入口】读取端口配置，启动 HTTP Server 并绑定优雅停机</span>
+│   ├── app.js              <span class="c-cm"># 【应用组装】挂载全局中间件与路由表（便于单元测试直接引入）</span>
+│   ├── config/
+│   │   └── index.js        <span class="c-cm"># 统一收敛 process.env 环境变量并提供默认值</span>
+│   ├── middlewares/
+│   │   └── logger.js       <span class="c-cm"># 【中间件层】请求耗时日志、身份鉴权、统一异常兜底</span>
+│   ├── routes/
+│   │   └── order.route.js  <span class="c-cm"># 【路由层】将 URL 路径映射给对应的 Controller 方法</span>
+│   ├── controllers/
+│   │   └── order.ctrl.js   <span class="c-cm"># 【控制器层】解析 req 参数，调用 Service，组装 res JSON</span>
+│   ├── services/
+│   │   └── order.svc.js    <span class="c-cm"># 【业务逻辑层】核心订单计算、库存检查、事务编排</span>
+│   └── repositories/
+│       └── order.repo.js   <span class="c-cm"># 【数据访问层】负责读写 MySQL / PostgreSQL / Redis</span>
+└── test/
+    └── order.test.js       <span class="c-cm"># 【测试目录】使用内置 node:test 编写接口与单元测试</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:8px;">🧭 核心目录的职责边界与拆分原因</div>
+      <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.68;">
+        <li><strong><code>server.js</code> 与 <code>app.js</code> 分离</strong>：<code>app.js</code> 只定义请求处理逻辑而不直接调用 <code>listen(端口)</code>，这样跑自动化测试时可以直接引入 <code>app.js</code> 而不必担心端口冲突。</li>
+        <li><strong><code>middlewares/</code>（横切关注点）</strong>：把每个接口都要做的公共操作（打印日志、校验登录 Token、捕获未处理异常）抽成中间件，避免在业务代码里重复编写。</li>
+        <li><strong><code>controllers → services → repositories</code> 三层解耦</strong>：<code>controller</code> 只管 HTTP 协议的入参和状态码；<code>service</code> 只管纯业务规则；<code>repository</code> 只管 SQL 或缓存读写，哪一层需要修改都不会牵连其他层。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- SVG：请求在标准 Node.js 项目分层架构中的流转关系 -->
+  <svg viewBox="0 0 940 165" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:12px 0;" role="img" aria-label="Node.js 标准项目分层调用流转图">
+    <text x="20" y="24" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="12.2" font-weight="900">📌 实际项目中一次 HTTP 请求的代码调用链路（由左向右逐层调用，结果按原路返回）</text>
+
+    <!-- 1. app.js + middlewares -->
+    <g transform="translate(20, 42)">
+      <rect x="0" y="0" width="200" height="102" rx="8" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="180" height="24" rx="4" fill="var(--plop-ink)"/>
+      <text x="100" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.8" font-weight="900">① middlewares + routes</text>
+      <text x="100" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.8" font-weight="800">记录日志 · 匹配路由路径</text>
+      <text x="100" y="74" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10">统一 try/catch 异常兜底</text>
+      <text x="100" y="91" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.8" font-weight="800">src/app.js</text>
+    </g>
+
+    <path d="M 224 93 L 250 93" stroke="var(--plop-ink)" stroke-width="2.4"/>
+    <polygon points="256,93 247,88 247,98" fill="var(--plop-ink)"/>
+
+    <!-- 2. controllers/ -->
+    <g transform="translate(260, 42)">
+      <rect x="0" y="0" width="200" height="102" rx="8" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="180" height="24" rx="4" fill="#1D4ED8"/>
+      <text x="100" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.8" font-weight="900">② controllers/ 控制器层</text>
+      <text x="100" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.8" font-weight="800">解析 URL 与 JSON 请求体</text>
+      <text x="100" y="74" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10">校验参数 · 返回 HTTP 状态码</text>
+      <text x="100" y="91" text-anchor="middle" fill="#1D4ED8" font-family="var(--font-mono)" font-size="9.8" font-weight="800">order.ctrl.js</text>
+    </g>
+
+    <path d="M 464 93 L 490 93" stroke="var(--plop-ink)" stroke-width="2.4"/>
+    <polygon points="496,93 487,88 487,98" fill="var(--plop-ink)"/>
+
+    <!-- 3. services/ -->
+    <g transform="translate(500, 42)">
+      <rect x="0" y="0" width="200" height="102" rx="8" fill="#E9F9F1" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="180" height="24" rx="4" fill="#1F8A65"/>
+      <text x="100" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.8" font-weight="900">③ services/ 业务逻辑层</text>
+      <text x="100" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.8" font-weight="800">执行核心业务计算规则</text>
+      <text x="100" y="74" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10">不直接接触 req / res 对象</text>
+      <text x="100" y="91" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="9.8" font-weight="800">order.svc.js</text>
+    </g>
+
+    <path d="M 704 93 L 730 93" stroke="var(--plop-ink)" stroke-width="2.4"/>
+    <polygon points="736,93 727,88 727,98" fill="var(--plop-ink)"/>
+
+    <!-- 4. repositories/ -->
+    <g transform="translate(740, 42)">
+      <rect x="0" y="0" width="180" height="102" rx="8" fill="#FFF5F2" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="160" height="24" rx="4" fill="#D2381E"/>
+      <text x="90" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.8" font-weight="900">④ repositories/ 数据层</text>
+      <text x="90" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.8" font-weight="800">封装数据库与缓存读写</text>
+      <text x="90" y="74" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10">MySQL / PG / Redis</text>
+      <text x="90" y="91" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.8" font-weight="800">order.repo.js</text>
+    </g>
+  </svg>
+</div>
+
+<!-- 06.2 · 端到端完整实战：分层 HTTP JSON 服务与内置 node:test 单元测试 -->
+<div class="wb-card" id="project-code-combat" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">💻 06.2 · 完整项目实战：编写分层 Web 服务与 <code>node:test</code> 自动化单元测试</div>
+  <h3>💻 06.2 端到端代码实战：从业务逻辑层、HTTP 入口到单元测试</h3>
+
+  <p>
+    下面我们把前面学到的模块化、<code>async / await</code>、<code>node:http</code> 与错误处理串联起来，实现一个包含<strong>业务逻辑层（<code>order.svc.js</code>）、HTTP 应用入口（<code>app.js</code>）以及内置单元测试（<code>order.test.js</code>）</strong>的完整可运行项目：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🟢 src/services/order.svc.js &amp; src/app.js · 业务层与接口层实现</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-proj-app', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-proj-app"><code><span class="c-cm">// --- 1. src/services/order.svc.js（纯业务逻辑层）---</span>
+<span class="c-kw">const</span> orders = [{ id: 1, item: <span class="c-str">'机械键盘'</span>, price: 299 }];
+
+<span class="c-kw">export async function</span> <span class="c-fn">listOrders</span>() {
+  <span class="c-kw">return</span> orders;
+}
+
+<span class="c-kw">export async function</span> <span class="c-fn">createOrder</span>({ item, price }) {
+  <span class="c-kw">if</span> (!item || <span class="c-kw">typeof</span> price !== <span class="c-str">'number'</span> || price &lt;= 0) {
+    <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">'商品名称不能为空且价格必须大于 0'</span>);
+  }
+  <span class="c-kw">const</span> newOrder = { id: orders.length + 1, item, price };
+  orders.<span class="c-fn">push</span>(newOrder);
+  <span class="c-kw">return</span> newOrder;
+}
+
+<span class="c-cm">// --- 2. src/app.js（HTTP 路由与统一异常兜底）---</span>
+<span class="c-kw">import</span> http <span class="c-kw">from</span> <span class="c-str">'node:http'</span>;
+
+<span class="c-kw">export function</span> <span class="c-fn">createApp</span>() {
+  <span class="c-kw">return</span> http.<span class="c-fn">createServer</span>(<span class="c-kw">async</span> (req, res) =&gt; {
+    <span class="c-kw">const</span> start = Date.<span class="c-fn">now</span>();
+    res.<span class="c-fn">setHeader</span>(<span class="c-str">'Content-Type'</span>, <span class="c-str">'application/json; charset=utf-8'</span>);
+
+    <span class="c-kw">try</span> {
+      <span class="c-kw">if</span> (req.method === <span class="c-str">'GET'</span> &amp;&amp; req.url === <span class="c-str">'/api/orders'</span>) {
+        <span class="c-kw">const</span> data = <span class="c-kw">await</span> <span class="c-fn">listOrders</span>();
+        res.<span class="c-fn">writeHead</span>(200);
+        res.<span class="c-fn">end</span>(JSON.<span class="c-fn">stringify</span>({ code: 0, data }));
+        <span class="c-kw">return</span>;
+      }
+      res.<span class="c-fn">writeHead</span>(404);
+      res.<span class="c-fn">end</span>(JSON.<span class="c-fn">stringify</span>({ code: 404, message: <span class="c-str">'Not Found'</span> }));
+    } <span class="c-kw">catch</span> (err) {
+      res.<span class="c-fn">writeHead</span>(400);
+      res.<span class="c-fn">end</span>(JSON.<span class="c-fn">stringify</span>({ code: 400, message: err.message }));
+    } <span class="c-kw">finally</span> {
+      console.<span class="c-fn">log</span>(<span class="c-str">`[${req.method}] ${req.url} - ${res.statusCode} (${Date.now() - start}ms)`</span>);
+    }
+  });
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🧪 test/order.test.js · 使用内置 node:test 编写单元测试</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-proj-test', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-proj-test"><code><span class="c-cm">// Node.js 20+ 内置测试运行器 node:test 与严格断言库 node:assert/strict</span>
+<span class="c-kw">import</span> { test, describe } <span class="c-kw">from</span> <span class="c-str">'node:test'</span>;
+<span class="c-kw">import</span> assert <span class="c-kw">from</span> <span class="c-str">'node:assert/strict'</span>;
+<span class="c-kw">import</span> { createOrder, listOrders } <span class="c-kw">from</span> <span class="c-str">'../src/services/order.svc.js'</span>;
+
+<span class="c-fn">describe</span>(<span class="c-str">'订单服务单元测试 (order.svc.js)'</span>, () =&gt; {
+  <span class="c-fn">test</span>(<span class="c-str">'正常创建订单并返回递增 ID'</span>, <span class="c-kw">async</span> () =&gt; {
+    <span class="c-kw">const</span> created = <span class="c-kw">await</span> <span class="c-fn">createOrder</span>({ item: <span class="c-str">'无线鼠标'</span>, price: 129 });
+    assert.<span class="c-fn">equal</span>(created.item, <span class="c-str">'无线鼠标'</span>);
+    assert.<span class="c-fn">equal</span>(created.price, 129);
+
+    <span class="c-kw">const</span> all = <span class="c-kw">await</span> <span class="c-fn">listOrders</span>();
+    assert.<span class="c-fn">equal</span>(all.length, 2);
+  });
+
+  <span class="c-fn">test</span>(<span class="c-str">'传入非法价格时应抛出参数校验异常'</span>, <span class="c-kw">async</span> () =&gt; {
+    <span class="c-kw">await</span> assert.<span class="c-fn">rejects</span>(
+      <span class="c-kw">async</span> () =&gt; <span class="c-kw">await</span> <span class="c-fn">createOrder</span>({ item: <span class="c-str">'测试商品'</span>, price: -10 }),
+      { message: <span class="c-str">'商品名称不能为空且价格必须大于 0'</span> }
+    );
+  });
+});
+
+<span class="c-cm">// 终端直接执行: $ node --test</span>
+<span class="c-cm">// ✔ 正常创建订单并返回递增 ID (1.2ms)</span>
+<span class="c-cm">// ✔ 传入非法价格时应抛出参数校验异常 (0.5ms)</span>
+<span class="c-cm">// ℹ pass 2 / fail 0</span></code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout info" style="margin:0;">
+    <strong>💡 继续深挖底层实现与面试自测：</strong><br>
+    恭喜读完《🌱 基础与实战篇》。如果你希望进一步掌握 Koa 洋葱模型中间件 <code>compose</code> 的 22 行核心源码、使用 <code>AsyncLocalStorage</code> 在整条异步调用链中无侵入透传 <code>traceId</code> 日志上下文，或通过 18 道高频核心原理自测题检验掌握程度，可点击前往 <a href="principles.html#engineering">📘 核心原理篇 · 06 洋葱模型、AsyncLocalStorage 与 18 问自测 ↗</a>。
+  </div>
+</div>

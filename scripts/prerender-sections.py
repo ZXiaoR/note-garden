@@ -11,7 +11,7 @@ import glob
 import os
 import re
 
-TOPICS = ["mysql", "postgres", "redis", "go", "os", "mq"]
+TOPICS = ["mysql", "postgres", "redis", "go", "node", "os", "mq", "browser"]
 
 SLOT_PATTERN = re.compile(
     r'(<div\s+data-plop-section="([^"]+)"[^>]*>)(.*?)(</div>\s*(?=\n\s*<div\s+data-plop-section=|\n\s*</div>\s*</main>))',

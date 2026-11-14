@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="浏览器核心原理篇：深入剖析 Chromium 多进程与 Mojo IPC 架构、DNS/TLS 1.3 与 HTTP/2 → HTTP/3 (QUIC) 协议栈、HTTP 缓存状态机与 Service Worker、HTML 状态机解析与 CSSOM 匹配、Blink 六阶段渲染流水线与合成层、WHATWG 事件循环与一帧生命周期，以及 CORS 预检、XSS/CSRF 防御与 Core Web Vitals 性能指标。" />
+  <title>浏览器工作原理 · 核心原理篇 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+      </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" data-edition-target="index.html" title="切换到当前章节的第一个网页、DOM 与事件委托、日常 API 与 DevTools 入门">🌱 基础与实战篇 ↗</a>
+        <a href="principles.html" class="active principles" aria-current="page" title="深入 Chromium 多进程架构、网络协议演进、Blink 渲染管线、事件循环规范与安全性能指标">📘 核心原理篇</a>
+      </nav>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + 核心原理速查小票 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与底层机制速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="浏览器核心原理章节书签">
+          <a href="#why" class="plop-ear-tab active" data-toc="why">
+            <span class="ear-dot"></span>
+            <span>00 多进程与站点隔离</span>
+          </a>
+          <a href="#navigation" class="plop-ear-tab" data-toc="navigation">
+            <span class="ear-dot mint"></span>
+            <span>01 导航与协议演进</span>
+          </a>
+          <a href="#cache" class="plop-ear-tab" data-toc="cache">
+            <span class="ear-dot periwinkle"></span>
+            <span>02 缓存状态机与SW</span>
+          </a>
+          <a href="#parsing" class="plop-ear-tab" data-toc="parsing">
+            <span class="ear-dot pink"></span>
+            <span>03 解析器与阻塞时序</span>
+          </a>
+          <a href="#rendering" class="plop-ear-tab" data-toc="rendering">
+            <span class="ear-dot mustard"></span>
+            <span>04 Blink渲染与合成器</span>
+          </a>
+          <a href="#event-loop" class="plop-ear-tab" data-toc="event-loop">
+            <span class="ear-dot mint"></span>
+            <span>05 事件循环与一帧</span>
+          </a>
+          <a href="#security" class="plop-ear-tab" data-toc="security">
+            <span class="ear-dot periwinkle"></span>
+            <span>06 安全与性能指标</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：浏览器底层核心参数速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>CHROMIUM 速查</span>
+            <span>#CORE</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>隔离边界</span>
+            <span>Site (eTLD+1)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>TLS 1.3</span>
+            <span>1-RTT / 0-RTT</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>合成属性</span>
+            <span>transform</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>60Hz 单帧</span>
+            <span>16.67 ms</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>CWV 阈值</span>
+            <span>LCP≤2.5s</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#why" class="active">00 多进程架构</a>
+        <a href="#navigation">01 导航与协议</a>
+        <a href="#cache">02 缓存状态机</a>
+        <a href="#parsing">03 解析与阻塞</a>
+        <a href="#rendering">04 渲染与合成</a>
+        <a href="#event-loop">05 事件与一帧</a>
+        <a href="#security">06 安全与CWV</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape"></div>
+
+        <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三步阅读车票 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card" style="background:var(--plop-periwinkle);">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">WEB / INTERNALS</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:32px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">Browser</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">核心原理篇</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag periwinkle">📘 核心原理篇</span>
+              <span class="plop-tag mint">多进程 IPC · HTTP/2 &amp; QUIC · 缓存状态机</span>
+              <span class="plop-tag tomato">Blink 渲染管线 · 事件循环一帧 · 安全与 CWV</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              浏览器工作原理 · 核心原理篇
+            </h1>
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0 0 14px; font-weight:600;">
+              面向希望深挖底层机制与备战深度技术面试的读者：本篇不再重复基础 API 用法，直接沿着一次网页访问在 Chromium 内核中的真实流转路径，剖析多进程沙箱与站点隔离、DNS/TLS 1.3 与 HTTP/3 QUIC 协议演进、RFC 9111 缓存决策状态机、HTML 状态机解析与 CSSOM 右向匹配、Blink 主线程与合成器六阶段渲染管线、WHATWG 事件循环与 16.7ms 一帧生命周期，以及 CORS 预检、XSS/CSRF 纵深防御与 Core Web Vitals 性能体系。若需回顾基础语法与日常开发示例，可随时切回 <a href="index.html">🌱 基础与实战篇 ↗</a>。
+            </p>
+
+            <!-- 三阶段手账小票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#why" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 进程架构、导航与缓存</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—02：Mojo IPC 与站点隔离、TLS 1.3 与 HTTP/3 QUIC、强/协商缓存状态机</div>
+              </a>
+              <a href="#parsing" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 解析阻塞与合成器流水线</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 03—04：Preload Scanner、CSSOM 匹配、Layout/Layer/Paint 与 GPU 光栅合成</div>
+              </a>
+              <a href="#event-loop" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 事件调度、安全与性能</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 05—06：事件循环与 VSync 一帧时序、CORS 预检与 XSS/CSRF、LCP/INP/CLS</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="principles-sections/00-why.html">
+          <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/00-why.html">00 · 架构导读与多进程隔离：Chromium 多进程模型、Mojo IPC 与站点隔离</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">剖析 Browser、Network Service、GPU 与沙箱 Renderer 进程的职责边界、主线程与合成线程分工，以及 Site Isolation 跨站隔离。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/01-navigation.html">
+          <section class="wb-card" id="navigation" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/01-navigation.html">01 · 页面导航与网络协议演进：DNS、TCP/TLS 握手、HTTP/2 → HTTP/3 与导航提交</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">还原从输入 URL 到 CommitNavigation 与 bfcache 的跨进程时序，推导 TLS 1.3 1-RTT 握手，并对比 HTTP/1.1、HTTP/2 与 HTTP/3 QUIC。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/02-cache.html">
+          <section class="wb-card" id="cache" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/02-cache.html">02 · HTTP 缓存状态机与离线存储：强缓存新鲜度、ETag 协商验证与 Service Worker</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">图解 RFC 9111 强缓存与 304 协商缓存决策状态机，对比 Memory Cache 与 Disk Cache、ETag 与 Last-Modified，以及 Service Worker 拦截。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/03-parsing.html">
+          <section class="wb-card" id="parsing" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/03-parsing.html">03 · HTML 状态机解析、CSSOM 规则匹配与阻塞模型：预加载扫描器与脚本时序</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">深入 HTML5 词法状态机与投机性预加载扫描器、CSS 选择器从右向左匹配原理，以及四种 script 加载模式的时间轴对比。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/04-rendering.html">
+          <section class="wb-card" id="rendering" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/04-rendering.html">04 · Blink 渲染流水线与合成器架构：Layout 树、合成层、光栅化与重排重绘</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解 Style → Layout → Layer → Paint → Tiling/Raster → Composite 六阶段管线，辨析重排、重绘、硬件加速合成、强制同步布局与层爆炸。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/05-eventloop.html">
+          <section class="wb-card" id="event-loop" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/05-eventloop.html">05 · HTML 事件循环规范与一帧生命周期：任务队列、微任务检查点、rAF 与 rIC</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">还原 WHATWG 多优先级任务队列与微任务检查点，图解 16.7ms VSync 一帧内宏任务、微任务、rAF、渲染与 rIC 的精确执行顺序。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/06-security-perf.html">
+          <section class="wb-card" id="security" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/06-security-perf.html">06 · 浏览器安全边界与 Core Web Vitals 性能体系：CORS 预检、XSS/CSRF 与 LCP/INP/CLS</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">区分同源与同站（eTLD+1），图解 CORS OPTIONS 预检时序，梳理 XSS/CSP 与 CSRF/SameSite 防御矩阵及 Core Web Vitals 调优。</p>
+          </section>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：阅读路线便签 + 全站主题跳转 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷导航与跨专题切换">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note periwinkle tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>📘 按面试高频模块直达</span>
+            </span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:7px; margin-top:8px;">
+            <a class="plop-pill-sticker" href="#navigation">输入 URL 到页面展示：看 01 + 04</a>
+            <a class="plop-pill-sticker mustard" href="#event-loop">宏微任务与一帧时序：看 05</a>
+            <a class="plop-pill-sticker mint" href="index.html">想看入门例子与用法：回 🌱 基础篇 ↗</a>
+          </div>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+
+</body>
+</html>

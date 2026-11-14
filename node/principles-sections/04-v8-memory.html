@@ -1,0 +1,409 @@
+<!-- ====================================================================
+     PART 04: V8 引擎与内存管理 · 隐藏类、分代 GC 与线上内存泄漏排查
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="v8gc">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">V8 引擎与内存管理 · 隐藏类、新老生代分代 GC 与线上内存泄漏排查</span>
+  <span class="plop-tag tomato">HIDDEN CLASS × GENERATIONAL GC × HEAP SNAPSHOT</span>
+</div>
+
+<!-- 04.1 · V8 JIT 流水线、隐藏类（Hidden Class）与内联缓存（IC） -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🚀 04.1 · V8 执行优化机制：JIT 编译流水线、隐藏类（Hidden Class）与内联缓存（IC）</div>
+  <h3>⚡ 04.1 V8 JIT 编译管线（Ignition + TurboFan）、隐藏类（Map）与内联缓存（Inline Cache）</h3>
+
+  <p>
+    JavaScript 支持在运行时动态增删对象属性。如果每次读取属性 <code>obj.x</code> 都执行一次哈希表查找，属性访问开销会显著高于静态类型语言。为此 V8 在底层为每个对象维护了一张<strong>隐藏类（Hidden Class，源码中称为 <code>Map</code>）</strong>，用于记录各属性在内存中的固定偏移量，并配合<strong>内联缓存（Inline Cache, IC）</strong>与 <strong>TurboFan JIT 编译优化</strong>：当同类对象的属性结构（Shape）保持一致时，后续属性访问可直接通过固定内存偏移量寻址。
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>❌ vs ✅ hidden_class.js · 隐藏类分叉退化与单态复用写法对照</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-v8-hc', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-v8-hc"><code><span class="c-cm">// ❌ 错误写法：按不同顺序动态挂载属性，并使用 delete 删除属性</span>
+<span class="c-kw">const</span> p1 = {}; p1.x = 1; p1.y = 2; <span class="c-cm">// 隐藏类转换链: C0 ➔ C1(x) ➔ C2(x,y)</span>
+<span class="c-kw">const</span> p2 = {}; p2.y = 2; p2.x = 1; <span class="c-cm">// 属性顺序不同，分叉生成独立隐藏类 C3(y) ➔ C4(y,x)</span>
+<span class="c-kw">delete</span> p1.x;                       <span class="c-cm">// 导致对象退化为慢速哈希字典模式 (Slow Properties)</span>
+
+<span class="c-cm">// ✅ 正确写法：在构造函数中按固定顺序初始化属性，用赋 null 代替 delete</span>
+<span class="c-kw">class</span> <span class="c-fn">Point</span> {
+  <span class="c-fn">constructor</span>(x, y) {
+    <span class="c-kw">this</span>.x = x; <span class="c-cm">// 所有实例共享同一个隐藏类 Map，维持单态内联缓存 (Monomorphic IC)</span>
+    <span class="c-kw">this</span>.y = y; <span class="c-cm">// 若需清空属性值，直接赋值为 null，保持对象结构不变</span>
+  }
+}</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 V8 编译流水线与逆优化（Deoptimization）机制：</div>
+      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
+        <li><strong>JIT 编译流水线</strong>：源码解析为抽象语法树（<strong>AST</strong>） ➔ <strong>Ignition 解释器</strong>生成字节码并收集运行时类型反馈 ➔ 热点函数交由 <strong>TurboFan 编译器</strong>生成优化后的原生机器码。</li>
+        <li><strong>单态（Monomorphic）与超多态（Megamorphic）</strong>：若热点函数接收的参数始终为同一种隐藏类，内联缓存可稳定命中；若传入超过 4 种不同结构的对象，内联缓存将退化为全局查找，且已生成的机器码会触发<strong>逆优化（Deopt）</strong>回退至字节码执行。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 04.2 · process.memoryUsage() 五大指标、GC Roots 可达性与 V8 堆内存分代布局 -->
+<div class="wb-card" id="gc" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📊 04.2 · 进程内存结构与分代模型：<code>process.memoryUsage</code> 五项指标、GC Roots 可达性与 V8 堆分区</div>
+  <h3>📊 04.2 进程内存结构、GC Roots 可达性判定与 V8 堆内存分代布局</h3>
+
+  <p>
+    <strong>① 理解垃圾回收的第一步：V8 怎么知道哪个对象是“垃圾”？（GC Roots 可达性分析）</strong><br>
+    V8 并不是靠统计引用次数来回收内存（因为 `a.next = b; b.next = a` 循环引用会导致引用计数永远不为 0），而是采用<strong>可达性分析（Reachability）</strong>：<br>
+    垃圾回收器每次从一组固定的<strong>根对象（GC Roots，包括：① 当前正在执行的函数调用栈里的局部变量与参数；② 全局对象 <code>globalThis</code>；③ 活跃的定时器、C++ 句柄与内置模块缓存）</strong>出发，顺着对象属性指针一路往下找。凡是在这条引用链上能被访问到的对象就是<strong>存活对象（Reachable）</strong>；凡是从任何 GC Root 出发都找不到的“孤岛对象”，就会被判定为<strong>不可达垃圾（Unreachable）</strong>并予以回收。
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📊 memory_usage.js · process.memoryUsage() 五项内存指标含义</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mem-usage', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mem-usage"><code><span class="c-kw">const</span> buf = Buffer.<span class="c-fn">alloc</span>(50 * 1024 * 1024); <span class="c-cm">// 分配 50MB 堆外 Buffer</span>
+<span class="c-kw">const</span> m = process.<span class="c-fn">memoryUsage</span>();
+
+console.<span class="c-fn">table</span>({
+  rss:          <span class="c-str">`${(m.rss / 1048576).toFixed(1)} MB`</span>,          <span class="c-cm">// ① 进程常驻物理内存总量 (含V8堆+堆外+C++栈)</span>
+  heapTotal:    <span class="c-str">`${(m.heapTotal / 1048576).toFixed(1)} MB`</span>,    <span class="c-cm">// ② V8 已向操作系统申请的堆内存总容量</span>
+  heapUsed:     <span class="c-str">`${(m.heapUsed / 1048576).toFixed(1)} MB`</span>,     <span class="c-cm">// ③ V8 堆内 JS 对象实际使用量 (排查JS对象泄漏)</span>
+  external:     <span class="c-str">`${(m.external / 1048576).toFixed(1)} MB`</span>,     <span class="c-cm">// ④ V8 绑定对象关联的堆外 C++ 内存 (含 Buffer)</span>
+  arrayBuffers: <span class="c-str">`${(m.arrayBuffers / 1048576).toFixed(1)} MB`</span>  <span class="c-cm">// ⑤ Buffer 与 ArrayBuffer 占用的堆外内存 (50MB)</span>
+});</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;">📖 堆内内存（V8 Heap）与堆外内存的边界：</div>
+      <p style="font-size:13px; margin:0; line-height:1.64;">
+        V8 的垃圾回收器主要管理 <strong><code>heapTotal / heapUsed</code>（V8 堆内的普通对象、数组、闭包、字符串）</strong>；而上一章讲到的 <code>Buffer</code> 底层物理字节块则存放在 V8 堆外的 C++ 内存中（计入 <code>arrayBuffers / external</code>，当上层 JS 视图卡片被 V8 GC 回收时连带释放）。<br>
+        • <strong>排查方向判断</strong>：若监控发现 <code>heapUsed</code> 在 GC 后仍呈阶梯式上涨，说明存在 <strong>V8 堆内 JS 对象泄漏</strong>；若 <code>heapUsed</code> 平稳但 <code>rss</code> 与 <code>external</code> 持续增长，则应重点检查<strong>未消费的 Stream 缓冲或堆外 Buffer 滞留</strong>。
+      </p>
+    </div>
+  </div>
+
+  <p style="margin:0 0 8px;">
+    <strong>② 为什么 V8 要把堆内存分成「新生代」和「老生代」？（弱分代假说）</strong><br>
+    在 Web 服务中，90% 以上的对象（例如处理一次 HTTP 请求时创建的临时 JSON 对象、局部数组、拼接字符串）都是<strong>“朝生夕死”</strong>的——从创建到请求结束只需要几毫秒；只有极少数对象（如全局配置、连接池、内存缓存）会长期存活。<br>
+    如果把短命对象和长寿对象混在同一个几 GB 的大池子里每次全盘扫描，效率极低。因此 V8 将堆内存按对象年龄划分为三个核心区域，采用<strong>“新老分治”</strong>策略：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">V8 堆内存分区</th>
+          <th style="width:18%">默认容量范围</th>
+          <th style="width:28%">存放哪些对象</th>
+          <th>对应的垃圾回收器与特点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 新生代（<code>New Space</code>）</strong><br>（平分为 <code>From</code> 与 <code>To</code> 两个半区）</td>
+          <td><code>1MB ~ 64MB</code><br>（空间小）</td>
+          <td>所有刚创建出来的普通小对象（<code>new Object</code>、局部数组、短字符串等）第一时间都分配在这里。</td>
+          <td>• <strong>副垃圾回收器（Minor GC / Scavenge 算法）</strong>；<br>• 触发极频繁，但由于只复制极少数（通常 &lt;10%）存活对象，每次回收耗时仅 <strong><code>1~2ms</code></strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 老生代（<code>Old Space</code>）</strong></td>
+          <td>约 <code>2GB ~ 4GB</code><br>（可通过 <code>--max-old-space-size</code> 调大）</td>
+          <td>在新生代中历经多次回收依然存活下来的“长寿对象”（如全局缓存、模块导出对象、长连接池）。</td>
+          <td>• <strong>主垃圾回收器（Major GC / 标记-清除与标记-整理算法）</strong>；<br>• 空间大、存活率高，采用后台并发三色标记 + 增量清除，触发频率低。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 大对象空间（<code>Large Object Space</code>）</strong></td>
+          <td>按需分配</td>
+          <td>单个体积超过新生代半区容量的大数组或大字符串（例如几 MB 的 JSON 对象）。</td>
+          <td>• <strong>直接在此分配，不经过新生代</strong>（避免在新生代 `From/To` 之间来回复制大块内存的开销），由 Major GC 统一回收。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 04.3 · 新生代 Scavenge 复制算法与老生代三色标记 + 写屏障深度拆解 -->
+<div class="wb-card" id="gc-algorithms" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">♻️ 04.3 · 分代回收算法详解：新生代 Scavenge 半空间复制与晋升、老生代三色标记与写屏障</div>
+  <h3>♻️ 04.3 新生代 <code>Scavenge</code> 复制算法与老生代 <code>三色标记 + 写屏障</code> 全流程拆解</h3>
+
+  <!-- 第一部分：新生代 Scavenge 4 步详解 -->
+  <p>
+    <strong>一、新生代 Minor GC：<code>Scavenge</code>（Cheney 半空间复制算法）是怎么一步步工作的？</strong><br>
+    新生代虽然总大小只有几十 MB，但里面绝大部分对象在几毫秒后就会变成垃圾。为了做到<strong>“分配极快、回收极快且永远不产生内存碎片”</strong>，V8 将新生代一分为二，切成两个完全等大的半区——<strong><code>From-Space</code>（当前正在使用的半区）</strong>与 <strong><code>To-Space</code>（平时完全闲置的空白半区）</strong>，按以下 4 个步骤循环运作：
+  </p>
+
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.4px; line-height:1.7;">
+    <li><strong>Step 1 · 平时顺序分配（碰撞指针）</strong>：新对象不断往 <code>From-Space</code> 里紧密排列写入，只需把分配游标往后移动即可，速度与栈分配几乎一样快；此时 <code>To-Space</code> 完全空着。</li>
+    <li><strong>Step 2 · <code>From-Space</code> 写满触发 Scavenge，只把“活对象”搬去 <code>To-Space</code></strong>：当 <code>From-Space</code> 装满时，暂停执行约 1 毫秒，从 GC Roots 出发找出 <code>From-Space</code> 里还活着的少量对象（如图中的 <code>存活A</code>、<code>存活B</code>），将它们<strong>挨个紧凑地复制到 <code>To-Space</code> 的最开头</strong>（中间死掉的垃圾对象根本不管，复制完后自然消除了所有内存空隙）。</li>
+    <li><strong>Step 3 · 搬家途中检查“晋升（Promotion）”条件（满足任一即直接搬去老生代）</strong>：
+      <br>• <strong>条件 ①（年龄达标）</strong>：如果某个活对象之前已经经历过 <strong>1 次</strong> Scavenge 回收，这次是第 2 次活下来，说明它是长寿对象，不再复制到 <code>To-Space</code>，而是直接迁入<strong>老生代（Old Space）</strong>；
+      <br>• <strong>条件 ②（<code>To-Space</code> 占用超过 <code>25%</code> 水位线）</strong>：如果把对象往 <code>To-Space</code> 复制时，发现 <code>To-Space</code> 已经被占用了超过 <strong><code>25%</code></strong>，后续活对象也直接晋升去老生代——<strong>为什么是 25%？</strong>因为下一步 <code>To-Space</code> 马上就要翻转变成新的 <code>From-Space</code> 用来接收新对象，如果一上来就已经占了七八成，刚运行几毫秒又会立刻塞满触发 GC。
+    </li>
+    <li><strong>Step 4 · 清空原 <code>From-Space</code> 并翻转角色（Flip）</strong>：活对象全部安置好后，原 <code>From-Space</code> 里剩下的全是死垃圾，整块直接一键清空；最后把 <strong><code>From-Space</code> 和 <code>To-Space</code> 两个半区的身份对调</strong>，继续接收新对象。</li>
+  </ul>
+
+  <!-- SVG 1：新生代 Scavenge 半空间复制、翻转与 25% 晋升老生代图解 -->
+  <svg viewBox="0 0 940 232" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:12px 0;" role="img" aria-label="V8 新生代 Scavenge 四步半空间复制与晋升老生代图解">
+    <defs>
+      <marker id="arr-scav-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#15803D"/>
+      </marker>
+      <marker id="arr-scav-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#D2381E"/>
+      </marker>
+    </defs>
+
+    <!-- 先画正交连线 -->
+    <!-- From -> To 复制连线 -->
+    <path d="M 294 98 L 336 98" fill="none" stroke="#15803D" stroke-width="2.4" marker-end="url(#arr-scav-green)"/>
+    <!-- To -> Old Space 晋升连线 -->
+    <path d="M 614 98 L 656 98" fill="none" stroke="#D2381E" stroke-width="2.4" stroke-dasharray="5 3" marker-end="url(#arr-scav-red)"/>
+
+    <!-- 1. 左侧：From-Space (使用区写满) -->
+    <g transform="translate(18, 16)">
+      <rect x="0" y="0" width="274" height="148" rx="9" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="254" height="24" rx="5" fill="var(--plop-ink)"/>
+      <text x="137" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.6" font-weight="900">① From-Space (使用半区写满)</text>
+
+      <!-- 块排布 -->
+      <rect x="12" y="44" width="56" height="44" rx="5" fill="#DCFCE7" stroke="#15803D" stroke-width="1.8"/>
+      <text x="40" y="64" text-anchor="middle" fill="#15803D" font-size="10" font-weight="900">存活 A</text>
+      <text x="40" y="80" text-anchor="middle" fill="#15803D" font-size="9">(第1次)</text>
+
+      <rect x="72" y="44" width="60" height="44" rx="5" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.4" stroke-dasharray="3 2"/>
+      <text x="102" y="64" text-anchor="middle" fill="#D2381E" font-size="10" font-weight="800">死对象</text>
+      <text x="102" y="80" text-anchor="middle" fill="#D2381E" font-size="9">(原地丢弃)</text>
+
+      <rect x="136" y="44" width="56" height="44" rx="5" fill="#DCFCE7" stroke="#15803D" stroke-width="1.8"/>
+      <text x="164" y="64" text-anchor="middle" fill="#15803D" font-size="10" font-weight="900">存活 B</text>
+      <text x="164" y="80" text-anchor="middle" fill="#15803D" font-size="9">(第1次)</text>
+
+      <rect x="196" y="44" width="66" height="44" rx="5" fill="#FFF6E5" stroke="#D2381E" stroke-width="1.8"/>
+      <text x="229" y="64" text-anchor="middle" fill="#D2381E" font-size="10" font-weight="900">存活 C</text>
+      <text x="229" y="80" text-anchor="middle" fill="#D2381E" font-size="9" font-weight="800">(第2次存活)</text>
+
+      <text x="137" y="112" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="700">90% 临时对象死掉无需遍历清理</text>
+      <text x="137" y="132" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.8" font-weight="700">搬完活对象后，整块区域一键清零</text>
+    </g>
+
+    <!-- 2. 中间：To-Space (空闲半区紧凑排列 + 25% 水位线) -->
+    <g transform="translate(338, 16)">
+      <rect x="0" y="0" width="274" height="148" rx="9" fill="#F0FDF4" stroke="#15803D" stroke-width="2"/>
+      <rect x="10" y="10" width="254" height="24" rx="5" fill="#15803D"/>
+      <text x="137" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.6" font-weight="900">② To-Space (紧凑复制 + 翻转)</text>
+
+      <rect x="12" y="44" width="56" height="44" rx="5" fill="#DCFCE7" stroke="#15803D" stroke-width="1.8"/>
+      <text x="40" y="64" text-anchor="middle" fill="#15803D" font-size="10" font-weight="900">存活 A</text>
+      <text x="40" y="80" text-anchor="middle" fill="#15803D" font-size="9">紧凑排头</text>
+
+      <rect x="72" y="44" width="56" height="44" rx="5" fill="#DCFCE7" stroke="#15803D" stroke-width="1.8"/>
+      <text x="100" y="64" text-anchor="middle" fill="#15803D" font-size="10" font-weight="900">存活 B</text>
+      <text x="100" y="80" text-anchor="middle" fill="#15803D" font-size="9">消除碎片</text>
+
+      <!-- 25% 晋升红线 -->
+      <line x1="138" y1="40" x2="138" y2="94" stroke="#D2381E" stroke-width="2" stroke-dasharray="3 2"/>
+      <rect x="144" y="44" width="118" height="44" rx="5" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.4" stroke-dasharray="4 2"/>
+      <text x="203" y="64" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.6" font-weight="900">⬅️ 25% 容量警戒线</text>
+      <text x="203" y="80" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.2" font-weight="700">超线对象直接晋升</text>
+
+      <text x="137" y="112" text-anchor="middle" fill="#15803D" font-size="10" font-weight="800">Step 4：From 与 To 身份互换 (Flip)</text>
+      <text x="137" y="132" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.8" font-weight="700">以空间换时间：一半空间常年留空</text>
+    </g>
+
+    <!-- 3. 右侧：晋升至老生代 Old Space -->
+    <g transform="translate(658, 16)">
+      <rect x="0" y="0" width="264" height="148" rx="9" fill="#FFF6E5" stroke="#D2381E" stroke-width="2"/>
+      <rect x="10" y="10" width="244" height="24" rx="5" fill="#D2381E"/>
+      <text x="132" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.6" font-weight="900">③ 晋升至老生代 (Promotion)</text>
+
+      <rect x="14" y="44" width="236" height="44" rx="5" fill="#FFFFFF" stroke="#D2381E" stroke-width="1.6"/>
+      <text x="132" y="63" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.2" font-weight="900">存活 C 已迁入老生代 Old Space</text>
+      <text x="132" y="80" text-anchor="middle" fill="var(--plop-ink-text)" font-size="9.6" font-weight="700">后续归入 Major GC 管理，不再来回复制</text>
+
+      <text x="132" y="112" text-anchor="middle" fill="var(--plop-ink-text)" font-size="9.8" font-weight="800">条件 ①：历经 1 次 GC 后第 2 次仍存活</text>
+      <text x="132" y="132" text-anchor="middle" fill="var(--plop-ink-text)" font-size="9.8" font-weight="800">条件 ②：To-Space 已用空间超过 25%</text>
+    </g>
+
+    <!-- 底部一句话总结条 -->
+    <rect x="18" y="176" width="904" height="40" rx="7" fill="#F8FAFC" stroke="var(--plop-ink)" stroke-width="1.6"/>
+    <text x="470" y="200" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10.5" font-weight="800">💡 为什么新生代这么快？因为 Scavenge 只遍历和复制那 &lt;10% 的存活对象，90% 死掉的临时对象直接随原 From 区整块丢弃。</text>
+  </svg>
+
+  <!-- 第二部分：老生代 Major GC 详解（为什么不用复制算法 + 三色标记 + 清除vs整理 + 写屏障） -->
+  <p style="margin:16px 0 8px;">
+    <strong>二、老生代 Major GC：为什么不能再用 Scavenge？「三色标记 + 清除/整理 + 写屏障」是怎么配合的？</strong><br>
+    老生代容量高达 <code>2GB ~ 4GB</code>，且里面的对象绝大部分都是长期存活的。如果还用新生代那种“平分两半、来回复制”的算法，不仅会白白浪费一半（<code>1~2GB</code>）内存，而且每次复制几百 MB 活对象会导致程序严重卡顿。<br>
+    因此，老生代改用<strong>原地标记与回收</strong>策略，整個过程由以下 3 个紧密衔接的机制组成：
+  </p>
+
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.4px; line-height:1.7;">
+    <li>
+      <strong>机制 ① · 三色标记法（Tri-color Marking：⚪白 ➔ 🔘灰 ➔ ⚫黑）找出谁死谁活</strong>：<br>
+      为了在不暂停整个程序的情况下渐进式遍历对象图，V8 给堆内每个对象维护了三种标记状态：
+      <br>• <strong>⚪ 白色（未访问 / 候选垃圾）</strong>：GC 开始前，所有对象默认全部是白色；如果到标记全部结束时某个对象依然是白色，说明没有任何路径能连到它，即为待回收垃圾。
+      <br>• <strong>🔘 灰色（已发现、但子引用未扫完的“波峰队列”）</strong>：从 GC Roots 出发直接引用的第一批对象先被涂成<strong>灰色</strong>放入待扫描队列；代表“我自己肯定活着，但我属性指向的下级对象还没检查完”。
+      <br>• <strong>⚫ 黑色（确认存活且子引用已全部扫完）</strong>：每次从灰色队列取出一个对象，把它直接引用的白色子对象全部涂成<strong>灰色</strong>推入队列，然后把该对象自身涂成<strong>黑色</strong>。当灰色队列彻底清空时，所有活着的对象都变成了黑色，剩下的白色对象就是垃圾。
+    </li>
+    <li>
+      <strong>机制 ② · 标记-清除（<code>Mark-Sweep</code>）与标记-整理（<code>Mark-Compact</code>）按需配合</strong>：<br>
+      标记完成后，老生代并不会每次都去搬动对象：
+      <br>• <strong>平时优先用 <code>Mark-Sweep</code>（原地清除，极快）</strong>：黑色活对象留在原地一动不动，只把白色死对象的内存块地址登记到<strong>空闲链表（Free List）</strong>中，下次分配新对象时直接从链表里找一块够大的空隙塞进去。
+      <br>• <strong>碎片过多时才触发 <code>Mark-Compact</code>（平移整理，消除碎片）</strong>：多次清除后内存会像瑞士奶酪一样布满零碎空洞；当需要分配一个较大对象而找不到连续空隙时，V8 才会启动整理——把所有黑色活对象统一向内存页的左侧紧密平移，空出右侧整片连续空间。
+    </li>
+    <li>
+      <strong>机制 ③ · 增量标记（Incremental）与写屏障（<code>Write Barrier</code>）如何防止漏标误删？</strong><br>
+      如果一次性把 2GB 老生代全部标完，JS 主线程会被暂停几百毫秒（称为<strong>全停顿 Stop-The-World</strong>）。为此 V8（Orinoco 引擎）采用<strong>并发标记（后台线程并行扫描）+ 增量标记（主线程每标 <code>2~5ms</code> 就切回执行一段 JS 代码）</strong>。<br>
+      但这带来一个核心问题：<strong>当 GC 暂停、切回执行 JS 代码时，如果 JS 把一个“已经扫描完的⚫黑色对象 A”指向了一个“还没被扫描的⚪白色对象 D”（同时断开原来灰色对象对 D 的引用），由于黑色对象不会再被重新扫描，D 岂不是会一直保持白色而被误删？</strong><br>
+      V8 的解决方案就是<strong>写屏障（Write Barrier）</strong>：引擎在每次执行属性赋值 <code>A.child = D</code> 时插入极其轻量的一行拦截检查——<strong>一旦发现“⚫黑色对象引用了⚪白色对象”，写屏障立即介入将白色对象 D 强制涂成🔘灰色放入待扫描队列</strong>，从而确保绝不会漏标任何一个存活对象。
+    </li>
+  </ul>
+
+  <!-- SVG 2：老生代三色标记推进、写屏障拦截防漏标与 Sweep/Compact 对比图 -->
+  <svg viewBox="0 0 940 242" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:12px 0;" role="img" aria-label="V8 老生代三色标记、写屏障防漏标与清除整理示意图">
+    <defs>
+      <marker id="arr-tri-dark" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#1E293B"/>
+      </marker>
+      <marker id="arr-tri-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#D2381E"/>
+      </marker>
+    </defs>
+
+    <!-- 左侧：三色标记推进与写屏障拦截 -->
+    <g transform="translate(18, 16)">
+      <rect x="0" y="0" width="466" height="210" rx="10" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="12" y="10" width="442" height="24" rx="5" fill="var(--plop-ink)"/>
+      <text x="233" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.6" font-weight="900">① 三色标记推进 (⚫黑 ➔ 🔘灰 ➔ ⚪白) 与写屏障防漏标</text>
+
+      <!-- 连线先画 -->
+      <path d="M 108 74 L 154 74" fill="none" stroke="#1E293B" stroke-width="2.2" marker-end="url(#arr-tri-dark)"/>
+      <path d="M 272 74 L 318 74" fill="none" stroke="#1E293B" stroke-width="2.2" marker-end="url(#arr-tri-dark)"/>
+      <!-- 黑色对象 A 新增引用指向 D 的红色虚线 (触发写屏障) -->
+      <path d="M 62 98 L 62 140 Q 62 148 70 148 L 318 148" fill="none" stroke="#D2381E" stroke-width="2.2" stroke-dasharray="4 3" marker-end="url(#arr-tri-red)"/>
+
+      <!-- 节点 A：⚫ 黑色 -->
+      <rect x="16" y="48" width="92" height="50" rx="7" fill="#1E293B" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="62" y="70" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.4" font-weight="900">⚫ 对象 A (黑)</text>
+      <text x="62" y="88" text-anchor="middle" fill="#CBD5E1" font-size="9.4">自身与子已扫完</text>
+
+      <!-- 节点 B：🔘 灰色 -->
+      <rect x="156" y="48" width="116" height="50" rx="7" fill="#CBD5E1" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="214" y="70" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.4" font-weight="900">🔘 对象 B (灰)</text>
+      <text x="214" y="88" text-anchor="middle" fill="var(--plop-ink-text)" font-size="9.4" font-weight="700">在待扫描队列中</text>
+
+      <!-- 节点 C：⚪ 白色 -->
+      <rect x="320" y="48" width="130" height="50" rx="7" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" stroke-dasharray="4 2"/>
+      <text x="385" y="70" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.4" font-weight="900">⚪ 对象 C (白)</text>
+      <text x="385" y="88" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.4" font-weight="700">扫完 B 后将被涂灰</text>
+
+      <!-- 写屏障标签遮罩与节点 D -->
+      <rect x="92" y="135" width="198" height="24" rx="5" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.4"/>
+      <text x="191" y="151" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.6" font-weight="900">⚡ JS 执行 A.ref = D 触发写屏障</text>
+
+      <rect x="320" y="122" width="130" height="52" rx="7" fill="#FEF08A" stroke="#D2381E" stroke-width="2"/>
+      <text x="385" y="144" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.2" font-weight="900">⚪➔🔘 对象 D</text>
+      <text x="385" y="162" text-anchor="middle" fill="var(--plop-ink-text)" font-size="9.4" font-weight="800">强制涂灰防漏标误删</text>
+
+      <text x="233" y="196" text-anchor="middle" fill="var(--plop-ink-text)" font-size="9.8" font-weight="800">标记结束时：所有 ⚫黑对象保留，剩余孤立 ⚪白对象全部判定为垃圾</text>
+    </g>
+
+    <!-- 右侧：Mark-Sweep (空闲链表) vs Mark-Compact (平移压缩) 直观对比 -->
+    <g transform="translate(500, 16)">
+      <rect x="0" y="0" width="422" height="210" rx="10" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="12" y="10" width="398" height="24" rx="5" fill="#1D4ED8"/>
+      <text x="211" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="10.6" font-weight="900">② 回收阶段：Mark-Sweep 清除 vs Mark-Compact 整理</text>
+
+      <!-- 上半：Mark-Sweep -->
+      <rect x="14" y="44" width="394" height="72" rx="7" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="24" y="62" fill="#1D4ED8" font-family="var(--font-mono)" font-size="10.2" font-weight="900">方式 A · Mark-Sweep (标记-清除，日常默认，速度快)：</text>
+      <rect x="24" y="70" width="76" height="34" rx="4" fill="#1E293B"/>
+      <text x="62" y="91" text-anchor="middle" fill="#FFFFFF" font-size="9.6" font-weight="800">⚫ 存活 1</text>
+      <rect x="106" y="70" width="96" height="34" rx="4" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.4" stroke-dasharray="3 2"/>
+      <text x="154" y="91" text-anchor="middle" fill="#D2381E" font-size="9.4" font-weight="800">空闲链表槽位</text>
+      <rect x="208" y="70" width="76" height="34" rx="4" fill="#1E293B"/>
+      <text x="246" y="91" text-anchor="middle" fill="#FFFFFF" font-size="9.6" font-weight="800">⚫ 存活 2</text>
+      <rect x="290" y="70" width="106" height="34" rx="4" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.4" stroke-dasharray="3 2"/>
+      <text x="343" y="91" text-anchor="middle" fill="#D2381E" font-size="9.4" font-weight="800">空闲链表槽位</text>
+
+      <!-- 下半：Mark-Compact -->
+      <rect x="14" y="126" width="394" height="72" rx="7" fill="#F0FDF4" stroke="#15803D" stroke-width="1.6"/>
+      <text x="24" y="144" fill="#15803D" font-family="var(--font-mono)" font-size="10.2" font-weight="900">方式 B · Mark-Compact (标记-整理，碎片多时触发)：</text>
+      <rect x="24" y="152" width="76" height="34" rx="4" fill="#1E293B"/>
+      <text x="62" y="173" text-anchor="middle" fill="#FFFFFF" font-size="9.6" font-weight="800">⚫ 存活 1</text>
+      <rect x="104" y="152" width="76" height="34" rx="4" fill="#1E293B"/>
+      <text x="142" y="173" text-anchor="middle" fill="#FFFFFF" font-size="9.6" font-weight="800">⚫ 存活 2</text>
+      <rect x="186" y="152" width="210" height="34" rx="4" fill="#DCFCE7" stroke="#15803D" stroke-width="1.5"/>
+      <text x="291" y="173" text-anchor="middle" fill="#15803D" font-size="9.8" font-weight="900">⬅️ 存活左移，右侧合并为整块连续可用内存</text>
+    </g>
+  </svg>
+</div>
+
+<!-- 04.4 · 四类常见内存泄漏场景与线上 Heap Snapshot 排查方法 -->
+<div class="wb-card" id="heap-snapshot" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🕵️ 04.4 · 内存泄漏诊断与治理：四类常见内存泄漏模式与 Heap Snapshot 差分排查法</div>
+  <h3>🔬 04.4 四类常见内存泄漏代码对照与 <code>Heap Snapshot</code> 排查步骤</h3>
+
+  <p>
+    当对象已不再被业务逻辑需要，但仍被 GC Root（如全局对象、模块级变量、活跃闭包或未清理的定时器）直接或间接引用时，垃圾回收器无法释放该对象，从而形成内存泄漏。以下是工程中最常见的四类泄漏写法及其修复方式：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>❌ vs ✅ memory_leaks_4_types.js · 四类常见内存泄漏写法与正确修复对照</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-leak-4', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-leak-4"><code><span class="c-cm">// 场景 ①：模块级缓存无容量上限</span>
+<span class="c-cm">// ❌ 错误写法：直接用普通 Map 缓存每个请求的数据，随运行时间无限增长</span>
+<span class="c-kw">const</span> badCache = <span class="c-kw">new</span> <span class="c-fn">Map</span>();
+<span class="c-cm">// ✅ 正确写法：使用带容量上限与过期淘汰的 lru-cache，或以对象为键的 WeakMap</span>
+
+<span class="c-cm">// 场景 ②：全局事件总线重复绑定监听器未解绑（默认超过 10 个触发告警）</span>
+<span class="c-cm">// ❌ 错误写法：在每次请求内执行 bus.on('msg', fn)，请求结束后未移除</span>
+<span class="c-cm">// ✅ 正确写法：单次监听使用 bus.once('msg', fn)，或在响应结束时调用 bus.off('msg', fn)</span>
+
+<span class="c-cm">// 场景 ③：长生命周期闭包持有外层大对象引用</span>
+<span class="c-kw">function</span> <span class="c-fn">createHandler</span>() {
+  <span class="c-kw">const</span> hugeList = <span class="c-kw">new</span> <span class="c-fn">Array</span>(1e6).<span class="c-fn">fill</span>(<span class="c-str">'item'</span>);
+  <span class="c-cm">// ❌ 错误写法：返回的函数直接引用 hugeList[0]，导致整个 hugeList 无法被回收</span>
+  <span class="c-cm">// return () =&gt; console.log(hugeList[0]);</span>
+  <span class="c-cm">// ✅ 正确写法：在闭包外部先提取所需的标量值，让 hugeList 在函数返回后可被回收</span>
+  <span class="c-kw">const</span> firstItem = hugeList[0];
+  <span class="c-kw">return</span> () =&gt; console.<span class="c-fn">log</span>(firstItem);
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📸 heap_diagnose.sh · 导出堆快照命令与 Chrome DevTools 对比流程</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('cmd-node-heap', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="cmd-node-heap"><code><span class="c-cm"># 1. 启动时开启信号触发堆快照参数（进程收到 SIGUSR2 时自动写出 .heapsnapshot 文件）</span>
+node --heapsnapshot-signal=SIGUSR2 --max-old-space-size=4096 app.js
+
+<span class="c-cm"># 2. 线上间隔 5 分钟执行两次信号发送，获取两份不同时间点的堆快照：</span>
+kill -USR2 &lt;PID&gt;
+
+<span class="c-cm"># 3. 或在代码中通过内置 node:v8 模块按需导出堆快照：</span>
+node -e <span class="c-str">"const v8 = require('node:v8'); console.log(v8.writeHeapSnapshot());"</span></code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout tip">
+    <strong>🎯 Chrome DevTools Memory 面板分析 <code>.heapsnapshot</code> 的三个步骤：</strong><br>
+    1. <strong>两份快照做增量对比（Comparison 视图）</strong>：导入间隔数分钟采集的 <code>Snapshot 1</code> 与 <code>Snapshot 2</code>，切换至 <strong><code>Comparison</code> 模式并按 <code># Delta</code> 或 <code>Size Delta</code> 降序排列</strong>，筛选出持续净增而未释放的对象类型。<br>
+    2. <strong>区分 <code>Shallow Size</code>（自身大小）与 <code>Retained Size</code>（保留大小）</strong>：重点关注 <code>Retained Size</code>，该值表示释放当前对象后可连带回收的所有下游引用内存总和。<br>
+    3. <strong>通过底部 <code>Retainers</code> 面板追溯引用链</strong>：展开目标对象的 <code>Retainers</code> 引用树，向上回溯至持有该对象的闭包或模块变量，即可定位到具体的文件名与代码行号。
+  </div>
+</div>
+
+<div class="plop-bridge">
+  🔗 掌握单进程 V8 内存与 GC 机制后，接下来进入 <strong>第 05 章</strong>：探讨 <strong><code>child_process</code> 子进程管理、<code>Cluster</code> 多进程共享端口原理与 <code>worker_threads</code> 工作线程</strong> ➔
+</div>

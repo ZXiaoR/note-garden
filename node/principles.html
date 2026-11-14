@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Node.js 核心原理篇：围绕 V8 + libuv 四层运行时架构展开，深入剖析 CommonJS 值拷贝与 ES Module 实时绑定、libuv 事件循环六大阶段与微任务插队、Buffer 8KB Slab 内存池与 Stream 背压状态机、V8 隐藏类与新老生代分代 GC、Cluster 多进程共享端口与 AsyncLocalStorage 异步上下文追踪。" />
+  <title>Node.js · 核心原理篇 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+      </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" data-edition-target="index.html" title="切换到当前章节的基础语法、核心内置模块用法与标准项目目录搭建">🌱 基础与实战篇 ↗</a>
+        <a href="principles.html" class="active" aria-current="page" title="深入 V8 + libuv 运行时、事件循环六阶段、Buffer 8KB 内存池、Stream 背压与分代 GC">📘 核心原理篇</a>
+      </nav>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + Node 速查小票 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与参数速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="Node.js 核心原理章节书签">
+          <a href="#why" class="plop-ear-tab active" data-toc="why">
+            <span class="ear-dot"></span>
+            <span>00 四层运行时架构</span>
+          </a>
+          <a href="#module" class="plop-ear-tab" data-toc="module">
+            <span class="ear-dot mint"></span>
+            <span>01 模块加载与循环依赖</span>
+          </a>
+          <a href="#eventloop" class="plop-ear-tab" data-toc="eventloop">
+            <span class="ear-dot mustard"></span>
+            <span>02 libuv与事件循环</span>
+          </a>
+          <a href="#stream" class="plop-ear-tab" data-toc="stream">
+            <span class="ear-dot periwinkle"></span>
+            <span>03 8KB内存池与流背压</span>
+          </a>
+          <a href="#v8gc" class="plop-ear-tab" data-toc="v8gc">
+            <span class="ear-dot pink"></span>
+            <span>04 V8隐藏类与分代GC</span>
+          </a>
+          <a href="#cluster" class="plop-ear-tab" data-toc="cluster">
+            <span class="ear-dot periwinkle"></span>
+            <span>05 多进程IPC与共享内存</span>
+          </a>
+          <a href="#engineering" class="plop-ear-tab" data-toc="engineering">
+            <span class="ear-dot mint"></span>
+            <span>06 洋葱模型与链路追踪</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：Node.js Runtime 关键机制与阈值速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>NODE 原理速查</span>
+            <span>#22 LTS</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>libuv 线程池</span>
+            <span>4 线程 (≤1024)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>Slab 内存池</span>
+            <span>8 KiB (&lt;4KB入池)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>流背压水位</span>
+            <span>64KB / 16KB</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>监听器告警</span>
+            <span>&gt; 10 个触发</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>基础实战</span>
+            <span>顶部 🌱基础篇</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#why" class="active">00 运行时架构</a>
+        <a href="#module">01 模块底层</a>
+        <a href="#eventloop">02 事件循环</a>
+        <a href="#stream">03 内存池与背压</a>
+        <a href="#v8gc">04 V8与GC</a>
+        <a href="#cluster">05 进程与线程</a>
+        <a href="#engineering">06 追踪与自测</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape"></div>
+
+        <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三阶段阅读车票 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card" style="background:var(--plop-periwinkle);">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">RUNTIME / 02</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:32px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">Node.js</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">核心原理篇</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag tomato">📘 核心原理篇</span>
+              <span class="plop-tag mint">CJS vs ESM · LIBUV EVENT LOOP · STREAM</span>
+              <span class="plop-tag periwinkle">V8 GC · CLUSTER · ASYNCLOCALSTORAGE</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              Node.js · 核心原理篇
+            </h1>
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0 0 14px; font-weight:600;">
+              围绕 Node.js 运行时的底层实现展开：从单线程事件驱动与非阻塞 I/O 四层架构出发，剖析 CommonJS 值拷贝与 ES Module 实时绑定、libuv 事件循环六大阶段与微任务调度、Buffer 8KB 共享内存池与 Stream 背压状态机、V8 隐藏类与新老生代分代 GC，以及多进程共享端口与异步上下文追踪。若需查阅核心内置模块的日常用法与标准项目目录搭建，可随时切换至 <a href="index.html">🌱 基础与实战篇 ↗</a>。
+            </p>
+
+            <!-- 三阶段手账小票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#module" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 架构、模块化与事件循环</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—02：V8 + libuv 分层架构、CJS/ESM 加载机制，以及 libuv 六阶段与微任务调度</div>
+              </a>
+              <a href="#stream" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 内存池、流背压与 V8 GC</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 03—04：Buffer 8KB 共享池、Stream 背压状态流转、V8 隐藏类与分代 GC、堆快照分析</div>
+              </a>
+              <a href="#cluster" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 多核并发与异步链路追踪</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 05—06：Cluster 共享端口、worker_threads 共享内存、洋葱模型与 AsyncLocalStorage 自测</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="principles-sections/00-why.html">
+          <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/00-why.html">00 · 架构导读与运行时定位：非阻塞 I/O 模型与 V8 + libuv 分层架构</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比传统多线程同步阻塞模型与单线程事件驱动非阻塞 I/O 架构，解析 V8 + libuv 四层运行时分工，以及 Node.js 与 Go、Java、Python 的技术选型边界。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/01-module.html">
+          <section class="wb-card" id="module" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/01-module.html">01 · 模块加载底层机制：CommonJS 包装器、ES Module 实时绑定与循环依赖</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解 CommonJS 五步加载与函数包装器、运行时值拷贝与 ES Module 编译期实时绑定（Live Binding）、循环依赖下的执行表现，以及条件导出配置。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/02-eventloop.html">
+          <section class="wb-card" id="eventloop" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/02-eventloop.html">02 · 事件循环与异步调度：<code>libuv</code> 六大阶段、微任务优先级与线程池分工</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">图解 `uv_run` 六大阶段与 `poll` 阻塞唤醒机制、`setTimeout(0)` 与 `setImmediate` 的执行顺序、`process.nextTick` 与 `Promise` 微任务优先级，以及内核 epoll 与 4 线程池分工。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/03-buffer-stream.html">
+          <section class="wb-card" id="stream" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/03-buffer-stream.html">03 · 内存池与流背压原理：<code>Buffer</code> 8KB Slab 切片与 <code>Stream</code> 背压状态机</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">解析 `Buffer.alloc` 与 `allocUnsafe` 的 8KB Slab 共享内存池切片机制、`highWaterMark` 水位线背压控制状态流转，以及 `stream.pipeline` 自动资源管理。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/04-v8-memory.html">
+          <section class="wb-card" id="v8gc" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/04-v8-memory.html">04 · V8 引擎与内存管理：隐藏类、新老生代分代 GC 与线上内存泄漏排查</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖 V8 Ignition + TurboFan 编译管线与隐藏类优化、新生代 Scavenge 半空间复制与对象晋升、老生代三色并发标记整理，以及四类常见内存泄漏与 Heap Snapshot 排查。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/05-cluster-threads.html">
+          <section class="wb-card" id="cluster" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/05-cluster-threads.html">05 · 多核并发与进程通信底层：<code>Cluster</code> IPC 句柄分发与 <code>SharedArrayBuffer</code></a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比 `spawn / execFile / exec / fork` 与安全调用规范，解析 `Cluster` 主进程监听与 IPC 分发 Socket 句柄原理、平滑停机，以及 `worker_threads` 与 `SharedArrayBuffer` 共享内存。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/06-engineering.html">
+          <section class="wb-card" id="engineering" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/06-engineering.html">06 · 中间件洋葱模型、<code>AsyncLocalStorage</code> 异步上下文追踪与 18 问自测</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">手写 Koa 22 行 `compose` 洋葱模型、EventEmitter 内存泄漏防护、`AsyncLocalStorage` 全链路日志 `traceId` 透传，以及 18 道核心原理闭卷自测题。</p>
+          </section>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：按需切换阅读便签 + 全站主题跳转 ==================== -->
+    <aside class="plop-side-rail right" aria-label="Node.js 常用诊断命令与跨专题导航">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>🌱 按需切换阅读</span>
+            </span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:7px; margin-top:8px;">
+            <a class="plop-pill-sticker" href="index.html#module">先看模块化与包管理怎么用？</a>
+            <a class="plop-pill-sticker periwinkle" href="index.html#stream">文件与 Stream 日常怎么写？</a>
+            <a class="plop-pill-sticker mustard" href="index.html#engineering">实际项目目录怎么搭建？</a>
+            <button type="button" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('cmd-node-inspect', this)">
+              🔥 复制 CPU / Heap 诊断命令
+            </button>
+          </div>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 隐藏的常用线上排障命令供右侧按钮一键复制 -->
+  <pre id="cmd-node-inspect" style="display:none;">node --inspect --heapsnapshot-signal=SIGUSR2 --trace-gc app.js</pre>
+
+</body>
+</html>

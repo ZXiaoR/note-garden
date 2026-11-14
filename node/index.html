@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Node.js 基础与项目实战篇：从第一个程序、全局对象与核心内置模块全景出发，依次讲解 CommonJS 与 ES Module 模块化、package.json 包管理、Promise 与 async/await 异步编程、EventEmitter 事件通信、文件与 Stream 流操作、HTTP 服务开发、进程与线程管理，以及标准项目目录搭建与单元测试实战。" />
+  <title>Node.js · 基础与实战篇 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+      </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" class="active" aria-current="page" title="循序渐进：从第一个程序、核心内置模块用法到真实项目目录搭建">🌱 基础与实战篇</a>
+        <a href="principles.html" data-edition-target="principles.html" title="切换到当前章节的 V8 + libuv 运行时、事件循环六阶段、内存池与背压原理">📘 核心原理篇 ↗</a>
+      </nav>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + Node 速查小票 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与日常开发速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="Node.js 基础与实战章节书签">
+          <a href="#why" class="plop-ear-tab active" data-toc="why">
+            <span class="ear-dot"></span>
+            <span>00 环境安装与第一个程序</span>
+          </a>
+          <a href="#module" class="plop-ear-tab" data-toc="module">
+            <span class="ear-dot mint"></span>
+            <span>01 模块化与包管理</span>
+          </a>
+          <a href="#eventloop" class="plop-ear-tab" data-toc="eventloop">
+            <span class="ear-dot mustard"></span>
+            <span>02 异步编程与事件驱动</span>
+          </a>
+          <a href="#stream" class="plop-ear-tab" data-toc="stream">
+            <span class="ear-dot periwinkle"></span>
+            <span>03 文件、Buffer与流</span>
+          </a>
+          <a href="#v8gc" class="plop-ear-tab" data-toc="v8gc">
+            <span class="ear-dot pink"></span>
+            <span>04 HTTP服务与客户端请求</span>
+          </a>
+          <a href="#cluster" class="plop-ear-tab" data-toc="cluster">
+            <span class="ear-dot periwinkle"></span>
+            <span>05 进程管理与工作线程</span>
+          </a>
+          <a href="#engineering" class="plop-ear-tab" data-toc="engineering">
+            <span class="ear-dot mint"></span>
+            <span>06 项目搭建与开发实战</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：Node.js 日常开发速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>NODE.JS 速查</span>
+            <span>#22 LTS</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>内置前缀</span>
+            <span>node:fs / http</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>开启 ESM</span>
+            <span>"type":"module"</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>热重启</span>
+            <span>node --watch</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>环境变量</span>
+            <span>--env-file=.env</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>底层深挖</span>
+            <span>顶部 📘原理篇</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#why" class="active">00 第一个程序</a>
+        <a href="#module">01 模块与包</a>
+        <a href="#eventloop">02 异步与事件</a>
+        <a href="#stream">03 文件与流</a>
+        <a href="#v8gc">04 HTTP服务</a>
+        <a href="#cluster">05 进程与线程</a>
+        <a href="#engineering">06 项目搭建</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape"></div>
+
+        <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三步阅读车票 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card" style="background:var(--plop-mint);">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">BACKEND / 01</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:32px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">Node.js</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">基础与实战篇</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag mint">🌱 基础与实战篇</span>
+              <span class="plop-tag periwinkle">模块化 · 异步编程 · 文件与流</span>
+              <span class="plop-tag tomato">HTTP 服务 · 标准项目目录搭建</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              Node.js · 基础与实战篇
+            </h1>
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0 0 14px; font-weight:600;">
+              从开发环境安装、国内镜像配置与第一个可运行程序出发，依次梳理模块化与包管理、异步编程与事件驱动、文件系统与二进制流操作、HTTP 网络服务开发以及进程与工作线程的日常用法，最后通过一个完整的 Web 接口项目演示标准分层目录结构与单元测试。若需深入事件循环阶段、内存池切片与分代垃圾回收机制，可随时切换至 <a href="principles.html">📘 核心原理篇 ↗</a>。
+            </p>
+
+            <!-- 三阶段手账小票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#module" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 环境安装、模块与异步</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—02：环境安装与镜像配置、CJS/ESM 与 npm 包管理、Promise 与事件驱动</div>
+              </a>
+              <a href="#stream" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 文件流、HTTP 与进程</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 03—05：path/fs 文件读写、Buffer 与 Stream 管道、HTTP 路由与进程/线程管理</div>
+              </a>
+              <a href="#engineering" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 实际项目搭建与实战</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 06：企业级分层目录（routes/controllers/services）、中间件与内置单元测试</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="sections/00-why.html">
+          <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 认识 Node.js、环境安装与第一个程序：多版本管理（<code>n / nvm / fnm / Volta</code>）、国内镜像与内置模块全景</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">了解 Node.js 适用场景，掌握 `n / nvm / fnm / Volta` 版本管理与 `nrm` 镜像切换，运行第一个程序并一览全局对象与核心内置模块。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/01-module.html">
+          <section class="wb-card" id="module" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-module.html">01 · 模块化与包管理日常用法：CommonJS、ES Module 与 <code>package.json</code></a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">掌握 `require / module.exports` 与 `import / export` 的日常写法、`node:` 协议前缀，以及 `package.json` 与 `npm / pnpm` 依赖管理。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/02-eventloop.html">
+          <section class="wb-card" id="eventloop" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-eventloop.html">02 · 异步编程与事件驱动基础：<code>Promise</code>、<code>async/await</code> 与 <code>EventEmitter</code></a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">梳理从错误优先回调到 `Promise.all` 并发组合与 `async/await` 的异步写法，以及 `EventEmitter` 事件监听与触发。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/03-buffer-stream.html">
+          <section class="wb-card" id="stream" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-buffer-stream.html">03 · 文件系统、路径处理与二进制流：<code>path</code>、<code>fs/promises</code>、<code>Buffer</code> 与 <code>Stream</code></a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">掌握跨平台路径拼接、异步文件读写与目录操作、`Buffer` 编码转换，以及用 `Stream` 与 `pipeline` 传输大文件。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/04-v8-memory.html">
+          <section class="wb-card" id="v8gc" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-v8-memory.html">04 · HTTP 网络服务与客户端请求开发：<code>node:http</code> 路由解析与原生 <code>fetch</code></a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">学会使用 `node:http` 搭建 Web 服务、解析 URL 参数与 JSON 请求体、设置状态码与响应头，并用原生 `fetch` 发起请求。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/05-cluster-threads.html">
+          <section class="wb-card" id="cluster" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-cluster-threads.html">05 · 进程管理、环境变量与并发工具：<code>process</code>、<code>child_process</code> 与 <code>worker_threads</code></a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">掌握命令行参数与 `.env` 环境变量读取、优雅退出信号处理、调用外部子进程命令，以及启动 Worker 工作线程。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/06-engineering.html">
+          <section class="wb-card" id="engineering" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-engineering.html">06 · 实际开发中 Node.js 项目怎么搭建与实战：分层目录结构、中间件与单元测试</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">从项目初始化开始，详解 `routes / controllers / services / middlewares` 标准分层目录，手写完整 HTTP JSON 服务与 `node --test` 单元测试。</p>
+          </section>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：学习路线便签 + 全站主题跳转 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷导航与跨专题切换">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>🌱 按现在的需要读</span>
+            </span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:7px; margin-top:8px;">
+            <a class="plop-pill-sticker" href="#why">刚开始学：从 00 顺着往下读</a>
+            <a class="plop-pill-sticker periwinkle" href="#engineering">要搭项目：直接看 06 目录与实战</a>
+            <a class="plop-pill-sticker mustard" href="principles.html">想看底层与面试：去 📘 核心原理篇 ↗</a>
+          </div>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+
+</body>
+</html>

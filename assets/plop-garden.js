@@ -20,9 +20,11 @@
     { path: 'mysql/index.html', title: '🐬 MySQL 架构与锁', dot: 'mint' },
     { path: 'postgres/index.html', title: '🐘 PostgreSQL 进阶', dot: 'periwinkle' },
     { path: 'redis/index.html', title: '🧱 Redis 原理与集群', dot: 'pink' },
-    { path: 'go/index.html', title: '🐹 Go GMP 与 GC', dot: 'mustard' },
+    { path: 'go/index.html', aliases: ['go/principles.html', 'go/principles'], title: '🐹 Go 语言与原理', dot: 'mustard' },
+    { path: 'node/index.html', aliases: ['node/principles.html', 'node/principles'], title: '🟢 Node.js 基础与原理', dot: 'mint' },
     { path: 'os/index.html', aliases: ['os/principles.html', 'os/principles'], title: '🖥️ Linux 操作系统', dot: 'mint' },
-    { path: 'mq/index.html', title: '📨 消息队列对比', dot: '' }
+    { path: 'mq/index.html', title: '📨 消息队列对比', dot: '' },
+    { path: 'browser/index.html', aliases: ['browser/principles.html', 'browser/principles'], title: '🌐 浏览器工作原理', dot: 'periwinkle' }
   ];
   window.NOTE_GARDEN_TOPICS = NOTE_GARDEN_TOPICS;
 
@@ -258,7 +260,7 @@
   }
 
   // 10. 自动并行加载拆分的纯 HTML 章节子文件 ([data-plop-section="sections/01-xxx.html"])
-  const SECTION_CACHE_PREFIX = 'plop-sec-v2:';
+  const SECTION_CACHE_PREFIX = 'plop-sec-v6:';
   const prefetchedPages = new Set();
 
   function getSectionCacheKey(url, baseHref = window.location.href) {
@@ -317,14 +319,18 @@
 
     const urls = slots.map(slot => slot.getAttribute('data-plop-section'));
 
-    // Fast path: if all fragments are already in sessionStorage, mount them synchronously in 0ms
+    // Fast path: if all fragments are already in sessionStorage (and not on local dev server), mount synchronously
+    const isLocalDev =
+      window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     let cachedFragments = null;
-    try {
-      const candidates = urls.map(u => sessionStorage.getItem(getSectionCacheKey(u)));
-      if (candidates.every(Boolean)) {
-        cachedFragments = candidates;
-      }
-    } catch (e) {}
+    if (!isLocalDev) {
+      try {
+        const candidates = urls.map(u => sessionStorage.getItem(getSectionCacheKey(u)));
+        if (candidates.every(Boolean)) {
+          cachedFragments = candidates;
+        }
+      } catch (e) {}
+    }
 
     if (cachedFragments) {
       slots.forEach((slot, idx) => {
@@ -353,7 +359,7 @@
     try {
       const fragments = await Promise.all(
         urls.map(async url => {
-          const res = await fetch(url);
+          const res = await fetch(url, isLocalDev ? { cache: 'no-store' } : undefined);
           if (!res.ok) throw new Error(`HTTP ${res.status} when loading ${url}`);
           const text = await res.text();
           try {

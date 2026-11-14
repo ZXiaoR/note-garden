@@ -1,0 +1,168 @@
+<!-- ====================================================================
+     PART 02: 异步编程与事件驱动基础
+     ==================================================================== -->
+<div class="wb-sec-header mustard" id="eventloop">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">异步编程与事件驱动基础：Promise、async/await 与 EventEmitter</span>
+  <span class="plop-tag tomato">PROMISE × ASYNC/AWAIT × EVENTEMITTER</span>
+</div>
+
+<!-- 02.1 · 从错误优先回调到 Promise 与 async/await -->
+<div class="wb-card" id="async-promise" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">⏳ 02.1 · 异步语法演进：错误优先回调（Error-First Callback）、<code>Promise</code> 与 <code>async / await</code></div>
+  <h3>⏳ 02.1 异步编程写法：从回调函数到 <code>async / await</code></h3>
+
+  <p>
+    在 Node.js 中，读取文件、查询数据库或请求外部接口都是<strong>非阻塞异步操作</strong>——发起调用后主线程不会停在原地干等，而是先去处理其他任务，等结果准备好后再执行后续逻辑。<br>
+    Node.js 的异步写法经历了两个阶段的演进：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong>早期传统写法（Error-First Callback 错误优先回调）</strong>：把一个回调函数作为最后一个参数传入，回调函数固定接收两个参数 <strong><code>(err, data) =&gt; {}</code></strong>——如果操作出错，第一个参数 <code>err</code> 为错误对象；如果成功，<code>err</code> 为 <code>null</code>，第二个参数 <code>data</code> 为返回结果。</li>
+    <li><strong>现代标准写法（<code>Promise</code> + <code>async / await</code>）</strong>：Node.js 标准库如今均已内置 Promise 版本（如 <code>node:fs/promises</code>）。配合 <code>async / await</code> 关键字，可以用接近同步代码的线性顺序编写异步逻辑，并用标准的 <code>try / catch</code> 捕获错误。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📜 callback_vs_promisify.js · 传统错误优先回调与转换</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-cb-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-cb-basic"><code><span class="c-kw">import</span> fs <span class="c-kw">from</span> <span class="c-str">'node:fs'</span>;
+<span class="c-kw">import</span> { promisify } <span class="c-kw">from</span> <span class="c-str">'node:util'</span>;
+
+<span class="c-cm">// 1. 传统错误优先回调：第一个参数永远是 err，第二个参数是结果</span>
+fs.<span class="c-fn">readFile</span>(<span class="c-str">'./config.json'</span>, <span class="c-str">'utf8'</span>, (err, text) =&gt; {
+  <span class="c-kw">if</span> (err) {
+    console.<span class="c-fn">error</span>(<span class="c-str">'读取失败:'</span>, err.message);
+    <span class="c-kw">return</span>;
+  }
+  console.<span class="c-fn">log</span>(<span class="c-str">'读取成功，字符数:'</span>, text.length);
+});
+
+<span class="c-cm">// 2. 若遇到老旧第三方库只提供回调函数，可用 util.promisify 一键转为 Promise</span>
+<span class="c-kw">const</span> readFileAsync = <span class="c-fn">promisify</span>(fs.readFile);</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚡ async_await.js · 现代 async/await 与并发组合写法</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-async-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-async-basic"><code><span class="c-kw">import</span> fs <span class="c-kw">from</span> <span class="c-str">'node:fs/promises'</span>;
+<span class="c-kw">import</span> { setTimeout <span class="c-kw">as</span> sleep } <span class="c-kw">from</span> <span class="c-str">'node:timers/promises'</span>;
+
+<span class="c-kw">async function</span> <span class="c-fn">loadDashboardData</span>() {
+  <span class="c-kw">try</span> {
+    <span class="c-cm">// 1. 两个互不依赖的异步读取：用 Promise.all 同时发起，总耗时取最慢的那个</span>
+    <span class="c-kw">const</span> [userRaw, orderRaw] = <span class="c-kw">await</span> Promise.<span class="c-fn">all</span>([
+      fs.<span class="c-fn">readFile</span>(<span class="c-str">'./users.json'</span>, <span class="c-str">'utf8'</span>),
+      fs.<span class="c-fn">readFile</span>(<span class="c-str">'./orders.json'</span>, <span class="c-str">'utf8'</span>),
+    ]);
+
+    <span class="c-cm">// 2. 内置 timers/promises 提供无需手写 new Promise 的异步等待</span>
+    <span class="c-kw">await</span> <span class="c-fn">sleep</span>(100); <span class="c-cm">// 非阻塞等待 100 毫秒</span>
+    <span class="c-kw">return</span> { users: JSON.<span class="c-fn">parse</span>(userRaw), orders: JSON.<span class="c-fn">parse</span>(orderRaw) };
+  } <span class="c-kw">catch</span> (err) {
+    console.<span class="c-fn">error</span>(<span class="c-str">'加载数据出错:'</span>, err.message);
+  }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 02.2 · Promise 并发组合工具选型表 -->
+<div class="wb-card" id="promise-combinators" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🔀 02.2 · 并发任务编排：<code>Promise.all / allSettled / race / any</code> 四种组合方法对比</div>
+  <h3>🔀 02.2 多个异步任务同时发起时，四种 <code>Promise</code> 组合方法怎么选</h3>
+
+  <p>
+    当我们需要同时发起多个异步请求（如批量查询多个接口或读取多个文件）时，如果在一个循环里逐个写 <code>await</code>，会变成“前一个跑完才开始跑下一个”的串行等待。根据对失败任务的处理需求，Node.js 提供了四种标准的并发组合方法：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">组合方法</th>
+          <th style="width:34%">成功与失败触发规则</th>
+          <th>典型适用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>Promise.all([...])</code></strong></td>
+          <td>全部成功才返回结果数组；<strong>只要有 1 个失败，整体立即抛出异常</strong>（一荣俱荣，一损俱损）。</td>
+          <td>页面初始化同时拉取多個必需的数据源（缺一不可）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Promise.allSettled([...])</code></strong></td>
+          <td><strong>永远不会抛出异常</strong>；等待所有任务结束后，返回每个任务的状态对象（<code>{ status: 'fulfilled', value }</code> 或 <code>{ status: 'rejected', reason }</code>）。</td>
+          <td>批量发送通知、批量导入数据（允许部分成功、部分失败，最后汇总报告）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Promise.race([...])</code></strong></td>
+          <td>哪个任务<strong>最先完成（无论成功还是失败）</strong>，就采用哪个任务的结果。</td>
+          <td>配合超时计时器给某个慢操作加上超时限制。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Promise.any([...])</code></strong></td>
+          <td>哪个任务<strong>最先成功</strong>就返回谁；只有当全部任务都失败时才抛出 <code>AggregateError</code>。</td>
+          <td>同时向多个镜像源或备用节点发起请求，取最快响应的那个。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 02.3 · 事件驱动基石：node:events 与 EventEmitter 日常用法 -->
+<div class="wb-card" id="event-emitter-basic" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">📡 02.3 · 事件发布与订阅：<code>EventEmitter</code> 的常用方法（<code>on / once / emit / off</code>）</div>
+  <h3>📡 02.3 事件发布与订阅：<code>node:events</code>（<code>EventEmitter</code>）日常用法</h3>
+
+  <p>
+    除了 <code>Promise</code>，Node.js 还有一个贯穿整个标准库的核心设计模式——<strong>事件发布与订阅（<code>EventEmitter</code>）</strong>。当一个对象会在运行过程中持续发生多次状态变化（比如 HTTP 服务器不断收到新请求、文件流不断读出新数据块）时，就会继承自 <code>node:events</code> 模块的 <code>EventEmitter</code>：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong><code>emitter.on(事件名, 处理函数)</code></strong>：注册监听器，每次该事件被触发时都会执行；</li>
+    <li><strong><code>emitter.once(事件名, 处理函数)</code></strong>：注册单次监听器，触发<strong>一次</strong>后自动移除，适合监听“连接建立”或“初始化完成”；</li>
+    <li><strong><code>emitter.emit(事件名, ...参数)</code></strong>：触发指定事件，并把参数依次传给所有已注册的监听函数；</li>
+    <li><strong><code>emitter.off(事件名, 处理函数)</code></strong>：在不需要时移除指定的监听函数，释放内存。</li>
+  </ul>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span>📡 order_events.js · 使用 EventEmitter 实现订单状态通知解耦</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ee-basic', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-ee-basic"><code><span class="c-kw">import</span> { EventEmitter } <span class="c-kw">from</span> <span class="c-str">'node:events'</span>;
+
+<span class="c-cm">// 1. 创建一个事件中心实例</span>
+<span class="c-kw">const</span> orderBus = <span class="c-kw">new</span> <span class="c-fn">EventEmitter</span>();
+
+<span class="c-cm">// 2. 使用 on 注册持续监听：每当有 'paid' 事件发生时，依次执行库存扣减与积分发放</span>
+orderBus.<span class="c-fn">on</span>(<span class="c-str">'paid'</span>, (orderId, amount) =&gt; {
+  console.<span class="c-fn">log</span>(<span class="c-str">`[库存服务] 订单 ${orderId} 支付 ￥${amount}，已扣减库存`</span>);
+});
+
+<span class="c-cm">// 3. 使用 once 注册一次性监听：仅在首单支付时触发一次，之后自动解绑</span>
+orderBus.<span class="c-fn">once</span>(<span class="c-str">'paid'</span>, (orderId) =&gt; {
+  console.<span class="c-fn">log</span>(<span class="c-str">`[首单奖励] 恭喜完成首笔订单: ${orderId}`</span>);
+});
+
+<span class="c-cm">// 4. 始终为 EventEmitter 注册 'error' 事件监听，防止出错时未捕获导致进程退出</span>
+orderBus.<span class="c-fn">on</span>(<span class="c-str">'error'</span>, (err) =&gt; {
+  console.<span class="c-fn">error</span>(<span class="c-str">'[事件异常]:'</span>, err.message);
+});
+
+<span class="c-cm">// 5. 触发两次 'paid' 事件：</span>
+orderBus.<span class="c-fn">emit</span>(<span class="c-str">'paid'</span>, <span class="c-str">'ORD-101'</span>, 99); <span class="c-cm">// 输出: [库存服务]... 和 [首单奖励]...</span>
+orderBus.<span class="c-fn">emit</span>(<span class="c-str">'paid'</span>, <span class="c-str">'ORD-102'</span>, 58); <span class="c-cm">// 输出: 仅打印 [库存服务]...（once 监听器已自动移除）</span></code></pre>
+  </div>
+
+  <div class="plop-callout info" style="margin:0;">
+    <strong>💡 延伸阅读：</strong>当代码里同时存在 <code>setTimeout</code>、<code>setImmediate</code>、文件读写回调、<code>Promise.then</code> 与 <code>process.nextTick</code> 时，Node.js 底层是如何决定它们的先后执行顺序的？可点击查看 <a href="principles.html#eventloop">📘 核心原理篇 · 02 libuv 事件循环六大阶段与微任务优先级 ↗</a>。
+  </div>
+</div>

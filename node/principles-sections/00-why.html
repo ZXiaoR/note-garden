@@ -1,0 +1,251 @@
+<!-- ====================================================================
+     PART 00: 架构导读与运行时定位 · 非阻塞 I/O 模型与 V8 + libuv 分层架构
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">架构导读与运行时定位 · 非阻塞 I/O 模型与 V8 + libuv 分层架构</span>
+  <span class="plop-tag tomato">RUNTIME ARCHITECTURE · 架构导读与定位</span>
+</div>
+
+<!-- 00.1 · 并发模型演进与 Node.js 四层运行时架构 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧭 00.1 · 并发模型演进：传统多线程阻塞 I/O 与单线程事件驱动架构对比</div>
+  <h3>💡 00.1 高并发 I/O 瓶颈与 Node.js 的事件驱动非阻塞模型</h3>
+
+  <p>
+    在传统的“一请求一线程”同步阻塞服务器中，当线程发起磁盘读取或数据库查询时，整个操作系统线程会被挂起等待 I/O 返回。由于 Web 服务的大部分耗时集中在 I/O 等待上，若每个线程栈默认占用 <code>2MB</code> 内存，面对上万个并发连接时，仅线程栈的物理内存开销与内核上下文切换成本就会成为系统瓶颈。<br>
+    Node.js 采用<strong>单线程事件循环（Event Loop）配合非阻塞 I/O</strong> 的设计：将 JavaScript 代码运行在单个主线程上，把慢速的网络与文件 I/O 委托给底层的 <code>libuv</code> 异步库与操作系统内核，待 I/O 完成后再通过回调函数通知主线程继续处理。
+  </p>
+
+  <div class="wb-grid-3" style="margin:14px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag tomato">核心机制 ① · 异步非阻塞</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Ch.01~02</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">主线程负责事件调度，I/O 交由内核与线程池</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        主线程发起 I/O 请求后立即返回并继续处理后续连接；网络 Socket 读写由操作系统内核 <code>epoll / kqueue</code> 监控，文件与加密操作由 <code>libuv</code> 工作线程池在后台执行。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag periwinkle">核心机制 ② · 流与分代内存</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Ch.03~04</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">Buffer 8KB 内存池 + Stream 背压 + V8 分代 GC</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        单进程内的所有请求共享同一个 V8 堆。通过堆外 <code>8KB</code> 池化 <code>Buffer</code> 与 <code>Stream</code> 水位线背压机制，可以用几十 KB 的固定内存缓冲区平稳转发 GB 级文件。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag mint">核心机制 ③ · 多核扩展与工程化</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Ch.05~06</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">Cluster 多进程共享端口 + 工作线程 + 上下文透传</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        生产环境通过 <code>Cluster</code> 多进程模式充分利用多核 CPU，使用 <code>worker_threads</code> 隔离 CPU 密集型计算，并通过 <code>AsyncLocalStorage</code> 实现异步调用链路的上下文透传。
+      </p>
+    </div>
+  </div>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🟢 non_blocking_io.mjs · 异步非阻塞读取与 Error-First 回调示例</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-node-why', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-node-why"><code><span class="c-kw">import</span> fs <span class="c-kw">from</span> <span class="c-str">'node:fs'</span>; <span class="c-cm">// 引入内置文件系统模块（推荐带 node: 前缀）</span>
+
+console.<span class="c-fn">log</span>(<span class="c-str">'1. [请求A] 发起异步读取，交由 libuv 后台线程执行'</span>);
+
+<span class="c-cm">// 参数依次为：文件路径、字符编码、错误优先回调函数 (err, data)</span>
+fs.<span class="c-fn">readFile</span>(<span class="c-str">'./package.json'</span>, <span class="c-str">'utf8'</span>, (err, data) =&gt; {
+  <span class="c-kw">if</span> (err) <span class="c-kw">return</span> console.<span class="c-fn">error</span>(err); <span class="c-cm">// 成功时 err 为 null</span>
+  console.<span class="c-fn">log</span>(<span class="c-str">`3. [请求A] 读取完成，执行回调 (${data.length} 字节)`</span>);
+});
+
+console.<span class="c-fn">log</span>(<span class="c-str">'2. [请求B] 主线程不阻塞，立即继续处理后续逻辑'</span>);
+<span class="c-cm">// 输出顺序: 1 ➔ 2 ➔ 3</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 基础概念说明：线程分工与错误优先回调（Error-First Callback）</div>
+      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
+        <li><strong>进程内的线程分工</strong>：开发者的 JavaScript 代码运行在 <strong>1 个主线程</strong>上；但 Node.js 进程底层同时包含 <strong><code>libuv</code> 工作线程池（默认 4 个 C++ 线程，负责文件 I/O、DNS <code>lookup</code> 与加密计算）</strong> 以及 <strong>V8 后台线程（负责并发垃圾回收与 JIT 编译）</strong>。</li>
+        <li><strong>回调函数的参数约定 <code>(err, data)</code></strong>：Node.js 回调接口统一将第 1 个参数保留给错误对象 <code>err</code>（无错误时为 <code>null</code>），第 2 个参数 <code>data</code> 存放成功返回的结果。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Node.js 四层架构与本笔记 6 大章节路线图 -->
+  <svg viewBox="0 0 960 390" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Node.js 分层架构与知识体系全景图">
+    <!-- 左侧：四层运行时架构剖面图 -->
+    <g transform="translate(18, 18)">
+      <rect x="0" y="0" width="596" height="354" rx="12" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2.2"/>
+      <text x="298" y="24" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="12" font-weight="900">🏗️ Node.js 四层运行时架构（从 JS 调用到底层操作系统）</text>
+
+      <!-- Layer 1: JS App & Stdlib -->
+      <rect x="14" y="36" width="568" height="58" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <rect x="24" y="45" width="150" height="40" rx="6" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="99" y="62" text-anchor="middle" fill="var(--plop-ink-text)" font-size="11" font-weight="900">① JS 标准库与应用</text>
+      <text x="99" y="78" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10">lib/*.js</text>
+      <text x="186" y="60" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11" font-weight="800">fs · http · stream · buffer · cluster</text>
+      <text x="186" y="79" fill="var(--plop-ink-soft)" font-size="10.5" font-weight="700">内置 API、模块加载器与流式背压抽象 (Ch.01~06)</text>
+
+      <!-- Layer 2: C++ Bindings -->
+      <rect x="14" y="106" width="568" height="52" rx="8" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <rect x="24" y="113" width="150" height="38" rx="6" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.5"/>
+      <text x="99" y="129" text-anchor="middle" fill="var(--plop-ink-text)" font-size="11" font-weight="900">② C++ 绑定桥接层</text>
+      <text x="99" y="144" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10">src/*.cc</text>
+      <text x="186" y="128" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="11" font-weight="800">HandleWrap · ReqWrap · Slab 内存分配</text>
+      <text x="186" y="146" fill="var(--plop-ink-soft)" font-size="10.5" font-weight="700">封装 C++ 请求对象挂载到 libuv，完成后回调 V8</text>
+
+      <!-- Layer 3: Core Engines (V8 + libuv + C/C++ Deps) -->
+      <rect x="14" y="170" width="568" height="106" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <!-- V8 Box -->
+      <rect x="24" y="180" width="194" height="86" rx="7" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.8"/>
+      <text x="121" y="199" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">🔥 V8 引擎 (Ch.04)</text>
+      <text x="32" y="218" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">• Ignition + TurboFan</text>
+      <text x="32" y="236" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">• 隐藏类 Map / 内联缓存</text>
+      <text x="32" y="254" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">• 新生代与老生代分代 GC</text>
+
+      <!-- libuv Box -->
+      <rect x="226" y="180" width="214" height="86" rx="7" fill="#E9F9F1" stroke="#1F8A65" stroke-width="1.8"/>
+      <text x="333" y="199" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">⚡ libuv 引擎 (Ch.02)</text>
+      <text x="234" y="218" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">• 事件循环六大阶段调度</text>
+      <text x="234" y="236" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">• 网络 I/O ➔ epoll/kqueue</text>
+      <text x="234" y="254" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">• 文件/DNS ➔ 4 工作线程池</text>
+
+      <!-- C/C++ Deps Box -->
+      <rect x="448" y="180" width="124" height="86" rx="7" fill="#F3E8FF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="510" y="199" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="900">C/C++ 底层库</text>
+      <text x="456" y="218" fill="var(--plop-ink-text)" font-size="10.2" font-weight="700">• llhttp 解析</text>
+      <text x="456" y="235" fill="var(--plop-ink-text)" font-size="10.2" font-weight="700">• c-ares DNS</text>
+      <text x="456" y="252" fill="var(--plop-ink-text)" font-size="10.2" font-weight="700">• OpenSSL/zlib</text>
+
+      <!-- Layer 4: OS Kernel -->
+      <rect x="14" y="288" width="568" height="52" rx="8" fill="#1E293B" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="298" y="310" text-anchor="middle" fill="#FEF08A" font-family="var(--font-mono)" font-size="11" font-weight="900">④ 操作系统内核多路复用：Linux epoll · macOS kqueue · Windows IOCP</text>
+      <text x="298" y="329" text-anchor="middle" fill="#E2E8F0" font-size="10.5" font-weight="700">内核 O(1) 监控 Socket 与文件描述符就绪事件，批量唤醒 libuv poll 阶段</text>
+    </g>
+
+    <!-- 右侧：本篇 6 大核心章节路线图 -->
+    <g transform="translate(628, 18)">
+      <rect x="0" y="0" width="314" height="354" rx="12" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2.2"/>
+      <rect x="14" y="12" width="286" height="28" rx="7" fill="var(--plop-tomato)" stroke="var(--plop-ink)" stroke-width="1.8"/>
+      <text x="157" y="30" text-anchor="middle" fill="#FFFFFF" font-size="11.8" font-weight="900">🗺️ 本篇 6 大核心章节知识地图</text>
+
+      <rect x="14" y="48" width="286" height="44" rx="7" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="22" y="66" fill="#D2381E" font-family="var(--font-mono)" font-size="10.8" font-weight="900">Ch.01 模块化：CommonJS 与 ESM</text>
+      <text x="22" y="83" fill="var(--plop-ink-text)" font-size="10.2" font-weight="700">五步加载 · 值拷贝与实时绑定 · 循环依赖</text>
+
+      <rect x="14" y="98" width="286" height="44" rx="7" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="22" y="116" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.8" font-weight="900">Ch.02 事件循环：libuv 六阶段与微任务</text>
+      <text x="22" y="133" fill="var(--plop-ink-text)" font-size="10.2" font-weight="700">六阶段流转 · nextTick 队列 · 4 线程池</text>
+
+      <rect x="14" y="148" width="286" height="44" rx="7" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="22" y="166" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.8" font-weight="900">Ch.03 内存与流：Buffer 8KB 池与背压</text>
+      <text x="22" y="183" fill="var(--plop-ink-text)" font-size="10.2" font-weight="700">8KB 内存池 · 水位线背压 · pipeline</text>
+
+      <rect x="14" y="198" width="286" height="44" rx="7" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="22" y="216" fill="#D2381E" font-family="var(--font-mono)" font-size="10.8" font-weight="900">Ch.04 V8 引擎：隐藏类与分代 GC 排查</text>
+      <text x="22" y="233" fill="var(--plop-ink-text)" font-size="10.2" font-weight="700">Cheney 复制 · 三色并发标记 · 堆快照分析</text>
+
+      <rect x="14" y="248" width="286" height="44" rx="7" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6"/>
+      <text x="22" y="266" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.8" font-weight="900">Ch.05 多核并发：Cluster 与工作线程</text>
+      <text x="22" y="283" fill="var(--plop-ink-text)" font-size="10.2" font-weight="700">IPC 共享端口 · 平滑停机 · 共享内存</text>
+
+      <rect x="14" y="298" width="286" height="44" rx="7" fill="#FEF08A" stroke="#D2381E" stroke-width="1.8"/>
+      <text x="22" y="316" fill="#D2381E" font-family="var(--font-mono)" font-size="10.8" font-weight="900">Ch.06 工程实践：洋葱模型与 18 问自测</text>
+      <text x="22" y="333" fill="var(--plop-ink-text)" font-size="10.2" font-weight="800">koa-compose · 上下文透传 · 18 问自测</text>
+    </g>
+  </svg>
+</div>
+
+<!-- 00.2 · Node.js 与主流后端语言底层定位对照卡 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📊 00.2 · 技术选型坐标：Node.js 与 Go、Java、Python 的运行时特性对比</div>
+  <h3>⚖️ 00.2 主流后端语言并发模型与适用场景对照</h3>
+
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:15%">对比维度</th>
+          <th style="width:28%">Node.js (V8 + libuv)</th>
+          <th style="width:22%">Go (Golang)</th>
+          <th style="width:18%">Java (JVM 21+)</th>
+          <th style="width:17%">Python (CPython)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>并发模型</strong></td>
+          <td><strong>单线程 Event Loop + <code>async/await</code> + <code>libuv</code> 异步 I/O</strong>（单实例无锁，多核扩展使用 <code>Cluster</code>）</td>
+          <td>M:N 抢占式协程（GMP + 2KB 动态栈），单进程原生利用多核</td>
+          <td>OS 线程 + JDK 21 Virtual Threads 虚拟线程</td>
+          <td>受 GIL 约束，使用 <code>asyncio</code> 单线程循环或多进程并发</td>
+        </tr>
+        <tr>
+          <td><strong>I/O 密集表现</strong></td>
+          <td><strong>高吞吐且低内存</strong>：直通 <code>epoll/kqueue</code>，JSON 处理与流式转发开销低</td>
+          <td>高吞吐：<code>netpoller</code> 将异步 epoll 封装为同步代码写法</td>
+          <td>高（Netty / 虚拟线程），基础进程内存占用相对较高</td>
+          <td>中等（FastAPI / uvloop），脚本执行速度慢于 V8 JIT</td>
+        </tr>
+        <tr>
+          <td><strong>CPU 密集表现</strong></td>
+          <td><strong>主线程敏感</strong>：长耗时同步计算会阻塞当前进程的事件循环，需卸载至 <code>worker_threads</code></td>
+          <td>强：<code>sysmon</code> + <code>SIGURG</code> 10ms 异步抢占，单协程计算不阻塞其他核</td>
+          <td>强：C2 JIT 深度优化 + 多核抢占式线程</td>
+          <td>弱：重计算主要依赖底层 C/C++ 或 CUDA 扩展库</td>
+        </tr>
+        <tr>
+          <td><strong>典型应用场景</strong></td>
+          <td><strong>BFF 接口聚合、SSR 同构渲染（Next.js）、AI 流式网关（SSE/MCP）、前端工程化工具链</strong></td>
+          <td>云原生基础设施（K8s/Docker）、高吞吐 RPC 微服务</td>
+          <td>大型复杂业务域建模（DDD）、分布式大数据流处理</td>
+          <td>AI 模型训练与推理服务、数据分析与自动化脚本</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>❌ vs ✅ event_loop_rule.js · 请求链路中同步阻塞与异步非阻塞写法对照</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sync-vs-async', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sync-vs-async"><code><span class="c-cm">// ❌ 错误写法：在 HTTP 请求处理函数中调用 *Sync 同步方法</span>
+<span class="c-cm">//    读取期间主线程被挂起，其他所有并发请求均无法响应</span>
+app.<span class="c-fn">get</span>(<span class="c-str">'/bad'</span>, (req, res) =&gt; {
+  <span class="c-kw">const</span> tpl = fs.<span class="c-fn">readFileSync</span>(<span class="c-str">'./page.html'</span>, <span class="c-str">'utf8'</span>);
+  res.<span class="c-fn">end</span>(tpl);
+});
+
+<span class="c-cm">// ✅ 正确写法：请求链路内统一使用 fs/promises 异步 API 或 Stream 流</span>
+app.<span class="c-fn">get</span>(<span class="c-str">'/good'</span>, <span class="c-kw">async</span> (req, res) =&gt; {
+  <span class="c-kw">const</span> tpl = <span class="c-kw">await</span> fs.promises.<span class="c-fn">readFile</span>(<span class="c-str">'./page.html'</span>, <span class="c-str">'utf8'</span>);
+  res.<span class="c-fn">end</span>(tpl);
+});</code></pre>
+    </div>
+
+    <div class="plop-callout warn" style="margin:0; display:flex; flex-direction:column; justify-content:center;">
+      <div>
+        <strong>⚠️ 工程设计原则：避免阻塞主线程事件循环（Don't Block the Event Loop）</strong><br>
+        Node.js 支撑高并发的前提是<strong>每个请求在主线程上的同步 CPU 执行时间保持在微秒至毫秒级</strong>。以 <code>Sync</code> 结尾的同步 API（如 <code>fs.readFileSync</code>）仅限在服务启动初始化配置时使用；在请求处理链路中应统一使用异步 API，避免因慢 I/O、复杂回溯正则（ReDoS）或超大 JSON 同步解析阻塞整个进程。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="plop-bridge">
+  🔗 了解运行时整体架构后，接下来进入 <strong>第 01 章</strong>：解析 <strong>CommonJS 与 ES Module 的模块加载机制、值拷贝与实时绑定差异，以及循环依赖的处理规则</strong> ➔
+</div>

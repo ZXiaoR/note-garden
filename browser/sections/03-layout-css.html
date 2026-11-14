@@ -1,0 +1,167 @@
+<!-- ====================================================================
+     PART 03: 页面布局与脚本加载属性 · 盒模型、显示隐藏与 script / defer / async
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="parsing">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">页面布局与脚本加载属性 · CSS 盒模型、布局方式与 script / defer / async</span>
+  <span class="plop-tag tomato">BOX MODEL × FLEX/GRID × SCRIPT LOADING</span>
+</div>
+
+<!-- 03.1 · CSS 盒模型与元素隐藏方式对比 -->
+<div class="wb-card" id="css-box-model" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">📐 03.1 · 几何尺寸：CSS 标准盒模型与怪异盒模型（box-sizing）及三种隐藏方式对比</div>
+  <h3>📐 03.1 CSS 盒模型（Box Model）与元素隐藏方式辨析</h3>
+
+  <p>
+    在浏览器渲染引擎眼里，页面上的每一个 HTML 元素都是一个矩形盒子。由内向外，一个盒子由四层区域构成：<strong>内容区（<code>content</code>）→ 内边距（<code>padding</code>）→ 边框（<code>border</code>）→ 外边距（<code>margin</code>）</strong>。
+  </p>
+  <p>
+    当我们写下 <code>width: 200px; padding: 20px; border: 2px solid #000;</code> 时，这个元素在页面上实际占用的总宽度取决于 <code>box-sizing</code> 属性的设置：
+  </p>
+
+  <div class="wb-grid-2" style="margin:12px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag mustard">浏览器默认值 · content-box</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">标准盒模型</span>
+      </div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;"><code>width</code> 仅代表最里层的「内容区宽度」</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        实际渲染总宽度 = <code>width (200) + 左右 padding (40) + 左右 border (4) = 244px</code>。在给元素加内边距或边框时，盒子会被撑大，容易把并排的布局挤换行。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag mint">工程全局推荐 · border-box</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">IE / 边框盒模型</span>
+      </div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;"><code>width</code> 直接锁定「边框外沿总宽度」</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        实际渲染总宽度固定为 <code>200px</code>，内边距（<code>40px</code>）与边框（<code>4px</code>）向内挤压，内容区自动变为 <code>156px</code>。工程中通常在全局 CSS 顶部声明 <code>*, *::before, *::after { box-sizing: border-box; }</code>。
+      </p>
+    </div>
+  </div>
+
+  <p>
+    此外，日常开发中经常需要隐藏某个元素，三种常用 CSS 隐藏写法在布局占位、事件响应和渲染开销上有着本质区别：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">CSS 隐藏属性</th>
+          <th style="width:20%">是否占据页面空间？</th>
+          <th style="width:22%">能否触发点击事件？</th>
+          <th>渲染表现与适用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>display: none</code></strong></td>
+          <td>否（完全移出布局流）</td>
+          <td>不能</td>
+          <td>该元素及其子元素根本不会生成布局盒，周围元素会填补其位置。切换时会引起周围元素重新计算位置（重排）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>visibility: hidden</code></strong></td>
+          <td>是（保留原有空白占位）</td>
+          <td>不能</td>
+          <td>元素尺寸与位置保持不变，仅在绘制阶段跳过像素填充，不会引起周围元素移位。</td>
+        </tr>
+        <tr>
+          <td><strong><code>opacity: 0</code></strong></td>
+          <td>是（保留原有空白占位）</td>
+          <td><strong>仍然可以触发点击</strong></td>
+          <td>将整体不透明度设为 0（全透明），适合配合 <code>transition</code> 制作淡入淡出过渡动画；若需隐藏后禁止点击，需同时加上 <code>pointer-events: none</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 03.2 · 外部脚本的四种加载方式：普通 script、defer、async 与 module -->
+<div class="wb-card" id="script-loading" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">⚡ 03.2 · 脚本加载与生命周期：<code>script</code>、<code>defer</code>、<code>async</code>、<code>type="module"</code> 与页面事件</div>
+  <h3>⚡ 03.2 四种脚本加载方式与 <code>DOMContentLoaded / load</code> 触发时机</h3>
+
+  <p>
+    当浏览器自上而下解析 HTML 文档遇到默认的 <code>&lt;script src="app.js"&gt;</code> 标签时，因为浏览器不知道这段脚本里会不会调用 <code>document.write()</code> 或读取修改 DOM，所以默认会<strong>暂停 HTML 解析，等待脚本下载并执行完毕后，再继续向下解析剩余的 HTML</strong>。如果把大体积脚本直接放在顶部 <code>&lt;head&gt;</code> 中，会导致页面长时间白屏。
+  </p>
+  <p>
+    为了不阻塞 HTML 解析，现代网页开发广泛使用 <code>defer</code>、<code>async</code> 或 ES 模块（<code>type="module"</code>）属性来控制脚本的下载与执行时机：
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:28%">脚本标签写法</th>
+          <th style="width:22%">下载阶段是否阻塞 HTML 解析？</th>
+          <th style="width:24%">执行时机与多个脚本顺序</th>
+          <th>日常工程适用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>&lt;script src="a.js"&gt;</code></td>
+          <td><strong>阻塞解析</strong>（停下等待下载并立即执行）</td>
+          <td>遇到即下载并执行，按在 HTML 中出现的先后顺序依次执行。</td>
+          <td>仅用于极少数必须在页面渲染前同步执行的初始化逻辑（通常放在 <code>&lt;/body&gt;</code> 前）。</td>
+        </tr>
+        <tr>
+          <td><code>&lt;script defer src="a.js"&gt;</code></td>
+          <td><strong>不阻塞</strong>（后台并行下载）</td>
+          <td>等整篇 HTML 解析完毕后、<code>DOMContentLoaded</code> 事件触发前，<strong>严格按书写顺序依次执行</strong>。</td>
+          <td><strong>业务主脚本首选</strong>：既不阻塞 HTML 解析，又能保证此时完整 DOM 树已建立且多脚本按依赖顺序执行。</td>
+        </tr>
+        <tr>
+          <td><code>&lt;script async src="a.js"&gt;</code></td>
+          <td><strong>不阻塞</strong>（后台并行下载）</td>
+          <td><strong>谁先下载完就立刻插队执行谁</strong>（执行瞬间若 HTML 还没解析完会暂停解析），不保证执行顺序。</td>
+          <td>适合完全独立、不依赖页面其他脚本也不被依赖的第三方统计埋点或广告脚本。</td>
+        </tr>
+        <tr>
+          <td><code>&lt;script type="module" src="a.js"&gt;</code></td>
+          <td><strong>不阻塞</strong>（后台并行下载模块及 <code>import</code> 依赖图）</td>
+          <td><strong>默认自带 <code>defer</code> 延后执行行为</strong>，且自动启用严格模式与模块独立作用域。</td>
+          <td>现代工程化项目（如 Vite / 原生 ESM）的标准入口写法。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>⏱️ lifecycle_events.html · 推荐的 head 内 defer 脚本引入与两大页面生命周期事件</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-lifecycle', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-browser-lifecycle"><code>&lt;head&gt;
+  &lt;link rel=<span class="c-str">"stylesheet"</span> href=<span class="c-str">"./styles.css"</span>&gt;
+  <span class="c-cm">&lt;!-- 在 head 中使用 defer：浏览器一边解析 HTML 一边提前并行下载脚本，解析完再按顺序执行 --&gt;</span>
+  &lt;script defer src=<span class="c-str">"./vendor.js"</span>&gt;&lt;/script&gt;
+  &lt;script defer src=<span class="c-str">"./app.js"</span>&gt;&lt;/script&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;img id=<span class="c-str">"hero-banner"</span> src=<span class="c-str">"./large-photo.jpg"</span> width=<span class="c-str">"800"</span> height=<span class="c-str">"400"</span> alt=<span class="c-str">"封面图"</span>&gt;
+  &lt;script&gt;
+    <span class="c-cm">// 1. DOMContentLoaded：HTML 文档完全解析完毕，且所有 defer 脚本执行完成后立刻触发（无需等待图片下载完）</span>
+    document.<span class="c-fn">addEventListener</span>(<span class="c-str">'DOMContentLoaded'</span>, () =&gt; {
+      console.<span class="c-fn">log</span>(<span class="c-str">'1. DOM 树已就绪，可以安全绑定事件或初始化组件'</span>);
+    });
+
+    <span class="c-cm">// 2. load：不仅 DOM 解析完，连页面上的所有图片、样式表、子框架等外部资源也全部加载完毕后才触发</span>
+    window.<span class="c-fn">addEventListener</span>(<span class="c-str">'load'</span>, () =&gt; {
+      console.<span class="c-fn">log</span>(<span class="c-str">'2. 页面全部图片与静态资源均已加载完成'</span>);
+    });
+  &lt;/script&gt;
+&lt;/body&gt;</code></pre>
+  </div>
+
+  <div class="plop-callout tip" style="margin-top:12px; margin-bottom:0;">
+    <strong>📘 底层延伸：</strong>为什么在 HTML 里引入外部 CSS 样式表不会阻塞 DOM 树构建，却会阻塞页面渲染、甚至间接卡住后续的 <code>&lt;script&gt;</code> 执行？这四类脚本在时间轴上的精确对比图请见 <a href="principles.html#parsing">📘 核心原理篇 · Ch.03 HTML 状态机解析、CSSOM 与阻塞模型 ↗</a>。
+  </div>
+</div>

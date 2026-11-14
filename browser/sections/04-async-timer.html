@@ -1,0 +1,121 @@
+<!-- ====================================================================
+     PART 04: 异步任务、定时器与动画更新 · setTimeout、Promise、requestAnimationFrame 与 Web Worker
+     ==================================================================== -->
+<div class="wb-sec-header mustard" id="event-loop">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">异步任务、定时器与动画更新 · 定时器、Promise、requestAnimationFrame 与 Web Worker</span>
+  <span class="plop-tag mint">TIMERS × PROMISE × RAF × WEB WORKER</span>
+</div>
+
+<!-- 04.1 · 为什么浏览器主线程不能直接同步死等 -->
+<div class="wb-card" id="main-thread-async" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">⏱️ 04.1 · 异步调度入门：主线程单线程执行模型与 setTimeout / Promise 的执行次序</div>
+  <h3>⏱️ 04.1 主线程异步调度：<code>setTimeout</code> 与 <code>Promise</code> 的日常配合</h3>
+
+  <p>
+    在浏览器的渲染进程中，负责执行页面 JavaScript 的<strong>主线程同时还要负责处理用户点击输入和更新屏幕画面</strong>。如果一段脚本在主线程里执行一个长达 3 秒的死循环，这 3 秒内整个网页将无法点击、无法滚动，动画也会完全冻结。<br>
+    因此，对于延时操作、网络请求等需要等待的任务，浏览器提供了非阻塞的异步回调机制：先把任务登记给浏览器，主线程继续向下执行；等条件满足且当前同步代码跑完后，再回来执行登记好的回调函数。
+  </p>
+
+  <div class="wb-grid-2" style="margin:12px 0;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚡ async_order.js · 同步代码、Promise 微任务与 setTimeout 定时器的执行顺序</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-async-order', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-browser-async-order"><code>console.<span class="c-fn">log</span>(<span class="c-str">'1. 同步脚本开始'</span>);
+
+<span class="c-cm">// 登记一个 0 毫秒后执行的定时器任务（进入任务队列等待下一轮调度）</span>
+<span class="c-fn">setTimeout</span>(() =&gt; {
+  console.<span class="c-fn">log</span>(<span class="c-str">'4. setTimeout 定时器回调执行'</span>);
+}, <span class="c-num">0</span>);
+
+<span class="c-cm">// 登记一个已完成的 Promise 回调（进入微任务队列，本轮同步代码一结束立刻清空）</span>
+Promise.<span class="c-fn">resolve</span>().<span class="c-fn">then</span>(() =&gt; {
+  console.<span class="c-fn">log</span>(<span class="c-str">'3. Promise.then 微任务回调执行'</span>);
+});
+
+console.<span class="c-fn">log</span>(<span class="c-str">'2. 同步脚本结束'</span>);
+<span class="c-cm">// 控制台实际输出顺序：1 ➔ 2 ➔ 3 ➔ 4</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📖 为什么 <code>Promise.then</code> 比 <code>setTimeout(..., 0)</code> 先执行？</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
+        <li><strong>第一步（跑完当前同步脚本）</strong>：从上到下依次打印 <code>1</code>、向浏览器登记定时器、向微任务队列放入 <code>then</code> 回调、最后打印 <code>2</code>。</li>
+        <li><strong>第二步（立即清空微任务 Microtasks）</strong>：每当一段主线程脚本执行结束，浏览器在去拿下一个普通任务之前，会<strong>先把当前积累的所有 <code>Promise.then / catch / finally</code>（及 <code>await</code> 后面的代码）全部执行完</strong>，因此输出 <code>3</code>。</li>
+        <li><strong>第三步（执行下一轮普通任务 Task）</strong>：微任务清空后，事件循环才从任务队列中取出到期的 <code>setTimeout</code> 回调执行，最后输出 <code>4</code>。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 04.2 · 流畅动画更新（requestAnimationFrame）与后台计算线程（Web Worker） -->
+<div class="wb-card" id="raf-and-worker" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🎞️ 04.2 · 画面更新与多线程：使用 <code>requestAnimationFrame</code> 驱动动画与使用 <code>Web Worker</code> 拆分重计算</div>
+  <h3>🎞️ 04.2 <code>requestAnimationFrame</code> 动画对齐与 <code>Web Worker</code> 后台线程</h3>
+
+  <p>
+    在日常开发中，除了 <code>setTimeout</code> 和 <code>Promise</code>，还有两类非常实用的浏览器调度工具：
+  </p>
+  <ul style="font-size:13.5px; line-height:1.7;">
+    <li><strong>视觉动画更新用 <code>requestAnimationFrame(callback)</code></strong>：普通 <code>setTimeout(fn, 16)</code> 无法与屏幕的硬件刷新时刻对齐，容易出现两帧之间执行两次或漏帧卡顿；而 <code>requestAnimationFrame</code> 会在<strong>浏览器准备绘制下一帧画面之前</strong>精确调用一次，且当用户切走标签页时会自动暂停以节省电量。</li>
+    <li><strong>纯 CPU 密集型计算用 <code>Web Worker</code></strong>：如果需要对几万条表格数据做前端排序、解析超大 JSON 或计算文件哈希，直接放在主线程会卡死页面；启动一个独立的 <code>Worker</code> 线程可以在后台并行计算，算完再通过 <code>postMessage</code> 把结果发回主线程。</li>
+  </ul>
+
+  <div class="wb-grid-2" style="margin:12px 0;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🎞️ smooth_progress.js · 用 requestAnimationFrame 实现平滑进度条动画</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-raf', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-browser-raf"><code><span class="c-kw">const</span> barEl = document.<span class="c-fn">getElementById</span>(<span class="c-str">'progress-bar'</span>);
+<span class="c-kw">let</span> progress = <span class="c-num">0</span>;
+
+<span class="c-kw">function</span> <span class="c-fn">stepFrame</span>() {
+  progress += <span class="c-num">2</span>; <span class="c-cm">// 每一帧前进 2%</span>
+  <span class="c-cm">// 使用 transform 缩放替代直接改 width，渲染开销更低</span>
+  barEl.style.transform = <span class="c-str">`scaleX(${progress / 100})`</span>;
+
+  <span class="c-kw">if</span> (progress &lt; <span class="c-num">100</span>) {
+    <span class="c-cm">// 还没到 100% 时，继续预约下一帧渲染前执行 stepFrame</span>
+    window.<span class="c-fn">requestAnimationFrame</span>(stepFrame);
+  }
+}
+
+<span class="c-cm">// 启动第一帧动画</span>
+window.<span class="c-fn">requestAnimationFrame</span>(stepFrame);</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🧵 worker_demo.js · 主线程将耗时计算交给 Web Worker 后台线程</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-worker', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-browser-worker"><code><span class="c-cm">// ===== 主线程代码 (main.js) =====</span>
+<span class="c-kw">const</span> worker = <span class="c-kw">new</span> <span class="c-fn">Worker</span>(<span class="c-str">'./heavy-task.js'</span>);
+
+<span class="c-cm">// 1. 向 Worker 线程发送需要处理的数据</span>
+worker.<span class="c-fn">postMessage</span>({ count: <span class="c-num">50000000</span> });
+
+<span class="c-cm">// 2. 监听 Worker 算完后发回的消息（期间主线程依然流畅响应点击）</span>
+worker.<span class="c-fn">addEventListener</span>(<span class="c-str">'message'</span>, (event) =&gt; {
+  console.<span class="c-fn">log</span>(<span class="c-str">'收到后台计算结果：'</span>, event.data.total);
+});
+
+<span class="c-cm">// ===== Worker 线程代码 (heavy-task.js) =====</span>
+<span class="c-cm">// 注意：Worker 处于独立线程，不能访问 document / window 等 DOM 对象</span>
+self.<span class="c-fn">addEventListener</span>(<span class="c-str">'message'</span>, (event) =&gt; {
+  <span class="c-kw">let</span> total = <span class="c-num">0</span>;
+  <span class="c-kw">for</span> (<span class="c-kw">let</span> i = <span class="c-num">0</span>; i &lt; event.data.count; i++) total += i;
+  self.<span class="c-fn">postMessage</span>({ total }); <span class="c-cm">// 算完发回主线程</span>
+});</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>📘 底层延伸：</strong>在浏览器一帧（60Hz 下约 16.7ms）的生命周期中，宏任务、微任务检查点、<code>requestAnimationFrame</code>、样式计算、布局、绘制与 <code>requestIdleCallback</code> 究竟按什么精确顺序流转？详见 <a href="principles.html#event-loop">📘 核心原理篇 · Ch.05 HTML 事件循环规范与一帧生命周期 ↗</a>。
+  </div>
+</div>

@@ -1,0 +1,287 @@
+<!-- ====================================================================
+     PART 06: 浏览器安全边界与 Core Web Vitals 性能体系 · CORS 预检、XSS/CSRF 与 LCP/INP/CLS
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="security">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">浏览器安全边界与 Core Web Vitals 性能体系 · CORS 预检、XSS/CSRF 与 LCP/INP/CLS</span>
+  <span class="plop-tag tomato">CORS PREFLIGHT × XSS/CSP × CSRF/SAMESITE × CORE WEB VITALS</span>
+</div>
+
+<!-- 06.1 · 同源（Same-Origin）vs 同站（Same-Site）与 CORS 简单请求 / 预检请求（Preflight）机制 -->
+<div class="wb-card" id="cors-preflight-internals" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🛡️ 06.1 · 跨域协议底层：同源与同站（<code>eTLD+1</code>）边界，以及简单请求 vs <code>OPTIONS</code> 预检请求时序</div>
+  <h3>🛡️ 06.1 同源 vs 同站辨析与 CORS 预检请求（Preflight）机制</h3>
+
+  <p>
+    在现代浏览器安全模型中，<strong>「同源（Same-Origin）」</strong>与<strong>「同站（Same-Site）」</strong>是两个截然不同的判定维度，分别控制着不同的安全机制：
+  </p>
+  <ul style="font-size:13.5px; line-height:1.68;">
+    <li><strong>同源（Same-Origin = <code>scheme + hostname + port</code> 完全一致）</strong>：控制 <code>fetch / XHR</code> 响应读取权限（CORS）、<code>localStorage / IndexedDB</code> 隔离以及跨窗口 DOM 访问。例如 <code>https://a.example.com</code> 与 <code>https://b.example.com</code> 属于<strong>跨源（Cross-Origin）</strong>。</li>
+    <li><strong>同站（Same-Site = <code>scheme + 有效顶级域名加一级域名 eTLD+1</code> 一致）</strong>：控制 <code>SameSite Cookie</code> 是否跨站携带以及 Chromium 站点隔离进程分配。例如 <code>https://a.example.com</code> 与 <code>https://b.example.com:8443</code> 共享同一个根站点 <code>example.com</code>，因此它们虽然<strong>跨源，但属于同站（Same-Site）</strong>（注意：<code>.github.io</code>、<code>.com.cn</code> 登记在公共后缀列表 Public Suffix List 中，整体算作 <code>eTLD</code>，因此 <code>a.github.io</code> 与 <code>b.github.io</code> 属于<strong>跨站</strong>）。</li>
+  </ul>
+
+  <p>
+    当脚本发起跨源请求时，浏览器会根据请求是否可能对传统服务器产生未预期的副作用，将其分为<strong>简单请求（Simple Request）</strong>和<strong>需预检请求（Preflighted Request）</strong>：
+  </p>
+
+  <!-- CORS 简单请求 vs 预检请求时序图 (Editorial Sequence SVG with Combined Fragment) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 960 360" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="cors-seq-title cors-seq-desc">
+        <title id="cors-seq-title">CORS 简单请求与 OPTIONS 预检请求时序对比图</title>
+        <desc id="cors-seq-desc">通过序列图对比简单请求（直接发送请求并在返回后由浏览器校验响应头）与预检请求（先发送 OPTIONS 探路并缓存授权，通过后才发送真实请求）的差异。</desc>
+        <defs>
+          <marker id="cs-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="cs-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+          <marker id="cs-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Combined Fragment Frame (ALT: Simple vs Preflight) -->
+        <rect x="44" y="76" width="872" height="264" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <rect x="44" y="76" width="48" height="18" rx="2" fill="#FFFDF7" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <text x="68" y="88" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="8.5" font-weight="700" letter-spacing="0.1em">ALT</text>
+        <line x1="52" y1="184" x2="908" y2="184" stroke="rgba(45,49,66,0.22)" stroke-width="1.2" stroke-dasharray="4,3"/>
+
+        <!-- Lifelines -->
+        <line x1="160" y1="64" x2="160" y2="348" stroke="rgba(45,49,66,0.22)" stroke-width="1.2" stroke-dasharray="3,3"/>
+        <line x1="480" y1="64" x2="480" y2="348" stroke="rgba(45,49,66,0.22)" stroke-width="1.2" stroke-dasharray="3,3"/>
+        <line x1="800" y1="64" x2="800" y2="348" stroke="rgba(45,49,66,0.22)" stroke-width="1.2" stroke-dasharray="3,3"/>
+
+        <!-- Region 1: Simple Request -->
+        <text x="104" y="92" fill="#2e5aa8" font-family="ui-monospace,monospace" font-size="9.5" font-weight="700">[Case A · 简单请求：GET/HEAD/POST 且 Content-Type 仅限 form-urlencoded / multipart / text/plain，无自定义头]</text>
+
+        <line x1="160" y1="116" x2="472" y2="116" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#cs-arrow)"/>
+        <rect x="240" y="98" width="160" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="320" y="107" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">1. fetch('https://api.com')</text>
+
+        <line x1="480" y1="124" x2="792" y2="124" stroke="#2e5aa8" stroke-width="1.6" marker-end="url(#cs-arrow-link)"/>
+        <rect x="544" y="104" width="192" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="640" y="113" text-anchor="middle" fill="#2e5aa8" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">2. 直接发送请求 + Origin: https://a.com</text>
+
+        <line x1="800" y1="156" x2="488" y2="156" stroke="#2e5aa8" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#cs-arrow-link)"/>
+        <rect x="524" y="136" width="232" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="640" y="145" text-anchor="middle" fill="#2e5aa8" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">3. 200 OK + Access-Control-Allow-Origin</text>
+
+        <line x1="480" y1="164" x2="168" y2="164" stroke="#4f5d75" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#cs-arrow)"/>
+        <rect x="216" y="144" width="208" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="320" y="153" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">4. 校验通过则交付 JS（未通过则拦截报错）</text>
+
+        <!-- Region 2: Preflight Request -->
+        <text x="64" y="202" fill="#bf4520" font-family="ui-monospace,monospace" font-size="9.5" font-weight="700">[Case B · 预检请求：PUT/DELETE、Content-Type: application/json 或带 Authorization 等自定义请求头]</text>
+
+        <line x1="480" y1="228" x2="792" y2="228" stroke="#bf4520" stroke-width="1.8" marker-end="url(#cs-arrow-accent)"/>
+        <rect x="508" y="208" width="264" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="640" y="217" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="700">1. 自动先发 OPTIONS 预检 (Request-Method / Headers)</text>
+
+        <line x1="800" y1="264" x2="488" y2="264" stroke="#bf4520" stroke-width="1.8" stroke-dasharray="5,4" marker-end="url(#cs-arrow-accent)"/>
+        <rect x="516" y="244" width="248" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="640" y="253" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="700">2. 204 Allow-Origin / Methods / Max-Age: 86400</text>
+
+        <line x1="480" y1="296" x2="792" y2="296" stroke="#2e5aa8" stroke-width="1.6" marker-end="url(#cs-arrow-link)"/>
+        <rect x="536" y="276" width="208" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="640" y="285" text-anchor="middle" fill="#2e5aa8" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">3. 预检通过后，才发送真实 POST JSON 请求</text>
+
+        <line x1="800" y1="324" x2="168" y2="324" stroke="#4f5d75" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#cs-arrow)"/>
+        <rect x="364" y="304" width="232" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="480" y="313" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">4. 返回真实业务响应并在 Max-Age 期内缓存预检结果</text>
+
+        <!-- Actor Boxes at top -->
+        <rect x="88" y="16" width="144" height="48" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="160" y="37" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">页面 JavaScript</text>
+        <text x="160" y="53" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="9.5">https://a.com</text>
+
+        <rect x="396" y="16" width="168" height="48" rx="6" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="480" y="37" text-anchor="middle" fill="#bf4520" font-size="12.5" font-weight="700">浏览器内核 (CORS 守卫)</text>
+        <text x="480" y="53" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="9.5">Network Service</text>
+
+        <rect x="720" y="16" width="160" height="48" rx="6" fill="#EEF3FF" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="800" y="37" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">跨源后端服务器</text>
+        <text x="800" y="53" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="9.5">https://api.com</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>💡 两个高频结论：</strong><br>
+    1. <strong>对于简单请求，CORS 拦截发生在“响应回来之后”而非“请求发出之前”</strong>：服务器实际上已经收到了该请求并执行了逻辑，只是因为响应头缺少 <code>Access-Control-Allow-Origin</code>，浏览器拒绝将响应体交给页面 JS 读取。因此，<strong>CORS 绝不能代替服务端的权限校验与 CSRF 防御</strong>。<br>
+    2. <strong>如何减少每次 POST JSON 都多发一次 <code>OPTIONS</code> 预检的 1-RTT 开销？</strong>后端在预检响应中配置 <code>Access-Control-Max-Age: 86400</code>，浏览器会将该 URL 的预检授权结果缓存在专用的 <strong>Preflight Cache</strong> 中 24 小时，期间再次请求直接发真实报文。
+  </div>
+</div>
+
+<!-- 06.2 · Web 两大经典安全攻防：XSS（跨站脚本攻击）与 CSRF（跨站请求伪造） -->
+<div class="wb-card" id="xss-csrf-defense" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">⚔️ 06.2 · 安全攻防矩阵：<code>XSS</code>（注入恶意代码偷数据）与 <code>CSRF</code>（借用已登录 Cookie 冒充操作）原理与纵深防御</div>
+  <h3>⚔️ 06.2 XSS 与 CSRF 攻击原理及浏览器级防御手段</h3>
+
+  <p>
+    可以用一句话区分 Web 安全最核心的两类漏洞：<strong>CSRF 是黑客骗你的浏览器去发一个非本意的请求（黑客拿不到响应，只利用你浏览器自动带上的 Cookie 执行转账/改密）；而 XSS 是黑客成功把一段恶意 JS 代码注入到了目标网站页面里执行（一旦执行，等同于完全控制了你的当前页面）</strong>。
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0; margin-bottom:0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">安全威胁</th>
+          <th style="width:28%">核心子类型与攻击路径</th>
+          <th>浏览器安全机制与工程纵深防御（必答）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① XSS<br>（跨站脚本攻击）</strong></td>
+          <td>
+            • <strong>存储型</strong>：恶意评论含 <code>&lt;script&gt;</code> 存入数据库，所有浏览该帖的用户自动中招；<br>
+            • <strong>反射型</strong>：诱导点击含恶意脚本参数的 URL，服务端未转义直拼 HTML 返回；<br>
+            • <strong>DOM 型</strong>：前端 JS 直接将 URL 参数赋给 <code>innerHTML / eval</code> 执行。
+          </td>
+          <td>
+            1. <strong>输出转义与安全 API</strong>：对用户输入做 HTML 实体转义（<code>&lt;</code> 转 <code>&amp;lt;</code>），前端优先用 <code>textContent</code> 或 React/Vue 默认文本绑定（禁用危险的 <code>v-html / dangerouslySetInnerHTML</code>）；<br>
+            2. <strong>开启 <code>CSP（Content-Security-Policy）</code> 响应头</strong>：如 <code>script-src 'self' 'nonce-r4nd0m'</code>，从浏览器底层禁止执行一切未带合法 <code>nonce</code> 签名或非白名单域名的内联脚本；<br>
+            3. <strong>敏感 Cookie 设置 <code>HttpOnly</code></strong>：禁止 <code>document.cookie</code> 读取会话 Cookie，防止 XSS 窃取登录态。
+          </td>
+        </tr>
+        <tr>
+          <td><strong>② CSRF<br>（跨站请求伪造）</strong></td>
+          <td>
+            用户在 <code>bank.com</code> 登录后未退出，又点开了黑客网站 <code>evil.com</code>；<code>evil.com</code> 页面自动用隐藏表单向 <code>bank.com/transfer</code> 发起 POST 请求，浏览器默认会自动附带 <code>bank.com</code> 的 Cookie。
+          </td>
+          <td>
+            1. <strong><code>SameSite</code> Cookie 属性（现代浏览器默认 <code>Lax</code>）</strong>：设置为 <code>SameSite=Strict</code>（完全禁止跨站带 Cookie）或 <code>SameSite=Lax</code>（仅顶级导航 GET 允许，跨站 POST 表单与 fetch 均自动剥离 Cookie）；<br>
+            2. <strong>CSRF Token 校验（或双重 Cookie）</strong>：由前端 JS 在自定义请求头（如 <code>X-CSRF-Token</code>）或请求体中携带随机令牌（黑客跨站页面受同源策略限制无法读取该 Token）；<br>
+            3. <strong>服务端校验 <code>Origin / Referer</code> 请求头</strong>。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 06.3 · 现代浏览器性能指标体系：Core Web Vitals (LCP / INP / CLS) 与优化工程 -->
+<div class="wb-card" id="core-web-vitals" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📊 06.3 · 性能量化标准：Core Web Vitals 三大核心指标（<code>LCP / INP / CLS</code>）达标阈值、采集代码与针对性调优</div>
+  <h3>📊 06.3 Core Web Vitals 性能指标体系与工程优化</h3>
+
+  <p>
+    早期的 <code>DOMContentLoaded</code> 或 <code>load</code> 事件只能反映文档解析或资源下载何时结束，无法真实反映<strong>用户眼睛何时看到主要内容、手指点击是否流畅、页面排版有没有乱跳</strong>。为此，现代 Web 性能工程统一采用 <strong>Core Web Vitals（核心网页指标）</strong> 来量化真实用户体验：
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">核心指标</th>
+          <th style="width:16%">优秀阈值 (Good)</th>
+          <th style="width:28%">精确衡量什么体验？</th>
+          <th>针对性工程优化手段</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① <code>LCP</code></strong><br>最大内容绘制<br>(Largest Contentful Paint)</td>
+          <td><strong><code>&lt;= 2.5 s</code></strong></td>
+          <td><strong>首屏加载速度</strong>：从导航开始到视口内最大的一块可视内容（通常是首屏大图、视频封面或大标题段落）完成渲染的时间。</td>
+          <td>
+            • 缩短服务端 <code>TTFB</code>（使用 CDN 与缓存）；<br>
+            • 为首屏大图加上 <code>&lt;link rel="preload" as="image"&gt;</code> 或 <code>fetchpriority="high"</code>（<strong>切勿对首屏 LCP 大图加 <code>loading="lazy"</code></strong>）；<br>
+            • 内联首屏关键 CSS，脚本加 <code>defer</code>。
+          </td>
+        </tr>
+        <tr>
+          <td><strong>② <code>INP</code></strong><br>交互到下一次绘制<br>(Interaction to Next Paint)</td>
+          <td><strong><code>&lt;= 200 ms</code></strong></td>
+          <td><strong>交互响应流畅度（已正式取代旧指标 FID）</strong>：衡量页面整个生命周期内所有点击、触摸和按键交互从触发到<strong>下一帧视觉画面真正绘制上屏</strong>的最差延迟（P98）。</td>
+          <td>
+            • 拆解超过 <code>50ms</code> 的主线程长任务（使用 <code>scheduler.yield()</code> 让出主线程）；<br>
+            • 点击后立即给出轻量视觉反馈（如 loading 态），将非紧急计算推迟或移入 <code>Web Worker</code>；<br>
+            • 避免在事件回调中触发大面积同步重排。
+          </td>
+        </tr>
+        <tr>
+          <td><strong>③ <code>CLS</code></strong><br>累积布局偏移<br>(Cumulative Layout Shift)</td>
+          <td><strong><code>&lt;= 0.1</code></strong></td>
+          <td><strong>视觉稳定性</strong>：统计页面生命周期内所有非用户交互引起的<strong>元素意外位置移动分值总和</strong>（<code>影响面积比例 × 移动距离比例</code>）。</td>
+          <td>
+            • 所有 <code>&lt;img&gt;</code>、<code>&lt;video&gt;</code> 与广告位容器必须显式指定 <code>width + height</code> 或 CSS <code>aspect-ratio</code> 提前占位；<br>
+            • 自定义 Web 字体使用 <code>font-display: optional</code> 或匹配度量回退字体；<br>
+            • 动画一律使用 <code>transform</code> 替代修改 <code>top / height</code>。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    在浏览器底层，这三项指标的数据源来自原生的 <code>PerformanceObserver</code> API；但在真实生产环境搭建前端性能监控（RUM，Real User Monitoring）时，如果直接手写裸 <code>PerformanceObserver</code>，会遇到许多复杂的边界条件（例如：页面一开始在后台标签页打开导致 LCP 虚高、从 <code>bfcache</code> 往返缓存恢复页面时的二次统计、CLS 按最大 5 秒会话窗口聚合而非全生命周期无限累加、以及 INP 在几十次点击中取 P98 分位数等）。<br>
+    因此，<strong>业界生产环境统一使用 Google Chrome 团队官方维护的轻量标准库 <code>web-vitals</code>（压缩后仅约 <code>2 KB</code>）进行采集，并配合浏览器的 <code>navigator.sendBeacon()</code> 在页面隐藏时可靠上报</strong>：
+  </p>
+
+  <div class="wb-grid-2" style="margin:12px 0;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🚀 生产标准方案 · 使用 Google 官方 web-vitals 库 + sendBeacon 上报</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-webvitals-lib', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-browser-webvitals-lib"><code><span class="c-cm">// 安装：npm install web-vitals</span>
+<span class="c-cm">// 如需直接定位具体是哪个 DOM 节点或哪段脚本慢，可从 'web-vitals/attribution' 导入</span>
+<span class="c-kw">import</span> { onLCP, onINP, onCLS, onFCP, onTTFB } <span class="c-kw">from</span> <span class="c-str">'web-vitals'</span>;
+
+<span class="c-kw">function</span> <span class="c-fn">reportToAnalytics</span>(metric) {
+  <span class="c-cm">// metric 包含：{ name: 'LCP', value: 1420, rating: 'good', delta, id, navigationType }</span>
+  <span class="c-kw">const</span> body = JSON.<span class="c-fn">stringify</span>(metric);
+
+  <span class="c-cm">// 优先使用 sendBeacon：即使在用户关闭标签页瞬间触发，浏览器也会在后台保证发送成功且不阻塞卸载</span>
+  <span class="c-kw">if</span> (navigator.sendBeacon) {
+    navigator.<span class="c-fn">sendBeacon</span>(<span class="c-str">'/api/rum-metrics'</span>, body);
+  } <span class="c-kw">else</span> {
+    <span class="c-fn">fetch</span>(<span class="c-str">'/api/rum-metrics'</span>, { body, method: <span class="c-str">'POST'</span>, keepalive: <span class="c-kw">true</span> });
+  }
+}
+
+<span class="c-cm">// 一键注册核心指标监听（库内部已自动处理后台标签页过滤、bfcache 恢复与 CLS 会话窗口）</span>
+<span class="c-fn">onLCP</span>(reportToAnalytics);
+<span class="c-fn">onINP</span>(reportToAnalytics);
+<span class="c-fn">onCLS</span>(reportToAnalytics);
+<span class="c-fn">onFCP</span>(reportToAnalytics);
+<span class="c-fn">onTTFB</span>(reportToAnalytics);</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🔬 底层原理对照 · web-vitals 库内部封装的原生 PerformanceObserver</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-cwv', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-browser-cwv"><code><span class="c-cm">// 1. 底层 LCP 数据源：随着首屏大图加载会触发多次候选记录，取交互/隐藏前最后一次即为 LCP</span>
+<span class="c-kw">new</span> <span class="c-fn">PerformanceObserver</span>((entryList) =&gt; {
+  <span class="c-kw">const</span> entries = entryList.<span class="c-fn">getEntries</span>();
+  <span class="c-kw">const</span> lastEntry = entries[entries.length - <span class="c-num">1</span>];
+  console.<span class="c-fn">log</span>(<span class="c-str">'LCP 候选值 (ms)：'</span>, Math.<span class="c-fn">round</span>(lastEntry.startTime), lastEntry.element);
+}).<span class="c-fn">observe</span>({ type: <span class="c-str">'largest-contentful-paint'</span>, buffered: <span class="c-kw">true</span> });
+
+<span class="c-cm">// 2. 底层 CLS 数据源：仅统计用户近期无点击/输入（!hadRecentInput）500ms 以外的意外移位</span>
+<span class="c-kw">let</span> clsScore = <span class="c-num">0</span>;
+<span class="c-kw">new</span> <span class="c-fn">PerformanceObserver</span>((entryList) =&gt; {
+  <span class="c-kw">for</span> (<span class="c-kw">const</span> entry <span class="c-kw">of</span> entryList.<span class="c-fn">getEntries</span>()) {
+    <span class="c-kw">if</span> (!entry.hadRecentInput) {
+      clsScore += entry.value;
+      console.<span class="c-fn">log</span>(<span class="c-str">'检测到意外布局偏移，累计分值：'</span>, clsScore.<span class="c-fn">toFixed</span>(<span class="c-num">4</span>));
+    }
+  }
+}).<span class="c-fn">observe</span>({ type: <span class="c-str">'layout-shift'</span>, buffered: <span class="c-kw">true</span> });</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>🧰 性能量化工具生态全景（实验室数据 Lab Data vs 真实用户数据 Field Data）：</strong><br>
+    1. <strong>真实用户监控（Field / RUM）</strong>：前端集成 Google 官方 <strong><code>web-vitals</code></strong>（或直接使用已内置它的 <strong>Sentry Performance / 阿里云 ARMS / Datadog RUM</strong> SDK），将用户真实设备上的分位数上报至后台分析。<br>
+    2. <strong>实验室自动化测评（Lab / CI）</strong>：本地与 CI 流水线使用 Chrome 内置的 <strong><code>Lighthouse</code>（或 <code>@lhci/cli</code>）</strong>、<strong><code>Playwright</code> + <code>chrome-devtools-mcp</code></strong>，在固定网络节流（Throttling）与 CPU 降速倍率下对每次发版做回归压测。
+  </div>
+</div>

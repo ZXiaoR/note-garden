@@ -231,7 +231,7 @@
               <li><strong>层级与类型：</strong>四层结构（实例→库→Schema→表）；金额用 <code>numeric</code>，变长文本直接用 <code>text</code>，时间用 <code>timestamptz</code>，自增用 <code>GENERATED ALWAYS AS IDENTITY</code>，动态属性用 <strong><code>jsonb</code>（二进制树 + GIN 索引）</strong>。</li>
               <li><strong>DDL 优势：</strong>支持<strong>事务性 DDL</strong>（可 <code>BEGIN ... ALTER ... ROLLBACK</code>）；大表加常量默认列免重写，加约束用 <code>NOT VALID</code> + <code>VALIDATE CONSTRAINT</code> 免锁表。</li>
               <li><strong>王牌 SQL：</strong><code>RETURNING</code> 免二次查、<code>ON CONFLICT DO UPDATE</code> 原子 UPSERT、<code>OVER(PARTITION BY ... ORDER BY ...)</code> 窗口函数分组排名、<code>WITH RECURSIVE</code> 递归查树。</li>
-              <li><strong>堆表 MVCC：</strong>表是无序堆表（<code>ctid</code> 物理寻址），每行带 <code>xmin/xmax</code>，<code>UPDATE = 旧行标 xmax + 插新行版本</code>；回滚 $O(1)$ 极快，但留下<strong>死元组与表膨胀</strong>。</li>
+              <li><strong>堆表 MVCC：</strong>表是无序堆表（<code>ctid</code> 物理寻址），每行带 <code>xmin/xmax</code>，<code>UPDATE = 旧行标 xmax + 插新行版本</code>；回滚 <code>O(1)</code> 极快，但留下<strong>死元组与表膨胀</strong>。</li>
               <li><strong>隔离级别：</strong>默认 <code>Read Committed</code>（语句级快照）；无脏读；<code>Repeatable Read</code> 靠事务级快照天然挡幻读（写写冲突直接报错要求重试）；<code>Serializable</code> 采用无读锁的 <strong>SSI</strong>。</li>
               <li><strong>行锁与抢单：</strong>行锁记在元组头 <code>xmax + infomask</code> 上，绝不撑爆内存；任务队列并发抢单用 <code>FOR UPDATE SKIP LOCKED</code>。</li>
               <li><strong>六大索引：</strong>默认 <code>B-tree</code>；多值包含（JSONB/数组/全文）用 <strong><code>GIN</code></strong>；空间/范围排他用 <strong><code>GiST</code></strong>；百亿按序时序表用 <strong><code>BRIN</code></strong>；覆盖索引用 <code>INCLUDE</code>（需 <code>VACUUM</code> 维护 Visibility Map 才真正免回表）；生产建索引必加 <code>CONCURRENTLY</code>。</li>

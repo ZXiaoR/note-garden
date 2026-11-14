@@ -1,0 +1,205 @@
+<!-- ====================================================================
+     PART 05: 本地存储与跨域接口联调 · Cookie、Web Storage、缓存配置与 CORS 排障
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="security">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">本地存储与跨域接口联调 · Cookie、Web Storage、缓存配置与 CORS 排障</span>
+  <span class="plop-tag periwinkle">STORAGE × HTTP CACHE × CORS</span>
+</div>
+
+<!-- 05.1 · 浏览器四大本地存储方案选型对比：Cookie、localStorage、sessionStorage 与 IndexedDB -->
+<div class="wb-card" id="browser-storage" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">💾 05.1 · 客户端存储选型：<code>Cookie</code>、<code>localStorage</code>、<code>sessionStorage</code> 与 <code>IndexedDB</code> 对比</div>
+  <h3>💾 05.1 浏览器四大本地存储方式对比与使用示例</h3>
+
+  <p>
+    网页经常需要在用户电脑本地保存一些数据，例如深色模式主题偏好、未提交的表单草稿或登录会话标识。浏览器提供了四种主要的客户端存储机制，它们在容量、过期生命周期以及是否随网络请求自动发送上各有分工：
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">存储机制</th>
+          <th style="width:14%">典型容量上限</th>
+          <th style="width:24%">数据生命周期</th>
+          <th style="width:18%">是否随每次 HTTP 请求自动发送？</th>
+          <th>日常工程适用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>Cookie</code></strong></td>
+          <td>约 <code>4 KB</code></td>
+          <td>可通过 <code>Max-Age / Expires</code> 设置过期时间；未设置则关闭浏览器后失效</td>
+          <td><strong>是</strong>（自动放入 <code>Cookie</code> 请求头）</td>
+          <td><strong>仅用于存放服务端需要识别的小体积会话标识（如 <code>session_id</code>）</strong>。切勿塞入大量业务数据以免拖慢每次接口请求。</td>
+        </tr>
+        <tr>
+          <td><strong><code>localStorage</code></strong></td>
+          <td>约 <code>5 MB</code>（按源隔离）</td>
+          <td><strong>永久保存</strong>（除非代码主动调用 <code>removeItem</code> 或用户手动清理浏览器数据）</td>
+          <td>否（仅保留在本地）</td>
+          <td>保存跨会话持久化的前端配置，如深色/浅色主题设置、手账桌面材质偏好、搜索历史记录。</td>
+        </tr>
+        <tr>
+          <td><strong><code>sessionStorage</code></strong></td>
+          <td>约 <code>5 MB</code>（按标签页隔离）</td>
+          <td><strong>当前标签页有效</strong>（刷新页面仍保留，但一旦关闭该标签页即自动清空）</td>
+          <td>否（仅保留在本地）</td>
+          <td>保存单次流程中的分步表单草稿、列表页滚动条位置或临时筛选条件。</td>
+        </tr>
+        <tr>
+          <td><strong><code>IndexedDB</code></strong></td>
+          <td>数百 MB 乃至数 GB（视磁盘剩余空间）</td>
+          <td>永久保存（异步事务型对象数据库，支持索引查询与二进制 <code>Blob</code>）</td>
+          <td>否（仅保留在本地）</td>
+          <td>在线文档离线编辑缓存、海量聊天记录本地检索、大体积富媒体资源离线包。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>💾 storage_helper.js · 使用 localStorage 安全存取 JSON 对象（注意它只支持存字符串）</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-storage', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-browser-storage"><code><span class="c-cm">// 注意：localStorage 和 sessionStorage 的键值都只能是字符串！</span>
+<span class="c-cm">// 存入 JavaScript 对象前需用 JSON.stringify 转为字符串；读取时需用 JSON.parse 还原</span>
+<span class="c-kw">const</span> userPrefs = { theme: <span class="c-str">'poster'</span>, fontSize: <span class="c-num">15</span> };
+localStorage.<span class="c-fn">setItem</span>(<span class="c-str">'garden_prefs'</span>, JSON.<span class="c-fn">stringify</span>(userPrefs));
+
+<span class="c-cm">// 读取并加上 try...catch 防御用户手动篡改本地存储导致的解析报错</span>
+<span class="c-kw">function</span> <span class="c-fn">loadPrefs</span>() {
+  <span class="c-kw">try</span> {
+    <span class="c-kw">const</span> raw = localStorage.<span class="c-fn">getItem</span>(<span class="c-str">'garden_prefs'</span>);
+    <span class="c-kw">return</span> raw ? JSON.<span class="c-fn">parse</span>(raw) : { theme: <span class="c-str">'mat'</span>, fontSize: <span class="c-num">14</span> };
+  } <span class="c-kw">catch</span> (e) {
+    <span class="c-kw">return</span> { theme: <span class="c-str">'mat'</span>, fontSize: <span class="c-num">14</span> };
+  }
+}</code></pre>
+  </div>
+</div>
+
+<!-- 05.2 · 工程中的 HTTP 缓存配置策略：HTML 入口 vs 带指纹静态资源 -->
+<div class="wb-card" id="http-cache-practice" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">📦 05.2 · 静态资源缓存规范：为什么带哈希的 JS/CSS 配一年强缓存，而 index.html 配每次验证？</div>
+  <h3>📦 05.2 生产环境 HTTP 缓存最佳实践</h3>
+
+  <p>
+    当网站部署上线后，我们既希望用户的浏览器尽可能复用已下载过的 CSS、JS 和图片以实现秒开，又希望当我们发布新版本代码时用户不会因为旧缓存而一直看到老页面。现代前端工程通过<strong>「文件名内容哈希 + 差异化 <code>Cache-Control</code> 响应头」</strong>完美兼顾这两点：
+  </p>
+
+  <div class="wb-grid-2" style="margin:12px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag tomato">入口文档 · index.html</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">Cache-Control: no-cache</span>
+      </div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">允许本地缓存，但每次使用前向服务器做 <code>ETag</code> 验证</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        注意：<code>no-cache</code> 的真正含义不是“不缓存”，而是<strong>“每次复用缓存前必须带 <code>If-None-Match</code> 询问服务器文件有没有变”</strong>。若未发版则服务端返回极轻量的 <code>304 Not Modified</code>；一旦发版则立刻返回最新 HTML。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag mint">带指纹静态文件 · app.8f3a1c.js</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">max-age=31536000, immutable</span>
+      </div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">直接强缓存一年，期间连验证请求都不必发</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        打包工具会根据文件内容计算出哈希指纹（如 <code>8f3a1c</code>）。只要代码没改，文件名就不变，浏览器直接从本地秒读；一旦代码修改，打包后会生成新文件名 <code>app.9b2d4e.js</code>，由最新的 <code>index.html</code> 引入。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 05.3 · 同源策略与日常前后端跨域（CORS）报错排查 -->
+<div class="wb-card" id="cors-troubleshooting" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🛡️ 05.3 · 跨域联调排障：同源判定规则（协议 + 主机 + 端口）与两种标准跨域解决方案</div>
+  <h3>🛡️ 05.3 什么是同源策略？遇到 CORS 跨域报错怎么解决？</h3>
+
+  <p>
+    为了防止恶意网站在后台用脚本偷读你在其他网站（如网银或邮箱）的数据，浏览器实施了<strong>同源策略（Same-Origin Policy）</strong>：默认只允许网页脚本自由读取<strong>同源（协议 <code>protocol</code> + 主机域名 <code>hostname</code> + 端口号 <code>port</code> 三者完全一致）</strong>的接口响应。
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:36%">当前网页为 <code>https://www.example.com/index.html</code>，请求目标 URL</th>
+          <th style="width:16%">是否同源？</th>
+          <th>原因说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>https://www.example.com/api/users</code></td>
+          <td>🟢 <strong>同源</strong></td>
+          <td>协议（<code>https</code>）、主机（<code>www.example.com</code>）、默认端口（<code>443</code>）全部相同，仅路径不同。</td>
+        </tr>
+        <tr>
+          <td><code>http://www.example.com/api/users</code></td>
+          <td>🔴 <strong>跨源</strong></td>
+          <td><strong>协议不同</strong>（<code>https</code> vs <code>http</code>）。</td>
+        </tr>
+        <tr>
+          <td><code>https://api.example.com/users</code></td>
+          <td>🔴 <strong>跨源</strong></td>
+          <td><strong>主机名不同</strong>（子域名 <code>www</code> vs <code>api</code> 属于不同源）。</td>
+        </tr>
+        <tr>
+          <td><code>https://www.example.com:8080/api/users</code></td>
+          <td>🔴 <strong>跨源</strong></td>
+          <td><strong>端口不同</strong>（默认 <code>443</code> vs <code>8080</code>）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    在前后端分离开发中，前端本地开发服务常跑在 <code>http://localhost:5173</code>，而后端接口跑在 <code>http://localhost:8080</code>，由于端口不同会触发浏览器的跨域拦截。工程中有两种标准解决方式：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:0;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>方案 ① · 后端服务配置 CORS 响应头（允许指定前端源访问）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-cors-headers', this)">复制配置</button>
+      </div>
+      <pre class="plop-code-pre" id="code-browser-cors-headers"><code><span class="c-cm"># 后端在 HTTP 响应头中明确告知浏览器：允许该前端源读取响应</span>
+Access-Control-Allow-Origin: http://localhost:5173
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization
+
+<span class="c-cm"># 若前端 fetch 开启了 credentials: 'include' 携带 Cookie：</span>
+<span class="c-cm"># 1. Allow-Origin 必须写具体源，严禁写通配符 *</span>
+<span class="c-cm"># 2. 必须额外返回下方响应头：</span>
+Access-Control-Allow-Credentials: true</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>方案 ② · 开发环境用 Vite / Nginx 反向代理转为同源请求</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-browser-cors-proxy', this)">复制配置</button>
+      </div>
+      <pre class="plop-code-pre" id="code-browser-cors-proxy"><code><span class="c-cm">// vite.config.js：让浏览器直接请求同源的 /api/xxx，</span>
+<span class="c-cm">// 由本地 Node 开发服务器在后台转发给 8080 端口（服务器间通信无同源限制）</span>
+<span class="c-kw">export default</span> {
+  server: {
+    proxy: {
+      <span class="c-str">'/api'</span>: {
+        target: <span class="c-str">'http://localhost:8080'</span>,
+        changeOrigin: <span class="c-kw">true</span>
+      }
+    }
+  }
+};</code></pre>
+    </div>
+  </div>
+</div>

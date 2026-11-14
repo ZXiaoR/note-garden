@@ -1,24 +1,270 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-plop-surface="poster">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>浏览器 · note-garden（建设中）</title>
-  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
-<style>
-  body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    background:#0f1419;color:#d7dde5;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;text-align:center;padding:20px;}
-  .ico{font-size:64px;}
-  h1{font-size:32px;margin:12px 0 6px;color:#c792ea;}
-  p{color:#8b97a6;}
-  a{color:#4aa8ff;text-decoration:none;margin-top:20px;display:inline-block;}
-</style>
-<script defer src="../assets/analytics.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="浏览器基础与实战篇：从第一个网页与开发者工具出发，依次梳理 URL 解析与 Fetch 网络请求、DOM 节点操作与事件委托、CSS 盒模型与脚本加载属性、异步定时器与 Web Worker、本地存储与 CORS 跨域排障，以及端到端实战。" />
+  <title>浏览器工作原理 · 基础与实战篇 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
 </head>
 <body>
-  <div class="ico">🌐</div>
-  <h1>浏览器</h1>
-  <p>🚧 这颗还在发芽，敬请期待…</p>
-  <a href="../index.html">← 回到 note-garden</a>
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+      </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" class="active" aria-current="page" title="循序渐进：从第一个网页、DOM与事件、Fetch请求到日常排障">🌱 基础与实战篇</a>
+        <a href="principles.html" data-edition-target="principles.html" title="切换到当前章节的 Chromium 多进程架构、Blink 渲染流水线、事件循环规范与安全性能原理">📘 核心原理篇 ↗</a>
+      </nav>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + 浏览器速查小票 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与日常开发速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="浏览器基础与实战章节书签">
+          <a href="#why" class="plop-ear-tab active" data-toc="why">
+            <span class="ear-dot"></span>
+            <span>00 第一个网页与工具</span>
+          </a>
+          <a href="#navigation" class="plop-ear-tab" data-toc="navigation">
+            <span class="ear-dot mint"></span>
+            <span>01 网址解析与请求</span>
+          </a>
+          <a href="#dom" class="plop-ear-tab" data-toc="dom">
+            <span class="ear-dot periwinkle"></span>
+            <span>02 DOM与事件交互</span>
+          </a>
+          <a href="#parsing" class="plop-ear-tab" data-toc="parsing">
+            <span class="ear-dot pink"></span>
+            <span>03 布局与脚本加载</span>
+          </a>
+          <a href="#event-loop" class="plop-ear-tab" data-toc="event-loop">
+            <span class="ear-dot mustard"></span>
+            <span>04 异步定时器与动画</span>
+          </a>
+          <a href="#security" class="plop-ear-tab" data-toc="security">
+            <span class="ear-dot mint"></span>
+            <span>05 存储与跨域联调</span>
+          </a>
+          <a href="#practice" class="plop-ear-tab" data-toc="practice">
+            <span class="ear-dot periwinkle"></span>
+            <span>06 实战与日常排障</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：浏览器日常开发速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>BROWSER 速查</span>
+            <span>#WEB</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>写入文本</span>
+            <span>textContent</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>事件委托</span>
+            <span>closest()</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>脚本加载</span>
+            <span>defer / module</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>流畅动画</span>
+            <span>rAF 帧对齐</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>底层深挖</span>
+            <span>顶部 📘原理篇</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#why" class="active">00 第一个网页</a>
+        <a href="#navigation">01 网址与请求</a>
+        <a href="#dom">02 DOM与事件</a>
+        <a href="#parsing">03 布局与脚本</a>
+        <a href="#event-loop">04 异步与动画</a>
+        <a href="#security">05 存储与跨域</a>
+        <a href="#practice">06 实战排障</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape"></div>
+
+        <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三步阅读车票 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card" style="background:var(--plop-mint);">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">WEB / BROWSER</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:32px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">Browser</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">基础与实战篇</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag mint">🌱 基础与实战篇</span>
+              <span class="plop-tag periwinkle">网络请求 · DOM 与事件 · 脚本加载</span>
+              <span class="plop-tag tomato">异步动画 · 本地存储 · DevTools 排障</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              浏览器工作原理 · 基础与实战篇
+            </h1>
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0 0 14px; font-weight:600;">
+              从编写第一个完整网页与认识 Chrome 开发者工具出发，依次梳理网址结构与原生网络请求、DOM 节点操作与事件冒泡委托、CSS 盒模型与外部脚本加载策略、主线程异步调度与动画更新、客户端本地存储与前后端跨域联调，最后通过一个完整的待办清单应用串联日常开发与性能排查流程。若需深入 Chromium 多进程架构、Blink 渲染流水线、事件循环规范与安全指标底层机制，可随时切换至 <a href="principles.html">📘 核心原理篇 ↗</a>。
+            </p>
+
+            <!-- 三阶段手账小票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#navigation" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 网页构成与网络通信</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—01：HTML/CSS/JS 分工、DevTools 导览、URL 解析与 Fetch API</div>
+              </a>
+              <a href="#dom" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 页面渲染与交互调度</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 02—04：DOM 与事件委托、盒模型与 defer/async、定时器与 rAF 动画</div>
+              </a>
+              <a href="#security" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 存储、跨域与工程实战</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 05—06：本地存储与缓存配置、CORS 跨域联调、完整应用与排障手册</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="sections/00-why.html">
+          <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 认识浏览器与第一个网页：HTML、CSS、JavaScript 与开发者工具入门</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">理解浏览器的核心职责与网页三要素分工，手写第一个可交互网页，并掌握 Chrome DevTools 六大面板的日常用途。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/01-network.html">
+          <section class="wb-card" id="navigation" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-network.html">01 · 网址解析与网络请求基础：URL 组成、HTTP 报文与 Fetch API 日常调用</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解标准 URL 的六个组成部分，认识 HTTP 请求响应报文与常见状态码，并用原生 fetch 发起带超时控制的异步请求。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/02-dom-events.html">
+          <section class="wb-card" id="dom" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-dom-events.html">02 · DOM 节点操作与事件交互：元素查询、动态渲染、事件流与事件委托</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">掌握 DOM 树增删改查标准 API、事件传播三阶段（捕获、目标、冒泡），以及利用事件冒泡实现高效的事件委托。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/03-layout-css.html">
+          <section class="wb-card" id="parsing" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-layout-css.html">03 · 页面布局与脚本加载属性：CSS 盒模型、布局方式与 script / defer / async</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">区分标准盒模型与 border-box、三种元素隐藏方式，以及普通 script、defer、async、module 与页面生命周期事件的关系。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/04-async-timer.html">
+          <section class="wb-card" id="event-loop" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-async-timer.html">04 · 异步任务、定时器与动画更新：定时器、Promise、requestAnimationFrame 与 Web Worker</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">理解主线程异步回调顺序，使用 requestAnimationFrame 实现流畅动画，并用 Web Worker 线程拆分耗时计算。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/05-storage-cors.html">
+          <section class="wb-card" id="security" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-storage-cors.html">05 · 本地存储与跨域接口联调：Cookie、Web Storage、缓存配置与 CORS 排障</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比四大浏览器本地存储方案，掌握生产环境静态资源缓存配置策略，并解决前后端分离开发中的 CORS 跨域报错。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/06-devtools.html">
+          <section class="wb-card" id="practice" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-devtools.html">06 · 实战演练与日常排障：端到端交互应用搭建、Network 抓包与 Performance 诊断</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">手写带本地持久化的完整待办清单应用，并梳理使用 Network 与 Performance 面板定位页面加载慢与卡顿的标准步骤。</p>
+          </section>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：学习路线便签 + 全站主题跳转 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷导航与跨专题切换">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>🌱 按现在的需要读</span>
+            </span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:7px; margin-top:8px;">
+            <a class="plop-pill-sticker" href="#why">刚开始学：从 00 顺着往下读</a>
+            <a class="plop-pill-sticker periwinkle" href="#practice">要写页面与排障：看 06 实战</a>
+            <a class="plop-pill-sticker mustard" href="principles.html">想看底层与面试：去 📘 核心原理篇 ↗</a>
+          </div>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+
 </body>
 </html>

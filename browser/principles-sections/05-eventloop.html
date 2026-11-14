@@ -1,0 +1,175 @@
+<!-- ====================================================================
+     PART 05: HTML 事件循环规范与一帧生命周期 · 多任务队列、微任务检查点、rAF 与 rIC
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="event-loop">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">HTML 事件循环规范与一帧生命周期 · 任务队列、微任务检查点、rAF 与 rIC</span>
+  <span class="plop-tag periwinkle">WHATWG EVENT LOOP × 16.7MS FRAME × RAF vs RIC</span>
+</div>
+
+<!-- 05.1 · WHATWG HTML 事件循环规范：多任务队列优先级与微任务检查点 -->
+<div class="wb-card" id="whatwg-event-loop" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🔄 05.1 · 标准规范还原：为什么浏览器里不止一个「宏任务队列」？微任务清空机制与饥饿问题</div>
+  <h3>🔄 05.1 WHATWG 事件循环模型：多任务队列与微任务检查点</h3>
+
+  <p>
+    需要注意一个面试高频细节：<strong>事件循环（Event Loop）并不是由 ECMAScript（JavaScript 语言标准）定义的，而是由 WHATWG HTML 标准规范定义的宿主调度机制</strong>（V8 引擎只负责维护调用栈与微任务队列，而何时取任务、何时渲染画面由 Blink 宿主事件循环决定）。
+  </p>
+
+  <div class="wb-grid-2" style="margin:12px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 14px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">
+        ① 宏任务（Tasks）：按任务源划分的多个优先级队列
+      </div>
+      <p style="font-size:12.8px; margin:0; line-height:1.64; color:var(--plop-ink-text);">
+        规范中称为 <strong>Task</strong>（俗称宏任务），包括：<code>&lt;script&gt;</code> 整体代码、<code>setTimeout / setInterval</code>、用户点击/滚动 I/O 事件、<code>MessageChannel</code>、网络响应回调等。<br>
+        <strong>关键机制</strong>：浏览器并非把所有宏任务塞进同一个先进先出队列，而是为不同<strong>任务源（Task Source）</strong>维护多个队列。每轮事件循环开始时，浏览器调度器会<strong>优先从用户交互队列（如鼠标点击、键盘输入）取任务</strong>，其次才是网络和定时器队列，从而保证用户操作优先得到响应。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 14px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">
+        ② 微任务检查点（Microtask Checkpoint）：不清空绝不继续
+      </div>
+      <p style="font-size:12.8px; margin:0; line-height:1.64; color:var(--plop-ink-text);">
+        微任务（<strong>Microtasks</strong>）仅包含三类：<strong><code>Promise.then / catch / finally</code>（含 <code>await</code> 后续体）、<code>queueMicrotask()</code>、以及监听 DOM 树变动的 <code>MutationObserver</code></strong>。<br>
+        <strong>关键机制</strong>：每当调用栈（JS Execution Stack）变空——无论是跑完一个宏任务，还是在渲染前跑完一个 <code>requestAnimationFrame</code> 回调——引擎都会立刻进入微任务检查点，<strong>用一个 <code>while</code> 循环把微任务队列里的所有任务（包括微任务执行期间新追加的子微任务）彻底清空</strong>。若微任务无限递归追加微任务，将直接卡死主线程导致无法进入页面渲染。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 05.2 · 浏览器一帧（16.7ms @ 60Hz）的完整生命周期与渲染机会（Rendering Opportunity） -->
+<div class="wb-card" id="frame-lifecycle-pipeline" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🎞️ 05.2 · 一帧内部全流程：从宏任务、微任务到 <code>rAF → Style → Layout → Paint → rIC</code> 的精确时序</div>
+  <h3>🎞️ 05.2 浏览器一帧（Frame）生命周期与 <code>rAF / rIC</code> 调度图解</h3>
+
+  <p>
+    另一个常见误区是认为“每执行完一个宏任务 + 清空微任务，浏览器就会立刻重新渲染一次页面”。<strong>事实并非如此</strong>：在 60Hz 刷新率的屏幕上，硬件每 <code>16.67ms</code>（120Hz 下为 <code>8.33ms</code>）才发出一次垂直同步信号（<code>VSync</code>）。如果两个 <code>setTimeout</code> 宏任务各耗时 <code>1ms</code>，在这 <code>16.67ms</code> 窗口内浏览器可以连续跑完好几个宏任务，直到<strong>VSync 到来且页面确实有视觉变动（存在渲染机会 Rendering Opportunity）</strong>时，才会进入下图的<strong>更新渲染（Update the rendering）</strong>阶段：
+  </p>
+
+  <!-- 事件循环与一帧 (16.7ms) 渲染生命周期完整流转图 (Editorial Loop/Pipeline SVG) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 960 356" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="ev-frame-title ev-frame-desc">
+        <title id="ev-frame-title">HTML 事件循环与一帧渲染更新完整流转图</title>
+        <desc id="ev-frame-desc">展示主线程从优先级任务队列取一个宏任务执行、清空微任务队列、判断是否到达 VSync 渲染机会，若到达则依次执行 requestAnimationFrame、Style/Layout/Paint 渲染流水线，最后在帧末尾剩余空闲时间执行 requestIdleCallback 的闭环。</desc>
+        <defs>
+          <marker id="ef-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="ef-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="ef-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- 1. Zone Container for VSync Rendering Pipeline -->
+        <rect x="280" y="180" width="656" height="152" rx="8" fill="rgba(191,69,32,0.03)" stroke="#bf4520" stroke-width="1.2" stroke-dasharray="5,4"/>
+        <rect x="292" y="184" width="348" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="466" y="194" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.08em">VSYNC RENDERING OPPORTUNITY (~16.67MS @ 60HZ)</text>
+
+        <!-- 2. Orthogonal Connectors drawn BEFORE node boxes -->
+        <!-- Node 1 Task (right x=240, y=84) -> Node 2 Microtasks (left x=304, y=84) -->
+        <line x1="240" y1="84" x2="304" y2="84" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#ef-arrow)"/>
+
+        <!-- Node 2 Microtasks (right x=524, y=84) -> Node 3 Rendering Decision (left x=596, y=84) -->
+        <line x1="524" y1="84" x2="596" y2="84" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#ef-arrow)"/>
+
+        <!-- Node 3 Decision NO VSYNC (top x=708, y=44) -> loops back to Node 1 Task (top x=136, y=44) via r=8 -->
+        <path d="M 708,44 V 28 Q 708,20 700,20 H 144 Q 136,20 136,28 V 44" fill="none" stroke="#2e5aa8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#ef-arrow-link)"/>
+        <rect x="344" y="12" width="164" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="426" y="22" text-anchor="middle" fill="#2e5aa8" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">NO VSYNC YET · NEXT TASK</text>
+
+        <!-- Node 3 Decision YES VSYNC (bottom x=708, y=124) -> Node 4 rAF (top x=408, y=216) via r=8 -->
+        <path d="M 708,124 V 156 Q 708,164 700,164 H 416 Q 408,164 408,172 V 216" fill="none" stroke="#bf4520" stroke-width="1.8" marker-end="url(#ef-arrow-accent)"/>
+        <rect x="528" y="144" width="104" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="580" y="154" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="700">VSYNC ARRIVED</text>
+
+        <!-- Node 4 rAF (right x=516, y=264) -> Node 5 Style/Layout/Paint (left x=556, y=264) -->
+        <line x1="516" y1="264" x2="556" y2="264" stroke="#bf4520" stroke-width="1.8" marker-end="url(#ef-arrow-accent)"/>
+
+        <!-- Node 5 Style/Layout/Paint (right x=748, y=264) -> Node 6 rIC (left x=788, y=264) -->
+        <line x1="748" y1="264" x2="788" y2="264" stroke="#4f5d75" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#ef-arrow)"/>
+
+        <!-- Node 4/5/6 Frame Done -> back to Node 1 Task (bottom x=136, y=124) -->
+        <path d="M 300,264 H 144 Q 136,264 136,256 V 124" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#ef-arrow)"/>
+        <rect x="148" y="242" width="96" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="196" y="252" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">NEXT LOOP TICK</text>
+
+        <!-- 3. Node Boxes drawn AFTER arrows -->
+        <!-- Node 1: Macrotask -->
+        <rect x="32" y="44" width="208" height="80" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="136" y="70" text-anchor="middle" fill="#2d3142" font-size="13" font-weight="700">① 取出 1 个宏任务 (Task)</text>
+        <text x="136" y="90" text-anchor="middle" fill="#4f5d75" font-size="11">从最高优先级非空队列取 1 个</text>
+        <text x="136" y="108" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="9.5">script / setTimeout / I/O</text>
+
+        <!-- Node 2: Microtask Checkpoint -->
+        <rect x="304" y="44" width="220" height="80" rx="6" fill="#EEF3FF" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="414" y="70" text-anchor="middle" fill="#2d3142" font-size="13" font-weight="700">② 清空全部微任务 (Microtasks)</text>
+        <text x="414" y="90" text-anchor="middle" fill="#4f5d75" font-size="11">循环执行直至微任务队列为空</text>
+        <text x="414" y="108" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="9.5">Promise.then / MutationObserver</text>
+
+        <!-- Node 3: Rendering Opportunity Check -->
+        <rect x="596" y="44" width="224" height="80" rx="6" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="708" y="70" text-anchor="middle" fill="#2d3142" font-size="13" font-weight="700">③ 判断是否存在渲染机会？</text>
+        <text x="708" y="90" text-anchor="middle" fill="#4f5d75" font-size="11">距离上次渲染已满 16.7ms (VSync)</text>
+        <text x="708" y="108" text-anchor="middle" fill="#5a6580" font-size="10.5">且页面可见、存在视觉更新</text>
+
+        <!-- Node 4 (Focal 1): rAF & Pre-Paint Events -->
+        <rect x="300" y="216" width="216" height="96" rx="6" fill="#FFE8E5" stroke="#bf4520" stroke-width="2"/>
+        <text x="408" y="242" text-anchor="middle" fill="#bf4520" font-size="13" font-weight="700">④ 渲染前回调 (rAF)</text>
+        <text x="408" y="262" text-anchor="middle" fill="#2d3142" font-size="11">派发 resize / scroll 事件 ➔</text>
+        <text x="408" y="280" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10" font-weight="700">执行 requestAnimationFrame</text>
+        <text x="408" y="298" text-anchor="middle" fill="#4f5d75" font-size="10">（每个 rAF 后亦清空微任务）</text>
+
+        <!-- Node 5 (Focal 2): Style -> Layout -> Paint -->
+        <rect x="556" y="216" width="192" height="96" rx="6" fill="#FFE8E5" stroke="#bf4520" stroke-width="2"/>
+        <text x="652" y="242" text-anchor="middle" fill="#bf4520" font-size="13" font-weight="700">⑤ 样式、布局与绘制</text>
+        <text x="652" y="262" text-anchor="middle" fill="#2d3142" font-size="11">Style ➔ Layout ➔</text>
+        <text x="652" y="280" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="9.5">Resize / IntersectionObserver</text>
+        <text x="652" y="298" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10" font-weight="700">➔ Paint ➔ Commit 合成帧</text>
+
+        <!-- Node 6: requestIdleCallback -->
+        <rect x="788" y="216" width="132" height="96" rx="6" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="854" y="242" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">⑥ 空闲回调 (rIC)</text>
+        <text x="854" y="262" text-anchor="middle" fill="#4f5d75" font-size="10.5">本帧耗完后若还有</text>
+        <text x="854" y="280" text-anchor="middle" fill="#4f5d75" font-size="10.5">剩余毫秒，才执行</text>
+        <text x="854" y="298" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="9">requestIdleCallback</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="table-wrap" style="margin-top:12px; margin-bottom:0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:26%">常见高频疑问 / 对比项</th>
+          <th style="width:32%">底层机制与时序结论</th>
+          <th>工程实践指导</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>requestAnimationFrame (rAF)</code> vs <code>requestIdleCallback (rIC)</code></strong></td>
+          <td><code>rAF</code> 在每一帧<strong>计算样式与布局（Style &amp; Layout）之前</strong>必然执行；而 <code>rIC</code> 仅当一帧跑完任务和渲染后<strong>时间仍有结余（小于 16.7ms）</strong>时才执行。</td>
+          <td><strong>严禁在 <code>rIC</code> 里修改 DOM</strong>：因为此时本帧的 Layout 和 Paint 已经结束，在 <code>rIC</code> 里改 DOM 会使刚刚算好的布局作废并导致下一帧耗时失控；<code>rIC</code> 仅用于低优先级日志上报或预取。</td>
+        </tr>
+        <tr>
+          <td><strong>同一帧里调用两次修改背景色：<br><code>box.style.bg = 'red'; box.style.bg = 'blue';</code> 会闪现红色吗？</strong></td>
+          <td><strong>绝对不会闪现红色</strong>。因为这两行赋值都在同一个宏任务（阶段 ①）里同步执行完，直到进入阶段 ⑤（Style &amp; Paint）时浏览器才读取最终状态绘制一次蓝色。</td>
+          <td>若确实需要先渲染红色、下一帧再过渡到蓝色，需将第二次修改放入嵌套的双层 <code>requestAnimationFrame</code> 中。</td>
+        </tr>
+        <tr>
+          <td><strong><code>setTimeout(fn, 0)</code> 为什么在嵌套超过 5 层后最短延迟变成 <code>4ms</code>？</strong></td>
+          <td>HTML 标准明确规定：当定时器嵌套层级（Nesting Level）超过 5 层时，为了防止代码写死循环定时器耗尽 CPU 电量，浏览器强制将最小延迟钳制为 <strong><code>&gt;= 4ms</code></strong>。</td>
+          <td>若在浏览器中需要做零延迟的宏任务时间切片（如 React Scheduler），应使用不受 4ms 限制的 <strong><code>MessageChannel</code></strong> 或现代原生的 <strong><code>scheduler.yield()</code></strong>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

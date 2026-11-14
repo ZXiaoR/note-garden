@@ -1,0 +1,127 @@
+<!-- ====================================================================
+     PART 04: HTTP 网络服务与客户端请求开发
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="v8gc">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">HTTP 网络服务与客户端请求开发：node:http 路由解析与原生 fetch</span>
+  <span class="plop-tag tomato">HTTP SERVER × URL PARSING × FETCH</span>
+</div>
+
+<!-- 04.1 · 理解请求对象 req 与响应对象 res，解析 URL 查询参数 -->
+<div class="wb-card" id="http-req-res" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🌐 04.1 · HTTP 服务端基础：请求对象 <code>req</code>、响应对象 <code>res</code> 与 <code>URL</code> 查询参数解析</div>
+  <h3>🌐 04.1 请求对象（<code>req</code>）、响应对象（<code>res</code>）与 URL 解析</h3>
+
+  <p>
+    无论是 Express、Koa 还是 NestJS 框架，它们的最底层都建立在内置的 <strong><code>node:http</code></strong> 模块之上。当调用 <code>http.createServer((req, res) =&gt; {})</code> 时，每次有客户端访问服务器，回调函数就会收到两个核心对象：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong><code>req</code>（<code>http.IncomingMessage</code>，可读流）</strong>：代表客户端发来的请求，包含请求方法 <code>req.method</code>（如 <code>'GET' / 'POST'</code>）、原始路径 <code>req.url</code>、请求头对象 <code>req.headers</code>（键名已全部自动转为小写）以及请求体字节流。</li>
+    <li><strong><code>res</code>（<code>http.ServerResponse</code>，可写流）</strong>：代表服务器将要发回给客户端的响应，通过 <code>res.writeHead(状态码, 响应头)</code> 设置状态与头部，通过 <code>res.end(响应内容)</code> 完成发送。</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🌐 http_query.js · 解析 URL 路径与 ?page=1&amp;size=10 查询参数</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-http-query', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-http-query"><code><span class="c-kw">import</span> http <span class="c-kw">from</span> <span class="c-str">'node:http'</span>;
+
+<span class="c-kw">const</span> server = http.<span class="c-fn">createServer</span>((req, res) =&gt; {
+  <span class="c-cm">// 1. 使用标准 URL 类解析 req.url（第二个参数传入基础域名用于补全相对路径）</span>
+  <span class="c-kw">const</span> urlObj = <span class="c-kw">new</span> <span class="c-fn">URL</span>(req.url, <span class="c-str">`http://${req.headers.host}`</span>);
+  <span class="c-kw">const</span> pathname = urlObj.pathname;                <span class="c-cm">// 如 '/api/articles'</span>
+  <span class="c-kw">const</span> page = <span class="c-fn">Number</span>(urlObj.searchParams.<span class="c-fn">get</span>(<span class="c-str">'page'</span>) || 1); <span class="c-cm">// 读取 ?page= 参数</span>
+
+  <span class="c-cm">// 2. 匹配 GET /api/articles 路由并返回 JSON 数据</span>
+  <span class="c-kw">if</span> (req.method === <span class="c-str">'GET'</span> &amp;&amp; pathname === <span class="c-str">'/'</span> || pathname === <span class="c-str">'/api/articles'</span>) {
+    res.<span class="c-fn">writeHead</span>(200, { <span class="c-str">'Content-Type'</span>: <span class="c-str">'application/json; charset=utf-8'</span> });
+    res.<span class="c-fn">end</span>(JSON.<span class="c-fn">stringify</span>({ code: 0, page, list: [<span class="c-str">'Node.js 入门'</span>, <span class="c-str">'HTTP 实战'</span>] }));
+    <span class="c-kw">return</span>;
+  }
+
+  <span class="c-cm">// 3. 未匹配到任何路由时，返回 404 Not Found</span>
+  res.<span class="c-fn">writeHead</span>(404, { <span class="c-str">'Content-Type'</span>: <span class="c-str">'application/json; charset=utf-8'</span> });
+  res.<span class="c-fn">end</span>(JSON.<span class="c-fn">stringify</span>({ code: 404, message: <span class="c-str">'接口不存在'</span> }));
+});
+
+server.<span class="c-fn">listen</span>(3000);</code></pre>
+  </div>
+</div>
+
+<!-- 04.2 · 接收 POST 请求体（JSON Body）与流式拼接 -->
+<div class="wb-card" id="http-post-body" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📨 04.2 · 读取请求体：使用 <code>for await...of</code> 收集 POST JSON 请求体</div>
+  <h3>📨 04.2 读取 POST 请求体：用异步遍历拼接 JSON 数据</h3>
+
+  <p>
+    当客户端发起 <code>POST</code> 或 <code>PUT</code> 请求提交表单或 JSON 数据时，请求体可能很大，因此 Node.js 不会把请求体直接塞在某个属性上，而是将 <code>req</code> 设计为一个<strong>可读流（Readable Stream）</strong>。<br>
+    在现代 Node.js 中，所有的可读流都支持 <strong><code>for await (const chunk of req)</code></strong> 异步迭代语法——只需几行代码就能把分块到达的 <code>Buffer</code> 收集起来并解析为 JSON 对象：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>📨 read_json_body.js · 封装通用的 JSON 请求体读取函数</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-http-body', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-http-body"><code><span class="c-cm">// 辅助函数：从请求流 req 中完整读取并解析 JSON 请求体</span>
+<span class="c-kw">async function</span> <span class="c-fn">readJsonBody</span>(req) {
+  <span class="c-kw">const</span> chunks = [];
+  <span class="c-cm">// 逐块收集客户端发来的二进制 Buffer 分片</span>
+  <span class="c-kw">for await</span> (<span class="c-kw">const</span> chunk <span class="c-kw">of</span> req) {
+    chunks.<span class="c-fn">push</span>(chunk);
+  }
+  <span class="c-kw">const</span> rawText = Buffer.<span class="c-fn">concat</span>(chunks).<span class="c-fn">toString</span>(<span class="c-str">'utf8'</span>);
+  <span class="c-kw">return</span> rawText ? JSON.<span class="c-fn">parse</span>(rawText) : {};
+}
+
+<span class="c-cm">// 在 createServer 回调中使用：</span>
+<span class="c-cm">// if (req.method === 'POST' &amp;&amp; pathname === '/api/users') {</span>
+<span class="c-cm">//   const body = await readJsonBody(req); // 例如收到 { "name": "Alice" }</span>
+<span class="c-cm">//   res.writeHead(201, { 'Content-Type': 'application/json' });</span>
+<span class="c-cm">//   res.end(JSON.stringify({ id: 101, name: body.name }));</span>
+<span class="c-cm">// }</span></code></pre>
+  </div>
+</div>
+
+<!-- 04.3 · 使用内置 fetch 发起 HTTP 客户端请求与超时控制 -->
+<div class="wb-card" id="http-fetch-client" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🚀 04.3 · 发起外部请求：使用全局内置 <code>fetch</code> 调用第三方接口与超时保护</div>
+  <h3>🚀 04.3 客户端请求：使用全局内置 <code>fetch</code> 与 <code>AbortSignal.timeout</code></h3>
+
+  <p>
+    当我们的 Node.js 服务需要作为客户端去调用其他微服务或第三方 API（如支付接口、大模型接口）时，自 Node.js 18+ 起无需再安装第三方请求库，全局已经内置了与浏览器完全一致的 <strong><code>fetch()</code></strong> 函数，并可配合 <strong><code>AbortSignal.timeout(毫秒)</code></strong> 设置请求超时时间：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span>🌍 fetch_client.js · 发起带超时保护的 POST JSON 请求</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-fetch-basic', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-fetch-basic"><code><span class="c-kw">async function</span> <span class="c-fn">createRemoteOrder</span>(orderData) {
+  <span class="c-kw">const</span> response = <span class="c-kw">await</span> <span class="c-fn">fetch</span>(<span class="c-str">'https://api.example.com/v1/orders'</span>, {
+    method: <span class="c-str">'POST'</span>,
+    headers: {
+      <span class="c-str">'Content-Type'</span>: <span class="c-str">'application/json'</span>,
+      <span class="c-str">'Authorization'</span>: <span class="c-str">'Bearer my-secret-token'</span>,
+    },
+    body: JSON.<span class="c-fn">stringify</span>(orderData),
+    <span class="c-cm">// 设置 3000ms (3秒) 超时保护：超时后自动中断请求并抛出 TimeoutError</span>
+    signal: AbortSignal.<span class="c-fn">timeout</span>(3000),
+  });
+
+  <span class="c-cm">// 注意：fetch 在遇到 404 / 500 状态码时不会自动报错，需检查 response.ok</span>
+  <span class="c-kw">if</span> (!response.ok) {
+    <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">`远程接口返回异常状态码: ${response.status}`</span>);
+  }
+  <span class="c-kw">return await</span> response.<span class="c-fn">json</span>();
+}</code></pre>
+  </div>
+
+  <div class="plop-callout info" style="margin:0;">
+    <strong>💡 延伸阅读：</strong>当 Node.js 服务长时间运行、每秒处理成千上万个 JSON 对象时，V8 引擎是如何通过隐藏类（Hidden Class）加速属性访问、又是如何通过新生代与老生代分代垃圾回收（GC）自动清理内存的？可点击查看 <a href="principles.html#v8gc">📘 核心原理篇 · 04 V8 隐藏类、分代 GC 与线上内存泄漏排查 ↗</a>。
+  </div>
+</div>
