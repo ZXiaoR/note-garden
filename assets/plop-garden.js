@@ -17,8 +17,8 @@
     { path: 'ai/index.html', title: '🧠 Gemini 4 Carbon', dot: '' },
     { path: 'ai/memory.html', title: '🌙 Agent 记忆架构', dot: 'pink' },
     { path: 'pi-agent/index.html', title: '🤖 Coding Agent (pi)', dot: 'periwinkle' },
-    { path: 'mysql/index.html', title: '🐬 MySQL 架构与锁', dot: 'mint' },
-    { path: 'postgres/index.html', title: '🐘 PostgreSQL 进阶', dot: 'periwinkle' },
+    { path: 'mysql/index.html', aliases: ['mysql/principles.html', 'mysql/principles'], title: '🐬 MySQL 基础与原理', dot: 'mint' },
+    { path: 'postgres/index.html', aliases: ['postgres/principles.html', 'postgres/principles'], title: '🐘 PostgreSQL 基础与原理', dot: 'periwinkle' },
     { path: 'redis/index.html', title: '🧱 Redis 原理与集群', dot: 'pink' },
     { path: 'go/index.html', aliases: ['go/principles.html', 'go/principles'], title: '🐹 Go 语言与原理', dot: 'mustard' },
     { path: 'node/index.html', aliases: ['node/principles.html', 'node/principles'], title: '🟢 Node.js 基础与原理', dot: 'mint' },
@@ -260,7 +260,7 @@
   }
 
   // 10. 自动并行加载拆分的纯 HTML 章节子文件 ([data-plop-section="sections/01-xxx.html"])
-  const SECTION_CACHE_PREFIX = 'plop-sec-v6:';
+  const SECTION_CACHE_PREFIX = 'plop-sec-v11:';
   const prefetchedPages = new Set();
 
   function getSectionCacheKey(url, baseHref = window.location.href) {

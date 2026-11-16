@@ -11,8 +11,8 @@
 | [🧠 Gemini 4 Carbon 开发者指南](ai/index.html) | ✅ 已完成 | Carbon vs Argon 选型 · 1M 统一窗口超长解码 · Interactions API 变更 · 长程基线验证闭环与 `/swarm` 多智能体 |
 | [🌙 Anthropic Agent 记忆架构](ai/memory.html) | ✅ 已完成 | 极小常驻目录 · Wiki 双链真值库 · RRF 混合检索 · 离线做梦 (Dreaming) 整理 · 91.3 万次会话分心税 |
 | [🤖 Coding Agent (pi)](pi-agent/index.html) | ✅ 已完成 | 12 站机制链路图与源码导读 · 单步交互模拟 · 会话树 · Skills 与 MCP · 运行中补充指令 · 上下文水位压缩 |
-| [🐬 MySQL](mysql/index.html) | ✅ 已完成 | 架构 · 存储结构(B+树/页/行格式) · 索引 · 事务 · MVCC · 锁 · 日志(redo/undo/binlog) · 主从复制 |
-| [🐘 PostgreSQL](postgres/index.html) | ✅ 已完成 | 进程架构 · 数据类型与 SQL · MVCC · 锁 · 索引(GIN/BRIN) · EXPLAIN · VACUUM 与表膨胀 |
+| [🐬 MySQL · 基础与实战篇](mysql/index.html) / [📘 原理篇](mysql/principles.html) | ✅ 已完成 | 四平台安装与连接池 · utf8mb4/DECIMAL/JSON生成列 · 幂等写入/窗口函数/递归CTE · 防超卖与EXPLAIN调优 · 16KB页与行溢出 · 冷热LRU与Change Buffer · B+树扇出推导 · ReadView可见性 · Next-Key Lock退化 · 两阶段提交与Doublewrite |
+| [🐘 PostgreSQL · 基础与实战篇](postgres/index.html) / [📘 原理篇](postgres/principles.html) | ✅ 已完成 | 四级目录与权限 · JSONB/数组/范围 · UPSERT/LATERAL/窗口函数/递归CTE · 8KB 页与 TOAST · 23B 元组头 MVCC 与 SSI · Lehman-Yao B-tree/GIN/BRIN · HOT 与 VACUUM FREEZE |
 | [🧱 Redis](redis/index.html) | ✅ 已完成 | 为什么快/单线程 · 数据结构(底层编码/阈值) · 缓存三大问题 · 持久化(RDB/AOF) · 过期淘汰 · 主从/哨兵/集群 · 分布式锁 |
 | [🐹 Go · 基础与实战篇](go/index.html) / [📘 原理篇](go/principles.html) | ✅ 已完成 | 基础语法/包管理 · 协程与 GMP 调度 · channel · 锁与同步 · GC(三色标记/写屏障/逃逸分析) · context/泛型/性能优化 |
 | [🟢 Node.js · 基础与实战篇](node/index.html) / [📘 原理篇](node/principles.html) | ✅ 已完成 | CJS vs ESM · libuv 事件循环六阶段 · Buffer 8KB 内存池与 Stream 背压 · V8 隐藏类与分代 GC · Cluster 与 worker_threads |

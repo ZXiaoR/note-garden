@@ -1,0 +1,258 @@
+<!-- ====================================================================
+     PART 04: MVCC 多版本并发控制：Undo 版本链与 ReadView 可见性算法
+     ==================================================================== -->
+<div class="wb-sec-header" id="trx" style="background:var(--plop-pink);">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">MVCC 多版本并发控制：Undo 版本链与 ReadView 可见性算法</span>
+  <span class="plop-tag periwinkle">DB_TRX_ID × UNDO LOG CHAIN × READVIEW × RC VS RR</span>
+</div>
+
+<!-- 04.1 · MVCC 的三大底层基石：隐藏列、Undo Log 与逆向版本链 -->
+<div class="wb-card" id="mysql-mvcc-pillars" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧬 04.1 · MVCC 三大基石：隐藏列（DB_TRX_ID / DB_ROLL_PTR）、两类 Undo Log 与聚簇索引逆向版本链</div>
+  <h3>🧬 04.1 InnoDB 原地更新下的多版本存储与两类 Undo Log 生命周期</h3>
+
+  <p>
+    在 <a href="index.html#trx" style="color:var(--plop-tomato);font-weight:800;">🌱 基础与实战篇 · 04 章</a> 中，我们通过双终端实验验证了 <code>READ COMMITTED (RC)</code> 与 <code>REPEATABLE READ (RR)</code> 下普通 <code>SELECT</code> 的可见性差异。与 PostgreSQL「每次更新在数据页内追加一条物理新元组（Append-only Tuple）」的设计不同，InnoDB 采用的是<strong>「聚簇索引原地更新最新值 + Undo Log 逆向串联历史差量版本 + ReadView 活跃事务水位快照」</strong>的多版本并发控制（MVCC）方案：
+  </p>
+
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.4px; line-height:1.72;">
+    <li><strong>聚簇索引记录中的两个事务隐藏列</strong>：每一行聚簇索引记录（参考 00 章 00.3 节）都包含 6 字节的 <code>DB_TRX_ID</code>（最后一次插入或修改该行的事务 ID）和 7 字节的 <code>DB_ROLL_PTR</code>（回滚指针，指向该行在 Undo Log 表空间中的上一个历史版本记录）。如果某行被软删除，记录头中的 <code>deleted_flag</code> 位会被标记为 <code>1</code>。</li>
+    <li><strong>两类不同生命周期的 Undo Log</strong>：InnoDB 将回滚日志划分为两类：
+      <ol style="margin:6px 0; padding-left:20px;">
+        <li><strong>Insert Undo Log（<code>TRX_UNDO_INSERT_REC</code>）</strong>：记录 <code>INSERT</code> 操作的主键信息。由于新插入的行在事务提交前对其他任何事务都不可见，因此<strong>事务一旦提交（Commit），Insert Undo Log 即可立即丢弃释放</strong>，无需保留给 MVCC 快照读使用。</li>
+        <li><strong>Update Undo Log（<code>TRX_UNDO_UPDATE_REC</code>）</strong>：记录 <code>UPDATE</code> 和 <code>DELETE</code> 操作修改前的旧列值。由于可能存在更早开启的事务仍需通过 MVCC 读取该行的历史版本，因此<strong>事务提交后 Update Undo Log 不能立即删除</strong>，而是被挂入 History List，等待后台 <code>Purge</code> 线程检测到「当前系统中最老的活跃 <code>ReadView</code> 都已经不再需要该版本」时，才异步回收对应的 Undo 空间并物理清理标记为 <code>deleted_flag = 1</code> 的聚簇索引记录。</li>
+      </ol>
+    </li>
+    <li><strong>从新到旧单向串联的 Undo 版本链</strong>：每当事务对某行执行 <code>UPDATE</code> 时，InnoDB 先把修改前的旧值连同旧的 <code>DB_TRX_ID</code>、<code>DB_ROLL_PTR</code> 写入一条新的 Update Undo Log，随后<strong>直接在聚簇索引页内原地覆写（In-place Update）新值</strong>，并将聚簇索引行的 <code>DB_TRX_ID</code> 更新为当前事务 ID、将 <code>DB_ROLL_PTR</code> 指向刚才写入的 Undo Log。如此反复，聚簇索引叶子节点永远存放着<strong>最新版本</strong>（使绝大部分读取最新数据的查询无需额外寻址），而历史版本则通过 <code>DB_ROLL_PTR</code> 串成一条从新到旧的单向链表。</li>
+  </ul>
+</div>
+
+<!-- 04.2 · ReadView 结构体的四大水位字段与四步可见性判定算法 -->
+<div class="wb-card" id="mysql-readview-algorithm" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🔍 04.2 · ReadView 可见性状态机：四大水位字段与 C++ 内核 changes_visible() 四步判定漏斗</div>
+  <h3>🔍 04.2 ReadView 结构体的四大水位字段与四步可见性判定算法</h3>
+
+  <p>
+    当事务执行普通 <code>SELECT</code>（快照读，Snapshot Read）时，InnoDB 会获取一个一致性读视图（<code>ReadView</code>）。<code>ReadView</code> 并不拷贝整张表的数据，它只是一个极其轻量的内存结构体，记录了生成瞬间系统中所有活跃读写事务的状态快照：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">ReadView 字段名</th>
+          <th style="width:24%">C++ 内核类型与含义</th>
+          <th>水位边界与可见性语义</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>m_creator_trx_id</code></td>
+          <td><code>trx_id_t</code> · 创建者事务 ID</td>
+          <td>生成该 <code>ReadView</code> 的当前事务自身的事务 ID（若当前事务只是只读事务且未分配事务 ID，则该值为 <code>0</code>）。自己修改的记录对自己永远可见。</td>
+        </tr>
+        <tr>
+          <td><code>m_ids</code></td>
+          <td><code>ids_t</code> · 活跃读写事务列表</td>
+          <td>生成 <code>ReadView</code> 瞬间，系统中<strong>已经启动但尚未提交（Active）</strong>的所有读写事务 ID 有序数组。</td>
+        </tr>
+        <tr>
+          <td><code>m_up_limit_id</code></td>
+          <td><code>trx_id_t</code> · 活跃事务低水位</td>
+          <td>等于 <code>m_ids</code> 中的<strong>最小值</strong>（<code>min(m_ids)</code>）。凡是 <code>DB_TRX_ID &lt; m_up_limit_id</code> 的版本，说明在生成视图前必然已经提交，<strong>无条件可见</strong>。</td>
+        </tr>
+        <tr>
+          <td><code>m_low_limit_id</code></td>
+          <td><code>trx_id_t</code> · 系统尚未分配的高水位</td>
+          <td>等于生成 <code>ReadView</code> 瞬间系统即将分配给下一个新事务的 ID（即当前最大事务 ID + 1，<code>max_trx_id + 1</code>）。凡是 <code>DB_TRX_ID &gt;= m_low_limit_id</code> 的版本，说明是在生成视图之后才开启的事务修改的，<strong>无条件不可见</strong>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    注意 InnoDB 源码中 <code>m_up_limit_id</code>（低水位，数值最小）与 <code>m_low_limit_id</code>（高水位，数值最大）的命名来源于「对可见性限制程度的高低」。当快照读沿着聚簇索引最新记录开始检查某个版本的 <code>trx_id</code>（即 <code>DB_TRX_ID</code>）时，会按顺序执行以下<strong>四步漏斗判定</strong>；若当前版本不可见，则顺着 <code>DB_ROLL_PTR</code> 取出 Undo 版本链中的上一个历史版本重新判定，直到找到第一个可见版本为止：
+  </p>
+
+  <!-- Editorial SVG: ReadView Three Intervals & Undo Version Chain Traversal -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 430" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mysql-mvcc-rv-title mysql-mvcc-rv-desc">
+        <title id="mysql-mvcc-rv-title">InnoDB ReadView 数轴三区间与 Undo 版本链回溯</title>
+        <desc id="mysql-mvcc-rv-desc">上方展示 ReadView 将事务 ID 数轴切分为小于 m_up_limit_id(100) 的已提交可见区、介于 100 与 108 之间的活跃事务核查区、以及大于等于 m_low_limit_id(108) 的未来不可见区；下方展示聚簇索引最新记录 trx_id=108 不可见后，顺着 DB_ROLL_PTR 依次跳过 trx_id=105（在 m_ids 中不可见），最终命中 trx_id=98（小于 100，可见）。</desc>
+        <defs>
+          <marker id="arr-rv-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#1C1917"/>
+          </marker>
+          <marker id="arr-rv-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#bf4520"/>
+          </marker>
+          <marker id="arr-rv-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#0f766e"/>
+          </marker>
+        </defs>
+
+        <!-- ================= TOP: ReadView Number Line (Three Intervals) ================= -->
+        <text x="32" y="28" font-family="'Plus Jakarta Sans',sans-serif" font-size="13" font-weight="800" fill="#1C1917">1. ReadView 事务 ID 数轴三区间（快照状态：m_ids = [100, 105] · m_up_limit_id = 100 · m_low_limit_id = 108 · creator = 102）</text>
+
+        <!-- Interval 1: Committed (< 100) -->
+        <rect x="32" y="42" width="256" height="92" rx="10" fill="#D1FAE5" stroke="#0f766e" stroke-width="2"/>
+        <text x="160" y="66" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#065F46">区间 A：trx_id &lt; m_up_limit_id (100)</text>
+        <text x="160" y="88" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="700" fill="#065F46">生成视图前必定已提交</text>
+        <text x="160" y="110" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#0f766e">判定结果：直接可见 (VISIBLE)</text>
+
+        <!-- Interval 2: [100, 108) Active Check Range -->
+        <rect x="296" y="42" width="328" height="92" rx="10" fill="#FEF3C7" stroke="#b45309" stroke-width="2"/>
+        <text x="460" y="66" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#92400E">区间 B：100 &lt;= trx_id &lt; 108（二分查找 m_ids）</text>
+        <text x="460" y="88" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" fill="#92400E">• 若 trx_id ∈ m_ids [100, 105] → 未提交不可见 (除非 == creator 102)</text>
+        <text x="460" y="110" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" fill="#065F46">• 若 trx_id ∉ m_ids (如 101, 103, 106) → 已提交可见</text>
+
+        <!-- Interval 3: Future (>= 108) -->
+        <rect x="632" y="42" width="256" height="92" rx="10" fill="#FFF7ED" stroke="#bf4520" stroke-width="2"/>
+        <text x="760" y="66" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#9A3412">区间 C：trx_id &gt;= m_low_limit_id (108)</text>
+        <text x="760" y="88" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="700" fill="#9A3412">生成视图后才开启的未来事务</text>
+        <text x="760" y="110" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#bf4520">判定结果：直接不可见 (除非 == creator)</text>
+
+        <!-- Divider ticks -->
+        <rect x="242" y="138" width="100" height="22" rx="6" fill="#1C1917"/>
+        <text x="292" y="153" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#FFFDF7">m_up = 100</text>
+        <rect x="578" y="138" width="100" height="22" rx="6" fill="#1C1917"/>
+        <text x="628" y="153" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#FFFDF7">m_low = 108</text>
+
+        <!-- ================= BOTTOM: Clustered Index & Undo Chain Traversal ================= -->
+        <text x="32" y="194" font-family="'Plus Jakarta Sans',sans-serif" font-size="13" font-weight="800" fill="#1C1917">2. 聚簇索引最新行 → 沿 DB_ROLL_PTR 逆向回溯 Undo Log 版本链（查找 id = 1 的可见版本）</text>
+
+        <!-- Connectors FIRST (before node boxes) -->
+        <line x1="312" y1="296" x2="378" y2="296" stroke="#bf4520" stroke-width="2.4" marker-end="url(#arr-rv-coral)"/>
+        <rect x="319" y="274" width="52" height="16" rx="4" fill="#FFFDF7"/>
+        <text x="345" y="286" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#bf4520">roll_ptr</text>
+
+        <line x1="610" y1="296" x2="668" y2="296" stroke="#bf4520" stroke-width="2.4" marker-end="url(#arr-rv-coral)"/>
+        <rect x="615" y="274" width="48" height="16" rx="4" fill="#FFFDF7"/>
+        <text x="639" y="286" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#bf4520">roll_ptr</text>
+
+        <!-- Node 1: Clustered Index Leaf Record (Latest, trx_id = 108) -->
+        <rect x="32" y="216" width="280" height="176" rx="12" fill="#FFF7ED" stroke="#bf4520" stroke-width="2.6"/>
+        <rect x="46" y="230" width="252" height="28" rx="6" fill="#bf4520"/>
+        <text x="172" y="249" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12" font-weight="800" fill="#FFFDF7">聚簇索引叶子记录（最新原地值）</text>
+        <text x="52" y="280" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="700" fill="#1C1917">id = 1, balance = 500</text>
+        <text x="52" y="302" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#bf4520">DB_TRX_ID = 108</text>
+        <text x="52" y="324" font-family="'JetBrains Mono',monospace" font-size="11" fill="#57534E">DB_ROLL_PTR = 0x7A02</text>
+        <rect x="46" y="340" width="252" height="38" rx="6" fill="#FEE2E2" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="172" y="357" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#9A3412">Step 1: 108 &gt;= m_low_limit_id (108)</text>
+        <text x="172" y="372" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="10.5" font-weight="700" fill="#9A3412">未来事务修改 → 不可见，继续顺指针回溯</text>
+
+        <!-- Node 2: Undo Log Version V2 (trx_id = 105) -->
+        <rect x="378" y="216" width="232" height="176" rx="12" fill="#F5F2EB" stroke="#1C1917" stroke-width="2"/>
+        <rect x="392" y="230" width="204" height="28" rx="6" fill="#1C1917"/>
+        <text x="494" y="249" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12" font-weight="800" fill="#FFFDF7">Undo Log 版本 V2 (0x7A02)</text>
+        <text x="398" y="280" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="700" fill="#1C1917">id = 1, balance = 800</text>
+        <text x="398" y="302" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#b45309">DB_TRX_ID = 105</text>
+        <text x="398" y="324" font-family="'JetBrains Mono',monospace" font-size="11" fill="#57534E">DB_ROLL_PTR = 0x7980</text>
+        <rect x="392" y="340" width="204" height="38" rx="6" fill="#FEF3C7" stroke="#b45309" stroke-width="1.4"/>
+        <text x="494" y="357" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#92400E">Step 2: 105 ∈ m_ids [100, 105]</text>
+        <text x="494" y="372" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="10.5" font-weight="700" fill="#92400E">生成快照时未提交 → 不可见，继续回溯</text>
+
+        <!-- Node 3: Undo Log Version V1 (trx_id = 98, Visible!) -->
+        <rect x="668" y="216" width="220" height="176" rx="12" fill="#D1FAE5" stroke="#0f766e" stroke-width="2.4"/>
+        <rect x="682" y="230" width="192" height="28" rx="6" fill="#0f766e"/>
+        <text x="778" y="249" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12" font-weight="800" fill="#FFFDF7">Undo Log 版本 V1 (0x7980)</text>
+        <text x="688" y="280" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="700" fill="#065F46">id = 1, balance = 1000</text>
+        <text x="688" y="302" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#0f766e">DB_TRX_ID = 98</text>
+        <text x="688" y="324" font-family="'JetBrains Mono',monospace" font-size="11" fill="#065F46">DB_ROLL_PTR = NULL</text>
+        <rect x="682" y="340" width="192" height="38" rx="6" fill="#FFFDF7" stroke="#0f766e" stroke-width="1.6"/>
+        <text x="778" y="357" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#065F46">Step 3: 98 &lt; m_up_limit_id (100)</text>
+        <text x="778" y="372" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="10.5" font-weight="800" fill="#0f766e">已提交版本 → 停止回溯并返回 1000</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="plop-code-box" style="margin-bottom:0;">
+    <div class="plop-code-head">
+      <span>🦀 read0types.h · InnoDB 内核 ReadView::changes_visible() 四步可见性判定逻辑</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-readview-cpp', this)">复制源码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-mysql-readview-cpp"><code><span class="c-cm">// 判断指定数据行版本的 trx_id 对当前 ReadView 是否可见</span>
+<span class="c-kw">bool</span> <span class="c-fn">changes_visible</span>(trx_id_t id, <span class="c-kw">const</span> table_name_t&amp; name) <span class="c-kw">const</span> {
+    <span class="c-cm">// 1. 如果是当前事务自己修改的记录，或者小于低水位 m_up_limit_id（早已提交），直接可见</span>
+    <span class="c-kw">if</span> (id &lt; m_up_limit_id || id == m_creator_trx_id) {
+        <span class="c-kw">return</span> <span class="c-kw">true</span>;
+    }
+
+    <span class="c-cm">// 2. 如果大于等于高水位 m_low_limit_id（生成 ReadView 之后才开启的事务），直接不可见</span>
+    <span class="c-kw">if</span> (id &gt;= m_low_limit_id) {
+        <span class="c-kw">return</span> <span class="c-kw">false</span>;
+    } <span class="c-kw">else if</span> (m_ids.empty()) {
+        <span class="c-cm">// 3. 落在 [m_up_limit_id, m_low_limit_id) 之间，若生成快照时无任何活跃事务，则可见</span>
+        <span class="c-kw">return</span> <span class="c-kw">true</span>;
+    }
+
+    <span class="c-cm">// 4. 在有序活跃事务数组 m_ids 中执行二分查找：</span>
+    <span class="c-cm">//    若命中说明生成快照时该事务尚未提交（不可见 false）；未命中说明当时已提交（可见 true）</span>
+    <span class="c-kw">const</span> ids_t::value_type* p = m_ids.data();
+    <span class="c-kw">return</span> !std::binary_search(p, p + m_ids.size(), id);
+}</code></pre>
+  </div>
+</div>
+
+<!-- 04.3 · RC 与 RR 的本质差异，以及 RR 下快照读与当前读混用的幻读边界 -->
+<div class="wb-card" id="mysql-rc-rr-phantom" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">⚖️ 04.3 · RC vs RR 本质与幻读边界：ReadView 生成时机差异与「快照读 + UPDATE 当前读」显形推演</div>
+  <h3>⚖️ 04.3 RC 与 RR 的本质差异，以及 RR 下快照读与当前读混用的幻读边界</h3>
+
+  <p>
+    理解了 <code>ReadView</code> 的判定算法后，<code>READ COMMITTED (RC)</code> 与 <code>REPEATABLE READ (RR)</code> 两个隔离级别的实现差异可以用一句话概括——<strong>仅仅是生成 <code>ReadView</code> 的时机不同</strong>：
+  </p>
+
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.4px; line-height:1.72;">
+    <li><strong><code>READ COMMITTED (RC)</code>：每次执行快照读 <code>SELECT</code> 时，都重新生成一个新的 <code>ReadView</code></strong>。因此，其他事务只要在两次 <code>SELECT</code> 之间完成了提交，它的 <code>trx_id</code> 就会从新 <code>ReadView</code> 的 <code>m_ids</code> 活跃列表中消失，从而在第二次 <code>SELECT</code> 时立即可见。</li>
+    <li><strong><code>REPEATABLE READ (RR)</code>：只在事务内第一次执行快照读 <code>SELECT</code> 时生成 <code>ReadView</code>，并在整个事务生命周期内一直复用这同一个 <code>ReadView</code></strong>（直到事务提交或回滚）。由于 <code>m_ids</code> 与高水位 <code>m_low_limit_id</code> 固定不变，后续无论其他事务如何修改并提交，对于该复用的 <code>ReadView</code> 而言全都处于不可见状态，从而实现了可重复读。</li>
+  </ul>
+
+  <p>
+    在技术讨论中常遇到一个问题：InnoDB 的 <code>REPEATABLE READ</code> 到底有没有彻底解决幻读。要严谨回答这个问题，必须区分 InnoDB 的两种读取模式：<strong>普通 <code>SELECT</code>（快照读，走 MVCC 与复用的 ReadView）</strong>与<strong>加锁读/写操作（当前读，跳过 ReadView 直接读取聚簇索引最新已提交版本并加 Next-Key Lock）</strong>。如果一个 RR 事务先执行纯快照读，紧接着对其他事务刚刚插入并提交的新行执行了一次无条件或范围 <code>UPDATE</code>（当前读），就会触发如下边界现象：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span>🧪 rr_phantom_edge.sql · RR 隔离级别下先快照读、再 UPDATE 当前读触发幻影行显形的边界时序</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-rr-phantom', this)">复制 SQL</button>
+    </div>
+    <pre class="plop-code-pre" id="code-mysql-rr-phantom"><code><span class="c-cm">-- 初始状态：accounts 表中只有 id = 1 一行记录，隔离级别为 REPEATABLE READ</span>
+
+<span class="c-cm">-- 【时刻 T1 · 会话 A (trx_id = 200)】开启事务并首次快照读，生成并冻结 ReadView_A</span>
+<span class="c-kw">START TRANSACTION</span>;
+<span class="c-kw">SELECT</span> * <span class="c-kw">FROM</span> accounts <span class="c-kw">WHERE</span> id &gt; <span class="c-num">0</span>;
+<span class="c-cm">-- 返回 1 行 (id = 1)。因为是普通快照读，并未对 id &gt; 0 加任何 Next-Key Lock 间隙锁</span>
+
+<span class="c-cm">-- 【时刻 T2 · 会话 B (trx_id = 205)】插入 id = 2 的新行并提交</span>
+<span class="c-kw">INSERT INTO</span> accounts (id, balance) <span class="c-kw">VALUES</span> (<span class="c-num">2</span>, <span class="c-num">1000</span>);
+<span class="c-cm">-- 此时 id = 2 的聚簇索引隐藏列 DB_TRX_ID = 205</span>
+
+<span class="c-cm">-- 【时刻 T3 · 会话 A (trx_id = 200)】再次快照读：由于 205 &gt;= ReadView_A.m_low_limit_id，看不到 id = 2</span>
+<span class="c-kw">SELECT</span> * <span class="c-kw">FROM</span> accounts <span class="c-kw">WHERE</span> id &gt; <span class="c-num">0</span>;
+<span class="c-cm">-- 依然只返回 1 行 (id = 1)</span>
+
+<span class="c-cm">-- 【时刻 T4 · 会话 A (trx_id = 200)】执行范围 UPDATE（触发当前读）</span>
+<span class="c-kw">UPDATE</span> accounts <span class="c-kw">SET</span> balance = balance + <span class="c-num">100</span> <span class="c-kw">WHERE</span> id &gt; <span class="c-num">0</span>;
+<span class="c-cm">-- Query OK, 2 rows affected</span>
+<span class="c-cm">-- 关键机制：UPDATE 是当前读，它直接读到了会话 B 已提交的 id = 2，并将其 balance 改为 1100，</span>
+<span class="c-cm">-- 同时把 id = 2 这行聚簇索引记录的 DB_TRX_ID 从 205 改写为了会话 A 自己的事务 ID (200)</span>
+
+<span class="c-cm">-- 【时刻 T5 · 会话 A (trx_id = 200)】第三次执行普通快照读 SELECT</span>
+<span class="c-kw">SELECT</span> * <span class="c-kw">FROM</span> accounts <span class="c-kw">WHERE</span> id &gt; <span class="c-num">0</span>;
+<span class="c-cm">-- 返回 2 行 (id = 1 和 id = 2)。因为 id = 2 的 DB_TRX_ID (200) == ReadView_A.m_creator_trx_id (200)，</span>
+<span class="c-cm">-- 命中了 changes_visible() 的第一条规则（自己修改的记录对自己可见），原本隐藏的新行正式显形</span></code></pre>
+  </div>
+
+  <div class="plop-callout">
+    <div class="plop-callout-title">💡 工程实践启示：如何在 RR 下从一开始就封死幻读窗口</div>
+    <p style="margin:0; font-size:13.2px; line-height:1.68;">
+      上述 T4~T5 出现「第三次普通 <code>SELECT</code> 多出一行」的根源，在于 T1 时刻执行的是不加锁的普通快照读，没有阻挡会话 B 的插入，而 T4 时刻的 <code>UPDATE</code> 当前读又将该行的 <code>DB_TRX_ID</code> 刷新成了当前事务 ID。如果业务需要在事务一开始读取某范围数据并根据读取结果做后续写入决策，应当在 T1 时刻直接使用当前读（<code>SELECT ... FOR UPDATE</code> 或 <code>FOR SHARE</code>），从第一条语句起就用 Next-Key Lock 锁住目标索引区间，避免在同一事务中将初期的快照读结论直接用于后续的范围写操作。
+    </p>
+  </div>
+</div>

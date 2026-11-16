@@ -1,0 +1,206 @@
+<!-- ====================================================================
+     PART 03: 查询优化器与执行引擎 · CBO 成本估算、统计直方图与双阶段 Hash Join
+     ==================================================================== -->
+<div class="wb-sec-header" id="dml">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">查询优化器与执行引擎 · CBO 成本模型、直方图与双阶段 Hash Join</span>
+  <span class="plop-tag mustard">QUERY PIPELINE × CBO COST FORMULA × PG_STATISTIC × HASH JOIN</span>
+</div>
+
+<!-- 03.1 · SQL 查询编译四阶段流水线与代价公式推导 -->
+<div class="wb-card" id="cbo-cost-model" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧮 03.1 · 优化器代价模型：四阶段查询编译管线与 <code>Seq Scan vs Index Scan</code> 的成本估算公式推导</div>
+  <h3>🧮 03.1 查询编译管线与基于成本的优化器（CBO）代价公式</h3>
+
+  <p>
+    当一条 SQL 文本发往 <code>Backend</code> 进程后，依次经过 <strong>① 词法/语法解析器（<code>Parser</code>，生成抽象语法树 <code> Parse Tree</code>）→ ② 查询重写器（<code>Rewriter</code>，展开视图定义与规则系统）→ ③ 查询规划与优化器（<code>Planner / Optimizer</code>，枚举扫描路径、连接顺序与连接算法，选出总估算成本最低的计划树 <code>Plan Tree</code>）→ ④ 执行器（<code>Executor</code>，按火山迭代器模型拉取元组）</strong>。其中，优化器比较不同执行路径的核心标尺是由基准代价参数构成的数学成本公式：
+  </p>
+
+  <!-- CBO 成本估算与统计信息决策流程图 (Editorial SVG) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 276" style="width:100%; min-width:820px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="pg-cbo-title pg-cbo-desc">
+        <title id="pg-cbo-title">PostgreSQL CBO 查询优化器代价估算与路径选择流程图</title>
+        <desc id="pg-cbo-desc">展示查询树结合 pg_statistic 统计信息（MCV、直方图、correlation）计算选择率 Selectivity，再代入代价参数对比 Seq Scan、Index Scan 与 Bitmap Heap Scan 的总成本，最终生成最优 Plan Tree。</desc>
+        <defs>
+          <marker id="cbo-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="cbo-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- 1. Orthogonal Connectors drawn BEFORE node boxes -->
+        <!-- Node 1 (x=220, y=92) -> Node 2 (x=280, y=140) via orthogonal r=8 -->
+        <path d="M 220,92 H 244 Q 252,92 252,100 V 132 Q 252,140 260,140 H 280" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#cbo-arrow)"/>
+        <!-- Stats Node (x=220, y=200) -> Node 2 (x=280, y=160) via orthogonal r=8 -->
+        <path d="M 220,200 H 244 Q 252,200 252,192 V 168 Q 252,160 260,160 H 280" fill="none" stroke="#bf45d75" stroke-width="1.6" stroke-dasharray="4,3"/>
+        <path d="M 220,200 H 244 Q 252,200 252,192 V 168 Q 252,160 260,160 H 280" fill="none" stroke="#bf4520" stroke-width="1.6" marker-end="url(#cbo-arrow-accent)"/>
+
+        <!-- Node 2 (x=496, y=150) -> 3 Candidate Paths (x=548) -->
+        <path d="M 496,134 H 516 Q 524,134 524,126 V 68 Q 524,60 532,60 H 548" fill="none" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#cbo-arrow)"/>
+        <line x1="496" y1="150" x2="548" y2="150" stroke="#bf4520" stroke-width="1.8" marker-end="url(#cbo-arrow-accent)"/>
+        <path d="M 496,166 H 516 Q 524,166 524,174 V 224 Q 524,232 532,232 H 548" fill="none" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#cbo-arrow)"/>
+
+        <!-- 2. Node Boxes -->
+        <!-- Node 1: Query Tree -->
+        <rect x="28" y="48" width="192" height="84" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <rect x="38" y="56" width="60" height="14" rx="2" fill="#EEF3FF" stroke="#2d3142" stroke-width="0.8"/>
+        <text x="68" y="66" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="8" font-weight="700">INPUT SQL</text>
+        <text x="124" y="88" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">解析与重写后查询树</text>
+        <text x="124" y="106" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">WHERE status = 'paid'</text>
+        <text x="124" y="122" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">AND amount &gt; 500</text>
+
+        <!-- Stats Box: pg_statistic -->
+        <rect x="28" y="152" width="192" height="96" rx="6" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.5"/>
+        <rect x="38" y="160" width="76" height="14" rx="2" fill="#FFFDF7" stroke="#2d3142" stroke-width="0.8"/>
+        <text x="76" y="170" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="8" font-weight="700">PG_STATISTIC</text>
+        <text x="124" y="190" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">统计信息 (ANALYZE)</text>
+        <text x="124" y="208" text-anchor="middle" fill="#4f5d75" font-size="10">• MCV 高频值与频率数组</text>
+        <text x="124" y="224" text-anchor="middle" fill="#4f5d75" font-size="10">• Histogram 等频分桶边界</text>
+        <text x="124" y="240" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="9.5" font-weight="700">• correlation 物理顺序相关度</text>
+
+        <!-- Node 2 (Focal): Selectivity & Row Estimator -->
+        <rect x="280" y="96" width="216" height="108" rx="6" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="388" y="120" text-anchor="middle" fill="#bf4520" font-size="13" font-weight="700">基数与选择率估算器</text>
+        <text x="388" y="140" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10" font-weight="700">rows = reltuples × Selectivity</text>
+        <text x="388" y="160" text-anchor="middle" fill="#4f5d75" font-size="10.5">结合 relpages (总页数) 与</text>
+        <text x="388" y="176" text-anchor="middle" fill="#4f5d75" font-size="10.5">代价常数计算各候选路径 Cost</text>
+        <text x="388" y="194" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="9.5" font-weight="700">选出 Total Cost 最小路径</text>
+
+        <!-- Candidate Path 1: Index Scan -->
+        <rect x="548" y="24" width="344" height="68" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="720" y="44" text-anchor="middle" fill="#2d3142" font-size="12" font-weight="700">路径 A · Index Scan（适合极高选择率 &lt; 1~5%）</text>
+        <text x="720" y="62" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">受 random_page_cost (4.0) 与列 correlation 强烈影响</text>
+        <text x="720" y="78" text-anchor="middle" fill="#5a6580" font-size="10">若物理存放完全乱序，每回表一行都计入随机读页惩罚</text>
+
+        <!-- Candidate Path 2: Bitmap Heap Scan (Winner example) -->
+        <rect x="548" y="112" width="344" height="72" rx="6" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.6"/>
+        <text x="720" y="132" text-anchor="middle" fill="#2d3142" font-size="12" font-weight="700">路径 B · Bitmap Index + Heap Scan（中等选择率 5%~20%）</text>
+        <text x="720" y="150" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="9.5" font-weight="700">先在内存位图将 ctid 按页号排序，再去堆表顺序跳跃读页</text>
+        <text x="720" y="168" text-anchor="middle" fill="#4f5d75" font-size="10">消除同一数据页被反复随机读取，摊薄 random_page_cost</text>
+
+        <!-- Candidate Path 3: Seq Scan -->
+        <rect x="548" y="200" width="344" height="56" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="720" y="220" text-anchor="middle" fill="#2d3142" font-size="12" font-weight="700">路径 C · Seq Scan（低选择率 &gt; 20% 或极小表）</text>
+        <text x="720" y="240" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">Cost = relpages × seq_page_cost(1.0) + reltuples × cpu_tuple_cost(0.01)</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:26%">核心代价参数（<code>postgresql.conf</code>）</th>
+          <th style="width:14%">默认值</th>
+          <th>物理意义与现代 SSD 生产调优建议</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>seq_page_cost</code></td>
+          <td><code>1.0</code></td>
+          <td>顺序读取一个 8KB 磁盘页的基准代价（定义为 <code>1.0</code>，其余所有成本参数均以此为参照标尺）。</td>
+        </tr>
+        <tr>
+          <td><code>random_page_cost</code></td>
+          <td><code>4.0</code></td>
+          <td>随机读取一个 8KB 磁盘页的代价。默认值 <code>4.0</code> 是按机械硬盘（HDD 寻道时间长）标定的；<strong>在现代 NVMe / 云盘 SSD 环境下，随机读与顺序读差距极小，生产环境强烈建议将其调低至 <code>1.1 ~ 1.5</code></strong>，否则优化器会因为高估随机回表成本而过早放弃索引扫描退化为全表扫描。</td>
+        </tr>
+        <tr>
+          <td><code>cpu_tuple_cost</code> / <code>cpu_operator_cost</code></td>
+          <td><code>0.01</code> / <code>0.0025</code></td>
+          <td>CPU 处理一条堆表元组与执行一次操作符/函数（如 <code>WHERE a = 1</code>）的相对成本。</td>
+        </tr>
+        <tr>
+          <td><code>effective_cache_size</code></td>
+          <td><code>4GB</code></td>
+          <td>告诉优化器“<code>Shared Buffers + OS Page Cache</code> 大约共有多少内存可用于缓存数据页”（不会真正分配内存）。<strong>建议设为机器物理内存的 50%~75%</strong>，值越大，优化器越倾向于认为索引页已在内存中而积极使用 <code>Index Scan</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 03.2 · pg_statistic 统计信息直方图与多列扩展统计信息 -->
+<div class="wb-card" id="pg-statistic-internals" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📊 03.2 · 统计信息内部结构：<code>MCV</code> 高频值、等高直方图、物理相关度 <code>correlation</code> 与多列相关性失真治理</div>
+  <h3>📊 03.2 <code>pg_statistic</code> 统计信息与多列扩展统计</h3>
+
+  <p>
+    执行 <code>ANALYZE</code> 时，内核默认从表中随机抽样 <code>300 × default_statistics_target(100) = 30,000</code> 行数据，为每一列计算出四项关键分布指标存入系统表 <code>pg_statistic</code>（可通过视图 <strong><code>pg_stats</code></strong> 直接查询）：
+  </p>
+
+  <div class="wb-grid-2">
+    <div>
+      <ul style="margin:0; padding-left:18px; font-size:13.1px; line-height:1.68;">
+        <li><strong>① 空值比例 <code>null_frac</code> 与唯一值基数 <code>n_distinct</code></strong>：若 <code>n_distinct &gt; 0</code> 表示估算出的固定去重值个数；若 <code>n_distinct &lt; 0</code>（如 <code>-1.0</code>）表示唯一值占总行数的比例（主键列即为 <code>-1</code>）。</li>
+        <li><strong>② 高频值列表 <code>most_common_vals (MCV)</code> 与频率 <code>most_common_freqs</code></strong>：记录出现频率最高的前 100 个具体值及其占比。优化器估算等值条件 <code>WHERE status = 'paid'</code> 时，直接查 MCV 数组即可获得精确到小数点后四位的选择率。</li>
+        <li><strong>③ 排除高频值后的等频直方图 <code>histogram_bounds</code></strong>：将除 MCV 以外的剩余数据切分为 100 个行数相等的桶，记录每个桶的边界值，专门用于估算范围查询 <code>WHERE amount BETWEEN 100 AND 500</code> 的命中比例。</li>
+        <li><strong>④ 物理顺序相关度 <code>correlation</code>（取值 <code>-1.0 ~ +1.0</code>）</strong>：衡量“该列逻辑排序顺序”与“磁盘页面物理存放顺序（<code>ctid</code>）”的一致性。越接近 <code>+1.0</code> 或 <code>-1.0</code>（如自增 <code>id</code> 或按序插入的 <code>created_at</code>），范围索引扫描回表越接近顺序 I/O，<code>Index Scan</code> 成本越低，且越适合建立 <code>BRIN</code> 块范围索引。</li>
+      </ul>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 create_statistics.sql · 解决多列条件关联导致的估算失真</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-ext-stats', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-ext-stats"><code><span class="c-cmt">-- 问题背景：优化器默认假设不同列之间是“统计独立”的，</span>
+<span class="c-cmt">-- 联合条件 WHERE province = '浙江省' AND city = '杭州市' 的选择率</span>
+<span class="c-cmt">-- 会被直接相乘 P(浙江) * P(杭州)，导致预估行数比实际少几十倍，</span>
+<span class="c-cmt">-- 从而误选 Nested Loop 引发严重慢查询。</span>
+
+<span class="c-cmt">-- 解决方案：创建多列扩展统计信息 (Extended Statistics)</span>
+<span class="c-kw">CREATE STATISTICS</span> stts_addr_dep (dependencies, ndistinct, mcv)
+  <span class="c-kw">ON</span> province, city <span class="c-kw">FROM</span> user_addresses;
+
+<span class="c-cmt">-- 重新收集统计信息后，优化器即可识别两列的函数依赖关系</span>
+<span class="c-kw">ANALYZE</span> user_addresses;</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 03.3 · 三大 Join 算法内核对比与双阶段 Hybrid Hash Join 落盘机制 -->
+<div class="wb-card" id="join-algorithms" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">⚙️ 03.3 · 连接执行器：<code>Nested Loop / Merge Join / Hash Join</code> 内部机制与 <code>Batches &gt; 1</code> 分桶溢出原理</div>
+  <h3>⚙️ 03.3 三大表连接算法与双阶段 <code>Hybrid Hash Join</code></h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">连接算法</th>
+          <th style="width:24%">时间复杂度与前置条件</th>
+          <th>执行器内部运作机制与调优关键点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. Nested Loop</strong><br>（嵌套循环连接）</td>
+          <td>无索引 <code>O(N × M)</code>；<br>内表有索引 <code>O(N × log M)</code></td>
+          <td>外表（Outer）每产出一行，就拿连接键去内表（Inner）探测一次。PG 9.1+ 支持 <strong><code>Materialize</code>（物化内表）与 <code>Memoize</code>（PG 14+ 缓存内表探测结果）</strong>：当外表连接键存在大量重复值时，<code>Memoize</code> 算子将内表查询结果缓存在哈希表中，避免重复扫内表索引。</td>
+        </tr>
+        <tr>
+          <td><strong>2. Merge Join</strong><br>（排序归并连接）</td>
+          <td>已排序 <code>O(N + M)</code>；<br>支持 <code>=</code> 及范围连接</td>
+          <td>要求左右两表的数据流均已按连接键排好序（可直接利用两侧 B-tree 索引顺序，或先加 <code>Sort</code> 算子）。执行时用双指针同步向前滑动比对，内存占用极小且稳定，适合两张超大表在连接键上均有索引的场景。</td>
+        </tr>
+        <tr>
+          <td><strong>3. Hash Join</strong><br>（双阶段混合哈希连接）</td>
+          <td>平均 <code>O(N + M)</code>；<br><strong>仅支持等值连接 <code>=</code></strong></td>
+          <td>
+            • <strong>阶段一（Build 构建阶段）</strong>：扫描行数较少的内表，在私有内存 <code>work_mem</code> 中按连接键的哈希值构建内存哈希表（<code>Hash Node</code>）。<br>
+            • <strong>阶段二（Probe 探测阶段）</strong>：流式扫描外表每一行，计算相同哈希函数去内存哈希桶中匹配输出。<br>
+            • <strong>内存不足时的分批溢出（Grace / Hybrid Hash Join）</strong>：若内表数据量超过 <code>work_mem</code>，执行器会将哈希空间划分为 <code>2<sup>k</sup></code> 个批次（<strong><code>Batches: 4 / 8 / 16...</code></strong>），只把 <code>Batch #0</code> 留在内存中处理，其余批次的内外表元组按哈希号分别写入磁盘临时文件（<code>pg_pgsql_tmp/</code>），随后逐批读回内存完成连接。<strong>一旦在 <code>EXPLAIN ANALYZE</code> 中看到 <code>Hash: Buckets: ... Batches: 16 (originally 1)</code> 且伴随 <code>temp read/written</code>，说明 <code>work_mem</code> 过小导致了磁盘读写往返，适当调大当前会话的 <code>work_mem</code> 即可将 <code>Batches</code> 降回 <code>1</code> 实现纯内存连接。</strong>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

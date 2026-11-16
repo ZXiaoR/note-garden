@@ -1,0 +1,326 @@
+<!-- ====================================================================
+     PART 00: 第一性原理与存储底座 · 堆表 vs 索引组织表、8KB 页面布局与 TOAST
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">第一性原理与存储底座 · 堆表 vs 索引组织表、8KB 页面布局与 TOAST</span>
+  <span class="plop-tag tomato">HEAP VS IOT × 8KB PAGE LAYOUT × VARLENA &amp; TOAST</span>
+</div>
+
+<!-- 00.1 · 三大底层设计分水岭：PostgreSQL 堆表 vs MySQL InnoDB 聚簇索引 -->
+<div class="wb-card" id="heap-vs-iot" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧭 00.1 · 存储架构分水岭：无序堆表（Heap Table）+ 页内多版本追加 vs 聚簇索引组织表（IOT）+ Undo 回滚段</div>
+  <h3>🧭 00.1 PostgreSQL 与 MySQL InnoDB 的三大底层架构分水岭</h3>
+
+  <p>
+    关系型数据库在工程实现上面临两个最基础的物理存储问题：<strong>第一，一张表的数据行在磁盘页面上按什么顺序组织？第二，当更新一行数据时，历史旧版本存放在哪里？</strong> PostgreSQL 与 MySQL（InnoDB 存储引擎）在这两个问题上做出了截然不同的设计抉择，并由此衍生出两者在读写性能、索引维护与空间治理上的全部差异：
+  </p>
+
+  <div class="wb-grid-3" style="margin:14px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag tomato">抉择 ① · 表组织形式</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">Heap vs IOT</span>
+      </div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">无序追加堆表 vs 主键聚簇 B+ 树</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        InnoDB 表本身就是一棵按主键排序的 B+ 树（索引组织表 IOT），整行数据存在主键叶子节点中；而 PostgreSQL 的表是<strong>无序追加的堆表（Heap Table）</strong>，每一行通过物理坐标 <code>ctid = (页号, 页内槽位号)</code> 寻址，主键索引与普通二级索引地位平等，叶子节点均直接存放 <code>ctid</code>。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag periwinkle">抉择 ② · 多版本存放位置</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">In-Page vs Undo</span>
+      </div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">堆表内追加新元组 vs 独立 Undo 回滚段</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        InnoDB 原地覆写数据页并将旧版本剥离到独立的 <code>Undo Log</code>；PostgreSQL 采用<strong>追加写多版本（Append-Only MVCC）</strong>：<code>UPDATE</code> 操作将旧元组标记失效事务号 <code>xmax</code>，同时在堆表中直接插入一条新版本元组（<code>xmin</code>）。因此 PG 的事务回滚是 <code>O(1)</code> 瞬时完成的，但也引出了死元组堆积与 <code>VACUUM</code> 垃圾回收机制。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag mint">抉择 ③ · 二级索引维护</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">ctid vs PK Value</span>
+      </div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">一步物理跳读 vs 二次主键树搜索</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.58;">
+        InnoDB 二级索引存主键值，回表需再去主键 B+ 树搜索 3~4 层；PG 所有索引直接存 6 字节 <code>ctid</code>，回表只需一步物理页面读取，但一旦更新导致行物理坐标 <code>ctid</code> 跨页变化（未命中 HOT 优化），表上所有索引都需要追加指向新 <code>ctid</code> 的条目。
+      </p>
+    </div>
+  </div>
+
+  <!-- PostgreSQL vs MySQL InnoDB 10 大内核维度对比总表 -->
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%;">内核维度</th>
+          <th style="width:42%;">🐘 PostgreSQL (16 / 17 内核机制)</th>
+          <th style="width:42%;">🐬 MySQL (8.0 / 8.4 InnoDB 内核机制)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 并发执行模型</strong></td>
+          <td><strong>多进程模型（Process-per-Connection）</strong>：主进程 <code>postmaster</code> 为每个会话 <code>fork()</code> 独立 <code>backend</code> 进程，进程间通过共享内存（<code>Shared Buffers</code>）与信号量协同，单进程崩溃不影响全局地址空间。</td>
+          <td><strong>单进程多线程模型（Thread-per-Connection）</strong>：所有会话线程共享同一进程虚拟地址空间，线程创建与上下文切换较轻，但内存越界 Bug 会导致整实例崩溃。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 数据页与聚簇性</strong></td>
+          <td>默认 <strong><code>8 KiB</code> 堆表页</strong>，行按空闲空间映射（<code>FSM</code>）无序存放；可通过 <code>CLUSTER</code> 命令按某索引一次性物理重排，但后续写入不维持顺序。</td>
+          <td>默认 <strong><code>16 KiB</code> 索引页</strong>，表数据强制按主键顺序聚簇在主键 B+ 树叶子节点，随机 UUID 主键会导致频繁页分裂。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 二级索引回表代价</strong></td>
+          <td>索引叶子节点存 <code>6B ctid (BlockNumber 4B + OffsetNumber 2B)</code>，回表为 <strong><code>O(1)</code> 物理块偏移直读</strong>；但索引本身不存事务可见性信息，覆盖索引需查可见性映射表（<code>VM</code>）。</td>
+          <td>二级索引叶子节点存主键值，回表需在主键聚簇树上执行 <strong><code>O(log N)</code> 二次树查找</strong>；二级索引页头记有最大事务 ID <code>PAGE_MAX_TRX_ID</code> 辅助可见性判断。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 更新写放大与 HOT</strong></td>
+          <td>若未修改任何索引列且同页剩余空间充足，触发 <strong><code>HOT (Heap-Only Tuple)</code> 页内链式更新</strong>，无需修改外部索引；否则表上所有索引均需插入新项。</td>
+          <td>若更新未涉及主键与某二级索引列，则该二级索引完全无需改动，仅在聚簇索引页原地修改并写 Undo Log。</td>
+        </tr>
+        <tr>
+          <td><strong>5. MVCC 与大事务回滚</strong></td>
+          <td>旧版本留在堆表页内，由 <code>23B</code> 元组头的 <code>t_xmin / t_xmax</code> 与提交日志 <code>pg_xact (CLOG)</code> 控制可见性；<strong>大事务 <code>ROLLBACK</code> 仅修改 CLOG 中的 2 个比特位，瞬时完成</strong>。</td>
+          <td>旧版本写入回滚段 <code>Undo Log</code> 并通过 <code>roll_pointer</code> 串联；<strong>大事务回滚需逐行逆向重放 Undo Log 恢复原数据页，耗时较长</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>6. 空间回收与膨胀治理</strong></td>
+          <td>依赖后台 <code>autovacuum</code> 或页内剪枝（Page Pruning）清理死元组并更新 <code>FSM/VM</code>，以及通过 <code>VACUUM FREEZE</code> 冻结老事务号防止 32 位 XID 回卷。</td>
+          <td>由后台 <code>Purge</code> 线程异步清理不再被任何活跃 <code>ReadView</code> 引用的 Undo Log 及带删除标记（<code>deleted_flag</code>）的记录。</td>
+        </tr>
+        <tr>
+          <td><strong>7. 隔离级别与防幻读</strong></td>
+          <td>默认 <strong><code>Read Committed</code></strong>；<code>Repeatable Read</code> 靠事务级快照屏蔽幻读，写写冲突遵循 <strong>First-Updater-Wins</strong> 直接抛错；<code>Serializable</code> 采用无读锁的 <strong><code>SSI</code>（<code>SIREAD</code> 谓词锁检测读写反依赖环）</strong>。</td>
+          <td>默认 <strong><code>Repeatable Read</code></strong>；快照读靠 <code>ReadView</code>，当前读（<code>UPDATE / FOR UPDATE</code>）靠 <strong><code>Next-Key Lock</code>（记录锁 + 间隙锁 Gap Lock）</strong>阻塞区间插入防幻读。</td>
+        </tr>
+        <tr>
+          <td><strong>8. 行锁存储位置</strong></td>
+          <td><strong>不占用共享内存锁表</strong>：直接将加锁事务 XID（或 <code>MultiXactId</code>）写入数据页元组头的 <code>t_xmax</code> 与 <code>t_infomask</code> 标记位，单事务锁千万行也不会发生锁升级。</td>
+          <td>行锁作为锁结构对象存储在内存全局锁哈希表（Lock Manager）中，锁数量巨大时会消耗可观的内存空间。</td>
+        </tr>
+        <tr>
+          <td><strong>9. 预写日志与防页撕裂</strong></td>
+          <td>单层统一日志 <strong><code>WAL (pg_wal)</code></strong>；通过 <strong><code>full_page_writes = on</code></strong>（检查点后首次修改某页时将完整 8KB 页写入 WAL）防御操作系统 4KB 落盘中断导致的页撕裂。</td>
+          <td>引擎层物理逻辑日志 <code>Redo Log</code> + Server 层逻辑日志 <code>Binlog</code>（两阶段提交 2PC）；通过独立双写缓冲区 <strong><code>Doublewrite Buffer</code></strong> 防御 16KB 页撕裂。</td>
+        </tr>
+        <tr>
+          <td><strong>10. 查询优化器与连接算法</strong></td>
+          <td>完备的 CBO 优化器：支持 <code>Nested Loop</code>、双阶段 <code>Hash Join</code>、<code>Merge Join</code>、多索引位图合并（<code>BitmapAnd/Or</code>）、基因算法（<code>GEQO</code>）与 LLVM JIT 表达式编译。</td>
+          <td>长期以 <code>Index Nested-Loop Join</code> 为主，8.0.18+ 引入内存/溢出 <code>Hash Join</code>，暂不支持 <code>Merge Join</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.2 · 8 KiB 数据页（PageHeaderData）物理内存布局 -->
+<div class="wb-card" id="page-layout" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">📐 00.2 · 物理页面布局：<code>8 KiB</code> 堆表页内部结构、行指针数组 <code>ItemIdData</code> 与元组双向相向生长机制</div>
+  <h3>📐 00.2 <code>8 KiB</code> 数据页物理布局与 <code>Line Pointer</code> 间接寻址</h3>
+
+  <p>
+    在 PostgreSQL 中，无论是堆表还是索引，磁盘与共享内存之间读写的最小基本单位都是固定大小的<strong>页面（Page / Block，默认 <code>BLCKSZ = 8192 Bytes = 8 KiB</code>）</strong>。打开源码 <code>src/include/storage/bufpage.h</code>，一个标准的 8KB 数据页由四部分组成，并采用<strong>“行指针从前往后增长、真实数据元组从后往前增长”的双向相向填充结构</strong>：
+  </p>
+
+  <!-- 8 KiB 堆表数据页物理内存布局图 (Editorial SVG) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 336" style="width:100%; min-width:820px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="pg-page-title pg-page-desc">
+        <title id="pg-page-title">PostgreSQL 8 KiB 堆表数据页（Page Layout）物理内存结构图</title>
+        <desc id="pg-page-desc">展示 8192 字节数据页从偏移 0 到 8192 的连续布局：24 字节 PageHeaderData 页头、向右增长的 4 字节 ItemIdData 行指针数组、中间未分配空闲空间（pd_lower 至 pd_upper）、向左增长的 HeapTuple 元组数据区及末尾 pd_special 区。</desc>
+        <defs>
+          <marker id="pg-layout-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="pg-layout-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- 1. Orthogonal Pointers drawn BEFORE boxes -->
+        <!-- pd_lower pointer from PageHeader (x=136, y=132) to Free Space start (x=392, y=132) -->
+        <path d="M 136,132 V 164 Q 136,172 144,172 H 384 Q 392,172 392,164 V 132" fill="none" stroke="#4f5d75" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#pg-layout-arrow)"/>
+        <rect x="212" y="152" width="88" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="256" y="162" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600">pd_lower 偏移</text>
+
+        <!-- Line Pointer [1] (x=236, y=56) -> Tuple 1 (x=760, y=56) via top corridor -->
+        <path d="M 236,56 V 32 Q 236,24 244,24 H 752 Q 760,24 760,32 V 56" fill="none" stroke="#bf4520" stroke-width="1.8" marker-end="url(#pg-layout-accent)"/>
+        <rect x="442" y="8" width="112" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="498" y="17" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="700">lp_off 指向元组 1</text>
+
+        <!-- Line Pointer [2] (x=304, y=56) -> Tuple 2 (x=620, y=56) via second top corridor -->
+        <path d="M 304,56 V 44 Q 304,38 310,38 H 614 Q 620,38 620,44 V 56" fill="none" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#pg-layout-arrow)"/>
+
+        <!-- Growth arrows inside Free Space -->
+        <line x1="384" y1="94" x2="424" y2="94" stroke="#bf4520" stroke-width="1.6" marker-end="url(#pg-layout-accent)"/>
+        <line x1="548" y1="94" x2="508" y2="94" stroke="#bf4520" stroke-width="1.6" marker-end="url(#pg-layout-accent)"/>
+
+        <!-- 2. Contiguous 8192-Byte Memory Bar (x=28 to x=892, total width=864) -->
+        <!-- Segment 1: PageHeaderData (24 Bytes) x=28, w=172 -->
+        <rect x="28" y="56" width="172" height="76" rx="0" fill="#EEF3FF" stroke="#2d3142" stroke-width="1.8"/>
+        <text x="114" y="78" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">① PageHeaderData</text>
+        <text x="114" y="96" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">固定 24 Bytes (0..23)</text>
+        <text x="114" y="114" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">pd_lsn · pd_lower · pd_upper</text>
+
+        <!-- Segment 2: ItemIdData Array (Line Pointers, 4B each) x=200, w=176 -->
+        <rect x="200" y="56" width="88" height="76" rx="0" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="244" y="78" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="11" font-weight="700">linp[1] (4B)</text>
+        <text x="244" y="96" text-anchor="middle" fill="#2d3142" font-size="10">行指针槽位 #1</text>
+        <text x="244" y="114" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9">ctid=(B, 1)</text>
+
+        <rect x="288" y="56" width="88" height="76" rx="0" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.8"/>
+        <text x="332" y="78" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="11" font-weight="700">linp[2] (4B)</text>
+        <text x="332" y="96" text-anchor="middle" fill="#2d3142" font-size="10">行指针槽位 #2</text>
+        <text x="332" y="114" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9">ctid=(B, 2)</text>
+
+        <!-- Segment 3: Unallocated Free Space (Hole) x=376, w=180 -->
+        <rect x="376" y="56" width="180" height="76" rx="0" fill="#FFFDF7" stroke="#2d3142" stroke-width="1.8" stroke-dasharray="5,4"/>
+        <text x="466" y="80" text-anchor="middle" fill="#2d3142" font-size="12" font-weight="700">③ 空闲空间 (Free Space)</text>
+        <text x="466" y="116" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="9.5">[pd_lower .. pd_upper]</text>
+
+        <!-- Segment 4: Heap Tuples growing leftward x=556, w=264 -->
+        <rect x="556" y="56" width="132" height="76" rx="0" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.8"/>
+        <text x="622" y="78" text-anchor="middle" fill="#2d3142" font-size="11.5" font-weight="700">④ Tuple #2</text>
+        <text x="622" y="96" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">23B Header + Data</text>
+        <text x="622" y="114" text-anchor="middle" fill="#5a6580" font-size="9.5">← 向左低地址生长</text>
+
+        <rect x="688" y="56" width="132" height="76" rx="0" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.8"/>
+        <text x="754" y="78" text-anchor="middle" fill="#2d3142" font-size="11.5" font-weight="700">④ Tuple #1</text>
+        <text x="754" y="96" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">23B Header + Data</text>
+        <text x="754" y="114" text-anchor="middle" fill="#5a6580" font-size="9.5">最早写入贴近页尾</text>
+
+        <!-- Segment 5: Special Space x=820, w=72 -->
+        <rect x="820" y="56" width="72" height="76" rx="0" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.8"/>
+        <text x="856" y="78" text-anchor="middle" fill="#2d3142" font-size="11" font-weight="700">⑤ Special</text>
+        <text x="856" y="96" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9">堆表为 0B</text>
+        <text x="856" y="114" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5">索引存左右兄</text>
+
+        <!-- 3. Bottom Bit-level Breakdown of 32-bit ItemIdData (Line Pointer) -->
+        <rect x="28" y="192" width="864" height="124" rx="8" fill="rgba(45,49,66,0.02)" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="460" y="214" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">🔎 为什么外部索引不直接存元组的字节偏移量，而要经过 4 字节 ItemIdData（行指针槽位）中转？</text>
+
+        <!-- Contiguous 32-bit bar of ItemIdData -->
+        <rect x="48" y="228" width="260" height="36" rx="0" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.5"/>
+        <text x="178" y="250" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">lp_off : 15 bits (页内字节偏移 0..32767)</text>
+
+        <rect x="308" y="228" width="284" height="36" rx="0" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="450" y="250" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">lp_flags : 2 bits (UNUSED / NORMAL / REDIRECT / DEAD)</text>
+
+        <rect x="592" y="228" width="280" height="36" rx="0" fill="#EEF3FF" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="732" y="250" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">lp_len : 15 bits (元组字节长度 Byte Length)</text>
+
+        <text x="48" y="286" fill="#2d3142" font-size="11.5" font-weight="600">• 解耦物理移动与外部索引：外部 B-tree 索引存的 ctid = (页号, 槽位号 k)。当 VACUUM 在页内清理死元组并紧缩移动活元组位置时，</text>
+        <text x="48" y="304" fill="#bf4520" font-size="11.5" font-weight="700">  只需修改页内第 k 号槽位的 lp_off 偏移值，槽位号 k 保持不变，从而避免修改外部所有索引树（同时也是第 06 章 HOT 更新链的基石）。</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">页头核心字段（<code>PageHeaderData</code>）</th>
+          <th style="width:16%">字节大小</th>
+          <th>内核作用与崩溃恢复 / 并发意义</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>pd_lsn</code> (<code>PageXLogRecPtr</code>)</td>
+          <td><code>8 Bytes</code></td>
+          <td>记录最后一次修改该数据页的 <strong>WAL 日志序列号（Log Sequence Number, LSN）</strong>。缓冲池刷脏页落盘前，必须校验 <code>WAL Writer</code> 已将大于等于该 <code>pd_lsn</code> 的预写日志刷入磁盘（即 <strong>WAL-before-Data</strong> 原则）。</td>
+        </tr>
+        <tr>
+          <td><code>pd_checksum</code> + <code>pd_flags</code></td>
+          <td><code>2B + 2B</code></td>
+          <td>16 位页面 CRC 校验和（开启 <code>data_checksums</code> 后用于检测磁盘静默位翻转损坏）与页面状态标志位（如 <code>PD_HAS_FREE_LINES</code>、<code>PD_ALL_VISIBLE</code>）。</td>
+        </tr>
+        <tr>
+          <td><code>pd_lower</code> / <code>pd_upper</code> / <code>pd_special</code></td>
+          <td><code>2B + 2B + 2B</code></td>
+          <td><code>pd_lower</code> 指向行指针数组的末尾（空闲空间起点）；<code>pd_upper</code> 指向最新写入元组的起始位置（空闲空间终点）。<strong>两者的差值 <code>pd_upper - pd_lower</code> 即为当前页面剩余可用字节数</strong>。</td>
+        </tr>
+        <tr>
+          <td><code>pd_prune_xid</code></td>
+          <td><code>4 Bytes</code></td>
+          <td>记录当前页面内最早产生的死元组或更新链的事务 XID，用于告诉后续读取该页的会话：“当前页内存在可立即顺手剪枝回收（Page Pruning）的历史垃圾元组”。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.3 · 变长属性 varlena 与超大字段 TOAST 切片压缩机制 -->
+<div class="wb-card" id="toast-mechanism" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🗜️ 00.3 · 大字段存储：变长结构体 <code>varlena</code> 头部编码与 <code>TOAST</code>（压缩 + 附属表 2KB 切片）机制</div>
+  <h3>🗜️ 00.3 变长结构 <code>varlena</code> 与 <code>TOAST</code> 超大字段切片原理</h3>
+
+  <p>
+    由于 PostgreSQL 数据页固定为 <code>8 KiB</code>，且内核规定<strong>单条物理元组不允许跨页存储</strong>，如果用户向 <code>text</code>、<code>jsonb</code> 或 <code>bytea</code> 列写入一段 500 KB 的长文，数据页该如何容纳？答案是 <strong><code>varlena</code>（Variable-Length Attribute）多态头部编码</strong>配合 <strong><code>TOAST</code>（The Oversized-Attribute Storage Technique）机制</strong>：
+  </p>
+
+  <div class="wb-grid-2">
+    <div>
+      <h4>1. <code>varlena</code> 的三种物理头部形态</h4>
+      <ul style="margin:6px 0 0; padding-left:18px; font-size:13.1px; line-height:1.68;">
+        <li><strong>短变长头（<code>varattrib_1b</code>，仅 <code>1 Byte</code> 头）</strong>：当字符串或 <code>jsonb</code> 长度小于等于 <code>126 Bytes</code> 时，无需浪费 4 字节存长度，仅用 <strong>1 字节头部</strong>保存长度与标志位，紧凑存储于主表页内。</li>
+        <li><strong>标准未压缩/页内压缩头（<code>varattrib_4b</code>，<code>4 Bytes</code> 头）</strong>：最高 2 比特标记是否经过压缩（<code>pglz</code> 或 PG 14+ 引入的高速 <code>lz4</code>），低 30 比特记录字节长度（最大支持 <code>1 GB</code>）。</li>
+        <li><strong>线外 TOAST 指针头（<code>varattrib_1b_e</code>，固定 <code>18 Bytes</code>）</strong>：当单行总大小超过触发阈值 <strong><code>TOAST_TUPLE_THRESHOLD</code>（默认约 <code>2 KiB</code>，即一页至少保证能放 4 行）</strong>时，内核会按从大到小的顺序对变长列执行压缩；若压缩后整行仍大于 <code>2 KiB</code>，则将该大字段切分为每个约 <code>2000 Bytes</code> 的块（Chunks），存入系统自动创建的附属表 <code>pg_toast.pg_toast_&lt;oid&gt;</code> 中，<strong>主表原位置仅保留一个 18 字节的 <code>varatt_external</code> 指针（含原始长度、压缩后长度、<code>va_valueid</code> 与附属表 OID）</strong>。</li>
+      </ul>
+    </div>
+
+    <div>
+      <h4>2. 四种列级 TOAST 存储策略（<code>ALTER TABLE ... SET STORAGE</code>）</h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:24%">存储策略</th>
+              <th style="width:18%">允许压缩？</th>
+              <th style="width:22%">允许移入 TOAST 表？</th>
+              <th>适用场景与性能特征</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong><code>EXTENDED</code></strong><br>（默认策略）</td>
+              <td>允许</td>
+              <td>允许</td>
+              <td><code>text / jsonb / bytea</code> 的默认策略：超阈值先尝试压缩，仍超标则移出主表存入附属 TOAST 表。</td>
+            </tr>
+            <tr>
+              <td><strong><code>EXTERNAL</code></strong></td>
+              <td><strong>不压缩</strong></td>
+              <td>允许</td>
+              <td>适合本身已经压缩过的数据（如 JPEG/ZIP 二进制或需高频截取子串的长文本）：省去 CPU 解压开销，直接线外切片存储。</td>
+            </tr>
+            <tr>
+              <td><strong><code>MAIN</code></strong></td>
+              <td>允许</td>
+              <td>尽量留在主表</td>
+              <td>优先页内压缩留在主表页中，仅当压缩后整行依然放不进单个 8KB 页时才被迫移入 TOAST 表。</td>
+            </tr>
+            <tr>
+              <td><strong><code>PLAIN</code></strong></td>
+              <td>不压缩</td>
+              <td>禁止</td>
+              <td>定长标量类型（<code>int / bigint / timestamptz</code>）固定使用此策略，始终内联存放在主表页。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="plop-callout tip" style="margin-top:10px; margin-bottom:0;">
+        <strong>💡 工程启示：为什么在含大字段的表上应避免写 <code>SELECT *</code>？</strong><br>
+        当大字段已移入线外 TOAST 表时，如果 SQL 只查询 <code>SELECT id, status FROM articles</code>，执行器只需扫描紧凑的主表页，<strong>完全不会去触碰附属 TOAST 表及其 B-tree 索引</strong>；而一旦写成 <code>SELECT *</code>，每命中一行都要拿着 18 字节指针额外去 TOAST 表执行一次索引查找并重组切片、解压内存，I/O 与 CPU 开销相差数倍。
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,186 +1,391 @@
 <!-- ====================================================================
-             PART 03: DML 与查询进阶（RETURNING / UPSERT / 窗口函数 / 递归 CTE）
-             ==================================================================== -->
-        <div class="wb-sec-header" id="dml">
-          <span class="wb-sec-num">03</span>
-          <span class="wb-sec-title">DML 与高级查询 · RETURNING、UPSERT、窗口函数与递归 CTE</span>
-          <span class="plop-tag tomato">WINDOW FUNCTIONS · RECURSIVE CTE · ON CONFLICT</span>
-        </div>
+     PART 03: SQL 基础操作与查询进阶 · 增删改查、NULL 逻辑、分组关联与窗口函数
+     ==================================================================== -->
+<div class="wb-sec-header" id="dml">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">SQL 基础操作与查询进阶 · 增删改查、分组关联、UPSERT 与窗口函数</span>
+  <span class="plop-tag tomato">CRUD &amp; RETURNING × WHERE &amp; NULL × GROUP BY &amp; HAVING × LATERAL × WINDOW</span>
+</div>
 
-        <!-- 03.1 RETURNING、UPSERT 与 JOIN 全家桶 -->
-        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
-          <div class="washi-tape"></div>
-          <div class="chapter-q-pill">❓ 03.1 · 如何一条 SQL 完成“插入或更新并立刻拿到修改后的整行数据”，彻底告别应用层先查后改？</div>
-          <h3>⚡ 03.1 生产力三剑客：<code>RETURNING</code> + <code>ON CONFLICT (UPSERT)</code> + <code>LATERAL JOIN</code></h3>
+<!-- 03.1 · 标准增删改（INSERT / UPDATE / DELETE）、RETURNING 与 ON CONFLICT 幂等写入 -->
+<div class="wb-card" id="dml-upsert" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">⚡ 03.1 · 写操作全集：批量 INSERT、关联 UPDATE...FROM、DELETE 以及 RETURNING 与 ON CONFLICT (UPSERT)</div>
+  <h3>⚡ 03.1 标准增删改、<code>RETURNING</code> 原子返回与 <code>ON CONFLICT (UPSERT)</code></h3>
 
-          <div class="wb-grid-2">
-            <div>
-              <div class="plop-code-box">
-                <div class="plop-code-head">
-                  <span>🐘 upsert_and_returning.sql · 原子写入与返回</span>
-                  <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-upsert-demo', this)">复制 SQL</button>
-                </div>
-                <pre class="plop-code-pre" id="pg-upsert-demo"><code><span class="c-cmt">-- 1. RETURNING：插入/更新/删除后直接把结果当 SELECT 返回</span>
-<span class="c-kw">INSERT INTO</span> users (email, status)
-<span class="c-kw">VALUES</span> (<span class="c-str">'alice@example.com'</span>, <span class="c-str">'active'</span>)
-<span class="c-kw">RETURNING</span> id, created_at;
+  <p>
+    在日常业务开发中，数据写入不仅包含基础的单行/批量插入、条件修改和删除，还经常遇到“<strong>修改后立刻拿到最新行数据</strong>”或“<strong>唯一键冲突时原子转为更新</strong>”的需求。PostgreSQL 提供了原生的单条原子 SQL 语法，免去了在应用层“先 <code>SELECT</code> 判断、再 <code>INSERT/UPDATE</code>”带来的多次网络往返与并发竞态问题：
+  </p>
 
-<span class="c-cmt">-- 2. 原子 UPSERT：唯一键冲突则更新（EXCLUDED 代表本次试图插入的新行）</span>
-<span class="c-kw">INSERT INTO</span> users (email, status)
-<span class="c-kw">VALUES</span> (<span class="c-str">'alice@example.com'</span>, <span class="c-str">'vip'</span>)
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 dml_write_and_upsert.sql · 批量插入、关联更新、RETURNING 与 UPSERT</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-upsert-demo', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="pg-upsert-demo"><code><span class="c-cmt">-- 1. 批量插入 + RETURNING：一次性插入多行并直接返回生成的自增 id 与创建时间</span>
+<span class="c-kw">INSERT INTO</span> users (email, city, login_count) <span class="c-kw">VALUES</span>
+  (<span class="c-str">'alice@example.com'</span>, <span class="c-str">'杭州'</span>, <span class="c-num">1</span>),
+  (<span class="c-str">'bob@example.com'</span>,   <span class="c-str">'上海'</span>, <span class="c-num">1</span>)
+<span class="c-kw">RETURNING</span> id, email, created_at;
+
+<span class="c-cmt">-- 2. 多表关联更新（UPDATE ... FROM ...）：根据部门表状态批量调整员工薪资并返回新值</span>
+<span class="c-kw">UPDATE</span> employees e
+<span class="c-kw">SET</span> salary = e.salary + <span class="c-num">500.00</span>,
+    updated_at = <span class="c-fn">now</span>()
+<span class="c-kw">FROM</span> departments d
+<span class="c-kw">WHERE</span> e.dept_id = d.id <span class="c-kw">AND</span> d.city = <span class="c-str">'杭州'</span>
+<span class="c-kw">RETURNING</span> e.id, e.name, e.salary;
+
+<span class="c-cmt">-- 3. ON CONFLICT DO UPDATE (UPSERT)：唯一键 email 冲突时原子转为累加更新</span>
+<span class="c-kw">INSERT INTO</span> users (email, login_count)
+<span class="c-kw">VALUES</span> (<span class="c-str">'alice@example.com'</span>, <span class="c-num">1</span>)
 <span class="c-kw">ON CONFLICT</span> (email) <span class="c-kw">DO UPDATE</span>
-  <span class="c-kw">SET</span> status = EXCLUDED.status,
-      updated_at = now()
-<span class="c-kw">RETURNING</span> *;
+  <span class="c-kw">SET</span> login_count = users.login_count + EXCLUDED.login_count,
+      updated_at  = <span class="c-fn">now</span>()
+<span class="c-kw">RETURNING</span> id, email, login_count;
 
-<span class="c-cmt">-- 若冲突时什么都不做（幂等去重插入）：</span>
-<span class="c-kw">INSERT INTO</span> users (email) <span class="c-kw">VALUES</span> (<span class="c-str">'alice@example.com'</span>)
-<span class="c-kw">ON CONFLICT</span> (email) <span class="c-kw">DO NOTHING</span>;
+<span class="c-cmt">-- 4. ON CONFLICT DO NOTHING（冲突静默跳过）与 DELETE + RETURNING（删除并返回原记录）</span>
+<span class="c-kw">INSERT INTO</span> users (email) <span class="c-kw">VALUES</span> (<span class="c-str">'alice@example.com'</span>) <span class="c-kw">ON CONFLICT</span> (email) <span class="c-kw">DO NOTHING</span>;
+<span class="c-kw">DELETE FROM</span> expired_tokens <span class="c-kw">WHERE</span> token_id = <span class="c-num">42</span> <span class="c-kw">RETURNING</span> *;</code></pre>
+    </div>
 
-<span class="c-cmt">-- 3. DELETE + RETURNING：一行代码实现“弹出并删除任务”</span>
-<span class="c-kw">DELETE FROM</span> job_queue <span class="c-kw">WHERE</span> id = 42 <span class="c-kw">RETURNING</span> *;</code></pre>
-              </div>
-            </div>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📖 写操作关键语法拆解</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
+        <li><strong><code>RETURNING</code> 子句</strong>：可附加在任何 <code>INSERT</code>、<code>UPDATE</code> 或 <code>DELETE</code> 末尾，直接将本次实际插入、修改后或刚删除的行字段作为查询结果集返回给客户端，省去二次查询。</li>
+        <li><strong>冲突目标 <code>ON CONFLICT (email)</code></strong>：括号内的列必须已经建有<strong>主键（<code>PRIMARY KEY</code>）或唯一索引（<code>UNIQUE</code>）</strong>，用来告诉数据库以哪个唯一约束作为冲突判定依据。</li>
+        <li><strong>内置虚拟表 <code>EXCLUDED</code></strong>：在 <code>DO UPDATE SET ...</code> 子句中，<code>users.login_count</code> 代表<strong>表里原本已经存在的那行旧数据</strong>；而 <strong><code>EXCLUDED.login_count</code> 代表本次 <code>VALUES (...)</code> 原本试图插入但因冲突被拒绝的新数据</strong>。</li>
+        <li><strong>多表关联更新语法差异</strong>：注意 PostgreSQL 的关联更新写法是 <code>UPDATE 目标表 SET ... FROM 关联表 WHERE ...</code>（不同于 MySQL 的 <code>UPDATE a JOIN b ON ... SET ...</code>）。</li>
+      </ul>
+    </div>
+  </div>
+</div>
 
-            <div>
-              <h4>🔗 五种标准 JOIN + PG 特色 <code>LATERAL</code> 横向关联</h4>
-              <div class="table-wrap">
-                <table class="plop-table">
-                  <thead>
-                    <tr>
-                      <th>JOIN 类型</th>
-                      <th>集合语义与典型用途</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><code>INNER JOIN</code></td>
-                      <td><strong>交集 <code>A ∩ B</code></strong>：仅返回左右两表都能匹配上的行</td>
-                    </tr>
-                    <tr>
-                      <td><code>LEFT JOIN</code></td>
-                      <td><strong>保留左表全集</strong>：右表无匹配则补 <code>NULL</code>（配合 <code>WHERE b.id IS NULL</code> 可查差集）</td>
-                    </tr>
-                    <tr>
-                      <td><code>RIGHT JOIN</code></td>
-                      <td>保留右表全集，左表无匹配补 <code>NULL</code></td>
-                    </tr>
-                    <tr>
-                      <td><code>FULL OUTER JOIN</code></td>
-                      <td><strong>并集 <code>A ∪ B</code></strong>：左右两表全部保留，各自无匹配处补 <code>NULL</code>（MySQL 不支持原生 FULL JOIN，PG 原生支持，对账神器！）</td>
-                    </tr>
-                    <tr>
-                      <td><code>CROSS JOIN</code></td>
-                      <td><strong>笛卡尔积 <code>A × B</code></strong>：无连接条件，生成所有组合</td>
-                    </tr>
-                    <tr>
-                      <td>⭐ <code>LEFT JOIN LATERAL</code></td>
-                      <td><strong>横向子查询关联</strong>：允许右侧子查询直接引用左表当前行的列（如“为左表每个用户走索引直接取最新的 3 笔订单”），比全表窗口函数快数倍！</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
+<!-- 03.2 · 单表查询基本功：SELECT / DISTINCT ON、WHERE 运算符、NULL 三值逻辑与排序分页 -->
+<div class="wb-card" id="dml-select-where-null" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🔎 03.2 · 单表查询与 NULL 避坑：WHERE 操作符、ILIKE、NULL 三值逻辑、NULLS LAST 排序与 DISTINCT ON</div>
+  <h3>🔎 03.2 单表查询（<code>SELECT / WHERE / ORDER BY / LIMIT</code>）与 <code>NULL</code> 三值逻辑</h3>
 
-        <!-- 03.2 窗口函数与递归 CTE -->
-        <div class="wb-card" style="background:var(--plop-paper);" id="dml-window">
-          <div class="washi-tape mint"></div>
-          <div class="chapter-q-pill">❓ 03.2 · 窗口函数和 GROUP BY 有什么本质区别？如何用一句 SQL 查出无限级部门树？</div>
-          <h3>👑 03.2 面试必考王牌：窗口函数（Window Functions）与递归 CTE</h3>
-          <p>
-            普通聚合 <code>GROUP BY</code> 会把每个分组的多行<strong>“压扁成一行”</strong>，丢失明细行；而<strong>窗口函数（<code>OVER (PARTITION BY ... ORDER BY ...)</code>）在不减少原表行数的前提下</strong>，为每一行开启一个滑动视窗计算排名、累计值或前后行差值。
-          </p>
+  <p>
+    单表查询涵盖了列投影（<code>SELECT</code>）、去重（<code>DISTINCT / DISTINCT ON</code>）、条件过滤（<code>WHERE</code>）、排序（<code>ORDER BY</code>）与分页（<code>LIMIT ... OFFSET ...</code>）。编写过滤条件时，最核心的基本功是掌握操作符边界以及 SQL 标准中的 <strong><code>NULL</code> 三值逻辑（<code>TRUE / FALSE / UNKNOWN</code>）</strong>：
+  </p>
 
-          <!-- 手绘 SVG：GROUP BY 压扁 vs 窗口函数保留原行对比图 -->
-          <svg viewBox="0 0 880 235" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="GROUP BY 与窗口函数对比图">
-            <rect x="16" y="16" width="412" height="203" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="28" y="26" width="388" height="28" rx="7" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="222" y="45" text-anchor="middle" font-size="11.8" font-weight="900" fill="var(--plop-ink-text)">📉 普通 GROUP BY user_id（多行被压扁成 1 行汇总）</text>
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">操作符 / 特性</th>
+          <th style="width:34%">PostgreSQL 标准写法</th>
+          <th>边界语义与避坑要点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>比较与 NULL 安全判等</strong><br><code>= / != / IS NOT DISTINCT FROM</code></td>
+          <td><code>WHERE phone IS NULL</code><br><code>WHERE a IS NOT DISTINCT FROM b</code></td>
+          <td>普通 <code>=</code> 和 <code>!=</code> 只要任意一侧为 <code>NULL</code>，结果恒为 <code>UNKNOWN</code>（查不出任何行）。若需把两个 <code>NULL</code> 视为相等进行比较，使用 SQL 标准语法 <strong><code>a IS NOT DISTINCT FROM b</code></strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>区间与集合陷阱</strong><br><code>BETWEEN / IN / NOT IN</code></td>
+          <td><code>WHERE amount BETWEEN 100 AND 500</code><br><code>WHERE status IN ('paid', 'shipped')</code></td>
+          <td>• <code>BETWEEN a AND b</code> 是包含首尾端点的<strong>闭区间 <code>[a, b]</code></strong>；<br>• <strong><code>NOT IN</code> 含 <code>NULL</code> 陷阱</strong>：<code>WHERE id NOT IN (1, 2, NULL)</code> 等价于 <code>id != 1 AND id != 2 AND id != NULL</code>，结果恒为 <code>UNKNOWN</code>，<strong>整条查询永远返回 0 行</strong>。子查询判不存在应改用 <code>NOT EXISTS</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>大小写敏感与不敏感模糊匹配</strong><br><code>LIKE / ILIKE / ~</code></td>
+          <td><code>WHERE email ILIKE '%@gmail.com'</code><br><code>WHERE code ~ '^[A-Z]{2}[0-9]+$'</code></td>
+          <td>PostgreSQL 的 <code>LIKE</code> 默认<strong>严格区分大小写</strong>；若需忽略大小写匹配，直接使用 PG 原生关键字 <strong><code>ILIKE</code></strong>；正则匹配使用运算符 <code>~</code>（区分大小写）或 <code>~*</code>（忽略大小写）。</td>
+        </tr>
+        <tr>
+          <td><strong>排序时的 <code>NULL</code> 位置控制</strong><br><code>NULLS FIRST / NULLS LAST</code></td>
+          <td><code>ORDER BY last_login_at DESC NULLS LAST</code></td>
+          <td>在 PostgreSQL 中，<code>NULL</code> 默认被视为“比任何值都大”，因此 <strong><code>ORDER BY col DESC</code> 时所有 <code>NULL</code> 行默认会排在最前面</strong>。按时间或积分降序排列时，加上 <strong><code>NULLS LAST</code></strong> 可将空值行放到末尾。</td>
+        </tr>
+        <tr>
+          <td><strong>PG 特色按组去重取首行</strong><br><code>DISTINCT ON (分组列)</code></td>
+          <td><code>SELECT DISTINCT ON (user_id) * FROM orders ORDER BY user_id, created_at DESC</code></td>
+          <td>普通 <code>DISTINCT</code> 对整行所有列去重；而 <strong><code>DISTINCT ON (user_id)</code></strong> 会按 <code>user_id</code> 分组，并根据 <code>ORDER BY</code> 顺序直接保留每个用户的第一行记录，语法极其简洁。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 
-            <text x="105" y="82" text-anchor="middle" font-size="10.8" font-weight="800" fill="var(--plop-ink-soft)">原始订单明细 (4 行)</text>
-            <rect x="34" y="92" width="142" height="24" rx="5" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.5"/>
-            <text x="105" y="108" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">u1 | ¥300</text>
-            <rect x="34" y="120" width="142" height="24" rx="5" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.5"/>
-            <text x="105" y="136" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">u1 | ¥300</text>
-            <rect x="34" y="148" width="142" height="24" rx="5" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.5"/>
-            <text x="105" y="164" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">u1 | ¥100</text>
-            <rect x="34" y="176" width="142" height="24" rx="5" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.5"/>
-            <text x="105" y="192" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">u2 | ¥500</text>
+  <div class="plop-code-box" style="margin-bottom:0;">
+    <div class="plop-code-head">
+      <span>🐘 select_single_table.sql · COALESCE、CASE WHEN、NULLS LAST 与 DISTINCT ON 实战</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-select-basic', this)">复制 SQL</button>
+    </div>
+    <pre class="plop-code-pre" id="code-pg-select-basic"><code><span class="c-cmt">-- 1. 单表标准查询：COALESCE 空值兜底、CASE WHEN 派生列、括号明确 AND/OR 优先级与 NULLS LAST 分页</span>
+<span class="c-kw">SELECT</span>
+  id,
+  <span class="c-fn">coalesce</span>(nickname, email, <span class="c-str">'匿名用户'</span>) <span class="c-kw">AS</span> display_name,
+  balance + <span class="c-fn">coalesce</span>(bonus, <span class="c-num">0.00</span>)       <span class="c-kw">AS</span> total_balance,
+  <span class="c-kw">CASE</span>
+    <span class="c-kw">WHEN</span> balance &gt;= <span class="c-num">10000</span> <span class="c-kw">THEN</span> <span class="c-str">'钻石'</span>
+    <span class="c-kw">WHEN</span> balance &gt;= <span class="c-num">1000</span>  <span class="c-kw">THEN</span> <span class="c-str">'黄金'</span>
+    <span class="c-kw">ELSE</span> <span class="c-str">'普通'</span>
+  <span class="c-kw">END</span> <span class="c-kw">AS</span> tier
+<span class="c-kw">FROM</span> users
+<span class="c-kw">WHERE</span> (city = <span class="c-str">'杭州'</span> <span class="c-kw">OR</span> city = <span class="c-str">'上海'</span>)
+  <span class="c-kw">AND</span> email <span class="c-kw">ILIKE</span> <span class="c-str">'%@example.com'</span>
+  <span class="c-kw">AND</span> deleted_at <span class="c-kw">IS NULL</span>
+<span class="c-kw">ORDER BY</span> last_login_at <span class="c-kw">DESC NULLS LAST</span>, id <span class="c-kw">ASC</span>
+<span class="c-kw">LIMIT</span> <span class="c-num">20</span> <span class="c-kw">OFFSET</span> <span class="c-num">40</span>;
 
-            <text x="216" y="148" text-anchor="middle" font-size="16" font-weight="900" fill="#D2381E">壓扁 ➔</text>
+<span class="c-cmt">-- 2. DISTINCT ON (user_id)：一行 SQL 取出每个用户最新的一笔订单</span>
+<span class="c-kw">SELECT DISTINCT ON</span> (user_id) user_id, id <span class="c-kw">AS</span> latest_order_id, amount, created_at
+<span class="c-kw">FROM</span> orders
+<span class="c-kw">ORDER BY</span> user_id, created_at <span class="c-kw">DESC</span>;</code></pre>
+  </div>
+</div>
 
-            <rect x="256" y="112" width="154" height="32" rx="6" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="333" y="132" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--plop-ink-text)">u1 | sum = ¥700</text>
-            <rect x="256" y="152" width="154" height="32" rx="6" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="333" y="172" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--plop-ink-text)">u2 | sum = ¥500</text>
+<!-- 03.3 · 分组聚合（GROUP BY）、FILTER 条件聚合与 WHERE vs HAVING 对照 -->
+<div class="wb-card" id="dml-groupby-having" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">📊 03.3 · 分组与聚合：COUNT/SUM/AVG、string_agg/array_agg、FILTER 子句以及 WHERE 与 HAVING 的区别</div>
+  <h3>📊 03.3 分组聚合（<code>GROUP BY</code>）、<code>FILTER</code> 子句与 <code>WHERE</code> vs <code>HAVING</code></h3>
 
-            <!-- 右侧：窗口函数 -->
-            <rect x="448" y="16" width="416" height="203" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="460" y="26" width="392" height="28" rx="7" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="656" y="45" text-anchor="middle" font-size="11.8" font-weight="900" fill="var(--plop-ink-text)">✨ 窗口函数 OVER(PARTITION BY user_id ORDER BY amount DESC)</text>
+  <div class="wb-grid-2">
+    <div>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:22%">对比维度</th>
+              <th style="width:39%"><code>WHERE</code> 子句</th>
+              <th><code>HAVING</code> 子句</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>过滤阶段</strong></td>
+              <td>在 <strong><code>GROUP BY</code> 分组前</strong>逐行过滤原始表记录</td>
+              <td>在 <strong><code>GROUP BY</code> 聚合计算后</strong>过滤分组汇总结果</td>
+            </tr>
+            <tr>
+              <td><strong>聚合函数支持</strong></td>
+              <td><strong>不可包含聚合函数</strong>（此时尚未执行分组汇总）</td>
+              <td><strong>专门用于筛选聚合结果</strong>（如 <code>HAVING sum(amount) &gt;= 5000</code>）</td>
+            </tr>
+            <tr>
+              <td><strong>索引利用</strong></td>
+              <td>可直接利用索引提前裁剪扫描行数，<strong>普通列条件应始终优先放入 <code>WHERE</code></strong></td>
+              <td>聚合完成后在内存中过滤，不走原表索引</td>
+            </tr>
+            <tr>
+              <td><strong>PG 高级聚合函数</strong></td>
+              <td colspan="2">除标准 <code>count / sum / avg / max / min</code> 外，PG 原生支持 <strong><code>string_agg(col, ', ')</code></strong>（拼接字符串）、<strong><code>array_agg(col)</code></strong>（聚合成数组）、<strong><code>jsonb_agg(col)</code></strong>（聚合成 JSON 数组）以及 <strong><code>FILTER (WHERE ...)</code></strong> 条件聚合。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-            <text x="656" y="76" text-anchor="middle" font-size="10.2" font-weight="800" fill="#D2381E">保留全部 4 行明细，同时算出每行在组内的 row_number / rank / dense_rank / 组总额</text>
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 groupby_having_filter.sql · FILTER 条件聚合与 string_agg</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-groupby', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-groupby"><code><span class="c-cmt">-- 统计 2026 年每个用户的总订单数、已支付单数、已支付总额与商品名称列表</span>
+<span class="c-cmt">-- 仅保留已支付总额 &gt;= 1000 的用户：</span>
+<span class="c-kw">SELECT</span>
+  user_id,
+  <span class="c-fn">count</span>(*) <span class="c-kw">AS</span> total_orders,
+  <span class="c-fn">count</span>(*) <span class="c-kw">FILTER</span> (<span class="c-kw">WHERE</span> status = <span class="c-str">'paid'</span>) <span class="c-kw">AS</span> paid_orders,
+  <span class="c-fn">coalesce</span>(<span class="c-fn">sum</span>(amount) <span class="c-kw">FILTER</span> (<span class="c-kw">WHERE</span> status = <span class="c-str">'paid'</span>), <span class="c-num">0</span>) <span class="c-kw">AS</span> paid_sum,
+  <span class="c-fn">string_agg</span>(<span class="c-kw">DISTINCT</span> item_name, <span class="c-str">', '</span> <span class="c-kw">ORDER BY</span> item_name) <span class="c-kw">AS</span> items
+<span class="c-kw">FROM</span> orders
+<span class="c-kw">WHERE</span> created_at &gt;= <span class="c-str">'2026-01-01 00:00:00+08'</span>
+<span class="c-kw">GROUP BY</span> user_id
+<span class="c-kw">HAVING</span> <span class="c-fn">coalesce</span>(<span class="c-fn">sum</span>(amount) <span class="c-kw">FILTER</span> (<span class="c-kw">WHERE</span> status = <span class="c-str">'paid'</span>), <span class="c-num">0</span>) &gt;= <span class="c-num">1000</span>
+<span class="c-kw">ORDER BY</span> paid_sum <span class="c-kw">DESC</span>;</code></pre>
+    </div>
+  </div>
+</div>
 
-            <rect x="464" y="88" width="384" height="26" rx="5" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="656" y="105" text-anchor="middle" font-size="10.2" font-weight="800" fill="var(--plop-ink-text)">u1 | ¥300  ➔  row_number=1  |  rank=1  |  dense_rank=1  |  sum=¥700</text>
+<!-- 03.4 · 五种标准 JOIN、LEFT JOIN LATERAL 横向关联与集合运算 -->
+<div class="wb-card" id="dml-joins" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🔗 03.4 · 多表关联与集合：五种标准 <code>JOIN</code>、ON vs WHERE 过滤差异、<code>LEFT JOIN LATERAL</code> 与 <code>UNION ALL</code></div>
+  <h3>🔗 03.4 多表关联、<code>LATERAL</code> 横向子查询与集合运算</h3>
 
-            <rect x="464" y="118" width="384" height="26" rx="5" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="656" y="135" text-anchor="middle" font-size="10.2" font-weight="800" fill="var(--plop-ink-text)">u1 | ¥300  ➔  row_number=2  |  rank=1  |  dense_rank=1  |  sum=¥700</text>
+  <div class="wb-grid-2">
+    <div>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">JOIN / 集合类型</th>
+              <th>集合语义与典型适用场景</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>INNER JOIN</code></td>
+              <td><strong>交集（<code>A ∩ B</code>）</strong>：仅返回左右两张表都能匹配上连接条件的行。</td>
+            </tr>
+            <tr>
+              <td><code>LEFT JOIN</code><br>（注意 <code>ON</code> vs <code>WHERE</code>）</td>
+              <td><strong>左表全集</strong>：保留左表所有行，右表无匹配时补 <code>NULL</code>。<strong>注意：对右表的过滤条件必须写在 <code>ON</code> 子句中</strong>；若写在 <code>WHERE</code> 中会滤掉补 <code>NULL</code> 的行，使左连接退化为 <code>INNER JOIN</code>。</td>
+            </tr>
+            <tr>
+              <td><code>FULL OUTER JOIN</code></td>
+              <td><strong>并集（<code>A ∪ B</code>）</strong>：左右两表的所有行全部保留，各自无匹配的一侧补 <code>NULL</code>。常用于双渠道账单核对（一条语句同时找出左边多出的账单与右边多出的账单）。</td>
+            </tr>
+            <tr>
+              <td><code>LEFT JOIN LATERAL</code></td>
+              <td><strong>横向关联子查询</strong>：普通 <code>JOIN</code> 右侧的子查询不能引用左表的列；加上关键字 <strong><code>LATERAL</code></strong> 后，右侧子查询可以直接引用左表当前行的字段（类似对左表每一行执行一次带 <code>LIMIT</code> 的内层索引查询）。</td>
+            </tr>
+            <tr>
+              <td><code>UNION ALL</code> / <code>INTERSECT</code> / <code>EXCEPT</code></td>
+              <td>纵向集合运算：<code>UNION ALL</code> 直接追加合并（不去重，性能最高，优于去重的 <code>UNION</code>）；<code>INTERSECT</code> 求两个查询结果的交集；<code>EXCEPT</code> 求差集。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-            <rect x="464" y="148" width="384" height="26" rx="5" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="656" y="165" text-anchor="middle" font-size="10.2" font-weight="900" fill="var(--plop-ink-text)">u1 | ¥100  ➔  row_number=3  |  rank=3(跳号) | dense_rank=2(不跳) | sum=¥700</text>
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 lateral_and_anti_join.sql · LATERAL 取每组前 N 条与 NOT EXISTS</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-lateral', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-lateral"><code><span class="c-cmt">-- 1. LEFT JOIN LATERAL：为每个用户直接走索引取出最新的 2 笔订单</span>
+<span class="c-cmt">-- （右侧子查询中可直接引用左表的 u.id）</span>
+<span class="c-kw">SELECT</span> u.id, u.email, recent.order_id, recent.amount
+<span class="c-kw">FROM</span> users u
+<span class="c-kw">LEFT JOIN LATERAL</span> (
+  <span class="c-kw">SELECT</span> o.id <span class="c-kw">AS</span> order_id, o.amount
+  <span class="c-kw">FROM</span> orders o
+  <span class="c-kw">WHERE</span> o.user_id = u.id
+  <span class="c-kw">ORDER BY</span> o.created_at <span class="c-kw">DESC</span>
+  <span class="c-kw">LIMIT</span> <span class="c-num">2</span>
+) recent <span class="c-kw">ON true</span>;
 
-            <rect x="464" y="178" width="384" height="26" rx="5" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="656" y="195" text-anchor="middle" font-size="10.2" font-weight="800" fill="var(--plop-ink-text)">u2 | ¥500  ➔  row_number=1  |  rank=1  |  dense_rank=1  |  sum=¥500</text>
-          </svg>
+<span class="c-cmt">-- 2. NOT EXISTS 反半连接（Anti-Join）：安全查询从未下过单的用户</span>
+<span class="c-kw">SELECT</span> u.id, u.email
+<span class="c-kw">FROM</span> users u
+<span class="c-kw">WHERE NOT EXISTS</span> (
+  <span class="c-kw">SELECT</span> <span class="c-num">1</span> <span class="c-kw">FROM</span> orders o <span class="c-kw">WHERE</span> o.user_id = u.id
+);</code></pre>
+    </div>
+  </div>
+</div>
 
-          <div class="wb-grid-2">
-            <div>
-              <h4>📊 1. 窗口函数对比与分组取 Top-1 经典模板</h4>
-              <div class="table-wrap">
-                <table class="plop-table">
-                  <thead>
-                    <tr>
-                      <th>窗口函数</th>
-                      <th>并列处理与典型场景</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><code>row_number()</code></td>
-                      <td><strong>连续唯一行号（1, 2, 3, 4）</strong>：即使数值并列也强行分先后，常用于“每组只取严格 1 条最新记录”。</td>
-                    </tr>
-                    <tr>
-                      <td><code>rank()</code></td>
-                      <td><strong>并列跳号排名（1, 1, 3, 4）</strong>：奥运奖牌榜逻辑（两个并列第一，下一个是第三名）。</td>
-                    </tr>
-                    <tr>
-                      <td><code>dense_rank()</code></td>
-                      <td><strong>并列不跳号排名（1, 1, 2, 3）</strong>：适合“取每个部门薪水前 3 档的所有员工”。</td>
-                    </tr>
-                    <tr>
-                      <td><code>lag(col, 1)</code> / <code>lead(col, 1)</code></td>
-                      <td><strong>取同组前一行 / 后一行的值</strong>：无需自连接即可计算日环比增长率、相邻两次登录时间差。</td>
-                    </tr>
-                    <tr>
-                      <td><code>sum(col) OVER (...)</code></td>
-                      <td>若不带 <code>ORDER BY</code> 算<strong>组内总和</strong>（算占比）；若带 <code>ORDER BY</code> 则算<strong>从头到当前行的滚动累加值</strong>！</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+<!-- 03.5 · 窗口函数（Window Functions）与递归 CTE -->
+<div class="wb-card" style="background:var(--plop-paper);" id="dml-window">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🪟 03.5 · 分析与递归：窗口函数 <code>OVER (PARTITION BY ... ORDER BY ...)</code>、<code>WITH RECURSIVE</code> 与 9 步执行顺序</div>
+  <h3>🪟 03.5 窗口函数（Window Functions）与递归 CTE</h3>
 
-            <div>
-              <h4>🌲 2. 窗口函数 + <code>WITH RECURSIVE</code> 递归 CTE 实战</h4>
-              <div class="plop-code-box">
-                <div class="plop-code-head">
-                  <span>🐘 window_and_recursive_cte.sql</span>
-                  <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-window-cte', this)">复制 SQL</button>
-                </div>
-                <pre class="plop-code-pre" id="pg-window-cte"><code><span class="c-cmt">-- 经典题 1：取每个用户金额最高的一笔订单（CTE + row_number）</span>
+  <p>
+    标准的 <code>GROUP BY</code> 分组聚合会将每个分组的多行数据<strong>合并折叠为一行汇总结果</strong>，无法同时展示原始明细列；而<strong>窗口函数（<code>函数() OVER (PARTITION BY 分组列 ORDER BY 排序列)</code>）在不减少原表行数的前提下</strong>，为每一行开启一个独立的计算视窗，从而算出该行在所属分组内的排名、占比、滚动累加值或与前后相邻行的差值。
+  </p>
+
+  <!-- GROUP BY 折叠汇总 vs 窗口函数保留明细对比图 (Editorial SVG) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 248" style="width:100%; min-width:820px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="pg-window-title pg-window-desc">
+        <title id="pg-window-title">GROUP BY 分组折叠与 OVER 窗口函数保留明细行对比图</title>
+        <desc id="pg-window-desc">左侧展示 GROUP BY 将 4 行原始订单按用户折叠为 2 行汇总结果；右侧展示 OVER 窗口函数完整保留 4 行明细，并在每行右侧附加 row_number、rank、dense_rank 与组内累计金额。</desc>
+        <defs>
+          <marker id="win-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Left Zone: GROUP BY -->
+        <rect x="20" y="20" width="416" height="208" rx="8" fill="rgba(45,49,66,0.02)" stroke="#2d3142" stroke-width="1.4"/>
+        <rect x="32" y="24" width="296" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="180" y="34" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.06em">MODE A · GROUP BY user_id（多行折叠为 1 行汇总）</text>
+
+        <!-- Connector in Left Zone drawn before boxes -->
+        <line x1="184" y1="136" x2="252" y2="136" stroke="#bf4520" stroke-width="1.8" marker-end="url(#win-arrow)"/>
+        <rect x="192" y="112" width="52" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="218" y="122" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8" font-weight="700">COLLAPSE</text>
+
+        <text x="108" y="64" text-anchor="middle" fill="#4f5d75" font-size="11" font-weight="700">原始订单明细 (4 行)</text>
+        <rect x="36" y="76" width="148" height="28" rx="4" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="110" y="94" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="600">u1 | ¥300</text>
+        <rect x="36" y="108" width="148" height="28" rx="4" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="110" y="126" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="600">u1 | ¥300</text>
+        <rect x="36" y="140" width="148" height="28" rx="4" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="110" y="158" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="600">u1 | ¥100</text>
+        <rect x="36" y="172" width="148" height="28" rx="4" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="110" y="190" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="600">u2 | ¥500</text>
+
+        <text x="336" y="88" text-anchor="middle" fill="#4f5d75" font-size="11" font-weight="700">折叠后结果 (2 行)</text>
+        <rect x="256" y="100" width="160" height="32" rx="4" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="336" y="120" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">u1 | sum = ¥700</text>
+        <rect x="256" y="140" width="160" height="32" rx="4" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="336" y="160" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">u2 | sum = ¥500</text>
+
+        <!-- Right Zone: Window Function -->
+        <rect x="456" y="20" width="444" height="208" rx="8" fill="rgba(191,69,32,0.03)" stroke="#bf4520" stroke-width="1.4"/>
+        <rect x="468" y="24" width="388" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="662" y="34" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.05em">MODE B · OVER (PARTITION BY user_id ORDER BY amount DESC)</text>
+
+        <text x="678" y="64" text-anchor="middle" fill="#2d3142" font-size="11.5" font-weight="700">保留全部 4 行原始明细，同时在每行右侧附加排名与分组汇总</text>
+
+        <rect x="472" y="76" width="412" height="28" rx="4" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="678" y="94" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10" font-weight="600">u1 | ¥300  ➔  row_number=1 | rank=1 | dense_rank=1 | sum=¥700</text>
+
+        <rect x="472" y="108" width="412" height="28" rx="4" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="678" y="126" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10" font-weight="600">u1 | ¥300  ➔  row_number=2 | rank=1 | dense_rank=1 | sum=¥700</text>
+
+        <rect x="472" y="140" width="412" height="28" rx="4" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="678" y="158" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10" font-weight="700">u1 | ¥100  ➔  row_number=3 | rank=3(跳号) | dense_rank=2(连续)</text>
+
+        <rect x="472" y="172" width="412" height="28" rx="4" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="678" y="190" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10" font-weight="600">u2 | ¥500  ➔  row_number=1 | rank=1 | dense_rank=1 | sum=¥500</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div>
+      <h4>1. 五类常用窗口函数行为对照</h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">窗口函数</th>
+              <th>并列值处理规则与典型用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>row_number()</code></td>
+              <td><strong>连续唯一行号（<code>1, 2, 3, 4</code>）</strong>：即使排序字段值相同也按先后分配唯一序号，常用于“每组只取严格 1 条记录”。</td>
+            </tr>
+            <tr>
+              <td><code>rank()</code></td>
+              <td><strong>并列跳号排名（<code>1, 1, 3, 4</code>）</strong>：两个并列第 1 名后，下一名序号跳到第 3 名。</td>
+            </tr>
+            <tr>
+              <td><code>dense_rank()</code></td>
+              <td><strong>并列连续排名（<code>1, 1, 2, 3</code>）</strong>：并列后不跳号，适合查询“每个部门薪资排名前 3 档的所有员工”。</td>
+            </tr>
+            <tr>
+              <td><code>lag(col, n, def)</code> / <code>lead(col, n, def)</code></td>
+              <td><strong>取同分组内前第 <code>n</code> 行 / 后第 <code>n</code> 行的值</strong>（若无前/后行则返回默认值 <code>def</code>），无需自连接即可计算环比增长率或相邻两次操作的时间间隔。</td>
+            </tr>
+            <tr>
+              <td><code>sum(col) OVER (...)</code></td>
+              <td>若 <code>OVER()</code> 内不写 <code>ORDER BY</code>，计算整个分组的总和；若写了 <code>ORDER BY</code>，默认计算<strong>从分组首行到当前行的滚动累计值</strong>。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 window_and_recursive_cte.sql · 窗口函数与递归查树</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-window-cte', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="pg-window-cte"><code><span class="c-cmt">-- 场景 1：使用 CTE + row_number() 取出每个用户金额最高的一笔订单</span>
 <span class="c-kw">WITH</span> ranked_orders <span class="c-kw">AS</span> (
   <span class="c-kw">SELECT</span> id, user_id, amount,
          <span class="c-fn">row_number</span>() <span class="c-kw">OVER</span> (
@@ -188,33 +393,28 @@
          ) <span class="c-kw">AS</span> rn
   <span class="c-kw">FROM</span> orders
 )
-<span class="c-kw">SELECT</span> id, user_id, amount <span class="c-kw">FROM</span> ranked_orders <span class="c-kw">WHERE</span> rn = 1;
+<span class="c-kw">SELECT</span> id, user_id, amount <span class="c-kw">FROM</span> ranked_orders <span class="c-kw">WHERE</span> rn = <span class="c-num">1</span>;
 
-<span class="c-cmt">-- 经典题 2：WITH RECURSIVE 递归查询部门树（向下查所有子孙部门）</span>
+<span class="c-cmt">-- 场景 2：WITH RECURSIVE 递归查询多级部门树（从根节点 id=1 向下展开）</span>
 <span class="c-kw">WITH RECURSIVE</span> dept_tree <span class="c-kw">AS</span> (
-  <span class="c-cmt">-- ① 锚点成员 (Anchor)：先找出根节点（id = 1）</span>
-  <span class="c-kw">SELECT</span> id, name, parent_id, 1 <span class="c-kw">AS</span> depth, name::text <span class="c-kw">AS</span> path
-  <span class="c-kw">FROM</span> dept <span class="c-kw">WHERE</span> id = 1
+  <span class="c-cmt">-- ① 锚点成员 (Anchor)：只执行一次，找出起始根节点</span>
+  <span class="c-kw">SELECT</span> id, name, parent_id, <span class="c-num">1</span> <span class="c-kw">AS</span> depth, name <span class="c-kw">AS</span> full_path
+  <span class="c-kw">FROM</span> departments <span class="c-kw">WHERE</span> id = <span class="c-num">1</span>
   <span class="c-kw">UNION ALL</span>
-  <span class="c-cmt">-- ② 递归成员 (Recursive)：拿上一轮结果 sub 关联子表 d</span>
-  <span class="c-kw">SELECT</span> d.id, d.name, d.parent_id, sub.depth + 1,
-         sub.path || <span class="c-str">' &gt; '</span> || d.name
-  <span class="c-kw">FROM</span> dept d
-  <span class="c-kw">JOIN</span> dept_tree sub <span class="c-kw">ON</span> d.parent_id = sub.id
+  <span class="c-cmt">-- ② 递归成员 (Recursive)：用上一轮产出的结果 tree 关联原表 d 查找子节点</span>
+  <span class="c-kw">SELECT</span> d.id, d.name, d.parent_id, tree.depth + <span class="c-num">1</span>,
+         tree.full_path || <span class="c-str">' / '</span> || d.name
+  <span class="c-kw">FROM</span> departments d
+  <span class="c-kw">JOIN</span> dept_tree tree <span class="c-kw">ON</span> d.parent_id = tree.id
 )
-<span class="c-kw">SELECT</span> * <span class="c-kw">FROM</span> dept_tree;</code></pre>
-              </div>
-            </div>
-          </div>
+<span class="c-kw">SELECT</span> id, name, depth, full_path <span class="c-kw">FROM</span> dept_tree;</code></pre>
+    </div>
+  </div>
 
-          <details class="plop-drawer">
-            <summary>❓ 面试自测：为什么不能直接写 WHERE row_number() OVER (...) = 1？SQL 各子句的真实执行顺序是什么？</summary>
-            <div class="drawer-body">
-              <p>
-                <strong>SQL 引擎的逻辑执行顺序为：</strong><br>
-                <code>① FROM / JOIN</code> ➔ <code>② WHERE</code>（行级过滤）➔ <code>③ GROUP BY</code>（分组聚合）➔ <code>④ HAVING</code>（组级过滤）➔ <code>⑤ 窗口函数 OVER(...)</code> ➔ <code>⑥ SELECT 投影</code> ➔ <code>⑦ DISTINCT</code> ➔ <code>⑧ ORDER BY</code> ➔ <code>⑨ LIMIT / OFFSET</code>。<br>
-                因为 <code>WHERE</code> 在第 ② 步执行时，连分组和第 ⑤ 步的<strong>窗口函数都还没有计算出来</strong>（而且窗口函数的结果高度依赖 <code>WHERE</code> 过滤后剩下哪些行），所以必须在子查询或 <code>WITH</code> (CTE) 里先算出 <code>rn</code>，再在外层查询写 <code>WHERE rn = 1</code>。
-              </p>
-            </div>
-          </details>
-        </div>
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>📖 概念澄清：SQL 子句的逻辑执行顺序（为什么 <code>WHERE</code> 里不能直接写窗口函数）</strong><br>
+    一条查询语句在数据库内部的逻辑求值顺序依次为：<br>
+    <code>① FROM / JOIN</code> ➔ <code>② WHERE</code>（行级过滤）➔ <code>③ GROUP BY</code>（分组汇总）➔ <code>④ HAVING</code>（分组后过滤）➔ <code>⑤ 窗口函数 OVER(...)</code> ➔ <code>⑥ SELECT 投影</code> ➔ <code>⑦ DISTINCT / DISTINCT ON</code> ➔ <code>⑧ ORDER BY</code> ➔ <code>⑨ LIMIT / OFFSET</code>。<br>
+    由于第 ② 步执行 <code>WHERE</code> 时，第 ⑤ 步的窗口函数尚未计算，因此不能直接写 <code>WHERE row_number() OVER (...) = 1</code>，而是先在 <code>WITH</code> 子句（公共表表达式 CTE）或子查询中算出别名 <code>rn</code>，再在外层查询中执行 <code>WHERE rn = 1</code>。
+  </div>
+</div>

@@ -1,0 +1,253 @@
+<!-- ====================================================================
+     PART 01: 多进程与内存内核 · postmaster 派发、Shared Buffers 时钟扫描与 PgBouncer
+     ==================================================================== -->
+<div class="wb-sec-header" id="arch">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">多进程与内存内核 · postmaster 派发、Shared Buffers 时钟扫描与 PgBouncer</span>
+  <span class="plop-tag periwinkle">MULTI-PROCESS × CLOCK-SWEEP × WORK_MEM × PGBOUNCER</span>
+</div>
+
+<!-- 01.1 · 多进程（Process-per-Connection）架构与私有/共享内存模型 -->
+<div class="wb-card" id="process-memory-arch" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🏛️ 01.1 · 进程与内存拓扑：<code>postmaster</code> 守护进程、<code>Backend</code> 私有内存乘数效应与后台进程协作</div>
+  <h3>🏛️ 01.1 多进程架构与私有/共享内存边界拆解</h3>
+
+  <p>
+    PostgreSQL 实例启动时，由主守护进程 <code>postgres</code>（传统名称为 <strong><code>postmaster</code></strong>）通过 <code>mmap</code> 或 System V IPC 分配一块全局<strong>共享内存区（Shared Memory）</strong>，随后派生出多个各司其职的后台守护进程。每当客户端通过 TCP <code>5432</code> 端口完成认证，<code>postmaster</code> 便调用 <code>fork()</code> 启动一个独立的 <strong><code>Backend</code> 会话进程</strong>专门处理该连接上的所有 SQL 请求：
+  </p>
+
+  <!-- PostgreSQL 多进程、共享内存与磁盘落盘协同架构图 (Editorial SVG) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 940 376" style="width:100%; min-width:860px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="pg-arch-title pg-arch-desc">
+        <title id="pg-arch-title">PostgreSQL 多进程、共享内存池与磁盘落盘协同架构图</title>
+        <desc id="pg-arch-desc">展示客户端经 PgBouncer 连接池连入 postmaster 主进程，fork 出独立 Backend 会话进程（含私有 work_mem 与 Catalog Cache），共同读写 Shared Buffers 与 WAL Buffers，并由 Bgwriter、Checkpointer、WAL Writer 与 Autovacuum 落盘至 PGDATA。</desc>
+        <defs>
+          <marker id="pa-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="pa-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="pa-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- 1. Zone Containers -->
+        <!-- Zone 1: Connection & Postmaster (Left) -->
+        <rect x="20" y="20" width="204" height="336" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.16)" stroke-width="1"/>
+        <rect x="32" y="24" width="144" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="104" y="34" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.08em">INGRESS &amp; MASTER</text>
+
+        <!-- Zone 2: Backend Processes & Shared Memory (Center) -->
+        <rect x="248" y="20" width="424" height="336" rx="8" fill="rgba(191,69,32,0.03)" stroke="#bf4520" stroke-width="1.2" stroke-dasharray="5,4"/>
+        <rect x="260" y="24" width="284" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="402" y="34" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.08em">BACKEND PROCESSES &amp; SHARED MEMORY</text>
+
+        <!-- Zone 3: Background Workers & Disk (Right) -->
+        <rect x="696" y="20" width="224" height="336" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.16)" stroke-width="1"/>
+        <rect x="708" y="24" width="196" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="806" y="34" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.08em">DAEMONS &amp; $PGDATA DISK</text>
+
+        <!-- 2. Orthogonal Connectors drawn BEFORE node boxes -->
+        <!-- Client/PgBouncer (x=122, y=140) -> Postmaster (x=122, y=184) -->
+        <line x1="122" y1="140" x2="122" y2="184" stroke="#2e5aa8" stroke-width="1.6" marker-end="url(#pa-arrow-link)"/>
+        <rect x="130" y="154" width="76" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="168" y="164" text-anchor="middle" fill="#2e5aa8" font-family="ui-monospace,monospace" font-size="8" font-weight="600">PORT 5432</text>
+
+        <!-- Postmaster (right edge x=208, y=224) -> Backend Processes (left edge x=264, y=96) via orthogonal r=8 -->
+        <path d="M 208,224 H 212 Q 220,224 220,216 V 104 Q 220,96 228,96 H 264" fill="none" stroke="#bf4520" stroke-width="1.8" stroke-dasharray="5,4" marker-end="url(#pa-arrow-accent)"/>
+        <rect x="226" y="152" width="36" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="244" y="162" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8" font-weight="700">FORK()</text>
+
+        <!-- Backend Processes (bottom edge x=460, y=180) -> Shared Memory (top edge x=460, y=212) -->
+        <line x1="460" y1="180" x2="460" y2="212" stroke="#bf4520" stroke-width="1.8" marker-end="url(#pa-arrow-accent)"/>
+        <rect x="468" y="188" width="92" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="514" y="198" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8" font-weight="700">PIN / RW PAGES</text>
+
+        <!-- Shared Memory (right edge x=656, y=276) -> Daemons (left edge x=712, y=124) via orthogonal r=8 -->
+        <path d="M 656,264 H 676 Q 684,264 684,256 V 132 Q 684,124 692,124 H 712" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#pa-arrow)"/>
+
+        <!-- Daemons (bottom edge x=808, y=216) -> Disk (top edge x=808, y=244) -->
+        <line x1="808" y1="216" x2="808" y2="244" stroke="#bf4520" stroke-width="1.6" marker-end="url(#pa-arrow-accent)"/>
+        <rect x="816" y="222" width="64" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="848" y="232" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8" font-weight="700">FSYNC IO</text>
+
+        <!-- 3. Node Boxes -->
+        <!-- Node 1: Clients & PgBouncer -->
+        <rect x="36" y="52" width="172" height="88" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="122" y="74" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">应用微服务集群</text>
+        <text x="122" y="92" text-anchor="middle" fill="#4f5d75" font-size="10.5">数千并发短/长连接</text>
+        <rect x="48" y="102" width="148" height="26" rx="4" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="122" y="119" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10" font-weight="700">PgBouncer (Transaction)</text>
+
+        <!-- Node 2: Postmaster -->
+        <rect x="36" y="184" width="172" height="104" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.6"/>
+        <rect x="46" y="192" width="68" height="14" rx="2" fill="#EEF3FF" stroke="#2d3142" stroke-width="0.8"/>
+        <text x="80" y="202" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="8" font-weight="700">SUPERVISOR</text>
+        <text x="122" y="224" text-anchor="middle" fill="#2d3142" font-size="13" font-weight="700">postmaster 主进程</text>
+        <text x="122" y="244" text-anchor="middle" fill="#4f5d75" font-size="10.5">• 监听端口与派生子进程</text>
+        <text x="122" y="262" text-anchor="middle" fill="#4f5d75" font-size="10.5">• 监控子进程异常退出</text>
+        <text x="122" y="278" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="9.5">触发 WAL 崩溃恢复</text>
+
+        <!-- Node 3: Backend Processes + Local Memory -->
+        <rect x="264" y="52" width="392" height="128" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.6"/>
+        <text x="460" y="72" text-anchor="middle" fill="#2d3142" font-size="13" font-weight="700">Backend 会话进程群 (1 连接 = 1 OS 进程)</text>
+        <rect x="278" y="82" width="174" height="36" rx="4" fill="#EEF3FF" stroke="#2d3142" stroke-width="1"/>
+        <text x="365" y="98" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10" font-weight="700">Backend #1..#N</text>
+        <text x="365" y="112" text-anchor="middle" fill="#4f5d75" font-size="9.5">Parser → Planner → Executor</text>
+        <rect x="466" y="82" width="176" height="36" rx="4" fill="#E9F9F1" stroke="#2d3142" stroke-width="1"/>
+        <text x="554" y="98" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10" font-weight="700">Parallel Workers</text>
+        <text x="554" y="112" text-anchor="middle" fill="#4f5d75" font-size="9.5">大表并行扫描/聚合子进程</text>
+
+        <rect x="278" y="126" width="364" height="44" rx="4" fill="#FFF6E5" stroke="#2d3142" stroke-width="1" stroke-dasharray="4,2"/>
+        <text x="460" y="143" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10" font-weight="700">每个 Backend 独享私有内存 (Local Memory · 5~15MB+)</text>
+        <text x="460" y="160" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="9.5">work_mem (每算子独立分配) · temp_buffers · relcache/catcache</text>
+
+        <!-- Node 4 (Focal): Shared Memory -->
+        <rect x="264" y="212" width="392" height="128" rx="6" fill="#FFE8E5" stroke="#bf4520" stroke-width="2"/>
+        <text x="460" y="234" text-anchor="middle" fill="#bf4520" font-size="13.5" font-weight="700">全局共享内存区 (Shared Memory · 所有进程并发读写)</text>
+
+        <rect x="278" y="244" width="178" height="82" rx="4" fill="#FFFFFF" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="367" y="264" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">Shared Buffers</text>
+        <text x="367" y="282" text-anchor="middle" fill="#4f5d75" font-size="10">缓存 8KB 堆表页与索引页</text>
+        <text x="367" y="298" text-anchor="middle" fill="#4f5d75" font-size="10">Clock-Sweep 时钟扫描淘汰</text>
+        <text x="367" y="314" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="9.5" font-weight="700">建议设为物理内存 25%~40%</text>
+
+        <rect x="466" y="244" width="176" height="82" rx="4" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="554" y="264" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">WAL &amp; CLOG &amp; ProcArray</text>
+        <text x="554" y="282" text-anchor="middle" fill="#4f5d75" font-size="10">• WAL Buffers 预写日志缓冲</text>
+        <text x="554" y="298" text-anchor="middle" fill="#4f5d75" font-size="10">• CLOG (pg_xact) 事务状态缓存</text>
+        <text x="554" y="314" text-anchor="middle" fill="#4f5d75" font-size="10">• ProcArray 全局活跃事务快照</text>
+
+        <!-- Node 5: Background Daemons -->
+        <rect x="712" y="52" width="192" height="164" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="808" y="72" text-anchor="middle" fill="#2d3142" font-size="12" font-weight="700">四大后台守护进程</text>
+        <rect x="722" y="80" width="172" height="28" rx="4" fill="#FFF6E5" stroke="#2d3142" stroke-width="1"/>
+        <text x="808" y="98" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="9.5" font-weight="700">1. WAL Writer (刷日志落盘)</text>
+        <rect x="722" y="114" width="172" height="28" rx="4" fill="#FBF8F0" stroke="#2d3142" stroke-width="1"/>
+        <text x="808" y="132" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="9.5" font-weight="600">2. Bgwriter (平滑异步刷脏)</text>
+        <rect x="722" y="148" width="172" height="28" rx="4" fill="#FBF8F0" stroke="#2d3142" stroke-width="1"/>
+        <text x="808" y="166" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="9.5" font-weight="600">3. Checkpointer (检查点推进)</text>
+        <rect x="722" y="182" width="172" height="26" rx="4" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.2"/>
+        <text x="808" y="199" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="9.5" font-weight="700">4. Autovacuum (清死元组/冻结)</text>
+
+        <!-- Node 6: Disk Files ($PGDATA) -->
+        <rect x="712" y="244" width="192" height="96" rx="6" fill="#FBF8F0" stroke="#2d3142" stroke-width="1.5"/>
+        <text x="808" y="264" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="11.5" font-weight="700">$PGDATA 磁盘目录</text>
+        <text x="808" y="284" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">base/ (Heap + Index + FSM + VM)</text>
+        <text x="808" y="302" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">pg_wal/ (16MB 预写日志段文件)</text>
+        <text x="808" y="320" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">pg_xact/ (2-bit 事务提交位图)</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="plop-callout warn">
+    <strong>⚠️ 内存调优关键误区：<code>work_mem</code> 的乘数放大效应与 <code>Catalog Cache</code> 膨胀</strong>
+    <ul style="margin:6px 0 0; padding-left:18px;">
+      <li><strong><code>work_mem</code>（默认 <code>4MB</code>）不是单个连接的总上限，而是单个执行算子（Operator）的上限</strong>：一条复杂分析 SQL 如果包含 4 个 <code>Sort</code> 或 <code>Hash Join</code> 节点，并且开启了 4 个并行 Worker 进程，那么单条 SQL 就可能瞬时申请 <code>4 个算子 × 4 个进程 × work_mem</code> 的内存。若将全局 <code>work_mem</code> 盲目调大到 <code>256MB</code>，上百个并发查询同时执行时极易触发操作系统 OOM Killer 强杀数据库进程。正确做法是全局保持 <code>16MB~64MB</code>，仅在特定报表会话内临时执行 <code>SET LOCAL work_mem = '256MB';</code>。</li>
+      <li><strong>系统目录缓存（<code>Catalog Cache / relcache</code>）只增不减</strong>：每个 <code>Backend</code> 进程都会在私有内存中缓存它访问过的表结构与统计信息元数据。如果单个库里有数万张分区表且使用长连接，每个 <code>Backend</code> 进程的 <code>catcache</code> 都可能膨胀到上百 MB。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- 01.2 · Shared Buffers 内部结构与 Clock-Sweep（时钟扫描）淘汰算法 -->
+<div class="wb-card" id="clock-sweep" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">⏱️ 01.2 · 缓冲池淘汰：<code>BufferDesc</code> 描述符数组、<code>Clock-Sweep</code> 时钟扫描算法与双层缓存机制</div>
+  <h3>⏱️ 01.2 <code>Shared Buffers</code> 时钟扫描算法与双层缓存</h3>
+
+  <p>
+    <code>Shared Buffers</code> 被划分为成千上万个固定 <code>8 KiB</code> 的缓冲槽（Buffer Slot），每个槽位配有一个 64 字节的元数据头 <strong><code>BufferDesc</code>（缓冲描述符）</strong>，内部维护两个核心计数值：
+  </p>
+
+  <div class="wb-grid-2">
+    <div>
+      <h4>1. <code>pin_count</code> 与 <code>usage_count</code> 状态流转</h4>
+      <ul style="margin:6px 0 0; padding-left:18px; font-size:13.1px; line-height:1.68;">
+        <li><strong>引用计数 <code>refcount (pin_count)</code></strong>：记录当前正在读写该 8KB 页的 <code>Backend</code> 进程数。只要 <code>pin_count &gt; 0</code>，说明有进程正在使用该页，<strong>该页被钉住（Pinned），绝不允许被淘汰替换</strong>。</li>
+        <li><strong>访问热度计数 <code>usage_count</code>（取值范围 <code>0 ~ 5</code>）</strong>：每当一个缓冲页被任意会话访问一次，其 <code>usage_count</code> 加 1（<strong>上限封顶为 <code>BM_MAX_USAGE_COUNT = 5</code></strong>，防止早期高频访问的历史冷页积攒几万分后永远无法被淘汰）。</li>
+        <li><strong><code>Clock-Sweep</code>（时钟指针扫描）替换流程</strong>：当 <code>Backend</code> 需要读入新磁盘页且空闲链表（<code>freelist</code>）为空时，全局时钟指针 <code>nextVictimBuffer</code> 依次扫描各个 <code>BufferDesc</code>：
+          <ol style="margin:4px 0 0; padding-left:18px;">
+            <li>若当前槽位 <code>pin_count &gt; 0</code>，直接跳过检查下一格；</li>
+            <li>若 <code>pin_count == 0</code> 且 <code>usage_count &gt; 0</code>，将其 <strong><code>usage_count</code> 减 1</strong>（给热页第二次机会），指针继续前移；</li>
+            <li>一旦遇到 <strong><code>pin_count == 0</code> 且 <code>usage_count == 0</code></strong> 的缓冲页，即选中为淘汰牺牲页（Victim Buffer）。</li>
+          </ol>
+        </li>
+      </ul>
+    </div>
+
+    <div>
+      <h4>2. 双层缓存架构下 <code>shared_buffers</code> 推荐设为 25%~40% 的内核原因</h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">存储引擎</th>
+              <th style="width:28%">磁盘 I/O 方式</th>
+              <th>内存分配策略差异根因</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>MySQL InnoDB</strong></td>
+              <td>默认开启 <code>O_DIRECT</code> 绕过操作系统缓存</td>
+              <td>InnoDB 自行管理预读与脏页刷盘，不依赖 OS Page Cache，因此可将 <code>innodb_buffer_pool_size</code> 设为物理内存的 <strong>60%~80%</strong>。</td>
+            </tr>
+            <tr>
+              <td><strong>PostgreSQL</strong></td>
+              <td>标准缓冲 I/O（经由 <strong>OS Page Cache</strong> 双层缓存）</td>
+              <td>PG 读取磁盘页时，数据会先进入操作系统内核的 Page Cache，再拷入 <code>Shared Buffers</code>；当某页从 <code>Shared Buffers</code> 淘汰后，往往仍驻留在 OS Page Cache 中（即 <code>EXPLAIN</code> 中的 <code>shared read</code> 未必发生真实物理磁盘 I/O），且 PG 十分依赖操作系统的顺序预读（Read-Ahead）与写合并，因此预留 <strong>60% 左右物理内存给 OS Page Cache 与进程私有内存</strong>综合吞吐最优。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 01.3 · 高并发连接瓶颈与 PgBouncer 三级池化底层机制 -->
+<div class="wb-card" id="pgbouncer-internals" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🛡️ 01.3 · 连接池内核：高并发直连下的 <code>ProcArrayLock</code> 争用与 <code>PgBouncer</code> 三级池化模式对比</div>
+  <h3>🛡️ 01.3 高并发连接瓶颈与 <code>PgBouncer</code> 池化模式剖析</h3>
+
+  <p>
+    当应用集群直连 PostgreSQL 的活躍进程数达到上千个时，除了进程私有内存消耗外，更严重的性能衰减来自内核<strong>全局进程数组锁（<code>ProcArrayLock</code>）争用与快照生成开销</strong>：每次生成事务快照 <code>GetSnapshotData()</code> 时，都需要遍历全局活跃进程数组 <code>PGPROC</code> 收集所有未提交事务 ID；连接数越多，数组越长、CPU L1/L2 缓存缺失越严重。通过前置单进程事件驱动的 <strong><code>PgBouncer</code></strong>，可将数千客户端连接收敛复用在 100~200 个真实 <code>Backend</code> 进程上：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">PgBouncer 池化模式</th>
+          <th style="width:28%">后端进程借出与归还生命周期</th>
+          <th style="width:24%">连接收敛效果</th>
+          <th>会话状态与预处理语句（Prepared Statements）兼容性</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. <code>session</code></strong><br>（会话级池化，默认）</td>
+          <td>客户端连上时分配一个 PG 进程，直到客户端主动断开连接才归还池中。</td>
+          <td>仅省去频繁 <code>fork()</code> 新进程的开销，<strong>无法减少同时在线的后端进程总数</strong>。</td>
+          <td>100% 兼容所有会话级特性（<code>SET</code> 变量、临时表、<code>LISTEN/NOTIFY</code>、咨询锁）。</td>
+        </tr>
+        <tr>
+          <td><strong>2. <code>transaction</code></strong><br>（事务级池化，<strong>生产主力</strong>）</td>
+          <td>客户端发送 <code>BEGIN</code>（或单条语句）时才从池中借出 PG 进程；<strong>一旦执行完 <code>COMMIT / ROLLBACK</code>，立即将该 PG 进程放回池中供其他客户端复用</strong>。</td>
+          <td><strong>极高</strong>：可将 5000 个微服务空闲/忙时连接压缩到 100~200 个真实数据库进程。</td>
+          <td>不同事务可能落到不同的后端进程上。因此<strong>不能依赖跨事务的会话级 <code>SET</code>、会话级临时表</strong>；对于驱动层的命名预处理语句（Named Prepared Statements），需升级至 <strong>PgBouncer 1.21+ 开启 <code>max_prepared_statements &gt; 0</code></strong> 由 PgBouncer 自动重写映射，或在驱动中禁用协议级缓存。</td>
+        </tr>
+        <tr>
+          <td><strong>3. <code>statement</code></strong><br>（语句级池化）</td>
+          <td>每执行完一条单独的 SQL 语句就立即归还连接。</td>
+          <td>最高，但适用面极窄。</td>
+          <td><strong>不支持多语句显式事务（发送 <code>BEGIN</code> 会直接报错拒绝）</strong>，仅适用于纯单语句自动提交的只读查询场景。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

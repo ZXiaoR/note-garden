@@ -1,0 +1,370 @@
+<!-- ====================================================================
+     PART 06: 三大日志、两阶段提交、崩溃恢复与高可用复制架构
+     ==================================================================== -->
+<div class="wb-sec-header" id="log" style="background:var(--plop-mint);">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">三大日志、两阶段提交、崩溃恢复与高可用复制架构</span>
+  <span class="plop-tag periwinkle">UNDO / REDO / BINLOG × INTERNAL 2PC × DOUBLEWRITE × REPLICATION</span>
+</div>
+
+<!-- 06.1 · 三大日志职责对比与一条 UPDATE 的两阶段提交（Internal 2PC） -->
+<div class="wb-card" id="mysql-three-logs-2pc" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">📝 06.1 · 三大日志与两阶段提交：Undo / Redo / Binlog 职责对比与基于 XID 的崩溃恢复裁决法则</div>
+  <h3>📝 06.1 三大日志职责对比与一条 UPDATE 的内部两阶段提交（Internal 2PC）</h3>
+
+  <p>
+    如果每次执行 <code>UPDATE</code> 都直接把 16 KiB 的 InnoDB 数据页随机刷回磁盘，机械硬盘或 SSD 的随机 I/O 很快就会成为吞吐瓶颈。为此，MySQL 采用了经典的<strong>预写式日志（WAL，Write-Ahead Logging）</strong>技术：先在内存 <code>Buffer Pool</code> 中修改数据页，并将修改动作顺序追加写入日志文件，随后即可向客户端返回提交成功；至于内存中的脏页（Dirty Page），则由后台线程在低峰期异步批量刷入磁盘。在这套流程中，<strong><code>Undo Log</code>、<code>Redo Log</code> 与 <code>Binlog</code></strong> 各司其职，共同构成了 ACID 中原子性（Atomicity）与持久性（Durability）的底层支柱：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">对比维度</th>
+          <th style="width:28%">Undo Log（回滚日志）</th>
+          <th style="width:28%">Redo Log（重做日志）</th>
+          <th>Binlog（二进制归档日志）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>所属架构层</strong></td>
+          <td>InnoDB 存储引擎层独占</td>
+          <td>InnoDB 存储引擎层独占</td>
+          <td><strong>MySQL Server 层通用</strong>（所有存储引擎共用）</td>
+        </tr>
+        <tr>
+          <td><strong>保障 ACID 维度</strong></td>
+          <td><strong>原子性 (Atomicity)</strong> + <strong>隔离性 (MVCC)</strong></td>
+          <td><strong>持久性 (Durability)</strong>（Crash-Safe 崩溃恢复）</td>
+          <td>不用于引擎崩溃恢复，专用于<strong>主从复制 (Replication)</strong> 与<strong>时间点备份恢复 (PITR)</strong></td>
+        </tr>
+        <tr>
+          <td><strong>日志内容格式</strong></td>
+          <td><strong>逻辑日志</strong>（记录修改前的旧值，回滚时执行反向逻辑操作，并通过 <code>DB_ROLL_PTR</code> 串联 MVCC 历史版本链）</td>
+          <td><strong>物理+逻辑日志 (Physiological Logging)</strong>：对页是物理定位（表空间号 + 页号 Page No），对页内修改是逻辑重放</td>
+          <td><strong>逻辑日志</strong>，支持三种格式：<code>STATEMENT</code>（记原始 SQL）、<strong><code>ROW</code>（默认，记每行修改前后镜像）</strong>、<code>MIXED</code></td>
+        </tr>
+        <tr>
+          <td><strong>磁盘写入方式</strong></td>
+          <td>存放在 Undo 表空间（<code>undo_001 / undo_002</code>），其修改本身也会记入 Redo Log</td>
+          <td><strong>固定大小环形循环写</strong>（由 <code>write pos</code> 当前写入点与 <code>checkpoint</code> 已刷脏页擦除点组成，MySQL 8.0.30+ 由 <code>innodb_redo_log_capacity</code> 控制总容量）</td>
+          <td><strong>追加写（Append-only）</strong>，单个文件写满 <code>max_binlog_size</code> 后自动切分生成新编号文件（如 <code>binlog.000001</code> → <code>binlog.000002</code>）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    既然一次事务修改既要写 InnoDB 的 <code>Redo Log</code>，又要写 Server 层的 <code>Binlog</code>，如果采用「先写完 Redo Log 再写 Binlog」或「先写完 Binlog 再写 Redo Log」的单步顺序写，一旦在两份日志之间发生掉电宕机，就会导致<strong>主库崩溃恢复后的数据与从库通过 Binlog 回放的数据不一致</strong>。为了解决两份日志之间的原子一致性，MySQL 引入了由内部事务 ID（<code>XID</code>）关联的<strong>内部两阶段提交（Internal Two-Phase Commit，2PC）</strong>：
+  </p>
+
+  <!-- Editorial SVG: Internal 2PC & Crash Recovery Decision Flow -->
+  <figure style="margin:16px 0 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 430" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mysql-2pc-title mysql-2pc-desc">
+        <title id="mysql-2pc-title">MySQL UPDATE 内部两阶段提交与崩溃恢复裁决</title>
+        <desc id="mysql-2pc-desc">上方展示一条 UPDATE 依次执行：写 Undo Log 与修改 Buffer Pool 脏页、第一阶段写 Redo Log (Prepare 状态 + XID)、写 Binlog 并 fsync 落盘、第二阶段将 Redo Log 标记为 Commit；下方展示在崩溃点 A 和崩溃点 B 发生宕机时如何根据 Binlog 中是否存在完整 XID 来决定回滚或提交。</desc>
+        <defs>
+          <marker id="arr-2pc-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#1C1917"/>
+          </marker>
+          <marker id="arr-2pc-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#bf4520"/>
+          </marker>
+          <marker id="arr-2pc-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#0f766e"/>
+          </marker>
+        </defs>
+
+        <!-- ================= TOP: 4 Steps of UPDATE + Internal 2PC ================= -->
+        <text x="32" y="28" font-family="'Plus Jakarta Sans',sans-serif" font-size="13" font-weight="800" fill="#1C1917">1. 一条 UPDATE 在执行器与 InnoDB 之间的四步写入流水线（两阶段提交围绕 XID 协同）</text>
+
+        <!-- Connectors FIRST (before step boxes) -->
+        <line x1="224" y1="110" x2="260" y2="110" stroke="#1C1917" stroke-width="2.2" marker-end="url(#arr-2pc-ink)"/>
+        <line x1="464" y1="110" x2="504" y2="110" stroke="#bf4520" stroke-width="2.4" marker-end="url(#arr-2pc-coral)"/>
+        <line x1="700" y1="110" x2="736" y2="110" stroke="#0f766e" stroke-width="2.4" marker-end="url(#arr-2pc-teal)"/>
+
+        <!-- Crash Point A dashed vertical line -->
+        <line x1="484" y1="54" x2="484" y2="236" stroke="#bf4520" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arr-2pc-coral)"/>
+        <rect x="444" y="190" width="80" height="20" rx="5" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.2"/>
+        <text x="484" y="204" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#bf4520">崩溃点 A</text>
+
+        <!-- Crash Point B dashed vertical line -->
+        <line x1="718" y1="54" x2="718" y2="236" stroke="#0f766e" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arr-2pc-teal)"/>
+        <rect x="678" y="190" width="80" height="20" rx="5" fill="#FFFDF7" stroke="#0f766e" stroke-width="1.2"/>
+        <text x="718" y="204" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#0f766e">崩溃点 B</text>
+
+        <!-- Step 1 Box: Undo + Buffer Pool -->
+        <rect x="32" y="48" width="192" height="128" rx="10" fill="#F5F2EB" stroke="#1C1917" stroke-width="2"/>
+        <rect x="44" y="60" width="168" height="24" rx="5" fill="#1C1917"/>
+        <text x="128" y="76" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#FFFDF7">① 写 Undo + 改内存脏页</text>
+        <text x="46" y="102" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#1C1917">• 旧值写入 Undo Log</text>
+        <text x="46" y="122" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#1C1917">• 原地更新 Buffer Pool 页</text>
+        <text x="46" y="142" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#57534E">• 脏页挂入 Flush 链表</text>
+
+        <!-- Step 2 Box: Redo Log Prepare (2PC Phase 1) -->
+        <rect x="260" y="48" width="204" height="128" rx="10" fill="#FFF7ED" stroke="#bf4520" stroke-width="2.5"/>
+        <rect x="272" y="60" width="180" height="24" rx="5" fill="#bf4520"/>
+        <text x="362" y="76" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#FFFDF7">② 2PC 阶段一：Redo Prepare</text>
+        <text x="274" y="102" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" font-weight="700" fill="#9A3412">• 写入 Redo Log Buffer</text>
+        <text x="274" y="122" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#bf4520">• 记录状态 = TRX_PREPARED</text>
+        <text x="274" y="142" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#9A3412">• 绑定内部事务号 XID 并刷盘</text>
+
+        <!-- Step 3 Box: Binlog Write & Fsync -->
+        <rect x="504" y="48" width="196" height="128" rx="10" fill="#FEF3C7" stroke="#b45309" stroke-width="2.2"/>
+        <rect x="516" y="60" width="172" height="24" rx="5" fill="#b45309"/>
+        <text x="602" y="76" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#FFFDF7">③ Server 层写 Binlog</text>
+        <text x="518" y="102" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" font-weight="700" fill="#92400E">• Binlog Cache 写入文件</text>
+        <text x="518" y="122" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#92400E">• 末尾写入 XID Event</text>
+        <text x="518" y="142" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" font-weight="800" fill="#b45309">• fsync() 持久化落盘完成</text>
+
+        <!-- Step 4 Box: Redo Log Commit (2PC Phase 2) -->
+        <rect x="736" y="48" width="152" height="128" rx="10" fill="#D1FAE5" stroke="#0f766e" stroke-width="2.2"/>
+        <rect x="748" y="60" width="128" height="24" rx="5" fill="#0f766e"/>
+        <text x="812" y="76" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#FFFDF7">④ Redo Commit</text>
+        <text x="750" y="102" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#065F46">• 写入 Commit 标记</text>
+        <text x="750" y="122" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#0f766e">• TRX_COMMITTED</text>
+        <text x="750" y="142" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#065F46">• 向客户端返回 OK</text>
+
+        <!-- ================= BOTTOM: Crash Recovery XID Verification Rules ================= -->
+        <text x="32" y="264" font-family="'Plus Jakarta Sans',sans-serif" font-size="13" font-weight="800" fill="#1C1917">2. 崩溃恢复（Crash Recovery）时遇到处于 Prepare 状态的 Redo Log 如何裁决</text>
+
+        <!-- Rule Card 1: Crash Point A -->
+        <rect x="32" y="280" width="416" height="126" rx="12" fill="#FFF7ED" stroke="#bf4520" stroke-width="2"/>
+        <text x="50" y="306" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#9A3412">场景 A：在「崩溃点 A」宕机（Redo Prepare 已落盘，Binlog 未落盘）</text>
+        <text x="50" y="330" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#1C1917">• 重启扫描 Redo Log 发现事务处于 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">TRX_PREPARED</tspan>，提取其 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan></text>
+        <text x="50" y="352" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#1C1917">• 去 Binlog 末尾查找该 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan> → <tspan font-weight="800" fill="#bf4520">未找到完整 Binlog 记录</tspan></text>
+        <text x="50" y="376" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#bf4520">• 裁决结果：调用 Undo Log 回滚该事务（主从均无该修改，严格一致）</text>
+
+        <!-- Rule Card 2: Crash Point B -->
+        <rect x="472" y="280" width="416" height="126" rx="12" fill="#D1FAE5" stroke="#0f766e" stroke-width="2.2"/>
+        <text x="490" y="306" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#065F46">场景 B：在「崩溃点 B」宕机（Redo Prepare 与 Binlog 均已落盘）</text>
+        <text x="490" y="330" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#1C1917">• 重启扫描 Redo Log 发现事务处于 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">TRX_PREPARED</tspan>，提取其 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan></text>
+        <text x="490" y="352" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#1C1917">• 去 Binlog 末尾查找该 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan> → <tspan font-weight="800" fill="#0f766e">找到完整 Binlog XID Event</tspan></text>
+        <text x="490" y="376" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#0f766e">• 裁决结果：自动补齐 Commit 并重放 Redo Log（主从均保留该修改）</text>
+      </svg>
+    </div>
+  </figure>
+</div>
+
+<!-- 06.2 · 「双 1」刷盘配置、组提交（Group Commit）与双写缓冲区（Doublewrite Buffer） -->
+<div class="wb-card" id="mysql-fsync-doublewrite" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🛡️ 06.2 · 零丢失持久化：「双 1」刷盘参数、Group Commit 组提交与 Doublewrite Buffer 防半页断裂</div>
+  <h3>🛡️ 06.2 「双 1」刷盘配置、组提交（Group Commit）与双写缓冲区（Doublewrite Buffer）</h3>
+
+  <p>
+    在两阶段提交中，如果每次事务提交都只是写入操作系统的 Page Cache 而没有调用 <code>fsync()</code> 刷入物理磁盘，一旦操作系统内核崩溃或服务器断电，Page Cache 中的日志仍然会丢失。控制 <code>Redo Log</code> 与 <code>Binlog</code> 刷盘时机的两个核心参数被称为<strong>「双 1」配置</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:28%">核心参数名</th>
+          <th style="width:14%">可选取值</th>
+          <th style="width:34%">内存与磁盘持久化行为</th>
+          <th>故障丢失窗口与适用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td rowspan="3"><strong><code>innodb_flush_log_at_trx_commit</code></strong><br>（控制 Redo Log Buffer 刷盘）</td>
+          <td><strong><code>1</code>（默认）</strong></td>
+          <td>每次事务提交时，都将 Redo Log Buffer 写入 OS Page Cache 并<strong>立即调用 <code>fsync()</code> 刷入物理磁盘</strong></td>
+          <td><strong>零丢失（最安全）</strong>，金融账务与核心生产库标准配置。</td>
+        </tr>
+        <tr>
+          <td><code>0</code></td>
+          <td>事务提交时不写也不刷，仅依赖后台线程<strong>每隔 1 秒</strong>把 Redo Log Buffer 写入 OS 并调用 <code>fsync()</code></td>
+          <td><code>mysqld</code> 进程崩溃或机器掉电均可能<strong>丢失最近 1 秒内的已提交事务</strong>。</td>
+        </tr>
+        <tr>
+          <td><code>2</code></td>
+          <td>每次事务提交时写入 OS Page Cache（<code>write</code>），但由后台线程<strong>每隔 1 秒</strong>调用 <code>fsync()</code> 落盘</td>
+          <td>若仅 <code>mysqld</code> 进程崩溃（OS 未宕机）则不丢数据；仅在整机掉电时丢失最近 1 秒数据。</td>
+        </tr>
+        <tr>
+          <td rowspan="3"><strong><code>sync_binlog</code></strong><br>（控制 Binlog Cache 刷盘）</td>
+          <td><strong><code>1</code>（8.0 默认）</strong></td>
+          <td>每次事务提交时，都将 Binlog Cache 写入文件并<strong>立即调用 <code>fsync()</code> 刷入物理磁盘</strong></td>
+          <td><strong>零丢失（最安全）</strong>，与 <code>innodb_flush_log_at_trx_commit = 1</code> 组成「双 1」配置。</td>
+        </tr>
+        <tr>
+          <td><code>0</code></td>
+          <td>每次提交仅 <code>write()</code> 到 OS Page Cache，何时 <code>fsync()</code> 完全交给操作系统决定</td>
+          <td>整机掉电时丢失未落盘的 Binlog，导致主从失步或无法恢复。</td>
+        </tr>
+        <tr>
+          <td><code>N</code> (如 <code>100</code>)</td>
+          <td>每次提交都 <code>write()</code> 到 OS Page Cache，但每累计 <code>N</code> 个事务才调用一次 <code>fsync()</code></td>
+          <td>在极端 I/O 瓶颈下折中提升吞吐，掉电时最多丢失最近 <code>N</code> 个事务的 Binlog。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">🚀 1. 组提交（Group Commit）如何化解「双 1」IOPS 瓶颈</div>
+      <p style="margin:0; font-size:12.8px; line-height:1.68;">
+        开启「双 1」后，每次事务提交都要触发 Redo Log（Prepare 阶段）和 Binlog 的两次物理 <code>fsync()</code>。为了避免高并发下每个事务各自独占调用 <code>fsync()</code>，MySQL 将 Binlog 提交拆分为 <strong>Flush 阶段 → Sync 阶段 → Commit 阶段</strong> 三个队列，每个阶段由第一个到达的线程担任 <strong>Leader</strong>，将同一时刻到达队列的一批并发事务（Follower）打包合并：在一次 <code>fsync()</code> 系统调用中同时刷入数十个事务的 Redo Log 或 Binlog，使并发越高时单次 <code>fsync()</code> 分摊的事务数越多，从而在「双 1」强持久性下依然维持数万 TPS 的写入吞吐。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="font-weight:900; font-size:14px; color:#bf4520; margin-bottom:6px;">🛡️ 2. 为什么有了 Redo Log 还需要双写缓冲区（Doublewrite Buffer）</div>
+      <p style="margin:0; font-size:12.8px; line-height:1.68;">
+        InnoDB 页大小为 <strong>16 KiB</strong>，而 Linux 文件系统块通常为 <strong>4 KiB</strong>。若后台刷脏页写到一半（如刚写完 4 KiB）时发生掉电，磁盘上的 16 KiB 页就会发生<strong>部分页写入断裂（Partial Page Write / Torn Page）</strong>。同时，InnoDB 的 Redo Log 采用的是<strong>「物理页号 + 页内逻辑修改（Physiological Logging）」</strong>而非整页字节镜像，<strong>如果磁盘上的 16 KiB 原页本身已经断裂损坏，Redo Log 根本无法在一个损坏的残页上执行逻辑重放</strong>。因此刷脏页前先顺序写入磁盘上的 Doublewrite 文件（<code>#ib_16384_0.dblwr</code>）；一旦发现 <code>.ibd</code> 页 Checksum 损坏，先从 Doublewrite 拷回完整无损的 16 KiB 旧页副本，再在上面重放 Redo Log。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.3 · 主从复制三线程模型、无损半同步复制与缓存双写一致性 -->
+<div class="wb-card" id="mysql-replication-ha" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🌐 06.3 · 高可用与双写架构：主从复制三线程模型、AFTER_SYNC 无损半同步、MGR 与 Redis 缓存一致性</div>
+  <h3>🌐 06.3 主从复制三线程模型、无损半同步复制与缓存双写一致性</h3>
+
+  <ol style="margin:0; padding-left:20px; font-size:13.4px; line-height:1.72;">
+    <li><strong>主从复制三线程流水线与并行回放</strong>：
+      <ul style="margin:4px 0 8px; padding-left:18px;">
+        <li><strong>主库 <code>Binlog Dump Thread</code></strong>：当从库发起连接时，主库为其创建一个转储线程，读取主库磁盘上的 <code>Binlog</code> 事件并发送给从库。</li>
+        <li><strong>从库 <code>I/O Thread</code></strong>：接收主库发来的 Binlog 事件，原样顺序写入从库本地的中继日志（<strong><code>Relay Log</code></strong>）。</li>
+        <li><strong>从库 <code>SQL Thread / Coordinator + Workers</code></strong>：读取 <code>Relay Log</code> 并解析回放。MySQL 5.7/8.0 引入了基于 <strong><code>LOGICAL_CLOCK</code> 与 <code>WriteSet</code>（主键/唯一键冲突哈希集合）的多线程并行复制（MTS）</strong>——只要两个事务修改的行没有主键/唯一键交集，即使它们在主库上是先后串行执行的，在从库上也能由多个 Worker 线程并行回放。</li>
+      </ul>
+    </li>
+    <li><strong>三种复制同步模式对比</strong>：
+      <ul style="margin:4px 0 8px; padding-left:18px;">
+        <li><strong>异步复制（Asynchronous，默认）</strong>：主库执行完事务立即向客户端返回成功，不关心从库是否收到 Binlog。主库宕机切换时可能丢失尚未传到从库的最新事务。</li>
+        <li><strong>无损半同步复制（Lossless Semi-Synchronous，<code>rpl_semi_sync_master_wait_point = AFTER_SYNC</code>）</strong>：主库在写完本地 Binlog 后、<strong>执行引擎层 Commit 之前（<code>AFTER_SYNC</code>）</strong>暂停等待，直到至少<strong>一个从库的 I/O 线程接收到该 Binlog 并写入 Relay Log 返回 ACK</strong> 后，主库才执行引擎层 Commit（此时对主库其他会话才可见）并返回给客户端。相比 5.6 的 <code>AFTER_COMMIT</code>，<code>AFTER_SYNC</code> 消除了主库崩溃前其他会话读到未同步数据的幻影读风险。</li>
+        <li><strong>组复制（MGR，MySQL Group Replication）</strong>：基于分布式 <strong>Paxos 协议</strong> 的多节点复制插件，事务在提交时由组内多数派节点（Majority Quorum）进行冲突认证（Certify）与广播决议，实现自动选主与故障强一致自愈。</li>
+      </ul>
+    </li>
+    <li><strong>MySQL × Redis 缓存双写一致性标准工程实践</strong>：
+      <ul style="margin:4px 0 0; padding-left:18px;">
+        <li>首选 <strong>Cache-Aside（旁路缓存）模式：「先更新 MySQL 数据库，成功后直接删除（Invalidate）Redis 缓存，绝不直接更新缓存」</strong>。之所以不采用「先删缓存再更新数据库」，是因为在并发读写下，请求 A 删完缓存还没来得及提交数据库修改时，请求 B 就读到了数据库旧值并重新回填进 Redis，造成缓存长期脏数据；而「先更库、再删缓存」即便在极端时序下发生并发污染，概率也低两个数量级（因为写数据库的耗时远大于读缓存）。</li>
+        <li>如果第 2 步「删除 Redis 缓存」因为网络抖动失败，可通过 <strong>Canal / Debezium 伪装成 MySQL 从库订阅主库的 ROW 格式 Binlog</strong>，将变更事件投递到消息队列（Kafka / RocketMQ）进行异步重试失效缓存，实现最终强收敛。</li>
+      </ul>
+    </li>
+  </ol>
+</div>
+
+<!-- 06.4 · MySQL 核心原理与高并发调优深度自测（15 题闭卷问答） -->
+<div class="wb-card" id="mysql-self-test" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🎯 06.4 · 深度自测：15 道贯穿存储、B+ 树、优化器、MVCC、Next-Key Lock 与 WAL 的闭卷问答</div>
+  <h3>🎯 06.4 MySQL 核心原理与高并发调优深度自测（15 题闭卷问答）</h3>
+
+  <p>
+    合上前面的章节，尝试用自己的话回答以下 15 个贯穿存储、索引、优化器、MVCC、锁与日志的底层机制问题，点击卡片即可展开核对参考解析：
+  </p>
+
+  <details class="plop-drawer">
+    <summary>01. InnoDB 为什么默认按 16 KiB 的页（Page）而不是按单行（Row）与磁盘交互？页内查找一行记录为什么不需要从头到尾遍历链表？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：按照局部性原理，每次将 16 KiB 连续字节读入 <code>Buffer Pool</code> 可以将单次随机磁盘 I/O 分摊到数百行记录上。在 16 KiB 页内部，所有记录虽然按主键值顺序组成单向链表，但页尾的 <strong><code>Page Directory</code>（页目录）</strong> 会将所有记录每 4~8 条划分为一个分组，并将每组最后一条记录的页内偏移量存入有序槽位数组（Slots）。页内查找时先对固定长度的槽位数组执行<strong>二分查找</strong>（约 4~6 次比较锁定分组），再在组内向后遍历最多 8 条记录即可命中。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>02. InnoDB 一行记录如果没有显式定义 PRIMARY KEY，聚簇索引是如何构建的？三个隐藏系统列各自占多少字节？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：① 优先使用显式声明的 <code>PRIMARY KEY</code>；② 若无主键，选择第一个<strong>所有列均声明为 <code>NOT NULL</code> 的 <code>UNIQUE</code> 唯一索引</strong>；③ 若仍不满足，InnoDB 自动生成一个 <strong>6 字节的隐藏自增行号 <code>DB_ROW_ID</code></strong> 作为隐式聚簇索引（但全局共用 <code>dict_sys-&gt;mutex</code> 分配，高并发存在锁争用）。除此之外，每条聚簇索引记录必定包含 <strong>6 字节的事务 ID <code>DB_TRX_ID</code></strong> 和 <strong>7 字节的 Undo 回滚指针 <code>DB_ROLL_PTR</code></strong>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>03. 为什么一次意外的全表扫描（如 mysqldump 导出冷表）不会把 Buffer Pool 里的核心热点缓存全部挤出内存？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：因为 InnoDB 将 LRU 链表按 <code>5:3</code> 切分为 <strong>Young 热区（前 5/8）</strong> 与 <strong>Old 冷区（后 3/8）</strong>，并采用了两道防护机制：① <strong>中点插入（Midpoint Insertion）</strong>：新从磁盘读入的页只能插入到冷区头部 <code>Midpoint</code>，而不会直接进入热区头部；② <strong>冷区停留时间窗口（<code>innodb_old_blocks_time = 1000ms</code>）</strong>：新页在冷区被访问时，只有距离首次入链的时间间隔超过 1 秒，才允许晋升到 Young 热区头部。全表扫描在一个 16 KiB 页上连续读取百余行只需不到 1 毫秒，因此扫描过的冷表数据页会全部被锁死在 Old 冷区并迅速从链表尾部淘汰。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>04. Change Buffer 的工作原理是什么？为什么唯一索引（Unique Index）的更新无法使用 Change Buffer？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：当对<strong>非唯一二级索引</strong>执行写操作且目标二级索引页不在 <code>Buffer Pool</code> 内存中时，InnoDB 不会立即发起随机磁盘 I/O 读取该页，而是先把变更暂存在 <code>Change Buffer</code> 中，等到未来有查询真正将该二级索引页读入内存时再顺便执行 Merge。而<strong>唯一索引（Unique Index）</strong>在插入或更新时必须先校验新值是否已在表中存在，如果目标页不在内存中，就<strong>必须立刻发起随机磁盘 I/O 把二级索引页读入内存检查唯一性</strong>；既然页都已经读进内存了，直接修改内存页即可，无需再走 Change Buffer。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>05. 请定量推算：一棵高度 h = 3 的 InnoDB B+ 树聚簇索引大约能容纳多少行数据？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：在 16 KiB 页中扣除页头页尾开销后约剩 15 KiB 可用空间。假设主键为 <code>BIGINT (8B)</code>，在非叶子内节点中每条目录项由「8B 主键 + 6B 子页号 = 14B」加 5B 记录头组成（约 13~19B），单页扇出阶数约为 <code>15360 / 13 ≈ 1170</code>；高度 <code>h = 2</code> 的两层非叶子节点可寻址 <code>1170 × 1170 ≈ 1,368,900</code> 个叶子页。若叶子页单行记录平均长 1 KiB（每页存 16 行），则 3 层 B+ 树可容纳约 <strong><code>136.89 万 × 16 ≈ 2190 万行</code></strong>；若单行仅 500B（每页存 30 行），则可容纳超过 <strong>4100 万行</strong>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>06. 为什么 InnoDB 表强烈建议使用单调递增的整型主键（如自增 BIGINT 或雪花 ID），而不建议使用随机 UUID 字符串？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：主要有三方面原因：① <strong>页分裂与空间碎片</strong>：递增主键走顺序追加，写满 <code>15/16</code> 直接开辟新页；随机 UUID 每次随机插入已满的旧页中间，频繁触发耗时的<strong>页分裂（Page Split）</strong>，并使数据页平均填充率跌至 50%~65%；② <strong>所有二级索引体积膨胀</strong>：InnoDB 所有二级索引叶子节点存储的都是主键值，<code>CHAR(36)</code> UUID 比 8 字节 <code>BIGINT</code> 大 4.5 倍，如果有 4 个二级索引，全表索引体积将膨胀数倍；③ <strong>比较与哈希开销</strong>：64 位整数单条 CPU 指令即可完成比较，远快于多字节字符串逐字符校对。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>07. 某列明明建了二级索引，为什么当 WHERE 范围过滤出的行数超过全表 20%~30% 时，优化器宁可放弃索引改走全表扫描？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：因为如果查询不是覆盖索引，走二级索引每命中一行都需要拿主键值去聚簇索引做一次<strong>回表（Random I/O）</strong>。在 CBO 成本模型中，优化器默认认为每次回表相当于读取一个离散的 16 KiB 页（哪怕同一页被回表 10 次也按 10 次页读取计费）；而全表扫描聚簇索引是按区（Extent）连续顺序读取，只需扫描总页数即可拿到全部列。因此当预估匹配行数达到全表 20%~30% 时，<strong>「二级索引扫描 + 海量离散回表」的估算总成本就会反超「聚簇索引全表顺序扫描」</strong>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>08. 什么是索引条件下推（ICP，Index Condition Pushdown）？它在 EXPLAIN 中有什么标志？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：假设有联合索引 <code>idx_a_b_c(a, b, c)</code>，查询条件为 <code>WHERE a = 1 AND b &gt; 10 AND c = 5</code>。根据最左前缀原则，<code>b &gt; 10</code> 之后 <code>c = 5</code> 无法用于 B+ 树二分定位，但在联合索引的叶子节点中<strong>已经包含了列 <code>c</code> 的值</strong>。开启 ICP 后，Server 层会把 <code>c = 5</code> 下推给 InnoDB 引擎，在遍历二级索引时先在索引内部过滤掉 <code>c != 5</code> 的记录，只对满足 <code>c = 5</code> 的记录执行回表，从而大幅减少无效回表次数。在 <code>EXPLAIN</code> 的 <code>Extra</code> 列中会显示 <strong><code>Using index condition</code></strong>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>09. MySQL 执行 ORDER BY 触发 Using filesort 时，全字段单路排序与 rowid 双路排序是如何切换的？ORDER BY ... LIMIT N 又做了什么优化？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：优化器会比较 <code>SELECT</code> 查询所需列的总字节长度与系统参数 <strong><code>max_length_for_sort_data</code>（8.0 默认 4096B）</strong>：若单行总长不超过阈值，采用<strong>全字段单路排序</strong>（把所有查询列一起放入 <code>sort_buffer</code>，排完直接返回，无需二次回表）；若单行包含大字段超过阈值，则退化为<strong><code>rowid</code> 双路排序</strong>（<code>sort_buffer</code> 中只放「排序字段 + 主键 ID」，排完序后再拿前 N 个主键去聚簇索引二次回表取其余列）。此外，对于带 <code>LIMIT N</code> 的排序，若前 N 行能装入 <code>sort_buffer</code>，MySQL 会采用<strong>大小为 N 的优先队列（大根堆/小根堆）</strong>，无需对全量数据做快速排序即可选出 Top-N。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>10. InnoDB 的 ReadView 包含哪四个核心字段？READ COMMITTED 与 REPEATABLE READ 在 MVCC 实现上的唯一区别是什么？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：<code>ReadView</code> 的四个核心字段为：① <code>m_creator_trx_id</code>（创建该视图的自身事务 ID）；② <code>m_ids</code>（生成视图瞬间系统中活跃未提交的读写事务 ID 列表）；③ <code>m_up_limit_id</code>（<code>m_ids</code> 中的最小值，低水位，小于它的必定已提交可见）；④ <code>m_low_limit_id</code>（系统尚未分配的下一个事务 ID，高水位，大于等于它的必定不可见）。<strong>RC 与 RR 在 MVCC 上的唯一区别在于生成 <code>ReadView</code> 的时机</strong>：RC 在每次执行普通 <code>SELECT</code> 时都重新生成一个新的 <code>ReadView</code>；而 RR 只在事务内第一次执行普通 <code>SELECT</code> 时生成 <code>ReadView</code>，并在整个事务期间一直复用该视图。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>11. 为什么两个并发事务同时执行「先 SELECT ... WHERE id = 15 FOR UPDATE（记录不存在），再 INSERT id = 15/16」会触发死锁？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：当表中有 <code>id = 10, 20</code> 而 <code>id = 15</code> 不存在时，事务 A 执行 <code>SELECT ... WHERE id = 15 FOR UPDATE</code> 会在 <code>(10, 20)</code> 上获得一把<strong>间隙锁（Gap Lock）</strong>。由于 <strong>InnoDB 的 Gap Lock 之间是完全互相兼容、不互斥的</strong>（无论是 Gap S 锁还是 Gap X 锁），此时并发的事务 B 执行相同的加锁查询也会成功获得 <code>(10, 20)</code> 的 Gap Lock。紧接着，事务 A 执行 <code>INSERT</code> 需要获取 <code>(10, 20)</code> 的<strong>插入意向锁</strong>，被事务 B 的 Gap Lock 阻塞；随后事务 B 也执行 <code>INSERT</code> 请求插入意向锁，又被事务 A 的 Gap Lock 阻塞，形成循环等待死锁。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>12. 在 REPEATABLE READ 下，表中主键 id 有 10, 20, 30，普通索引 age 也有 10, 20, 30。分别对 id = 20 和 age = 20 执行 FOR UPDATE，加锁范围有何不同？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：① 对<strong>唯一索引/主键 <code>WHERE id = 20 FOR UPDATE</code></strong>：由于唯一性保证不可能再插入第二个 <code>20</code>，Next-Key Lock <code>(10, 20]</code> 会<strong>退化为仅锁住 <code>id = 20</code> 这一行的 Record Lock（记录锁）</strong>；② 对<strong>非唯一普通索引 <code>WHERE age = 20 FOR UPDATE</code></strong>：由于允许重复插入 <code>age = 20</code>，InnoDB 不仅在二级索引上对 <code>20</code> 加完整的 <strong>Next-Key Lock <code>(10, 20]</code></strong>（同时回表锁住主键 <code>id = 20</code> 的记录锁），还必须继续向右扫描到第一个不等于 20 的值（<code>age = 30</code>），并在 <code>(20, 30)</code> 上退化加上一把 <strong>Gap Lock</strong>，从而锁死 <code>(10, 30)</code> 之间所有插入 <code>age = 20</code> 的可能。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>13. 在两阶段提交（2PC）中，如果主机在「Redo Log Prepare 已落盘、Binlog 已落盘，但 Redo Log Commit 尚未写入」时断电，重启后该事务会回滚还是提交？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：重启后<strong>会自动提交（Commit）</strong>。MySQL 崩溃恢复时的裁决规则是：扫描 Redo Log，若发现某个事务已经处于完整的 <code>Commit</code> 状态则直接重放；若发现事务仅处于 <code>TRX_PREPARED</code> 状态，则提取该 Redo Log 中的内部事务号 <strong><code>XID</code></strong> 去核查 <code>Binlog</code>——只要在 <code>Binlog</code> 中找到了该 <code>XID</code> 对应的完整记录（说明该 Binlog 随时可能已经被从库拉取回放），主库就必须将该事务判定为已提交并补齐 Commit，以保证主从数据严格一致。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>14. 既然 Redo Log 已经持久化落盘，为什么 InnoDB 刷脏页时还需要先写 Doublewrite Buffer（双写缓冲区）？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：因为 InnoDB 页大小为 16 KiB，而操作系统与磁盘块通常为 4 KiB，刷脏页中途掉电会导致磁盘上的 16 KiB 页只写了一半，发生<strong>部分页写入断裂（Partial Page Write / Torn Page）</strong>。同时，InnoDB 的 Redo Log 记录的是<strong>「物理页定位 + 页内逻辑操作（Physiological Logging）」</strong>，它必须以一个物理结构完整无损的旧页作为重放基准；一旦磁盘上的原页本身已经断裂损坏，Redo Log 是无法在残缺页上重放的。通过先将脏页顺序写入磁盘上的 Doublewrite Buffer，当发现 <code>.ibd</code> 页损坏时，即可先从 Doublewrite 恢复出完整的 16 KiB 旧页副本，再重放 Redo Log。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>15. 在一张 2000 万行的线上核心表上执行 ALTER TABLE 新增索引，为什么即便使用了 Online DDL（INPLACE），也有可能瞬间把整个数据库的普通 SELECT 全部堵死？如何防御？</summary>
+    <div class="drawer-body">
+      <p><strong>参考解析</strong>：因为即便是 <code>INPLACE</code> 或 <code>INSTANT</code> 算法，在 DDL <strong>准备阶段（Prepare）和提交阶段（Commit）</strong> 依然需要短暂获取表级的 <strong><code>MDL 排他写锁（Metadata Exclusive Lock）</code></strong>。如果此时表上恰好有一个未提交的长事务或慢查询正在持有 <code>MDL 读锁</code>，<code>ALTER TABLE</code> 就会卡在 <code>Waiting for table metadata lock</code>；而由于 MDL 锁等待队列中写锁具有更高优先级，排在该 <code>ALTER TABLE</code> 之后到达的所有普通 <code>SELECT</code> 也会全部被阻塞，瞬间打满应用连接池。防御措施：执行 DDL 前检查 <code>information_schema.innodb_trx</code> 清理长事务，并在当前会话显式设置 <strong><code>SET SESSION lock_wait_timeout = 3;</code></strong>，拿不到 MDL 锁立即超时退出让路。</p>
+    </div>
+  </details>
+</div>

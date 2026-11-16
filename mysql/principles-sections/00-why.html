@@ -1,0 +1,246 @@
+<!-- ====================================================================
+     PART 00: 表空间架构、16 KiB 数据页内存布局与行记录格式
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">表空间架构、16 KiB 数据页内存布局与行记录格式</span>
+  <span class="plop-tag mint">TABLESPACE × 16KB PAGE × PAGE DIRECTORY × ROW FORMAT</span>
+</div>
+
+<!-- 00.1 · InnoDB 四级逻辑存储层次（段、区、页、行） -->
+<div class="wb-card" id="innodb-tablespace-hierarchy" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🗄️ 00.1 · 表空间层次：Tablespace (.ibd) → Segment（段）→ Extent（区 1MB）→ Page（页 16KB）→ Row（行）</div>
+  <h3>🗄️ 00.1 InnoDB 独立表空间与四级物理存储结构</h3>
+
+  <p>
+    自 MySQL 5.6.6 起，InnoDB 默认开启 <strong><code>innodb_file_per_table = ON</code>（独立表空间模式）</strong>，每张表的数据与所有索引都存放在数据目录下一个独立的 <code>表名.ibd</code> 文件中。如果磁盘每次只按单行几百字节去读写，磁头寻道与系统调用开销会非常高；如果直接按整个几百 MB 的文件分配，又会造成严重的碎片。因此 InnoDB 在表空间内部设计了<strong>“段（Segment）→ 区（Extent）→ 页（Page）→ 行（Row）”</strong>四级管理结构：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">存储层级</th>
+          <th style="width:24%">固定大小 / 组成</th>
+          <th>内核设计目的与分配策略</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 段（Segment）</strong></td>
+          <td>由若干个区（Extent）与零散碎片页组成</td>
+          <td>每棵 B+ 树索引都由<strong>两个独立的段</strong>构成：<strong>叶子节点段（Leaf Node Segment）</strong>与<strong>非叶子节点段（Non-Leaf Node Segment）</strong>；此外还有存放回滚日志的回滚段（Rollback Segment）。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 区（Extent）</strong></td>
+          <td>固定 <strong><code>1 MiB</code></strong><br>（等于连续 <strong><code>64</code> 个 <code>16 KiB</code> 页</strong>）</td>
+          <td><strong>消除磁盘随机 I/O 的空间分配基本单位</strong>。当表数据变大时，InnoDB 不再一页一页向操作系统申请空间，而是每次按整整 <code>1 MiB</code>（64 个物理连续页）分配，保证 B+ 树同层相邻叶子页大概率物理连续，使范围扫描接近顺序 I/O。（注：为防止小表浪费空间，每个段最初会先从 32 个碎片页 <code>Fragment Pages</code> 中单页分配，用满 32 页后才切换为按完整区 <code>1 MiB</code> 分配。）</td>
+        </tr>
+        <tr>
+          <td><strong>3. 页（Page / Block）</strong></td>
+          <td>默认 <strong><code>16 KiB</code>（<code>16384 Bytes</code>）</strong><br>由 <code>innodb_page_size</code> 控制</td>
+          <td><strong>InnoDB 磁盘与内存（Buffer Pool）交互的最小基本单位</strong>。即使你只执行 <code>SELECT name FROM users WHERE id = 1</code> 读取一行 50 字节的数据，InnoDB 也必须将这行所在的整张 <code>16 KiB</code> 数据页加载进内存缓冲池。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 行（Row / Record）</strong></td>
+          <td>单页至少存放 2 行记录</td>
+          <td>存放真实用户列数据与隐藏事务元数据。MySQL 5.7 / 8.0 / 8.4 的默认行格式为 <strong><code>DYNAMIC</code></strong>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.2 · 16 KiB 数据页（INDEX Page）7 大分区与 Page Directory 槽位二分查找 -->
+<div class="wb-card" id="innodb-16kb-page" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">📐 00.2 · 16 KiB 数据页解剖：7 大组成部分、单向记录链表与 Page Directory 槽位二分查找</div>
+  <h3>📐 00.2 <code>16 KiB</code> 数据页（INDEX 页）物理布局与页内检索流程</h3>
+
+  <p>
+    存放 B+ 树节点的数据页（内核页类型为 <code>FIL_PAGE_INDEX</code>）总大小为 <strong><code>16384 字节</code></strong>，内部由头尾固定元数据与中间相向生长的“<strong>用户记录区（User Records）+ 页目录槽位（Page Directory）</strong>”共 7 个部分组成：
+  </p>
+
+  <!-- Editorial SVG: 16 KiB InnoDB Page Memory Layout & Page Directory Binary Search -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 350" style="width:100%; min-width:800px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="inno-page-title inno-page-desc">
+        <title id="inno-page-title">InnoDB 16 KiB 数据页（INDEX Page）物理内存布局与 Page Directory 槽位查找图</title>
+        <desc id="inno-page-desc">上方展示 16384 字节连续分布的 7 大区域：File Header(38B)、Page Header(56B)、Infimum+Supremum(26B)、User Records、Free Space、Page Directory 槽位数组与 File Trailer(8B)；下方展示 Page Directory 每 4~8 条记录设一个 Slot，通过槽位二分查找再顺着 next_record 单向指针遍历最多 8 次即可定位记录。</desc>
+        <defs>
+          <marker id="ip-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+          </marker>
+          <marker id="ip-arr-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <text x="460" y="26" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13.5" font-weight="800" fill="#1F1F23">InnoDB 16 KiB (16384 Bytes) 数据页连续字节布局与 Page Directory 二分查找机制</text>
+
+        <!-- Growth Arrows in Free Space (drawn before boxes) -->
+        <line x1="494" y1="88" x2="534" y2="88" stroke="#bf4520" stroke-width="1.8" marker-end="url(#ip-arr-coral)"/>
+        <line x1="636" y1="88" x2="596" y2="88" stroke="#bf4520" stroke-width="1.8" marker-end="url(#ip-arr-coral)"/>
+
+        <!-- Top Band: 7 Contiguous Regions of 16 KiB Page (y=52, h=72, x=28..892) -->
+        <!-- 1. File Header (38B) x=28 w=108 -->
+        <rect x="28" y="52" width="108" height="72" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+        <text x="82" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1F1F23">① File Header</text>
+        <text x="82" y="90" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#bf4520">38 Bytes</text>
+        <text x="82" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">页号 · 前后页指针</text>
+
+        <!-- 2. Page Header (56B) x=136 w=108 -->
+        <rect x="136" y="52" width="108" height="72" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
+        <text x="190" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1b5e20">② Page Header</text>
+        <text x="190" y="90" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#1b5e20">56 Bytes</text>
+        <text x="190" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">槽数 · 记录数 · 层级</text>
+
+        <!-- 3. Infimum + Supremum (26B) x=244 w=116 -->
+        <rect x="244" y="52" width="116" height="72" fill="#FFF3E0" stroke="#1F1F23" stroke-width="2"/>
+        <text x="302" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#d45d00">③ Infimum/Supremum</text>
+        <text x="302" y="90" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#d45d00">26 Bytes (13B×2)</text>
+        <text x="302" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">页内最小/最大虚拟记录</text>
+
+        <!-- 4. User Records x=360 w=130 -->
+        <rect x="360" y="52" width="130" height="72" fill="#FFFDF7" stroke="#1F1F23" stroke-width="2"/>
+        <text x="425" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1F1F23">④ User Records</text>
+        <text x="425" y="90" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">有效行记录链表</text>
+        <text x="425" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9" fill="#bf4520">向右分配生长 ──►</text>
+
+        <!-- 5. Free Space x=490 w=150 (transparent fill so growth arrows show) -->
+        <rect x="490" y="52" width="150" height="72" fill="none" stroke="#1F1F23" stroke-width="2" stroke-dasharray="5 4"/>
+        <text x="565" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#5A5860">⑤ Free Space</text>
+        <text x="565" y="112" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">未分配空闲区</text>
+
+        <!-- 6. Page Directory x=640 w=148 (Focal) -->
+        <rect x="640" y="52" width="148" height="72" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.4"/>
+        <text x="714" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#bf4520">⑥ Page Directory</text>
+        <text x="714" y="90" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#bf4520">2 Bytes × N Slots</text>
+        <text x="714" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9" fill="#bf4520">◄── 槽位逆向生长</text>
+
+        <!-- 7. File Trailer (8B) x=788 w=104 -->
+        <rect x="788" y="52" width="104" height="72" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+        <text x="840" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#1F1F23">⑦ File Trailer</text>
+        <text x="840" y="90" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#1F1F23">8 Bytes</text>
+        <text x="840" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">Checksum + LSN</text>
+
+        <!-- Bottom Section: Page Directory Slots -> Single-Linked Record Groups -->
+        <rect x="28" y="146" width="864" height="184" rx="10" fill="#F4EFE6" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="48" y="170" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="12.5" font-weight="800" fill="#1F1F23">页内 O(log S) 检索机制：Page Directory 将记录按 4~8 条分组，每个槽位（Slot）保存该组最大记录的页内偏移量</text>
+
+        <!-- Connectors in Bottom Section (drawn BEFORE record/slot boxes) -->
+        <!-- Chain arrows between record groups -->
+        <line x1="158" y1="214" x2="188" y2="214" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#ip-arr-ink)"/>
+        <line x1="398" y1="214" x2="428" y2="214" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#ip-arr-ink)"/>
+        <line x1="638" y1="214" x2="668" y2="214" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#ip-arr-ink)"/>
+
+        <!-- Slot pointers up to max record of each group -->
+        <line x1="103" y1="274" x2="103" y2="242" stroke="#bf4520" stroke-width="2" marker-end="url(#ip-arr-coral)"/>
+        <line x1="358" y1="274" x2="358" y2="242" stroke="#bf4520" stroke-width="2" marker-end="url(#ip-arr-coral)"/>
+        <line x1="598" y1="274" x2="598" y2="242" stroke="#bf4520" stroke-width="2" marker-end="url(#ip-arr-coral)"/>
+        <line x1="816" y1="274" x2="816" y2="242" stroke="#bf4520" stroke-width="2" marker-end="url(#ip-arr-coral)"/>
+
+        <!-- Record Group 0: Infimum -->
+        <rect x="48" y="188" width="110" height="52" rx="6" fill="#FFF3E0" stroke="#1F1F23" stroke-width="1.6"/>
+        <text x="103" y="209" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#d45d00">Infimum</text>
+        <text x="103" y="227" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">n_owned = 1</text>
+
+        <!-- Record Group 1: id = 1, 2, 4, 8 -->
+        <rect x="190" y="188" width="208" height="52" rx="6" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.6"/>
+        <text x="294" y="209" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">id=1 → id=2 → id=4 → <tspan font-weight="800" fill="#bf4520">id=8</tspan></text>
+        <text x="294" y="227" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">组内单向链表 · 末尾 id=8 记 n_owned=4</text>
+
+        <!-- Record Group 2: id = 12, 15, 19, 25 (Focal search target id=15) -->
+        <rect x="430" y="188" width="208" height="52" rx="6" fill="#FBE9E7" stroke="#bf4520" stroke-width="2"/>
+        <text x="534" y="209" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">id=12 → <tspan font-weight="800" fill="#1b5e20">[id=15]</tspan> → id=19 → <tspan font-weight="800" fill="#bf4520">id=25</tspan></text>
+        <text x="534" y="227" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#bf4520">二分定位落在 Slot[1]..Slot[2] 间，遍历2步命中</text>
+
+        <!-- Record Group 3: id = 30, 42, Supremum -->
+        <rect x="670" y="188" width="200" height="52" rx="6" fill="#FFF3E0" stroke="#1F1F23" stroke-width="1.6"/>
+        <text x="770" y="209" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">id=30 → id=42 → <tspan font-weight="800" fill="#d45d00">Supremum</tspan></text>
+        <text x="770" y="227" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">最后一组最多可含 8 条记录</text>
+
+        <!-- Page Directory Slot Boxes (y=276, h=38) -->
+        <rect x="58" y="276" width="90" height="38" rx="5" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="103" y="293" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#bf4520">Slot[0]</text>
+        <text x="103" y="307" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#5A5860">→ Infimum</text>
+
+        <rect x="313" y="276" width="90" height="38" rx="5" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="358" y="293" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#bf4520">Slot[1]</text>
+        <text x="358" y="307" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#5A5860">→ id=8</text>
+
+        <rect x="553" y="276" width="90" height="38" rx="5" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="598" y="293" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#bf4520">Slot[2]</text>
+        <text x="598" y="307" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#1F1F23">→ id=25</text>
+
+        <rect x="771" y="276" width="90" height="38" rx="5" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="816" y="293" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#bf4520">Slot[3]</text>
+        <text x="816" y="307" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#5A5860">→ Supremum</text>
+      </svg>
+    </div>
+  </figure>
+
+  <ul>
+    <li><strong>为什么同层数据页是双向链表，而页内记录却是单向链表</strong>：<code>File Header</code> 中包含 <code>FIL_PAGE_PREV</code>（上一页页号）与 <code>FIL_PAGE_NEXT</code>（下一页页号）两个 4 字节指针，使得 B+ 树同层兄弟页构成<strong>双向链表</strong>（支持正序与倒序范围扫描）。而在单个 16 KiB 页内部，所有行记录从虚拟最小记录 <code>Infimum</code> 到虚拟最大记录 <code>Supremum</code> 通过记录头的 <code>next_record</code> 构成<strong>按主键升序排列的单向链表</strong>。</li>
+    <li><strong>既然页内记录是单向变长链表，怎么实现二分查找</strong>：直接对变长链表无法按物理地址折半，因此 InnoDB 在页尾设计了定长数组 <strong><code>Page Directory</code>（页目录）</strong>：将页内所有有效记录（不含已标记删除的记录）每 <strong><code>4 ~ 8</code> 条</strong>划分为一组（第 0 组 <code>Infimum</code> 独占 1 条，最后一组 <code>Supremum</code> 含 1~8 条），只有每组最后那条最大记录的头部 <code>n_owned</code> 字段记录本组条数，并把它的页内 2 字节偏移量存入一个 <code>Slot</code>（槽位）。当在页内查找 <code>id = 15</code> 时：
+      <ol>
+        <li><strong>第一步（槽位二分查找）</strong>：在定长 <code>Slot[]</code> 数组上做标准二分查找，迅速锁定 <code>15</code> 介于 <code>Slot[1] (id=8)</code> 与 <code>Slot[2] (id=25)</code> 之间；</li>
+        <li><strong>第二步（组内最多 8 步遍历）</strong>：从 <code>Slot[1]</code> 指向的 <code>id=8</code> 出发，顺着 <code>next_record</code> 指针向后走 2 步（<code>id=12 → id=15</code>）即命中目标。</li>
+      </ol>
+    </li>
+    <li><strong><code>File Header</code> 与 <code>File Trailer</code> 双重校验防页断裂</strong>：页头 38 字节的 <code>FIL_PAGE_SPACE_OR_CHKSUM</code> 与页尾 8 字节的 <code>File Trailer</code> 都记录了当前页的校验和（Checksum）以及最后修改该页的日志序列号 <code>LSN</code> 的低 4 字节。每次从磁盘读入 16KB 页时，InnoDB 都会比对页头与页尾的 Checksum 及 LSN 是否完全一致，只要不相等就说明该页在刷盘途中遭遇断电发生了“半页写入（Partial Page Write）”。</li>
+  </ul>
+</div>
+
+<!-- 00.3 · InnoDB 行记录格式（COMPACT / DYNAMIC）、三大隐藏列与行溢出 -->
+<div class="wb-card" id="innodb-row-format" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🧬 00.3 · 行格式解剖：COMPACT / DYNAMIC 物理结构、三大隐藏系统列与 768B / 20B 行溢出页</div>
+  <h3>🧬 00.3 InnoDB 行记录格式与隐藏系统列</h3>
+
+  <p>
+    在聚簇索引叶子节点中，每一条物理行记录都由“<strong>记录额外信息头（变长字段长度列表 + NULL 值位图 + 5 字节记录头）</strong>”与“<strong>记录真实数据（3 个隐藏系统列 + 用户定义列）</strong>”连续拼接而成：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">行记录组成部分</th>
+          <th style="width:18%">字节开销</th>
+          <th>核心内部字段与设计职责</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 变长字段长度列表</strong></td>
+          <td>每列 <code>1 ~ 2 Bytes</code><br>（逆序存放）</td>
+          <td>逆序记录本行所有非 NULL 的变长列（<code>VARCHAR / TEXT / BLOB</code>）的实际字节长度。若列最大可能字节数 ≤ 255 则占 1 字节；若 &gt; 255 且实际长度 &gt; 127 则占 2 字节。</td>
+        </tr>
+        <tr>
+          <td><strong>2. NULL 值位图</strong></td>
+          <td><code>⌈允许NULL列数 / 8⌉</code> Bytes</td>
+          <td>每个允许为 <code>NULL</code> 的列占 1 个 bit（值为 <code>1</code> 代表该列是 <code>NULL</code>，真实数据区不再占用任何字节）。若全表字段均声明为 <code>NOT NULL</code>，则直接省去该位图。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 记录头信息（Record Header）</strong></td>
+          <td>固定 <strong><code>5 Bytes</code>（<code>40 bits</code>）</strong></td>
+          <td>• <code>delete_mask (1 bit)</code>：执行 <code>DELETE</code> 时并不立即抹除物理字节，而是先将此位置 <code>1</code> 并挂入页内垃圾链表供后续复用；<br>• <code>record_type (3 bits)</code>：<code>0=普通叶子记录</code>、<code>1=B+树非叶子目录项</code>、<code>2=Infimum</code>、<code>3=Supremum</code>；<br>• <code>n_owned (4 bits)</code>：Page Directory 分组槽位拥有的记录条数；<br>• <code>next_record (16 bits)</code>：指向下一条记录的真实数据起始位置（正好位于记录头与真实列之间，向左读头信息、向右读列值）。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 三大隐藏系统列</strong></td>
+          <td><code>DB_ROW_ID (6B)</code><br><code>DB_TRX_ID (6B)</code><br><code>DB_ROLL_PTR (7B)</code></td>
+          <td>• <strong><code>DB_ROW_ID</code>（6 字节，可选）</strong>：仅当表既无 <code>PRIMARY KEY</code> 也无非空 <code>UNIQUE</code> 索引时，InnoDB 才自动生成该 6 字节隐藏聚簇主键；<br>• <strong><code>DB_TRX_ID</code>（6 字节，必有）</strong>：最后一次插入或更新本行记录的事务 ID（用于 MVCC 可见性判断）；<br>• <strong><code>DB_ROLL_PTR</code>（7 字节，必有）</strong>：回滚指针，指向该行在 <code>Undo Log</code> 中的上一个历史版本记录。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>📦 <code>COMPACT</code>（5.6 默认）与 <code>DYNAMIC</code>（5.7 / 8.0 / 8.4 默认）在行溢出（Row Overflow）上的核心差异：</strong><br>
+    因为 InnoDB 规定单个 16 KiB 数据页至少要能装下 2 行记录，所以当某一行包含超长的 <code>VARCHAR / TEXT / BLOB</code>（单行总大小超过约 <code>8098 字节</code>）时，就会触发<strong>行溢出（Off-Page Storage）</strong>：<br>
+    • <strong>旧版 <code>COMPACT</code> 行格式</strong>：会把大字段的<strong>前 <code>768 字节</code></strong>继续留在主数据页内，后面再跟一个 <code>20 字节</code>的溢出页指针，导致主数据页依然很臃肿，每页能装的行数很少；<br>
+    • <strong>现代默认的 <code>DYNAMIC</code> 行格式</strong>：采用<strong>完全行溢出策略</strong>——一旦触发溢出，把大字段的<strong>全部字节</strong>都放到独立的溢出页（Uncompressed BLOB Page）中，主数据页内该列<strong>仅保留一个 <code>20 字节</code>的指针</strong>，从而让聚簇索引叶子页装下更多行，大幅提升缓存命中率。
+  </div>
+</div>

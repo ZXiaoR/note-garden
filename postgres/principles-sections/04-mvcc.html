@@ -1,0 +1,275 @@
+<!-- ====================================================================
+     PART 04: MVCC 多版本并发与锁协议 · 元组头、快照可见性、EPQ 与 SSI 谓词锁
+     ==================================================================== -->
+<div class="wb-sec-header" id="trx" style="background:var(--plop-bubblegum);">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">MVCC 多版本并发与锁协议 · 元组头、快照、EPQ 与 SSI 谓词锁</span>
+  <span class="plop-tag periwinkle">TUPLE HEADER × CLOG &amp; HINT BITS × SNAPSHOT × SSI &amp; MULTIXACT</span>
+</div>
+
+<!-- 04.1 · 23 字节 HeapTupleHeaderData、CLOG 与 Hint Bits -->
+<div class="wb-card" id="mvcc-tuple-header" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧬 04.1 · 元组头解剖：23 字节 HeapTupleHeaderData、CLOG 与 Hint Bits 延迟标记</div>
+  <h3>🧬 04.1 23 字节元组头物理位域与堆内多版本正向链</h3>
+
+        <p>PostgreSQL 没有使用单独的回滚段（Rollback Segment / Undo Log）来保存旧版本数据，而是将<strong>所有历史版本与当前版本直接并排存放在同一个数据表（Heap）的 8 KiB 数据页中</strong>。为了判断某一行物理元组对当前事务是否可见，内核在每一条元组的头部都嵌入了固定 <strong>23 字节的 <code>HeapTupleHeaderData</code> 元数据（加上最少 1 字节填充对齐后为 24 字节偏移）</strong>。</p>
+
+        <!-- SVG: 23-Byte HeapTupleHeaderData & Version Chain -->
+        <div style="margin:22px 0;">
+          <svg viewBox="0 0 920 390" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mvcc-hdr-title mvcc-hdr-desc">
+            <title id="mvcc-hdr-title">PostgreSQL 23 字节元组头内存布局与堆表多版本正向链示意图</title>
+            <desc id="mvcc-hdr-desc">上方展示 23 字节 HeapTupleHeaderData 连续紧凑位域：t_xmin(4B)、t_xmax(4B)、t_cid/t_xvac(4B)、t_ctid(6B)、t_infomask2(2B)、t_infomask(2B)、t_hoff(1B) 及可选 Null Bitmap 与用户数据；下方展示 UPDATE 生成的新旧元组版本正向链 V1 到 V2 到 V3。</desc>
+            <defs>
+              <marker id="mvcc-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+              </marker>
+              <marker id="mvcc-arr-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+              </marker>
+            </defs>
+
+            <text x="460" y="28" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="14" font-weight="800" fill="#1F1F23">23 字节元组头 (HeapTupleHeaderData) 连续字节布局与堆内多版本正向链</text>
+
+            <!-- Top Band: Contiguous Tuple Header Layout (Zero Gap) -->
+            <text x="36" y="54" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#5A5860">Byte Offset: 0 ──────────────────────────────────────────────────────► 23 ────► t_hoff</text>
+
+            <!-- 1. t_xmin (4B) x=36 w=96 -->
+            <rect x="36" y="62" width="96" height="68" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
+            <text x="84" y="82" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#1b5e20">t_xmin</text>
+            <text x="84" y="99" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">插入事务 XID</text>
+            <text x="84" y="118" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">4 Bytes [0..3]</text>
+
+            <!-- 2. t_xmax (4B) x=132 w=96 -->
+            <rect x="132" y="62" width="96" height="68" fill="#FBE9E7" stroke="#1F1F23" stroke-width="2"/>
+            <text x="180" y="82" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#bf4520">t_xmax</text>
+            <text x="180" y="99" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">删除/更新/加锁</text>
+            <text x="180" y="118" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">4 Bytes [4..7]</text>
+
+            <!-- 3. t_cid (4B) x=228 w=96 -->
+            <rect x="228" y="62" width="96" height="68" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+            <text x="276" y="82" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#1F1F23">t_cid</text>
+            <text x="276" y="99" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">事务内命令序号</text>
+            <text x="276" y="118" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">4 Bytes [8..11]</text>
+
+            <!-- 4. t_ctid (6B) x=324 w=126 -->
+            <rect x="324" y="62" width="126" height="68" fill="#FFF3E0" stroke="#1F1F23" stroke-width="2"/>
+            <text x="387" y="82" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#d45d00">t_ctid</text>
+            <text x="387" y="99" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">指向自身或新版本</text>
+            <text x="387" y="118" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">6 Bytes [12..17]</text>
+
+            <!-- 5. t_infomask2 (2B) x=450 w=102 -->
+            <rect x="450" y="62" width="102" height="68" fill="#EAE6DF" stroke="#1F1F23" stroke-width="2"/>
+            <text x="501" y="82" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">t_infomask2</text>
+            <text x="501" y="99" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">列数 + HOT 标记</text>
+            <text x="501" y="118" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">2 Bytes [18..19]</text>
+
+            <!-- 6. t_infomask (2B) x=552 w=106 -->
+            <rect x="552" y="62" width="106" height="68" fill="#E3F2FD" stroke="#1F1F23" stroke-width="2"/>
+            <text x="605" y="82" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#0d47a1">t_infomask</text>
+            <text x="605" y="99" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">Hint Bits 提示位</text>
+            <text x="605" y="118" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">2 Bytes [20..21]</text>
+
+            <!-- 7. t_hoff (1B) x=658 w=66 -->
+            <rect x="658" y="62" width="66" height="68" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+            <text x="691" y="82" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">t_hoff</text>
+            <text x="691" y="99" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">头部总偏移</text>
+            <text x="691" y="118" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#5A5860">1B [22]</text>
+
+            <!-- 8. Null Bitmap + Align + User Data x=724 w=160 -->
+            <rect x="724" y="62" width="160" height="68" fill="#FFFFFF" stroke="#1F1F23" stroke-width="2"/>
+            <text x="804" y="82" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">t_bits[] + Data</text>
+            <text x="804" y="99" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">NULL 位图 + 8B 对齐 + 列值</text>
+            <text x="804" y="118" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">≥ 24 Byte Offset 起</text>
+
+            <!-- Bottom Section: Multi-Version Forward Chain on Heap Page -->
+            <rect x="36" y="154" width="848" height="214" rx="12" fill="#F4EFE6" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="56" y="180" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">堆表内多版本正向链（Forward Version Chain）：每次 UPDATE 追加新元组并由旧版本 t_ctid 指向新版本</text>
+
+            <!-- Connectors drawn BEFORE version boxes -->
+            <!-- V1 -> V2 -->
+            <line x1="274" y1="256" x2="344" y2="256" stroke="#bf4520" stroke-width="2.2" marker-end="url(#mvcc-arr-coral)"/>
+            <rect x="284" y="232" width="50" height="16" rx="3" fill="#F4EFE6"/>
+            <text x="309" y="244" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#bf4520">t_ctid</text>
+
+            <!-- V2 -> V3 -->
+            <line x1="564" y1="256" x2="634" y2="256" stroke="#bf4520" stroke-width="2.2" marker-end="url(#mvcc-arr-coral)"/>
+            <rect x="574" y="232" width="50" height="16" rx="3" fill="#F4EFE6"/>
+            <text x="599" y="244" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#bf4520">t_ctid</text>
+
+            <!-- V3 self-loop (t_ctid == self means latest version) -->
+            <path d="M 854 246 L 866 246 Q 872 246 872 252 L 872 272 Q 872 278 866 278 L 854 278" fill="none" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#mvcc-arr-ink)"/>
+
+            <!-- V1 Box -->
+            <rect x="56" y="198" width="218" height="116" rx="10" fill="#FFFDF7" stroke="#1F1F23" stroke-width="2"/>
+            <text x="72" y="220" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#5A5860">Tuple V1 · ctid=(0,1)</text>
+            <text x="72" y="240" font-family="'JetBrains Mono',monospace" font-size="10.5" fill="#1F1F23">t_xmin = 100 (已提交)</text>
+            <text x="72" y="258" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#bf4520">t_xmax = 105 (被 XID 105 更新)</text>
+            <text x="72" y="276" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#d45d00">t_ctid = (0,2) ► 指向 V2</text>
+            <text x="72" y="298" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#5A5860">balance = 1000（历史旧版本）</text>
+
+            <!-- V2 Box -->
+            <rect x="346" y="198" width="218" height="116" rx="10" fill="#FFFDF7" stroke="#1F1F23" stroke-width="2"/>
+            <text x="362" y="220" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#5A5860">Tuple V2 · ctid=(0,2)</text>
+            <text x="362" y="240" font-family="'JetBrains Mono',monospace" font-size="10.5" fill="#1F1F23">t_xmin = 105 (已提交)</text>
+            <text x="362" y="258" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#bf4520">t_xmax = 112 (被 XID 112 更新)</text>
+            <text x="362" y="276" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#d45d00">t_ctid = (0,3) ► 指向 V3</text>
+            <text x="362" y="298" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#5A5860">balance = 800（过渡旧版本）</text>
+
+            <!-- V3 Box (Focal Latest Version) -->
+            <rect x="636" y="198" width="218" height="116" rx="10" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.4"/>
+            <text x="652" y="220" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#bf4520">Tuple V3 · ctid=(0,3) [最新]</text>
+            <text x="652" y="240" font-family="'JetBrains Mono',monospace" font-size="10.5" fill="#1F1F23">t_xmin = 112 (运行中/已提交)</text>
+            <text x="652" y="258" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1b5e20">t_xmax = 0 (未被删除/更新)</text>
+            <text x="652" y="276" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">t_ctid = (0,3) ► 指向自身</text>
+            <text x="652" y="298" font-family="'Noto Sans SC',sans-serif" font-size="10.5" font-weight="700" fill="#1F1F23">balance = 500（当前最新元组）</text>
+
+            <text x="460" y="348" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="11.5" fill="#1F1F23">与 MySQL InnoDB「原地更新 + 回滚段逆向重构旧版本」相反，PG 读历史快照无需回滚计算，但需要通过 VACUUM 异步清理旧版本</text>
+          </svg>
+        </div>
+
+        <h4>元组头核心字段职责与 <code>pg_xact (CLOG)</code> 提交日志</h4>
+        <ul>
+          <li><strong><code>t_xmin</code>（4 字节）</strong>：插入该元组版本的事务 ID（XID）。对于 <code>INSERT</code> 而言它是创建者的 XID；对于 <code>UPDATE</code> 生成的新元组 V2 而言，它的 <code>t_xmin</code> 等于执行该 <code>UPDATE</code> 的事务 XID。</li>
+          <li><strong><code>t_xmax</code>（4 字节，复用字段）</strong>：当元组未被删除、未被更新且未被加行锁时，<code>t_xmax = 0</code>。一旦发生 <code>DELETE</code> 或 <code>UPDATE</code>，旧元组的 <code>t_xmax</code> 会被写入执行删除/更新的事务 XID；如果只是对元组加了行级锁（如 <code>SELECT ... FOR SHARE / FOR UPDATE</code>），<code>t_xmax</code> 同样会被写入加锁事务的 XID 或 <code>MultiXactId</code>，并通过 <code>t_infomask</code> 中的 <code>HEAP_XMAX_LOCK_ONLY</code> 位区分「仅加锁」与「真正删除」。</li>
+          <li><strong><code>t_cid</code>（4 字节）</strong>：Command ID（命令序号）。同一个事务内部先后执行多条 SQL 时，每条命令递增一次 <code>t_cid</code>，用于防止同一事务内的游标或子查询读到本条语句自身刚插入的元组（即预防 Halloween Problem 万圣节问题）。</li>
+          <li><strong><code>t_ctid</code>（6 字节，4B 块号 + 2B 页内槽号）</strong>：记录当前元组的物理坐标，或者指向被 <code>UPDATE</code> 后的<strong>下一个新版本元组坐标</strong>。当且仅当 <code>t_xmax = 0</code> 或 <code>t_ctid</code> 指向自身时，代表该元组是版本链的末端。</li>
+        </ul>
+
+        <div class="plop-callout info" style="margin-bottom:0;">
+          <strong>💡 CLOG (pg_xact) 提交日志与 Hint Bits 提示位延迟落盘机制：</strong><br>
+          当事务 <code>T1 (XID = 100)</code> 执行 <code>COMMIT</code> 时，如果去修改它写过的成千上万个数据页上的元组状态，提交延迟会变得不可接受。因此 PostgreSQL 在提交时<strong>只做两件事</strong>：把提交日志刷入 WAL，并在全局提交状态数组 <strong><code>pg_xact</code>（旧称 <code>CLOG</code>，每个事务仅占 2 bit：<code>00=IN_PROGRESS</code>、<code>01=COMMITTED</code>、<code>10=ABORTED</code>、<code>11=SUB_COMMITTED</code>）</strong>中将 <code>XID=100</code> 标记为已提交。<br>
+          随后，当<strong>第一个后续事务（哪怕只是一条纯只读的 <code>SELECT</code>）</strong>访问到 <code>XID=100</code> 插入的元组时，发现该元组 <code>t_infomask</code> 中还没有设置提交提示位（<code>HEAP_XMIN_COMMITTED</code> 或 <code>HEAP_XMIN_INVALID</code>），就会去查一次 <code>pg_xact</code>。查明已提交后，<strong>这个 <code>SELECT</code> 进程会顺手把结果回写到该元组头的 <code>t_infomask</code> 提示位（Hint Bits）中，并将所在的 8 KiB 数据页标记为脏页（Dirty Page）</strong>。这样后续所有读者只需看一眼元组头的位标记即可判定可见性，无需再查 <code>pg_xact</code>。这就是为什么在大批量导入数据后，第一次执行全表 <code>SELECT COUNT(*)</code> 会触发大量物理写盘的根本原因。
+        </div>
+</div>
+
+<!-- 04.2 · 事务快照与可见性判断 -->
+<div class="wb-card" id="mvcc-snapshot-epq" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">📸 04.2 · 事务快照与可见性判断：SnapshotData 三元组与 EvalPlanQual 并发重评</div>
+  <h3>📸 04.2 事务快照 <code>SnapshotData</code> 三元组与 <code>EvalPlanQual</code> 机制</h3>
+
+        <p>当事务获取快照（在 <code>Read Committed</code> 下每条 SQL 语句开始时获取一次，在 <code>Repeatable Read / Serializable</code> 下事务内第一条语句开始时获取并复用到底）时，后台进程会扫描共享内存中的 <code>ProcArray</code>，生成一份 <strong><code>SnapshotData</code> 三元组（可通过内置函数 <code>pg_current_snapshot()</code> 查看，格式为 <code>xmin:xmax:xip_list</code>）</strong>：</p>
+
+        <div class="table-wrap">
+          <table class="plop-table">
+            <thead>
+              <tr>
+                <th style="width:18%">快照字段</th>
+                <th style="width:38%">内核定义（以快照 <code>100:108:102,105</code> 为例）</th>
+                <th>可见性快速裁决规则</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong><code>snapshot.xmin</code></strong></td>
+                <td>拍下快照瞬间，所有<strong>仍处于活跃未提交状态的最老事务 XID</strong>（示例中为 <code>100</code>）</td>
+                <td>任何 <code>XID &lt; 100</code> 的事务在拍快照前必定已结束（只需看它是提交还是回滚即可，若已提交则<strong>一定可见</strong>）</td>
+              </tr>
+              <tr>
+                <td><strong><code>snapshot.xmax</code></strong></td>
+                <td>拍下快照瞬间，<strong>下一个即将分配的事务 XID</strong>（即当前最大已分配 XID + 1，示例中为 <code>108</code>）</td>
+                <td>任何 <code>XID &gt;= 108</code> 的事务都是在拍下快照之后才启动的未来事务，其产生的修改对当前快照<strong>一律不可见</strong></td>
+              </tr>
+              <tr>
+                <td><strong><code>snapshot.xip_list</code></strong></td>
+                <td>拍下快照瞬间，介于 <code>[xmin, xmax)</code> 区间内<strong>所有正在运行（未提交）的事务 XID 列表</strong>（如 <code>102, 105</code>）</td>
+                <td>对于落在 <code>[100, 108)</code> 之间的事务：若在 <code>xip_list</code> 中，说明拍快照时它还没提交，<strong>不可见</strong>；若不在列表中且已提交，则<strong>可见</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="plop-code-box" style="margin:14px 0;">
+          <div class="plop-code-head">
+            <span>🔍 HeapTupleSatisfiesMVCC · 元组可见性判定核心布尔逻辑（src/backend/access/heap/heapam_visibility.c）</span>
+            <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mvcc-vis', this)">复制代码</button>
+          </div>
+          <pre class="plop-code-pre" id="code-mvcc-vis"><code><span class="c-cm">// 给定一条物理元组 tuple 与当前查询快照 snapshot，判断 tuple 是否对当前语句可见：</span>
+<span class="c-kw">bool</span> <span class="c-fn">HeapTupleSatisfiesMVCC</span>(HeapTuple tuple, Snapshot snapshot) {
+    <span class="c-cm">// 第一关：检查创建者 t_xmin 是否可见</span>
+    <span class="c-kw">if</span> (!<span class="c-fn">XidVisibleInSnapshot</span>(tuple-&gt;t_xmin, snapshot)) {
+        <span class="c-kw">return</span> <span class="c-num">false</span>; <span class="c-cm">// 插入该元组的事务未提交、已回滚，或属于快照之后的未来事务 -&gt; 不可见</span>
+    }
+
+    <span class="c-cm">// 第二关：此时 t_xmin 必定已提交且对当前快照可见，接着检查删除/更新者 t_xmax</span>
+    <span class="c-kw">if</span> (tuple-&gt;t_xmax == <span class="c-num">0</span> || (tuple-&gt;t_infomask &amp; <span class="c-flag">HEAP_XMAX_INVALID</span>)) {
+        <span class="c-kw">return</span> <span class="c-num">true</span>;  <span class="c-cm">// 从未被删除/更新，或者当初尝试删除它的事务已经回滚 -&gt; 可见</span>
+    }
+    <span class="c-kw">if</span> (tuple-&gt;t_infomask &amp; <span class="c-flag">HEAP_XMAX_LOCK_ONLY</span>) {
+        <span class="c-kw">return</span> <span class="c-num">true</span>;  <span class="c-cm">// t_xmax 只是加了行级锁（如 FOR SHARE / FOR UPDATE），并未删除数据 -&gt; 可见</span>
+    }
+
+    <span class="c-cm">// 第三关：t_xmax 确实是一个删除或更新事务，检查该删除事务对当前快照是否生效</span>
+    <span class="c-kw">if</span> (!<span class="c-fn">XidVisibleInSnapshot</span>(tuple-&gt;t_xmax, snapshot)) {
+        <span class="c-kw">return</span> <span class="c-num">true</span>;  <span class="c-cm">// 删除该元组的事务还没提交，或是在当前快照拍下之后才提交的 -&gt; 旧版本依然可见</span>
+    }
+
+    <span class="c-kw">return</span> <span class="c-num">false</span>;     <span class="c-cm">// 删除该元组的事务在拍下快照前就已提交 -&gt; 该元组已死，对当前快照不可见</span>
+}</code></pre>
+        </div>
+
+        <h4><code>Read Committed</code> 下的写冲突裁决：<code>EvalPlanQual (EPQ)</code> 机制</h4>
+        <p>当两个并发事务同时修改同一行时（例如账户初始 <code>balance = 100</code>，会话 A 与会话 B 同时执行 <code>UPDATE accounts SET balance = balance - 30 WHERE id = 1 AND balance &gt;= 30</code>），PostgreSQL 根据隔离级别采取截然不同的策略：</p>
+        <ul>
+          <li><strong><code>Read Committed</code>（读已提交，默认）—— <code>EvalPlanQual</code> 顺藤摸瓜重评</strong>：会话 B 在试图更新元组 V1 时发现其 <code>t_xmax</code> 已被会话 A 锁定，于是阻塞等待。当会话 A 提交并生成新版本 V2（<code>balance = 70</code>）后，会话 B 被唤醒。此时会话 B 不会报错，也不会傻乎乎地基于旧版本 V1（100）去减 30，而是<strong>顺着 V1 的 <code>t_ctid</code> 指针找到会话 A 刚提交的最新版本 V2（70）</strong>，把 V2 代入专门的 <code>EvalPlanQual</code> 子执行器中，<strong>重新检验一次 <code>WHERE id = 1 AND balance &gt;= 30</code> 条件</strong>。因为 <code>70 &gt;= 30</code> 依然成立，会话 B 基于 V2 执行扣减，生成 V3（<code>balance = 40</code>）；若会话 A 当初把余额改成了 <code>20</code>，则会话 B 重评 <code>WHERE</code> 失败，静默返回 <code>UPDATE 0</code>。</li>
+          <li><strong><code>Repeatable Read / Serializable</code> —— First-Updater-Wins 立即抛错</strong>：当会话 B 等待会话 A 提交后被唤醒时，内核检测到目标元组已被快照启动之后的并发事务修改，<strong>拒绝执行 EPQ 重评，直接抛出 <code>ERROR: could not serialize access due to concurrent update (SQLSTATE 40001)</code></strong>，强制客户端捕获异常并重试整个事务，从而从根源上杜绝丢失更新。</li>
+        </ul>
+</div>
+
+<!-- 04.3 · SSI 可串行化快照隔离、行级锁 MultiXact 与死锁检测 -->
+<div class="wb-card" id="mvcc-ssi-locks" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🛡️ 04.3 · SSI 可串行化快照隔离、行级锁 MultiXact 与死锁检测</div>
+  <h3>🛡️ 04.3 <code>SSI</code> 谓词锁与元组头行级锁机制</h3>
+
+        <h4>写偏序（Write Skew）异常与 <code>SSI</code> 谓词锁的无阻塞检测机制</h4>
+        <p>在传统的实现中（如早期数据库或 MySQL InnoDB），<code>SERIALIZABLE</code> 往往通过把所有普通 <code>SELECT</code> 强制降级为加共享间隙锁（<code>SELECT ... FOR SHARE</code> + Next-Key Lock）来实现，这会导致读写严重阻塞。PostgreSQL 9.1 引入了学术界里程碑式的 <strong>可串行化快照隔离（Serializable Snapshot Isolation, SSI）</strong>：<strong>读仍然完全不阻塞写，写也完全不阻塞读</strong>。</p>
+        <ul>
+          <li><strong>经典写偏序（Write Skew）场景</strong>：医院值班表规定「至少保留 1 名医生在岗」。当前 Alice 和 Bob 都在岗（共 2 人）。事务 T1 与 T2 同时以 <code>Repeatable Read</code> 启动，各自执行 <code>SELECT count(*) FROM doctors WHERE on_call = true</code>，都读到 <code>2</code>；接着 T1 将 Alice 改为离岗（<code>UPDATE ... WHERE name = 'Alice'</code>），T2 将 Bob 改为离岗（<code>UPDATE ... WHERE name = 'Bob'</code>）。由于两人修改的是<strong>完全不同的两行记录</strong>，没有任何行级写锁冲突，在 <code>Repeatable Read</code> 下两个事务都会成功提交，导致在岗医生变为 <code>0</code>，违背业务不变量。</li>
+          <li><strong>SSI 的 <code>SIREAD</code> 谓词锁与危险结构检测</strong>：在 <code>Serializable</code> 级别下，当 T1 和 T2 执行 <code>SELECT</code> 时，内核会在共享内存中记录轻量级的非阻塞 <strong><code>SIREAD</code> 谓词锁（Predicate Lock，可根据内存压力从元组级自动粗化升级为页级或表级）</strong>。当 T1 修改 Alice 时，内核发现「T2 刚才通过 <code>SIREAD</code> 读过包含 Alice 的谓词范围，而 T1 现在改写了它」，于是登记一条从 T2 指向 T1 的 <strong>读写反依赖边（<code>rw-antidependency: T2 --rw--&gt; T1</code>）</strong>。同理，当 T2 修改 Bob 时，又产生了一条 <code>T1 --rw--&gt; T2</code> 的边。一旦内核检测到连续两条相邻的 <code>rw-antidependency</code> 边形成环路，就会在后提交的事务执行 <code>COMMIT</code> 时将其拦截并抛出 <code>40001</code> 序列化失败异常。</li>
+        </ul>
+
+        <h4>四种行级锁模式、<code>MultiXactId</code> 与死锁检测（<code>deadlock_timeout</code>）</h4>
+        <p>PostgreSQL 为了支持外键并发检查（当父表的一行被更新非主键列时，不阻塞子表引用该父表主键的 <code>INSERT</code>），提供了比标准共享/排他锁更精细的<strong>四级显式行锁体系</strong>：</p>
+
+        <div class="table-wrap">
+          <table class="plop-table">
+            <thead>
+              <tr>
+                <th style="width:24%">行级锁语法</th>
+                <th style="width:32%">隐式触发场景</th>
+                <th>相容与冲突关系</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong><code>FOR KEY SHARE</code></strong>（最弱共享锁）</td>
+                <td>子表插入/更新外键列时，自动对父表被引用的行加此锁</td>
+                <td>只阻止父表行被 <code>DELETE</code> 或修改主键值，<strong>允许父表行被 <code>FOR NO KEY UPDATE</code> 更新普通列</strong></td>
+              </tr>
+              <tr>
+                <td><strong><code>FOR SHARE</code></strong>（标准共享锁）</td>
+                <td>应用显式声明需要冻结整行不被任何更新改动</td>
+                <td>与 <code>FOR KEY SHARE</code> / <code>FOR SHARE</code> 相容；阻止任何形式的 <code>UPDATE / DELETE</code></td>
+              </tr>
+              <tr>
+                <td><strong><code>FOR NO KEY UPDATE</code></strong>（弱排他锁）</td>
+                <td>任何<strong>未修改主键/唯一索引列</strong>的普通 <code>UPDATE</code> 自动获取</td>
+                <td>与 <code>FOR KEY SHARE</code> 相容（这就是为什么更新父表普通列不会卡死子表外键插入）；与其他修改锁互斥</td>
+              </tr>
+              <tr>
+                <td><strong><code>FOR UPDATE</code></strong>（最强排他锁）</td>
+                <td><code>DELETE</code> 语句，或修改了唯一键列的 <code>UPDATE</code> 语句自动获取</td>
+                <td>与上述所有四种行锁全部互斥</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="plop-callout tip" style="margin-bottom:0;">
+          <strong>⚙️ 元组头行锁存储与 <code>MultiXactId</code> 组合事务锁机制：</strong><br>
+          许多数据库把行锁存放在内存锁哈希表中，一旦单事务锁住百万行就会触发锁表内存溢出（Lock Escalation 锁升级为表锁）。PostgreSQL 采取了巧妙的设计：<strong>行级锁直接利用数据页元组头的 <code>t_xmax</code> 与 <code>t_infomask</code> 存储在磁盘数据页上，因此在 PG 中即使一个事务锁定 1 亿行，也绝不会耗尽共享内存锁表，更不存在「行锁自动升级为表锁」的现象</strong>。<br>
+          如果<strong>多个并发事务同时对同一行加共享锁（<code>FOR KEY SHARE / FOR SHARE</code>）</strong>，单个 4 字节的 <code>t_xmax</code> 会写入一个组合 ID —— <strong><code>MultiXactId</code></strong>，并将真实的多个成员事务 XID 列表记录在 <code>pg_multixact/</code> 子目录中。此外，当事务等待锁超过 <strong><code>deadlock_timeout</code>（默认 <code>1s</code>）</strong>时，后台进程才会唤醒死锁检测算法（构造 Wait-For Graph 有向等待图寻找环路），从而让 99.9% 在几毫秒内就能拿到的正常锁等待省去死锁图遍历开销。
+        </div>
+</div>

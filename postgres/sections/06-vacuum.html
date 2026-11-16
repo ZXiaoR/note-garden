@@ -1,287 +1,208 @@
 <!-- ====================================================================
-             PART 06: VACUUM、表膨胀、事务 ID 回卷、HOT 更新、WAL 生态与闭卷自测
-             ==================================================================== -->
-        <div class="wb-sec-header" id="vacuum">
-          <span class="wb-sec-num">06</span>
-          <span class="wb-sec-title">VACUUM 与高可用生态 · 表膨胀、事务 ID 回卷、HOT 更新、WAL 复制与自测</span>
-          <span class="plop-tag tomato">VACUUM · XID WRAPAROUND · HOT · PGVECTOR</span>
-        </div>
+     PART 06: 生产工程实践与日常运维：大表在线变更、分区表、向量检索与应用实战
+     ==================================================================== -->
+<div class="wb-sec-header" id="vacuum">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">生产工程实践与日常运维 · 在线 DDL、分区表、向量检索与代码实战</span>
+  <span class="plop-tag tomato">ONLINE DDL × PARTITIONING × PGVECTOR × PRACTICE</span>
+</div>
 
-        <!-- 06.1 VACUUM、表膨胀、事务 ID 回卷与 HOT 更新 -->
-        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
-          <div class="washi-tape"></div>
-          <div class="chapter-q-pill">❓ 06.1 · 为什么删了 80% 的数据，磁盘空间却一字节都没变小？什么是 PG 最致命的“事务 ID 回卷停库”事故？</div>
-          <h3>🧹 06.1 PG 运维命脉：<code>VACUUM</code> 家族、表膨胀、XID 回卷与 HOT 优化</h3>
-          <p>
-            承接第 04 章的堆表 MVCC：每次 <code>UPDATE / DELETE</code> 都会在表里留下<strong>死元组（Dead Tuple）</strong>。如果不及时清理，不仅磁盘空间暴涨（<strong>表膨胀 Bloat</strong>），还会引发致命的<strong>32 位事务 ID 回卷（Wraparound）</strong>。负责这四大职责的清道夫就是 <code>VACUUM</code>：
-          </p>
+<!-- 06.1 · 生产环境大表在线无锁变更规范（Online DDL） -->
+<div class="wb-card" id="online-ddl" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🛡️ 06.1 · 在线变更规范：<code>SET lock_timeout</code>、<code>CREATE INDEX CONCURRENTLY</code> 与无锁添加约束</div>
+  <h3>🛡️ 06.1 生产环境大表在线安全变更规范</h3>
 
-          <div class="table-wrap">
-            <table class="plop-table">
-              <thead>
-                <tr>
-                  <th style="width:18%;">清理命令 / 工具</th>
-                  <th style="width:42%;">底层做什么</th>
-                  <th style="width:18%;">是否把空间还给 OS</th>
-                  <th>锁级别与生产建议</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>VACUUM</code><br>（标准清理）</td>
-                  <td>扫描堆表与索引，清除死元组，将其占用的页内槽位登记到 <strong>空闲空间映射表（FSM）</strong> 供该表后续插入/更新复用，并更新可见性映射（VM）。</td>
-                  <td>❌ <strong>不还给操作系统</strong>（表文件大小通常不变）</td>
-                  <td>✅ <code>SHARE UPDATE EXCLUSIVE</code>，<strong>不阻塞正常读写</strong>，生产安全。</td>
-                </tr>
-                <tr>
-                  <td><code>VACUUM FULL</code></td>
-                  <td>新建一个物理文件，把活元组紧凑地重新拷贝一遍，再删掉旧文件，彻底消除碎片。</td>
-                  <td>✅ <strong>真正归还磁盘空间给 OS</strong></td>
-                  <td>🚨 持有最高级 <strong><code>ACCESS EXCLUSIVE</code> 全表锁</strong>，期间连 <code>SELECT</code> 都卡死，且需额外一倍磁盘空间，<strong>生产白天严禁直接跑！</strong></td>
-                </tr>
-                <tr>
-                  <td>⭐ <code>pg_repack</code><br>（社区生产神器）</td>
-                  <td>通过影子表 + 触发器记录增量变更，在线完成整表与索引的紧凑重建，最后仅在切换瞬间拿极短锁。</td>
-                  <td>✅ <strong>真正归还磁盘空间给 OS</strong></td>
-                  <td>✅ <strong>几乎不阻塞线上读写</strong>，治理严重表膨胀的生产标准答案。</td>
-                </tr>
-                <tr>
-                  <td><code>ANALYZE</code></td>
-                  <td>抽样扫描表，更新 <code>pg_statistic</code> 中的列数据分布直方图与基数，供优化器计算 <code>EXPLAIN</code> 成本。</td>
-                  <td>无</td>
-                  <td>✅ 完全不阻塞读写；大批导入数据后务必跑一次。</td>
-                </tr>
-                <tr>
-                  <td><strong>autovacuum</strong></td>
-                  <td>后台守护进程，当表中死元组超过 <code>autovacuum_vacuum_threshold (50) + scale_factor (0.2) × 总行数</code> 时自动触发 <code>VACUUM + ANALYZE</code>。</td>
-                  <td>❌（复用表内空间）</td>
-                  <td>⚠️ 对几千万行的大表，默认 <code>20%</code> 比例太高（要攒够几百万死元组才触发），<strong>大表必须单独调低表级 <code>scale_factor = 0.01~0.02</code></strong>！</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+  <p>
+    在生产环境中对数百万至上亿行的大表执行表结构变更（DDL）或新建索引时，若直接使用默认语法，可能会长时间持有高级别表锁并阻塞线上正常的读写请求。日常运维发布数据库变更脚本时，应遵循以下四项安全规范：
+  </p>
 
-          <!-- 手绘 SVG：HOT 页内更新优化 vs 32位事务 ID 回卷 (Freeze) 原理图 -->
-          <svg viewBox="0 0 880 265" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="PostgreSQL HOT 更新与事务 ID 回卷图解">
-            <!-- 左：HOT 更新 -->
-            <rect x="14" y="14" width="420" height="237" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="26" y="24" width="396" height="26" rx="6" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="224" y="42" text-anchor="middle" font-size="11.5" font-weight="900" fill="var(--plop-ink-text)">🔥 机制 A：HOT 更新 (Heap-Only Tuple · 零索引膨胀)</text>
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 safe_online_ddl.sql · 生产大表无锁变更标准写法</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-online-ddl', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-online-ddl"><code><span class="c-cmt">-- 规范 1：执行 ALTER TABLE 前先设置锁等待超时（拿不到锁立即退出，不堵队列）</span>
+<span class="c-kw">SET</span> lock_timeout = <span class="c-str">'2s'</span>;
 
-            <rect x="28" y="60" width="136" height="54" rx="7" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="96" y="80" text-anchor="middle" font-size="10.2" font-weight="900" fill="var(--plop-ink-text)">B-tree 索引页</text>
-            <text x="96" y="98" text-anchor="middle" font-size="9.6" font-weight="800" fill="var(--plop-ink-text)">key=1 ➔ 仍指 (0,1)</text>
-            <text x="96" y="110" text-anchor="middle" font-size="9" font-weight="900" fill="#1E7043">(无需新增索引项!)</text>
+<span class="c-cmt">-- 规范 2：添加带常量默认值的新列（PG 11+ 仅修改系统元数据，毫秒级完成）</span>
+<span class="c-kw">ALTER TABLE</span> orders <span class="c-kw">ADD COLUMN</span> channel text <span class="c-kw">NOT NULL DEFAULT</span> <span class="c-str">'web'</span>;
 
-            <rect x="190" y="60" width="228" height="82" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="304" y="78" text-anchor="middle" font-size="10.2" font-weight="900" fill="var(--plop-ink)">同一个 8KB 堆表页 Page #0</text>
-            <rect x="200" y="86" width="94" height="44" rx="5" fill="#FFF6F4" stroke="#D2381E" stroke-width="1.5"/>
-            <text x="247" y="103" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink-text)">(0,1) 旧V1</text>
-            <text x="247" y="120" text-anchor="middle" font-size="9" font-weight="900" fill="#D2381E">HOT链 ➔ (0,2)</text>
+<span class="c-cmt">-- 规范 3：在线创建索引必须加上 CONCURRENTLY（全程不阻塞表的增删改查）</span>
+<span class="c-cmt">-- 注意：CONCURRENTLY 不能放在 BEGIN ... COMMIT 事务块内部执行</span>
+<span class="c-kw">CREATE INDEX CONCURRENTLY</span> idx_orders_channel <span class="c-kw">ON</span> orders (channel);
 
-            <rect x="312" y="86" width="94" height="44" rx="5" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="359" y="103" text-anchor="middle" font-size="9.5" font-weight="900" fill="var(--plop-ink-text)">(0,2) 新V2</text>
-            <text x="359" y="120" text-anchor="middle" font-size="9" font-weight="800" fill="var(--plop-leaf)">Heap-Only!</text>
+<span class="c-cmt">-- 规范 4：分两步无锁添加 CHECK 或外键约束</span>
+<span class="c-cmt">-- 第一步：加 NOT VALID（瞬间完成，仅对新写入行生效，暂不扫描历史数据）</span>
+<span class="c-kw">ALTER TABLE</span> orders
+  <span class="c-kw">ADD CONSTRAINT</span> chk_amount_pos <span class="c-kw">CHECK</span> (amount &gt;= 0) <span class="c-kw">NOT VALID</span>;
 
-            <text x="28" y="164" font-size="10.2" font-weight="900" fill="var(--plop-ink-text)">✅ 触发 HOT 的两大硬性前提：</text>
-            <text x="28" y="182" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">1. 本次 UPDATE 没有修改任何被索引包含的列；</text>
-            <text x="28" y="199" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">2. 旧版本所在的同一个 8KB 数据页内还有剩余空间放下新元组。</text>
-            <text x="28" y="219" font-size="9.8" font-weight="900" fill="#D2381E">💡 调优：高频更新表设 fillfactor=80（每页预留 20% 空位给 HOT）！</text>
-            <text x="28" y="236" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">（且 HOT 死元组在普通 SELECT 读取页面时即可顺手页内剪枝 Pruning 回收）</text>
+<span class="c-cmt">-- 第二步：执行 VALIDATE CONSTRAINT（仅持弱锁在线校验历史行，不阻塞读写）</span>
+<span class="c-kw">ALTER TABLE</span> orders <span class="c-kw">VALIDATE CONSTRAINT</span> chk_amount_pos;</code></pre>
+    </div>
 
-            <!-- 右：XID 回卷 -->
-            <rect x="448" y="14" width="418" height="237" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="460" y="24" width="394" height="26" rx="6" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="657" y="42" text-anchor="middle" font-size="11.5" font-weight="900" fill="var(--plop-ink-text)">❄️ 机制 B：32 位事务 ID 回卷 (XID Wraparound) 与 Freeze</text>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📖 为什么要格外注意 <code>lock_timeout</code> 与 <code>CONCURRENTLY</code>？</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
+        <li><strong>锁等待队列的连锁阻塞效应</strong>：<code>ALTER TABLE</code> 需要在极短瞬间获取表级排他锁（<code>ACCESS EXCLUSIVE</code>）。如果此时表上恰好有一条执行了 30 秒的慢查询未结束，<code>ALTER TABLE</code> 会排在慢查询后面等待；而后续到达的所有普通 <code>SELECT</code> 查询又会排在 <code>ALTER TABLE</code> 后面等待，导致整张表在 30 秒内无法读取。加上 <code>SET lock_timeout = '2s'</code> 后，若 2 秒内拿不到锁则立即放弃并稍后重试，保障线上业务平稳。</li>
+        <li><strong><code>CREATE INDEX CONCURRENTLY</code> 的注意事项</strong>：普通 <code>CREATE INDEX</code> 在构建期间会禁止对该表执行写入操作；加上 <code>CONCURRENTLY</code> 后会分两次扫描表并在后台合入增量变更，不阻塞线上读写。若中途因唯一键冲突或超时中断，会留下一个标记为 <code>INVALID</code> 的无效索引，需先执行 <code>DROP INDEX CONCURRENTLY 索引名;</code> 清理后再重新创建。</li>
+      </ul>
+    </div>
+  </div>
+</div>
 
-            <circle cx="534" cy="104" r="42" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <path d="M534 62 A42 42 0 0 1 576 104" fill="none" stroke="#D2381E" stroke-width="5"/>
-            <text x="534" y="100" text-anchor="middle" font-size="9.5" font-weight="900" fill="var(--plop-ink-text)">2^32 循环环</text>
-            <text x="534" y="115" text-anchor="middle" font-size="9" font-weight="800" fill="#D2381E">前20亿可见</text>
+<!-- 06.2 · 视图/物化视图、声明式范围分区表与 pgvector 向量检索 -->
+<div class="wb-card" id="ext" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🌐 06.2 · 进阶特性：物化视图、声明式范围分区表（<code>PARTITION BY RANGE</code>）与 <code>pgvector</code> 向量检索</div>
+  <h3>🌐 06.2 物化视图、声明式分区表与 <code>pgvector</code> 实战</h3>
 
-            <rect x="592" y="62" width="258" height="82" rx="8" fill="#FFF6F4" stroke="#D2381E" stroke-width="1.8"/>
-            <text x="604" y="82" font-size="10" font-weight="900" fill="#D2381E">⚠️ 为什么会丢数据？</text>
-            <text x="604" y="99" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">32位 XID 共 42 亿，采用模 2^32 环形比较：</text>
-            <text x="604" y="115" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">当前 XID 往前 21 亿算“过去(可见)”，往后 21 亿</text>
-            <text x="604" y="131" font-size="9.6" font-weight="800" fill="#D2381E">算“未来(不可见)”。一旦跨过 21 亿，老数据瞬间隐身！</text>
+  <div class="wb-grid-2">
+    <div>
+      <h4>1. 普通视图、物化视图与分区表适用场景</h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">特性名称</th>
+              <th>核心机制与日常用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>普通视图</strong><br><code>VIEW</code></td>
+              <td>仅保存一段查询 SQL 定义，本身不占存储空间；每次查询视图时实时展开执行，用于简化复杂关联或隐藏敏感列。</td>
+            </tr>
+            <tr>
+              <td><strong>物化视图</strong><br><code>MATERIALIZED VIEW</code></td>
+              <td><strong>将查询结果真正持久化存储为物理表，并可在其上建立索引</strong>，非常适合耗时数秒的统计报表加速。需要更新数据时执行 <code>REFRESH MATERIALIZED VIEW CONCURRENTLY 视图名;</code>（带 <code>CONCURRENTLY</code> 刷新期间不阻塞读取，要求物化视图上有唯一索引）。</td>
+            </tr>
+            <tr>
+              <td><strong>声明式分区表</strong><br><code>PARTITION BY</code></td>
+              <td>将上亿行的流水大表按时间范围（<code>RANGE</code>）、离散值列表（<code>LIST</code>）或哈希（<code>HASH</code>）拆分为多个物理子表。查询带上时间条件时自动触发<strong>分区裁剪（Partition Pruning）</strong>只扫目标月份子表；清理过期历史数据时直接 <code>DETACH / DROP</code> 对应月份子表即可瞬间释放磁盘空间。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-            <text x="462" y="166" font-size="10.2" font-weight="900" fill="var(--plop-ink-text)">🛡️ VACUUM Freeze（冻结保护）：</text>
-            <text x="462" y="184" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">• 当行的年龄达到 vacuum_freeze_min_age (默认5000万)，VACUUM 会给该行</text>
-            <text x="462" y="201" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">  打上 FROZEN 标记（视同无穷古老，对所有未来事务永久可见，不再比 XID）。</text>
-            <text x="462" y="220" font-size="9.8" font-weight="900" fill="#D2381E">• 达到 2 亿强制触发 anti-wraparound autovacuum；逼近 21 亿直接拒写停库！</text>
-            <text x="462" y="236" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">• 阻止 VACUUM 回收的四大元凶：未提交长事务、废弃复制槽、未决 2PC、游离游标。</text>
-          </svg>
-        </div>
-
-        <!-- 06.2 拓展知识：物化视图、WAL、表分区、流复制与扩展生态 -->
-        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;" id="ext">
-          <div class="washi-tape mint"></div>
-          <div class="chapter-q-pill">❓ 06.2 · 物化视图和普通视图差在哪？WAL、流复制、分区表与 pgvector 在生产怎么落地？</div>
-          <h3>🌐 06.2 生产拓展：物化视图、WAL 预写日志、分区表、流复制与扩展生态</h3>
-
-          <div class="wb-grid-2">
-            <div>
-              <h4>1. 视图 <code>VIEW</code> vs 物化视图 <code>MATERIALIZED VIEW</code></h4>
-              <div class="table-wrap">
-                <table class="plop-table">
-                  <thead>
-                    <tr>
-                      <th>维度</th>
-                      <th>普通视图 <code>VIEW</code></th>
-                      <th>⭐ 物化视图 <code>MATERIALIZED VIEW</code></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><strong>存储本质</strong></td>
-                      <td>只存 SQL 定义，每次查询实时展开执行</td>
-                      <td><strong>把查询结果真正物化落盘成一张物理表（可建索引！）</strong></td>
-                    </tr>
-                    <tr>
-                      <td><strong>数据实时性</strong></td>
-                      <td>永远最新</td>
-                      <td>需执行 <code>REFRESH MATERIALIZED VIEW CONCURRENTLY mv_name;</code> 刷新（带 <code>CONCURRENTLY</code> 刷新期间不阻塞读，要求有唯一索引）</td>
-                    </tr>
-                    <tr>
-                      <td><strong>适用场景</strong></td>
-                      <td>简化多表关联 SQL、权限列屏蔽</td>
-                      <td><strong>复杂大宽表聚合报表、Dashboard 毫秒级查询加速</strong></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <h4 style="margin-top:14px;">2. 函数、存储过程与声明式表分区</h4>
-              <div class="plop-code-box">
-                <div class="plop-code-head">
-                  <span>🐘 partitioning_and_vector.sql · 分区表与向量扩展</span>
-                  <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-part-vec', this)">复制 SQL</button>
-                </div>
-                <pre class="plop-code-pre" id="pg-part-vec"><code><span class="c-cmt">-- 1. 声明式范围分区表 (Partitioning)：秒级 DETACH/DROP 历史月份数据</span>
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 partitioning_and_vector.sql · 范围分区表与 AI 向量检索</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-part-vec', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="pg-part-vec"><code><span class="c-cmt">-- 1. 创建按月范围分区的日志主表与月份子表</span>
 <span class="c-kw">CREATE TABLE</span> event_logs (
-  id         bigint <span class="c-kw">GENERATED ALWAYS AS IDENTITY</span>,
-  payload    jsonb,
-  created_at timestamptz <span class="c-kw">NOT NULL</span>
+  id         bigint      <span class="c-kw">GENERATED ALWAYS AS IDENTITY</span>,
+  event_type text        <span class="c-kw">NOT NULL</span>,
+  payload    jsonb       <span class="c-kw">NOT NULL DEFAULT</span> <span class="c-str">'{}'</span>,
+  created_at timestamptz <span class="c-kw">NOT NULL</span>,
+  <span class="c-kw">PRIMARY KEY</span> (id, created_at) <span class="c-cmt">-- 分区表唯一约束必须包含分区键</span>
 ) <span class="c-kw">PARTITION BY RANGE</span> (created_at);
 
 <span class="c-kw">CREATE TABLE</span> event_logs_2026_11 <span class="c-kw">PARTITION OF</span> event_logs
   <span class="c-kw">FOR VALUES FROM</span> (<span class="c-str">'2026-11-01'</span>) <span class="c-kw">TO</span> (<span class="c-str">'2026-12-01'</span>);
 
-<span class="c-cmt">-- 2. AI 时代必学：pgvector 向量检索 + HNSW 近似最近邻索引</span>
+<span class="c-cmt">-- 2. 启用 pgvector 扩展，实现 RAG 知识库向量相似度检索</span>
 <span class="c-kw">CREATE EXTENSION IF NOT EXISTS</span> vector;
+
 <span class="c-kw">CREATE TABLE</span> doc_chunks (
-  id        bigint <span class="c-kw">PRIMARY KEY</span>,
-  content   text,
-  embedding vector(1536)
+  id        bigint <span class="c-kw">GENERATED ALWAYS AS IDENTITY PRIMARY KEY</span>,
+  content   text   <span class="c-kw">NOT NULL</span>,
+  embedding vector(1536) <span class="c-cmt">-- 存储 1536 维 Embedding 浮点向量</span>
 );
+
+<span class="c-cmt">-- 建立 HNSW 近似最近邻索引，使用 <=> 余弦距离检索最相关的前 5 条文档</span>
 <span class="c-kw">CREATE INDEX ON</span> doc_chunks <span class="c-kw">USING</span> hnsw (embedding vector_cosine_ops);
-<span class="c-cmt">-- 按余弦距离 &lt;=&gt; 检索最相似的 Top 5 文档块</span>
 <span class="c-kw">SELECT</span> id, content <span class="c-kw">FROM</span> doc_chunks
 <span class="c-kw">ORDER BY</span> embedding &lt;=&gt; <span class="c-str">'[0.012, -0.034, ...]'</span> <span class="c-kw">LIMIT</span> 5;</code></pre>
-              </div>
-            </div>
+    </div>
+  </div>
+</div>
 
-            <div>
-              <h4>3. WAL 预写日志、备份恢复与高可用复制</h4>
-              <div class="table-wrap">
-                <table class="plop-table">
-                  <thead>
-                    <tr>
-                      <th>核心机制</th>
-                      <th>核心原理与面试必知细节</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><strong>WAL 预写日志</strong><br>(<code>pg_wal/</code>)</td>
-                      <td>修改数据页前必须先把变更记入 WAL 并刷盘（对应 MySQL 的 Redo Log + Binlog 合体）。注意：PG 开启了 <strong><code>full_page_writes = on</code></strong>（每次 Checkpoint 后某个 8KB 页第一次被修改时，先把整个 8KB 页完整写进 WAL，防止操作系统 4KB 写一半断电导致“页撕裂 Torn Page”无法恢复！）。</td>
-                    </tr>
-                    <tr>
-                      <td><strong>物理流复制 vs 逻辑复制</strong></td>
-                      <td>
-                        • <strong>物理流复制（Streaming Replication）：</strong>主库 `wal_sender` 把字节级 WAL 实时发给从库 `wal_receiver` 重放（主从全库二进制完全一致，用于高可用故障切换 Patroni + 读写分离）。<br>
-                        • <strong>逻辑复制（Logical Replication）：</strong>基于发布/订阅（`PUBLICATION / SUBSCRIPTION`）解析 WAL 为行级变更，支持<strong>只同步指定表、跨大版本升级、多主汇总</strong>。
-                      </td>
-                    </tr>
-                    <tr>
-                      <td><strong>备份与 PITR</strong></td>
-                      <td><code>pg_dump / pg_restore</code> 做逻辑导出；生产大库用 <code>pg_basebackup</code> 物理全量备份 + 持续归档 WAL 日志，实现任意秒级的 <strong>时间点恢复（PITR）</strong>。</td>
-                    </tr>
-                    <tr>
-                      <td><strong>四大王牌扩展</strong></td>
-                      <td><code>pg_stat_statements</code>（慢 SQL 统计）、<code>PostGIS</code>（地理信息）、<code>pgvector</code>（AI 向量检索）、<code>pg_repack</code>（在线清膨胀）。</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
+<!-- 06.3 · 日常运维监控 SQL 与后端连接池事务实战 -->
+<div class="wb-card" id="cheat" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">💻 06.3 · 运维与代码实战：线上锁阻塞排查、备份恢复命令与 Node.js / TypeScript 事务代码模板</div>
+  <h3>💻 06.3 日常监控排障 SQL 与后端应用连接池实战</h3>
 
-        <!-- 06.3 高频面试速记与 9 道闭卷自测题 -->
-        <div class="wb-card" style="background:var(--plop-paper);" id="cheat">
-          <div class="washi-tape pink"></div>
-          <div class="chapter-q-pill">🎯 06.3 · 上考场前最后 3 分钟：PostgreSQL 高频考点速记与 9 道闭卷自测</div>
-          <h3>🏆 06.3 高频面试速记卡片 &amp; 9 道核心闭卷自测题</h3>
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🔎 线上锁等待排查、表体积查看与备份恢复命令</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-lock-inspect', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="pg-lock-inspect"><code><span class="c-cmt">-- 1. 一键查询当前正在发生锁等待的会话及阻塞源头 PID 与 SQL</span>
+<span class="c-kw">SELECT</span>
+  blocked.pid <span class="c-kw">AS</span> blocked_pid,
+  blocked.query <span class="c-kw">AS</span> blocked_sql,
+  <span class="c-fn">pg_blocking_pids</span>(blocked.pid) <span class="c-kw">AS</span> blocker_pids,
+  now() - blocked.query_start <span class="c-kw">AS</span> wait_duration
+<span class="c-kw">FROM</span> pg_stat_activity blocked
+<span class="c-kw">WHERE</span> <span class="c-fn">cardinality</span>(<span class="c-fn">pg_blocking_pids</span>(blocked.pid)) &gt; 0;
 
-          <div class="plop-callout info" style="margin-bottom:14px;">
-            <strong>📌 十句话串起整本 PostgreSQL 手帐：</strong>
-            <ol style="margin:6px 0 0; padding-left:18px;">
-              <li><strong>架构与连接：</strong>每连接 fork 一个独立 <code>backend</code> 进程 + <code>Shared Buffers (8KB 页)</code>；高并发生产环境必须前置 <strong>PgBouncer（Transaction 池化模式）</strong>。</li>
-              <li><strong>层级与类型：</strong>四层结构（实例→库→Schema→表）；金额用 <code>numeric</code>，变长文本直接用 <code>text</code>，时间用 <code>timestamptz</code>，自增用 <code>GENERATED ALWAYS AS IDENTITY</code>，动态属性用 <strong><code>jsonb</code>（二进制树 + GIN 索引）</strong>。</li>
-              <li><strong>DDL 优势：</strong>支持<strong>事务性 DDL</strong>（可 <code>BEGIN ... ALTER ... ROLLBACK</code>）；大表加常量默认列免重写，加约束用 <code>NOT VALID</code> + <code>VALIDATE CONSTRAINT</code> 免锁表。</li>
-              <li><strong>王牌 SQL：</strong><code>RETURNING</code> 免二次查、<code>ON CONFLICT DO UPDATE</code> 原子 UPSERT、<code>OVER(PARTITION BY ... ORDER BY ...)</code> 窗口函数分组排名、<code>WITH RECURSIVE</code> 递归查树。</li>
-              <li><strong>堆表 MVCC：</strong>表是无序堆表（<code>ctid</code> 物理寻址），每行带 <code>xmin/xmax</code>，<code>UPDATE = 旧行标 xmax + 插新行版本</code>；回滚 <code>O(1)</code> 极快，但留下<strong>死元组与表膨胀</strong>。</li>
-              <li><strong>隔离级别：</strong>默认 <code>Read Committed</code>（语句级快照）；无脏读；<code>Repeatable Read</code> 靠事务级快照天然挡幻读（写写冲突直接报错要求重试）；<code>Serializable</code> 采用无读锁的 <strong>SSI</strong>。</li>
-              <li><strong>行锁与抢单：</strong>行锁记在元组头 <code>xmax + infomask</code> 上，绝不撑爆内存；任务队列并发抢单用 <code>FOR UPDATE SKIP LOCKED</code>。</li>
-              <li><strong>六大索引：</strong>默认 <code>B-tree</code>；多值包含（JSONB/数组/全文）用 <strong><code>GIN</code></strong>；空间/范围排他用 <strong><code>GiST</code></strong>；百亿按序时序表用 <strong><code>BRIN</code></strong>；覆盖索引用 <code>INCLUDE</code>（需 <code>VACUUM</code> 维护 Visibility Map 才真正免回表）；生产建索引必加 <code>CONCURRENTLY</code>。</li>
-              <li><strong>EXPLAIN 调优：</strong>用 <code>EXPLAIN (ANALYZE, BUFFERS)</code> 对比估算 <code>rows</code> 与实际 <code>actual rows</code>，偏差大先跑 <code>ANALYZE</code>；理解 <code>Bitmap Index/Heap Scan</code> 排序页号转顺序 IO 的妙处。</li>
-              <li><strong>VACUUM 三大使命：</strong>回收死元组防膨胀（在线缩磁盘用 <code>pg_repack</code>，慎用锁全表的 <code>VACUUM FULL</code>）、更新 VM/FSM、<strong>Freeze 冻结老 XID 防止 32 位事务 ID 回卷停库</strong>；未改索引列且同页有空位可走 <strong>HOT 页内更新</strong>。</li>
-            </ol>
-          </div>
+<span class="c-cmt">-- 2. 安全终止异常慢查询 (cancel) 或断开卡死连接 (terminate)</span>
+<span class="c-kw">SELECT</span> <span class="c-fn">pg_cancel_backend</span>(目标PID);
+<span class="c-kw">SELECT</span> <span class="c-fn">pg_terminate_backend</span>(目标PID);
 
-          <div style="display:grid; gap:10px;">
-            <details class="plop-drawer">
-              <summary>自测 01 · PostgreSQL 的 MVCC 与 MySQL InnoDB 的 MVCC 本质区别是什么？各自有什么优缺点？</summary>
-              <div class="drawer-body">
-                InnoDB 是“原地更新数据页 + 把旧版本写进 Undo Log 回滚段”；PostgreSQL 是“堆表内追加写新版本（旧元组标 <code>xmax</code>，新元组标 <code>xmin</code> 并用 <code>ctid</code> 串联）”。<br>
-                <strong>PG 优点：</strong>大事务回滚只需在 <code>pg_xact</code> 标记状态，无需重放 Undo，瞬间完成；读旧版本无需顺着漫长的回滚段临时拼装。<br>
-                <strong>PG 缺点：</strong>高频更新会产生大量死元组导致<strong>表与索引膨胀（Bloat）</strong>，必须依赖 <code>autovacuum</code> 持续清理；且若未命中 HOT 优化，更新一行需为所有索引追加新条目。
-              </div>
-            </details>
+<span class="c-cmt">-- 3. 查看各张表的总大小（含索引与 TOAST）</span>
+<span class="c-kw">SELECT</span> relname,
+       <span class="c-fn">pg_size_pretty</span>(<span class="c-fn">pg_total_relation_size</span>(oid)) <span class="c-kw">AS</span> total_size
+<span class="c-kw">FROM</span> pg_class <span class="c-kw">WHERE</span> relkind = <span class="c-str">'r'</span> <span class="c-kw">ORDER BY</span> <span class="c-fn">pg_total_relation_size</span>(oid) <span class="c-kw">DESC</span> <span class="c-kw">LIMIT</span> 10;
 
-            <details class="plop-drawer">
-              <summary>自测 02 · 什么是 HOT（Heap-Only Tuple）更新？怎么提高高频更新表的 HOT 命中率？</summary>
-              <div class="drawer-body">
-                当 <code>UPDATE</code> 满足两个条件：① <strong>没有修改任何被索引包含的列</strong>；② <strong>旧版本所在的同一个 8KB 堆表页内有足够剩余空间放下新版本</strong>时，PG 不会去修改任何外部索引，而是让外部索引继续指向老的根元组 <code>ctid</code>，页内通过 <code>HOT 链</code> 跳到新元组。这既消除了索引写放大，又允许普通查询顺手做页内垃圾剪枝（Page Pruning）。<br>
-                <strong>调优手段：</strong>1）删掉不必要的冗余索引；2）将高频更新表的填充因子调低：<code>ALTER TABLE t SET (fillfactor = 80);</code>（每页预留 20% 空闲空间专门给同页 HOT 更新用）。
-              </div>
-            </details>
+<span class="c-cmt"># 4. 终端逻辑备份（自定义压缩格式 -Fc）与恢复命令</span>
+<span class="c-cmt"># pg_dump -h localhost -U postgres -Fc mydb -f mydb.dump</span>
+<span class="c-cmt"># pg_restore -h localhost -U postgres -d mydb -j 4 mydb.dump</span></code></pre>
+    </div>
 
-            <details class="plop-drawer">
-              <summary>自测 03 · 什么是事务 ID 回卷（Transaction ID Wraparound）？线上遇到年龄告警怎么处理？</summary>
-              <div class="drawer-body">
-                PG 普通事务 ID（XID）是 32 位无符号整数（约 42.9 亿），采用环形模算术比较先后：任意 XID 往后约 21 亿个事务被视为“未来不可见”，往前约 21 亿被视为“过去可见”。如果一张老表上的行经历了超过 21 亿次新事务仍未被 <code>VACUUM FREEZE</code> 标记为“永久冻结可见”，新事务就会把这批老数据误判为“来自未来的事务”而瞬间看不见（数据隐身事故）！<br>
-                <strong>排查与处理：</strong>通过 <code>SELECT relname, age(relfrozenxid) FROM pg_class ORDER BY 2 DESC;</code> 定位高龄表，检查是否有未提交长事务（<code>pg_stat_activity</code>）、废弃复制槽（<code>pg_replication_slots</code>）或未决两阶段事务（<code>pg_prepared_xacts</code>）卡住了最早可见快照 <code>xmin</code>；清理阻塞源后手动执行 <code>VACUUM FREEZE 表名;</code>。
-              </div>
-            </details>
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🟢 order_service.ts · 后端使用 pg 连接池执行参数化事务</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-node-pool', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-node-pool"><code><span class="c-kw">import</span> { Pool } <span class="c-kw">from</span> <span class="c-str">'pg'</span>;
 
-            <details class="plop-drawer">
-              <summary>自测 04 · 什么时候用 B-tree、什么时候用 GIN、什么时候用 BRIN？</summary>
-              <div class="drawer-body">
-                • <strong>B-tree：</strong>单值标量列的等值（<code>=</code>）、范围（<code>&lt;, &gt;, BETWEEN</code>）、排序（<code>ORDER BY</code>）与前缀匹配（<code>LIKE 'abc%'</code>）。<br>
-                • <strong>GIN（倒排索引）：</strong>一个字段内含多个子元素、需要按子元素反查行时——如 <code>jsonb</code> 包含查询（<code>@&gt;, ?</code>）、数组交集/包含（<code>&amp;&amp;, @&gt;</code>）、全文检索或 <code>pg_trgm</code> 任意位置模糊查询。<br>
-                • <strong>BRIN（块范围索引）：</strong>按时间/自增顺序只追加写入（Append-Only）的亿级日志、监控、物联网流水表，体积僅几 MB，靠连续物理页块的 <code>[min, max]</code> 极值秒级跳过无关数据块。
-              </div>
-            </details>
+<span class="c-cmt">// 1. 初始化全局连接池（整个进程复用同一个 Pool 实例）</span>
+<span class="c-kw">const</span> pool = <span class="c-kw">new</span> <span class="c-fn">Pool</span>({
+  connectionString: process.env.DATABASE_URL,
+  max: 20,                      <span class="c-cmt">// 最大连接数</span>
+  idleTimeoutMillis: 30_000,    <span class="c-cmt">// 空闲连接回收时间</span>
+  connectionTimeoutMillis: 3_000 <span class="c-cmt">// 获取连接超时时间</span>
+});
 
-            <details class="plop-drawer">
-              <summary>自测 05 · 生产环境给上千万行的大表建索引或加字段，有哪些保命铁律？</summary>
-              <div class="drawer-body">
-                1）建索引必须加 <code>CONCURRENTLY</code>：<code>CREATE INDEX CONCURRENTLY idx_name ON tbl(col);</code>（注意不能放进事务块里跑，且若中途失败会留下 <code>INVALID</code> 索引，需先 <code>DROP INDEX CONCURRENTLY</code> 再重建）。<br>
-                2）执行任何 <code>ALTER TABLE</code> 前先设锁等待超时：<code>SET lock_timeout = '2s';</code>，防止 DDL 等慢查询释放锁时把后续所有业务读请求全部阻塞在锁等待队列里。<br>
-                3）加外键或 <code>CHECK</code> 约束分两步走：先 <code>ADD CONSTRAINT ... NOT VALID</code>（瞬间完成），再 <code>VALIDATE CONSTRAINT</code>（不阻塞读写在线校验）。
-              </div>
-            </details>
-          </div>
-        </div>
+<span class="c-cmt">// 2. 端到端下单事务：必须从 pool 借出同一个 client 才能共享事务</span>
+<span class="c-kw">export async function</span> <span class="c-fn">createOrder</span>(userId: number, itemId: number, amount: string) {
+  <span class="c-kw">const</span> client = <span class="c-kw">await</span> pool.<span class="c-fn">connect</span>();
+  <span class="c-kw">try</span> {
+    <span class="c-kw">await</span> client.<span class="c-fn">query</span>(<span class="c-str">'BEGIN'</span>);
+
+    <span class="c-cmt">// 使用 $1, $2 参数化占位符防止 SQL 注入，原子扣减库存</span>
+    <span class="c-kw">const</span> stockRes = <span class="c-kw">await</span> client.<span class="c-fn">query</span>(
+      <span class="c-str">'UPDATE items SET stock = stock - 1 WHERE id = $1 AND stock &gt; 0 RETURNING id'</span>,
+      [itemId]
+    );
+    <span class="c-kw">if</span> (stockRes.rowCount === 0) <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">'库存不足'</span>);
+
+    <span class="c-cmt">// 插入订单并通过 RETURNING 直接拿回生成的订单行</span>
+    <span class="c-kw">const</span> orderRes = <span class="c-kw">await</span> client.<span class="c-fn">query</span>(
+      <span class="c-str">'INSERT INTO orders (user_id, amount) VALUES ($1, $2) RETURNING *'</span>,
+      [userId, amount]
+    );
+
+    <span class="c-kw">await</span> client.<span class="c-fn">query</span>(<span class="c-str">'COMMIT'</span>);
+    <span class="c-kw">return</span> orderRes.rows[0];
+  } <span class="c-kw">catch</span> (err) {
+    <span class="c-kw">await</span> client.<span class="c-fn">query</span>(<span class="c-str">'ROLLBACK'</span>);
+    <span class="c-kw">throw</span> err;
+  } <span class="c-kw">finally</span> {
+    client.<span class="c-fn">release</span>(); <span class="c-cmt">// 务必在 finally 中将连接归还连接池</span>
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>📘 进军核心原理篇：</strong>至此，你已经完整掌握了 PostgreSQL 日常建模、高级 SQL 编写、并发加锁与生产安全运维的全部实战技能。接下来可以点击顶部切换栏或右侧直达链接进入 <a href="principles.html">📘 核心原理篇 ↗</a>，深入探索 <strong>8KB 堆表数据页物理结构、Clock-Sweep 缓冲池、23B 元组头 MVCC 与快照算法、SSI 谓词锁、Lehman-Yao B-tree / GIN / BRIN 内部结构、Visibility Map、HOT 页内更新以及 32 位事务 ID 回卷冻结机制</strong>。
+  </div>
+</div>

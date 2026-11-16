@@ -1,0 +1,171 @@
+<!-- ====================================================================
+     PART 01: Buffer Pool 三大链表、5:3 冷热 LRU、Change Buffer 与后台线程
+     ==================================================================== -->
+<div class="wb-sec-header" id="arch" style="background:var(--plop-periwinkle);">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">Buffer Pool 三大链表、5:3 冷热 LRU、Change Buffer 与后台线程</span>
+  <span class="plop-tag tomato">BUFFER POOL × MIDPOINT LRU × CHANGE BUFFER × FLUSH LIST</span>
+</div>
+
+<!-- 01.1 · InnoDB 内存与磁盘整体架构 -->
+<div class="wb-card" id="innodb-mem-disk-arch" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧠 01.1 · 引擎全景：InnoDB 四大内存组件（Buffer Pool / Change Buffer / AHI / Log Buffer）与后台刷盘线程</div>
+  <h3>🧠 01.1 InnoDB 内存与磁盘架构全景图</h3>
+
+  <p>
+    与 PostgreSQL 依赖“<code>shared_buffers</code> + 操作系统 Page Cache 双层缓存”不同，<strong>InnoDB 在生产环境中通常开启直接 I/O（<code>innodb_flush_method = O_DIRECT</code>），数据页读写直接绕过操作系统文件缓存，完全由 InnoDB 自身的 <code>Buffer Pool</code>（占物理内存 50%~70%）统一管理</strong>。InnoDB 的内存区由四大核心组件构成，并通过专用后台线程池与磁盘表空间、日志文件异步交互：
+  </p>
+
+  <!-- Editorial SVG: InnoDB Memory & Disk Architecture + 5:3 Midpoint LRU -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 360" style="width:100%; min-width:800px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="bp-arch-title bp-arch-desc">
+        <title id="bp-arch-title">InnoDB Buffer Pool 5:3 冷热双段 LRU 与磁盘刷脏架构图</title>
+        <desc id="bp-arch-desc">左半部分展示 Buffer Pool 内部的控制块与缓存页、Free/Flush/LRU 三条链表以及 5:3 冷热分区（New Sublist 5/8 与 Old Sublist 3/8，新读入页先插入 Midpoint 并需驻留超过 1000ms 再次访问才晋升热区）；右半部分展示 Change Buffer、Log Buffer 通过 Page Cleaner 与 Master Thread 刷入磁盘 .ibd 表空间与 ib_logfile。</desc>
+        <defs>
+          <marker id="bp-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+          </marker>
+          <marker id="bp-arr-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+          </marker>
+          <marker id="bp-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1b5e20"/>
+          </marker>
+        </defs>
+
+        <!-- Left Container: InnoDB Buffer Pool & 5:3 Midpoint LRU -->
+        <rect x="24" y="20" width="536" height="320" rx="12" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+        <text x="292" y="46" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13.5" font-weight="800" fill="#1F1F23">1. InnoDB Buffer Pool 与 5:3 冷热双段 LRU 链表</text>
+
+        <!-- Connectors inside Left Container (drawn BEFORE boxes) -->
+        <!-- Midpoint insertion arrow from bottom up to Old Sublist head (x=348, y=132) -->
+        <path d="M 348 164 L 348 134" fill="none" stroke="#bf4520" stroke-width="2.2" marker-end="url(#bp-arr-coral)"/>
+        <!-- Promotion arrow from Old Sublist (x=376, y=82) to New Sublist Head (x=76, y=82) via top corridor -->
+        <path d="M 376 82 L 376 66 Q 376 58 368 58 L 84 58 Q 76 58 76 66 L 76 80" fill="none" stroke="#1b5e20" stroke-width="2" marker-end="url(#bp-arr-green)"/>
+        <rect x="148" y="48" width="166" height="14" rx="2" fill="#F4EFE6"/>
+        <text x="231" y="58" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" font-weight="700" fill="#1b5e20">驻留 &gt; 1000ms 再次访问才晋升热区头</text>
+
+        <!-- Cross-container connectors: Buffer Pool -> Disk (drawn BEFORE right container boxes) -->
+        <line x1="560" y1="126" x2="604" y2="126" stroke="#bf4520" stroke-width="2" marker-end="url(#bp-arr-coral)"/>
+        <line x1="560" y1="262" x2="604" y2="262" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#bp-arr-ink)"/>
+
+        <!-- Young / New Sublist (5/8 = 63%) x=42, y=82, w=286, h=50 -->
+        <rect x="42" y="82" width="286" height="50" rx="6" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
+        <text x="185" y="103" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1b5e20">Young / 热数据区 (前 5/8 ≈ 63%)</text>
+        <text x="185" y="121" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">高频访问的热点数据页与索引页常驻于此</text>
+
+        <!-- Old Sublist (3/8 = 37%) x=328, y=82, w=214, h=50 (Focal) -->
+        <rect x="328" y="82" width="214" height="50" rx="6" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.4"/>
+        <text x="435" y="103" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#bf4520">Old / 冷数据区 (后 3/8 = 37%)</text>
+        <text x="435" y="121" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">Midpoint 插入点 ──► 链表尾部优先淘汰</text>
+
+        <!-- Midpoint Label Box -->
+        <rect x="262" y="166" width="280" height="36" rx="6" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="402" y="182" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="800" fill="#bf4520">▲ Midpoint (innodb_old_blocks_pct = 37)</text>
+        <text x="402" y="196" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">磁盘新读入页一律先插到冷区头部，防全表扫描冲刷热区</text>
+
+        <!-- Three Management Lists Summary Box -->
+        <rect x="42" y="214" width="500" height="110" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="58" y="236" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#1F1F23">Buffer Pool 内部三大核心控制块双向链表（每个 16KB 缓存页对应 1 个约 800B 的控制块）：</text>
+        <text x="58" y="256" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="800" fill="#1b5e20">Free List（空闲链表）</tspan>：串联所有尚未装载磁盘数据的空闲缓冲页，新读页时直接从表头取用</text>
+        <text x="58" y="276" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="800" fill="#0d47a1">LRU List（冷热淘汰链表）</tspan>：按 5:3 冷热分区管理所有已使用的干净页与脏页，内存满时从 Old 尾部淘汰</text>
+        <text x="58" y="296" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="800" fill="#bf4520">Flush List（脏页链表）</tspan>：按页面<strong>第一次被修改时的 LSN（oldest_modification）</strong>升序排列所有脏页，推进 Checkpoint</text>
+        <text x="58" y="314" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">• <tspan font-family="'JetBrains Mono',monospace" font-weight="700">Change Buffer</tspan>：借用 Buffer Pool 内存缓存“非唯一二级索引”的未加载页写操作，待后续读页时异步 Merge</text>
+
+        <!-- Right Column: Background Threads & Disk Persistence -->
+        <rect x="606" y="20" width="290" height="162" rx="12" fill="#FFFDF7" stroke="#1F1F23" stroke-width="2"/>
+        <text x="751" y="46" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#bf4520">2. 后台异步刷脏与清理线程</text>
+        <text x="622" y="70" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="700">Page Cleaner Threads</tspan>：按 Flush List 与</text>
+        <text x="632" y="86" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">LRU 尾部把脏页经 Doublewrite 刷入 .ibd</text>
+        <text x="622" y="108" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="700">Purge Threads</tspan>：异步回收任何活跃</text>
+        <text x="632" y="124" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">ReadView 都不再需要的历史 Undo Log</text>
+        <text x="622" y="146" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="700">Log Writer / Flusher</tspan>：8.0 独立线程</text>
+        <text x="632" y="162" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">将 Log Buffer 高效刷入磁盘 Redo Log</text>
+
+        <rect x="606" y="202" width="290" height="138" rx="12" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
+        <text x="751" y="228" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#1b5e20">3. 磁盘持久化文件 (datadir)</text>
+        <text x="622" y="252" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">• 表名.ibd（独立表空间 16KB 页）</text>
+        <text x="622" y="274" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">• #innodb_redo/（8.0.30+ 重做日志）</text>
+        <text x="622" y="296" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">• undo_001 / undo_002（回滚表空间）</text>
+        <text x="622" y="318" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">• #ib_16384_*.dblwr（双写缓冲文件）</text>
+      </svg>
+    </div>
+  </figure>
+</div>
+
+<!-- 01.2 · 为什么朴素 LRU 会失效？5:3 冷热分区与 1000ms 防污染机制 -->
+<div class="wb-card" id="innodb-midpoint-lru" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">❄️ 01.2 · 缓存淘汰算法：朴素 LRU 被全表扫描污染的原因、5:3 冷热分区与 1000ms 时间窗</div>
+  <h3>❄️ 01.2 解决「预读失效」与「缓冲池污染」的两阶段冷热 LRU</h3>
+
+  <p>
+    如果 Buffer Pool 直接使用教科书里的朴素 LRU（即任何刚从磁盘读入的页都直接插到链表最头部），在数据库场景下会立刻遭遇两大灾难：
+  </p>
+  <ol>
+    <li><strong>灾难一：预读失效（Read-Ahead Failure）</strong>—— InnoDB 具有线性预读（顺序访问一个区内的 <code>innodb_read_ahead_threshold=56</code> 个页时，自动异步把下一个 <code>1 MiB</code> 区的 64 个页提前读入内存）与随机预读机制。如果预读进来的页后续根本没被查询真正访问，却直接插到了 LRU 头部，反而会把真正的热点页挤出内存。</li>
+    <li><strong>灾难二：缓冲池污染（Buffer Pool Pollution）</strong>—— 当某个后台报表或慢查询执行了一次<strong>全表扫描（如扫描一张 50 GB 的历史大表）</strong>，成千上万个只会被读一次的数据页涌入 Buffer Pool。若采用朴素 LRU，这些一次性页面会瞬间霸占整个链表头部，<strong>将线上高频访问的核心热数据页全部淘汰出局</strong>，导致数据库命中率断崖式暴跌。</li>
+  </ol>
+
+  <h4>InnoDB 的两道防御设计：<code>Midpoint 插入</code> + <code>1000ms 驻留晋升门限</code></h4>
+  <ul>
+    <li><strong>第一道防线（隔离预读失效 —— <code>innodb_old_blocks_pct = 37</code>）</strong>：将 LRU 链表按 <strong>5 : 3</strong> 的比例拆分为前半段 <strong>Young 热数据区（约占 63%）</strong> 和后半段 <strong>Old 冷数据区（默认占 37%）</strong>。任何从磁盘新读入的数据页（包括预读页），<strong>绝对不允许直接进入 Young 热区，而是统一插入到冷热交界处的 <code>Midpoint</code>（即 Old 冷区的头部）</strong>。如果预读页一直没人访问，它会很快从 Old 区尾部被自然淘汰，丝毫不影响前面的 Young 热区。</li>
+    <li><strong>第二道防线（隔离全表扫描污染 —— <code>innodb_old_blocks_time = 1000</code>）</strong>：光有 Midpoint 还不够，因为全表扫描在读入一个 16KB 页后，会紧接着依次读取该页内的几百行记录（相当于在几毫秒内连续访问了该页几百次），如果只要在 Old 区被第二次访问就立刻晋升到 Young 热区，全表扫描依然会污染热区。为此，InnoDB 在控制块中记录了该页进入 Old 区的首次访问时间戳：<strong>只有当该页在 Old 冷区驻留的时间超过了 <code>innodb_old_blocks_time</code>（默认 <code>1000ms</code> 即 1 秒）之后又被再次访问，才说明它是真正跨越单次扫描的常驻热点页，此时才允许晋升到 Young 热区头部</strong>。此外，为了减少 Young 区内部的链表锁争用，只有当被访问页位于 Young 区后 3/4 段时才会将其移到 Young 头部（前 1/4 段访问不移动链表）。</li>
+  </ul>
+</div>
+
+<!-- 01.3 · Change Buffer（写缓冲）原理、唯一索引限制与 MySQL 8.4 演进 -->
+<div class="wb-card" id="innodb-change-buffer" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">⚡ 01.3 · 写加速与边界：Change Buffer 异步合并机制、为什么唯一索引不能用，以及 MySQL 8.4 默认值变化</div>
+  <h3>⚡ 01.3 <code>Change Buffer</code>（写缓冲）与唯一索引的 I/O 边界</h3>
+
+  <p>
+    当执行一条 <code>INSERT / UPDATE / DELETE</code> 时，如果目标数据页恰好已经在 <code>Buffer Pool</code> 中，直接修改内存页即可；但如果目标二级索引页不在内存中，难道每次都要立刻发起一次同步随机磁盘读 I/O 把那个 16KB 二级索引页读上来吗？为了把随机读转化为异步批量合并，InnoDB 设计了 <strong><code>Change Buffer</code>（早期仅支持插入时称为 <code>Insert Buffer</code>）</strong>：
+  </p>
+
+  <div class="wb-grid-2">
+    <div>
+      <h4>1. Change Buffer 的工作流与 Merge（合并）触发时机</h4>
+      <ul>
+        <li><strong>暂存改动（免随机读盘）</strong>：当修改某个<strong>非唯一二级索引（Non-Unique Secondary Index）</strong>且目标索引页不在 Buffer Pool 中时，InnoDB <strong>不从磁盘读取该索引页</strong>，而是直接将“需要在某页插入/删除某条索引项”的记录写进内存（同时也持久化在系统表空间 <code>ibdata1</code> 的 Change Buffer B+ 树中）并记下 Redo Log，语句即可立即返回。</li>
+        <li><strong>何时触发 Merge（将改动真正应用到索引页）</strong>：
+          <ol>
+            <li><strong>最常见触发</strong>：后续有查询请求真正把该 16KB 二级索引页从磁盘读入 <code>Buffer Pool</code> 时，顺手将 Change Buffer 中挂在该页名下的所有变更合并上去；</li>
+            <li>后台 Master Thread 定期空闲合并，或数据库正常关闭（Shutdown）时。</li>
+          </ol>
+        </li>
+      </ul>
+    </div>
+
+    <div>
+      <h4>2. 核心追问：为什么「唯一索引」无法使用 Change Buffer</h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">索引类型 / 场景</th>
+              <th>能否用 Change Buffer 与原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>唯一索引（<code>UNIQUE KEY</code>）</strong></td>
+              <td><strong>绝对不能使用</strong>。因为插入或修改唯一索引列时，InnoDB 必须当场检查新值是否与已有数据冲突；而要确认磁盘上是否存在该值，<strong>就必须把对应的 16KB 索引页先从磁盘读进内存</strong>。既然页都已经读进 Buffer Pool 了，直接改内存页即可，根本用不上 Change Buffer。</td>
+            </tr>
+            <tr>
+              <td><strong>普通非唯一二级索引（<code>KEY</code>）</strong></td>
+              <td><strong>可以使用</strong>。适合<strong>写多读少</strong>的业务（如账单流水、操作日志、归档表），写入后短期内不立即读取，攒批 Merge 收益极高；反之若“刚写完立刻高频读取”，立即触发 Merge 反而多了一次维护开销。</td>
+            </tr>
+            <tr>
+              <td><strong>MySQL 8.0 vs 8.4 默认值演进</strong></td>
+              <td>在机械硬盘时代，<code>innodb_change_buffering</code> 默认开启为 <code>all</code>；而在现代高 IOPS 的 NVMe SSD 环境下，随机读延迟已极低且 Change Buffer 曾存在高并发并发合并复杂性，因此 <strong>MySQL 8.4 LTS 已将 <code>innodb_change_buffering</code> 的默认值改为 <code>none</code>（默认关闭）</strong>。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>

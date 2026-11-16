@@ -1,0 +1,227 @@
+<!-- ====================================================================
+     PART 05: 锁机制全景：MDL、意向锁、Next-Key Lock 加锁退化与死锁分析
+     ==================================================================== -->
+<div class="wb-sec-header" id="index" style="background:var(--plop-periwinkle);">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">锁机制全景：MDL、意向锁、Next-Key Lock 加锁退化与死锁分析</span>
+  <span class="plop-tag mint">MDL × INTENTION LOCK × RECORD / GAP / NEXT-KEY LOCK × DEGRADATION</span>
+</div>
+
+<!-- 05.1 · 全局锁与四类表级锁（表锁 / MDL 元数据锁 / 意向锁 / AUTO-INC 锁） -->
+<div class="wb-card" id="mysql-global-table-locks" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔒 05.1 · 全局锁与表级锁：FTWRL、MDL 元数据锁排队雪崩、意向锁 IS/IX 与 AUTO-INC 自增锁</div>
+  <h3>🔒 05.1 全局锁与四类表级锁（表锁 / MDL / 意向锁 / AUTO-INC 锁）</h3>
+
+  <p>
+    如果说 MVCC 与 <code>ReadView</code> 解决了「读-写」并发时的无锁非阻塞读取，那么当多个事务同时执行<strong>当前读（<code>SELECT ... FOR UPDATE / FOR SHARE</code>）或写操作（<code>INSERT / UPDATE / DELETE</code>）</strong>时，就必须依靠锁机制来保证数据一致性。按锁定的粒度从大到小划分，MySQL 的锁体系分为<strong>全局锁、表级锁和 InnoDB 行级锁</strong>三个层次。在深入行锁之前，必须先厘清在全局与表级维度维护的四类锁机制：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">锁层级与名称</th>
+          <th style="width:24%">加锁与释放时机</th>
+          <th style="width:24%">相容性与互斥关系</th>
+          <th>核心工程用途与线上注意事项</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>全局读锁 (FTWRL)</strong><br><code>FLUSH TABLES WITH READ LOCK</code></td>
+          <td>显式执行命令加锁；执行 <code>UNLOCK TABLES</code> 或客户端断开时释放</td>
+          <td>整个实例进入只读状态，阻塞所有表的 DML 写入与 DDL 变更</td>
+          <td>早年用于全库逻辑备份。对纯 InnoDB 库备份时应改用 <code>mysqldump --single-transaction</code>（利用 MVCC 快照一致性备份，完全不锁表）。</td>
+        </tr>
+        <tr>
+          <td><strong>表级数据锁</strong><br><code>LOCK TABLES t READ/WRITE</code></td>
+          <td>显式执行命令加锁；<code>UNLOCK TABLES</code> 释放</td>
+          <td>读锁之间共享，写锁与任何读/写锁互斥</td>
+          <td>颗粒度过大，仅在无行锁的 MyISAM 引擎中使用；InnoDB 日常业务应避免使用显式表锁。</td>
+        </tr>
+        <tr>
+          <td><strong>元数据锁 (MDL)</strong><br><code>Metadata Lock</code></td>
+          <td><strong>无需显式声明</strong>：任何查询或 DML 自动加 <code>MDL 读锁</code>；<code>ALTER TABLE</code> 自动加 <code>MDL 写锁</code>；<strong>直到事务提交才释放</strong></td>
+          <td><code>MDL 读锁</code> 之间互不阻塞；<code>MDL 写锁</code> 与所有 <code>MDL 读/写锁</code> 互斥</td>
+          <td>防止查询中途表结构被修改。<strong>关键风险</strong>：MDL 锁队列具有写锁优先机制，若某表上有未提交的长事务持有 MDL 读锁，此时执行 <code>ALTER TABLE</code> 会卡在等待 MDL 写锁，并<strong>把排在该 DDL 之后的所有普通 <code>SELECT</code> 全部堵死</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>意向锁 (IS / IX)</strong><br><code>Intention Shared / Exclusive</code></td>
+          <td>InnoDB 在对某行加共享行锁（S）或排他行锁（X）前，先自动在表级加 <code>IS</code> 或 <code>IX</code> 锁</td>
+          <td><strong><code>IS</code> 与 <code>IX</code> 之间、<code>IX</code> 与 <code>IX</code> 之间全部互相兼容</strong>；仅与表级 S / X 锁按规则互斥</td>
+          <td>意向锁是表级「信号旗」，作用是让想要加<strong>表级锁</strong>的线程一眼看出「表里当前有没有行被锁住」，无需逐行扫描整张表去检查行锁冲突。</td>
+        </tr>
+        <tr>
+          <td><strong>自增锁 (AUTO-INC)</strong></td>
+          <td>向含 <code>AUTO_INCREMENT</code> 列的表插入数据时触发，受 <code>innodb_autoinc_lock_mode</code> 控制</td>
+          <td>模式 <code>0</code>（语句结束释放）、模式 <code>1</code>（单行插入轻量互斥量，批量插入锁到语句结束）、模式 <code>2</code>（全程轻量互斥量）</td>
+          <td>MySQL 8.0 默认将 <code>binlog_format</code> 设为 <code>ROW</code>，并将 <code>innodb_autoinc_lock_mode</code> 设为 <strong><code>2</code>（Interleaved 交错模式）</strong>，并发插入性能最高，但并发批量插入或回滚时自增 ID 允许出现不连续空洞。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 05.2 · InnoDB 行级锁的四类基本形态：锁加在索引上而非物理行上 -->
+<div class="wb-card" id="mysql-row-lock-types" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📏 05.2 · 行锁四类形态：Record Lock、Gap Lock、Next-Key Lock 与 Insert Intention Lock 冲突关系</div>
+  <h3>📏 05.2 InnoDB 行级锁的四类基本形态与 Gap Lock 并发死锁推演</h3>
+
+  <p>
+    理解 InnoDB 行锁的第一条基本原理是：<strong>InnoDB 的行锁是加在索引项（Index Record）及索引项之间的间隙（Gap）上的</strong>。如果一条 <code>UPDATE</code> 或 <code>SELECT ... FOR UPDATE</code> 语句没有命中任何有效索引而走了全表扫描，InnoDB 会把聚簇索引上的<strong>每一条记录以及所有间隙全部锁住</strong>，在并发表现上等效于锁住了整张表。围绕 B+ 树有序索引构成的数轴，InnoDB 设计了以下四类行级锁形态：
+  </p>
+
+  <ol style="margin:0 0 14px; padding-left:20px; font-size:13.4px; line-height:1.72;">
+    <li><strong>记录锁（Record Lock，源码宏 <code>LOCK_REC_NOT_GAP</code>）</strong>：仅锁定单条索引记录本身（例如精准锁住 <code>id = 20</code> 这一行），不锁定前后的任何间隙。同记录上的 S 锁与 S 锁兼容，X 锁与任何 S/X 锁互斥。</li>
+    <li><strong>间隙锁（Gap Lock，源码宏 <code>LOCK_GAP</code>）</strong>：仅锁定两条索引记录之间的<strong>开区间</strong>（例如 <code>(10, 20)</code>），不包含端点记录本身。需要特别注意一条反直觉的规则：<strong>Gap Lock 存在的唯一目的是「阻止其他事务向该间隙插入新记录」，因此两个不同事务在同一个间隙上持有的 Gap Lock（无论是 Gap S 锁还是 Gap X 锁）是完全互相兼容、绝不冲突的</strong>。</li>
+    <li><strong>临键锁（Next-Key Lock，源码宏 <code>LOCK_ORDINARY</code>）</strong>：等于 <strong>Gap Lock + Record Lock 的组合</strong>，锁定一个<strong>左开右闭区间</strong>（例如 <code>(10, 20]</code>，既锁住 <code>(10, 20)</code> 的间隙不让插入，又锁住 <code>20</code> 这条记录本身不让修改）。在 <code>REPEATABLE READ</code> 隔离级别下，InnoDB 当前读的<strong>默认加锁基本单位就是 Next-Key Lock</strong>。</li>
+    <li><strong>插入意向锁（Insert Intention Lock，源码宏 <code>LOCK_INSERT_INTENTION</code>）</strong>：它是一种特殊的间隙锁，当事务执行 <code>INSERT</code> 准备向某个索引间隙（如 <code>(10, 20)</code>）插入一条新记录（如 <code>id = 15</code>）时，会先检测该间隙是否已被其他事务加上了 Gap Lock 或 Next-Key Lock。如果已被锁住，<code>INSERT</code> 就会生成一个插入意向锁并进入阻塞等待状态；但<strong>如果多个事务同时向同一个未被锁住的间隙插入不同主键的行（如一个插 <code>14</code>、一个插 <code>16</code>），它们的插入意向锁之间互不阻塞</strong>。</li>
+  </ol>
+
+  <!-- Editorial SVG: Index Number Line Lock Intervals & Compatibility -->
+  <figure style="margin:16px 0 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 390" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mysql-locks-title mysql-locks-desc">
+        <title id="mysql-locks-title">InnoDB 索引数轴区间锁与插入意向锁冲突关系</title>
+        <desc id="mysql-locks-desc">展示索引数轴 (-∞, 10, 20, 30, +∞) 上的 Record Lock 单点锁、Gap Lock 开区间 (10, 20)、Next-Key Lock 左开右闭区间 (10, 20]，以及下方两个事务共存 Gap Lock 后同时执行 INSERT 触发插入意向锁互相等待的死锁循环。</desc>
+        <defs>
+          <marker id="arr-lk-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#1C1917"/>
+          </marker>
+          <marker id="arr-lk-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- ================= TOP: Index Number Line & 3 Lock Interval Types ================= -->
+        <text x="32" y="28" font-family="'Plus Jakarta Sans',sans-serif" font-size="13" font-weight="800" fill="#1C1917">1. 索引数轴（假设表中现有 id = 10, 20, 30 三条记录，两端为 Infimum -∞ 与 Supremum +∞）</text>
+
+        <!-- Main horizontal axis line BEFORE record boxes -->
+        <line x1="60" y1="74" x2="860" y2="74" stroke="#1C1917" stroke-width="2.6" marker-end="url(#arr-lk-ink)"/>
+
+        <!-- Index Record Nodes along the axis -->
+        <rect x="44" y="54" width="92" height="40" rx="8" fill="#E7E5E4" stroke="#1C1917" stroke-width="1.8"/>
+        <text x="90" y="79" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1C1917">Infimum(-∞)</text>
+
+        <rect x="228" y="54" width="84" height="40" rx="8" fill="#FEF3C7" stroke="#1C1917" stroke-width="2"/>
+        <text x="270" y="79" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="12" font-weight="800" fill="#1C1917">id = 10</text>
+
+        <rect x="418" y="54" width="84" height="40" rx="8" fill="#FFF7ED" stroke="#bf4520" stroke-width="2.4"/>
+        <text x="460" y="79" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="12" font-weight="800" fill="#bf4520">id = 20</text>
+
+        <rect x="608" y="54" width="84" height="40" rx="8" fill="#FEF3C7" stroke="#1C1917" stroke-width="2"/>
+        <text x="650" y="79" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="12" font-weight="800" fill="#1C1917">id = 30</text>
+
+        <rect x="772" y="54" width="104" height="40" rx="8" fill="#E7E5E4" stroke="#1C1917" stroke-width="1.8"/>
+        <text x="824" y="79" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1C1917">Supremum(+∞)</text>
+
+        <!-- Interval Bars below the axis -->
+        <text x="44" y="128" font-family="'Plus Jakarta Sans',sans-serif" font-size="12" font-weight="800" fill="#0f766e">① Record Lock (LOCK_REC_NOT_GAP)</text>
+        <rect x="418" y="110" width="84" height="26" rx="6" fill="#D1FAE5" stroke="#0f766e" stroke-width="2"/>
+        <text x="460" y="128" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#065F46">仅锁 [20]</text>
+        <text x="518" y="128" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#57534E">只锁住 id = 20 单条记录，允许在 (10, 20) 间隙自由插入 id = 15</text>
+
+        <text x="44" y="166" font-family="'Plus Jakarta Sans',sans-serif" font-size="12" font-weight="800" fill="#b45309">② Gap Lock (LOCK_GAP)</text>
+        <rect x="278" y="148" width="134" height="26" rx="6" fill="#FEF3C7" stroke="#b45309" stroke-width="2" stroke-dasharray="5 3"/>
+        <text x="345" y="166" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#92400E">开区间 (10, 20)</text>
+        <text x="518" y="166" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#57534E">不锁 10 和 20 本身；不同事务的 Gap Lock 完全兼容，仅阻塞向 (10, 20) 插入</text>
+
+        <text x="44" y="204" font-family="'Plus Jakarta Sans',sans-serif" font-size="12" font-weight="800" fill="#bf4520">③ Next-Key Lock (LOCK_ORDINARY)</text>
+        <rect x="278" y="186" width="224" height="26" rx="6" fill="#FFF7ED" stroke="#bf4520" stroke-width="2.4"/>
+        <text x="390" y="204" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#9A3412">左开右闭区间 (10, 20]</text>
+        <text x="518" y="204" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#57534E">RR 默认加锁单位 = Gap Lock (10, 20) + Record Lock [20]</text>
+
+        <!-- ================= BOTTOM: Coexisting Gap Locks -> Mutual Insert Intention Deadlock ================= -->
+        <text x="32" y="248" font-family="'Plus Jakarta Sans',sans-serif" font-size="13" font-weight="800" fill="#1C1917">2. 为什么「Gap Lock 之间互相兼容」反而容易引发并发 INSERT 死锁</text>
+
+        <!-- Connectors FIRST -->
+        <line x1="372" y1="296" x2="548" y2="296" stroke="#bf4520" stroke-width="2.4" marker-end="url(#arr-lk-coral)"/>
+        <rect x="394" y="274" width="132" height="18" rx="4" fill="#FFFDF7"/>
+        <text x="460" y="287" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#bf4520">T3: 插入意向锁等待 B</text>
+
+        <line x1="548" y1="344" x2="372" y2="344" stroke="#bf4520" stroke-width="2.4" marker-end="url(#arr-lk-coral)"/>
+        <rect x="394" y="349" width="132" height="18" rx="4" fill="#FFFDF7"/>
+        <text x="460" y="362" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#bf4520">T4: 插入意向锁等待 A</text>
+
+        <!-- Node Left: Transaction A -->
+        <rect x="32" y="264" width="340" height="106" rx="12" fill="#F5F2EB" stroke="#1C1917" stroke-width="2"/>
+        <text x="50" y="288" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#1C1917">事务 A（已持有 Gap Lock (10, 20)）</text>
+        <text x="50" y="310" font-family="'JetBrains Mono',monospace" font-size="11" fill="#0f766e">T1: SELECT * FROM t WHERE id=15 FOR UPDATE;</text>
+        <text x="50" y="328" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#57534E">→ id=15 不存在，退化为持有间隙锁 (10, 20)</text>
+        <text x="50" y="350" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" fill="#bf4520">T3: INSERT INTO t VALUES (15); → 阻塞等 B</text>
+
+        <!-- Node Right: Transaction B -->
+        <rect x="548" y="264" width="340" height="106" rx="12" fill="#F5F2EB" stroke="#1C1917" stroke-width="2"/>
+        <text x="566" y="288" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#1C1917">事务 B（同样持有 Gap Lock (10, 20)）</text>
+        <text x="566" y="310" font-family="'JetBrains Mono',monospace" font-size="11" fill="#0f766e">T2: SELECT * FROM t WHERE id=16 FOR UPDATE;</text>
+        <text x="566" y="328" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#57534E">→ 因 Gap Lock 互相兼容，事务 B 也成功拿到 (10, 20)</text>
+        <text x="566" y="350" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" fill="#bf4520">T4: INSERT INTO t VALUES (16); → 触发死锁回滚</text>
+      </svg>
+    </div>
+  </figure>
+</div>
+
+<!-- 05.3 · RR 隔离级别下 Next-Key Lock 的加锁与退化规则完整推演 -->
+<div class="wb-card" id="mysql-lock-degradation-rules" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🧭 05.3 · 加锁退化法则：唯一索引与普通索引在等值存在、等值不存在及范围查询下的精确锁范围</div>
+  <h3>🧭 05.3 RR 隔离级别下 Next-Key Lock 的加锁与退化规则完整推演</h3>
+
+  <p>
+    在 <code>REPEATABLE READ</code> 隔离级别下，InnoDB 对扫描到的每一条索引记录默认都会先加上 <strong>Next-Key Lock（左开右闭区间）</strong>；但在特定条件下，如果更小范围的锁已经足以排除幻读风险，InnoDB 会将 Next-Key Lock <strong>退化（Degrade）为 Record Lock 或 Gap Lock</strong>。假设表 <code>users(id PRIMARY KEY, age KEY, name)</code> 中当前共有 3 条记录：<code>(10, 10, 'A')</code>、<code>(20, 20, 'B')</code>、<code>(30, 30, 'C')</code>，下表汇总了 5 种核心查询场景的加锁退化结果（可在 MySQL 8.0 中通过 <code>SELECT * FROM performance_schema.data_locks;</code> 实测验证）：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">查询场景分类</th>
+          <th style="width:26%">示例当前读 SQL</th>
+          <th style="width:24%">最终加锁范围（<code>performance_schema.data_locks</code>）</th>
+          <th>内核加锁与退化原理解析</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 唯一索引 · 等值查询（记录存在）</strong></td>
+          <td><code>SELECT * FROM users WHERE id = 20 FOR UPDATE;</code></td>
+          <td><code>id = 20</code> 的 <strong>Record Lock</strong>（<code>LOCK_REC_NOT_GAP</code>）</td>
+          <td>由于主键/唯一索引具有唯一性，其他事务不可能再插入另一条 <code>id = 20</code> 的记录，无需锁住 <code>(10, 20)</code> 间隙，因此 Next-Key Lock <code>(10, 20]</code> <strong>退化为单点记录锁 <code>[20]</code></strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 唯一索引 · 等值查询（记录不存在）</strong></td>
+          <td><code>SELECT * FROM users WHERE id = 15 FOR UPDATE;</code></td>
+          <td><code>id = 20</code> 上的 <strong>Gap Lock <code>(10, 20)</code></strong>（<code>LOCK_GAP</code>）</td>
+          <td>定位到第一条大于 15 的记录 <code>id = 20</code>，初始加 Next-Key Lock <code>(10, 20]</code>；由于 <code>20 != 15</code>，无需锁定 <code>id = 20</code> 本身，因此<strong>退化为开区间间隙锁 <code>(10, 20)</code></strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 普通非唯一索引 · 等值查询（记录存在）</strong></td>
+          <td><code>SELECT * FROM users WHERE age = 20 FOR UPDATE;</code></td>
+          <td>• 普通索引 <code>age</code>：<strong>Next-Key Lock <code>(10, 20]</code></strong> + <strong>Gap Lock <code>(20, 30)</code></strong><br>• 聚簇索引 <code>id</code>：<code>id = 20</code> 的 <strong>Record Lock</strong></td>
+          <td>普通索引允许重复值，命中 <code>age = 20</code> 时先加 Next-Key Lock <code>(10, 20]</code>（同时回表锁住主键 <code>id = 20</code> 的记录锁），随后必须<strong>继续向右扫描到第一个不等于 20 的值（<code>age = 30</code>）</strong>，并对 <code>30</code> 退化加上 <strong>Gap Lock <code>(20, 30)</code></strong>，以彻底封死在 <code>20</code> 前后插入新 <code>age = 20</code> 的可能。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 唯一索引 · 范围查询（含等号边界）</strong></td>
+          <td><code>SELECT * FROM users WHERE id &gt;= 20 AND id &lt; 25 FOR UPDATE;</code></td>
+          <td>• <code>id = 20</code> 的 <strong>Record Lock <code>[20]</code></strong><br>• <code>id = 30</code> 上的 <strong>Gap Lock <code>(20, 30)</code></strong></td>
+          <td>左端点 <code>id = 20</code> 等值命中唯一索引，<code>(10, 20]</code> 退化为单点 <strong>Record Lock <code>[20]</code></strong>；随后向右扫描到第一个不满足 <code>&lt; 25</code> 的记录 <code>id = 30</code>，在 MySQL 8.0.18+ 中 <code>(20, 30]</code> 优化退化为 <strong>Gap Lock <code>(20, 30)</code></strong>（不锁 <code>id = 30</code> 本身）。</td>
+        </tr>
+        <tr>
+          <td><strong>5. 普通索引 · 范围查询</strong></td>
+          <td><code>SELECT * FROM users WHERE age &gt;= 20 FOR UPDATE;</code></td>
+          <td>• 普通索引 <code>age</code>：<strong>Next-Key Lock <code>(10, 20]</code>、<code>(20, 30]</code>、<code>(30, +∞]</code></strong><br>• 聚簇索引 <code>id</code>：<code>[20]</code>、<code>[30]</code> 的 <strong>Record Lock</strong></td>
+          <td>注意<strong>普通索引的范围查询左端点 <code>age = 20</code> 不会退化为记录锁</strong>（因为 <code>(10, 20)</code> 间隙中仍可能插入新的 <code>age = 20</code>），因此 <code>(10, 20]</code> 保持完整的 Next-Key Lock，并一直锁到无穷大伪记录 <code>supremum pseudo-record</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout">
+    <div class="plop-callout-title">💡 互联网高并发核心库常将隔离级别调为 READ COMMITTED 的原因</div>
+    <p style="margin:0; font-size:13.2px; line-height:1.68;">
+      从上表可以看到，在默认的 <code>REPEATABLE READ</code> 隔离级别下，任何范围更新或未命中唯一索引的更新都会引入大面积的 <strong>Gap Lock 与 Next-Key Lock</strong>，大幅提高了并发写入时的锁冲突与死锁概率。而在 <strong><code>READ COMMITTED (RC)</code> + <code>binlog_format = ROW</code></strong> 组合下，除了外键约束检查与唯一键冲突检查（Duplicate-Key Checking）仍需短暂使用 Gap Lock 外，普通的查询与更新<strong>全部只加 Record Lock（单点记录锁），完全移除了 Gap Lock</strong>，并且 InnoDB 还会开启<strong>半一致读（Semi-consistent Read）</strong>：当 <code>UPDATE</code> 扫描到一行已被其他事务锁住的记录时，先通过 MVCC 读取该行的最新提交版本判断是否满足 <code>WHERE</code> 条件，若不满足则直接跳过不锁，从而显著提升高并发写吞吐。
+    </p>
+  </div>
+</div>

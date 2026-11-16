@@ -1,16 +1,16 @@
 <!-- ====================================================================
-     PART 03: 指针、结构体与接口（组合式面向对象）
+     PART 03: 指针、结构体、接口与泛型（组合式面向对象与类型参数）
      ==================================================================== -->
 <div class="wb-sec-header mustard" id="gmp">
   <span class="wb-sec-num">03</span>
-  <span class="wb-sec-title">指针、结构体（struct）与接口（interface）</span>
-  <span class="plop-tag tomato">POINTER × STRUCT × INTERFACE</span>
+  <span class="wb-sec-title">指针、结构体（struct）、接口（interface）与泛型（Generics）</span>
+  <span class="plop-tag tomato">POINTER × STRUCT × INTERFACE × GENERICS</span>
 </div>
 
 <!-- 03.1 · 值传递与指针（& 与 *）的日常用法 -->
 <div class="wb-card" id="pointer-usage" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">📍 03.1 · 值与指针：为什么有时候传普通变量，有时候传指针 <code>*T</code>？</div>
+  <div class="chapter-q-pill">📍 03.1 · 值传递与指针操作：传值副本机制、取地址（<code>&amp;</code>）与解引用（<code>*</code>）</div>
   <h3>📍 03.1 值传递与指针（<code>&amp;</code> 取地址与 <code>*</code> 解引用）</h3>
 
   <p>
@@ -131,15 +131,15 @@
   </div>
 </div>
 
-<!-- 03.3 · 接口 interface 与泛型基础 -->
+<!-- 03.3 · 接口 interface：非侵入式多态、空接口 any 与类型断言 -->
 <div class="wb-card" id="interface-usage" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🔌 03.3 · 接口与泛型：非侵入式 <code>interface</code> 多态解耦与 <code>[T any]</code> 泛型函数</div>
-  <h3>🔌 03.3 接口（<code>interface</code>）与泛型函数</h3>
+  <div class="chapter-q-pill">🔌 03.3 · 接口与多态：非侵入式 <code>interface</code> 行为契约、空接口 <code>any</code> 与类型断言</div>
+  <h3>🔌 03.3 接口（<code>interface</code>）、空接口 <code>any</code> 与类型断言</h3>
 
   <p>
     <strong>① 什么是接口？</strong><code>interface</code> 用来约定一组<strong>行为（方法签名）</strong>。Go 的接口采用非常灵活的“非侵入式（鸭子类型）”设计：<strong>不需要在结构体上写 <code>implements</code> 关键字，只要一个类型实现了接口里要求的全部方法，它就自动实现了这个接口</strong>。<br>
-    在实际开发中，接口最常用于<strong>业务解耦</strong>——比如订单服务需要发通知，我们只需定义一个 <code>Notifier</code> 接口，不管是发短信还是发邮件都能无缝切换：
+    在实际开发中，接口最常用于<strong>业务解耦</strong>——比如订单服务需要发通知，我们只需定义一个 <code>Notifier</code> 接口，不管是发短信还是发邮件都能无缝切换；而没有任何方法要求的空接口 <code>any</code>（即 <code>interface{}</code>）则可以存放任意类型的值：
   </p>
 
   <div class="wb-grid-2">
@@ -172,35 +172,192 @@
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🐹 any_and_generics.go · 空接口 any 与 Go 1.18+ 泛型函数</span>
-        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-generics-demo', this)">复制代码</button>
+        <span>🐹 any_assertion.go · 空接口 any、安全类型断言与 type switch</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-any-demo', this)">复制代码</button>
       </div>
-      <pre class="plop-code-pre" id="code-generics-demo"><code><span class="c-cm">// 1. 空接口 any（即 interface{}）：不包含任何方法，因此可以装任意类型的值</span>
+      <pre class="plop-code-pre" id="code-any-demo"><code><span class="c-cm">// 1. 空接口 any（Go 1.18 起作为 interface{} 的官方别名）：可装入任意类型的值</span>
 <span class="c-kw">var</span> box <span class="c-fn">any</span> = <span class="c-str">"hello"</span>
-<span class="c-cm">// 使用 x.(T) 类型断言取出里面的具体类型：</span>
+
+<span class="c-cm">// 2. 安全类型断言 v, ok := x.(T)：判断 box 里装的是不是 string</span>
+<span class="c-cm">// （推荐始终带上 ok 接收布尔结果；若不写 ok 且类型不匹配会触发 panic）</span>
 <span class="c-kw">if</span> str, ok := box.(<span class="c-fn">string</span>); ok {
-    fmt.<span class="c-fn">Println</span>(<span class="c-str">"取出的字符串:"</span>, str)
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"取出的字符串长度:"</span>, <span class="c-fn">len</span>(str))
 }
 
-<span class="c-cm">// 2. Go 1.18+ 泛型函数：当算法逻辑相同、仅数据类型不同时，</span>
-<span class="c-cm">// 用 [T 类型约束] 编写一套通用代码，同时保留编译期类型检查：</span>
-<span class="c-kw">func</span> <span class="c-fn">Sum</span>[T <span class="c-fn">int</span> | <span class="c-fn">int64</span> | <span class="c-fn">float64</span>](nums []T) T {
+<span class="c-cm">// 3. type switch：需要按不同具体类型分支处理时使用 x.(type)</span>
+<span class="c-kw">switch</span> v := box.(<span class="c-kw">type</span>) {
+<span class="c-kw">case</span> <span class="c-fn">int</span>:
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"整数翻倍:"</span>, v*2)
+<span class="c-kw">case</span> <span class="c-fn">string</span>:
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"字符串内容:"</span>, v)
+<span class="c-kw">default</span>:
+    fmt.<span class="c-fn">Printf</span>(<span class="c-str">"其他类型: %T\n"</span>, v)
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 03.4 · 泛型编程 Generics（Go 1.18+ 引入，Go 1.21~1.24 持续演进） -->
+<div class="wb-card" id="generics-usage" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🧬 03.4 · 泛型编程（Generics）：类型参数 <code>[T 约束]</code>、泛型结构体容器与官方泛型标准库</div>
+  <h3>🧬 03.4 泛型（Generics，Go 1.18+）：类型参数、四大约束规则与实战容器</h3>
+
+  <p>
+    在早期的 Go 版本中，如果要写一个同时支持 <code>int</code>、<code>int64</code> 和 <code>float64</code> 的求和或切片去重函数，要么复制粘贴写三遍，要么把参数设为 <code>any</code>（不仅每次读写都要做类型断言，还失去了编译期类型检查）。<br>
+    从 <strong>Go 1.18</strong> 开始，语言正式支持了<strong>泛型（Generics / Type Parameters）</strong>，并在 <strong>Go 1.21~1.24</strong> 中补齐了泛型标准库（<code>slices</code>、<code>maps</code>、<code>cmp</code>）与泛型类型别名。它的语法核心是在函数名或类型名后面加上方括号 <strong><code>[T 类型约束]</code></strong>，其中类型约束规定了“<code>T</code> 允许传哪些类型、支持哪些运算”：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">类型约束写法</th>
+          <th style="width:28%">允许传入的类型范围</th>
+          <th>支持的运算与日常使用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>[T any]</code></strong></td>
+          <td>任意类型（即 <code>interface{}</code>）</td>
+          <td>仅做存取、移动、返回，不做算术或比较运算（如通用分页响应 <code>PageResult[T]</code>、切片反转 <code>Reverse[T]</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>[T comparable]</code></strong></td>
+          <td>所有支持 <code>==</code> 和 <code>!=</code> 比较的内置与复合类型（数字、字符串、指针、数组、字段全可比较的 <code>struct</code>）</td>
+          <td>可在函数内使用 <code>a == b</code> 判断相等，或<strong>把 <code>T</code> 作为字典 <code>map[T]V</code> 的 Key</strong>（如切片去重、通用集合 <code>Set[T]</code>）。注意：<code>slice / map / func</code> 不可比较，不满足此约束。</td>
+        </tr>
+        <tr>
+          <td><strong><code>[T int | float64]</code></strong><br>或 <strong><code>[T cmp.Ordered]</code></strong></td>
+          <td>通过竖线 <code>|</code> 列出允许的具体类型集合（联合约束）；标准库 <code>cmp.Ordered</code> 预定义了所有可比大小的数字与 <code>string</code></td>
+          <td>可在函数内直接使用 <code>+ - * /</code> 或大小比较 <code>&lt; &lt;= &gt; &gt;=</code>（如数值求和 <code>Sum[T]</code>、求极值、排序）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>[T ~int64 | ~float64]</code></strong><br>（波浪号 <code>~</code> 底层类型近似）</td>
+          <td>不仅允许 <code>int64</code> 本身，还允许所有<strong>底层类型为 <code>int64</code> 的自定义类型</strong>（如业务里定义的 <code>type UserID int64</code>）</td>
+          <td>如果不加 <code>~</code>，直接把 <code>[]UserID</code> 传给 <code>[T int64]</code> 会在编译期报错；加上 <code>~int64</code> 即可无缝兼容自定义别名类型，工程中写数值约束时强烈推荐加上 <code>~</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 generics_func.go · 泛型函数、自定义约束与自动类型推导</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-gen-func', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-gen-func"><code><span class="c-cm">// 1. 把常用的联合约束抽成 interface 复用（加 ~ 兼容自定义类型）</span>
+<span class="c-kw">type</span> Number <span class="c-kw">interface</span> {
+    ~<span class="c-fn">int</span> | ~<span class="c-fn">int64</span> | ~<span class="c-fn">float64</span>
+}
+
+<span class="c-cm">// 2. 泛型求和函数：T 受 Number 约束，因此函数内可安全执行 += 运算</span>
+<span class="c-kw">func</span> <span class="c-fn">Sum</span>[T Number](nums []T) T {
     <span class="c-kw">var</span> total T
     <span class="c-kw">for</span> _, v := <span class="c-kw">range</span> nums {
         total += v
     }
     <span class="c-kw">return</span> total
 }
-<span class="c-cm">// 调用时可直接传 []int 或 []float64：Sum([]int{1, 2, 3}) -&gt; 6</span></code></pre>
+
+<span class="c-cm">// 3. 多类型参数泛型函数：提取任意 map[K]V 的全部 Key（K 必须可比较）</span>
+<span class="c-kw">func</span> <span class="c-fn">MapKeys</span>[K <span class="c-fn">comparable</span>, V <span class="c-fn">any</span>](m <span class="c-kw">map</span>[K]V) []K {
+    keys := <span class="c-fn">make</span>([]K, 0, <span class="c-fn">len</span>(m))
+    <span class="c-kw">for</span> k := <span class="c-kw">range</span> m {
+        keys = <span class="c-fn">append</span>(keys, k)
+    }
+    <span class="c-kw">return</span> keys
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-kw">type</span> Cent <span class="c-fn">int64</span> <span class="c-cm">// 自定义“分”类型，底层是 int64</span>
+    <span class="c-cm">// 调用时编译器会根据实参自动推导 T，无需手写 Sum[Cent](...)</span>
+    fmt.<span class="c-fn">Println</span>(<span class="c-fn">Sum</span>([]Cent{100, 250, 50}))     <span class="c-cm">// 输出: 400 (返回类型也是 Cent)</span>
+    fmt.<span class="c-fn">Println</span>(<span class="c-fn">Sum</span>([]<span class="c-fn">float64</span>{1.5, 2.25}))   <span class="c-cm">// 输出: 3.75</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐹 generics_struct.go · 泛型结构体（统一响应包装与泛型集合 Set）</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-gen-struct', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-gen-struct"><code><span class="c-cm">// 场景 1：后端统一 JSON 响应结构体，Data 字段类型随接口动态指定</span>
+<span class="c-kw">type</span> ApiResp[T <span class="c-fn">any</span>] <span class="c-kw">struct</span> {
+    Code <span class="c-fn">int</span>    <span class="c-str">`json:"code"`</span>
+    Msg  <span class="c-fn">string</span> <span class="c-str">`json:"msg"`</span>
+    Data T      <span class="c-str">`json:"data"`</span>
+}
+
+<span class="c-cm">// 场景 2：封装类型安全的泛型去重集合 Set[T]（底层复用空结构体 map）</span>
+<span class="c-kw">type</span> Set[T <span class="c-fn">comparable</span>] <span class="c-kw">map</span>[T]<span class="c-kw">struct</span>{}
+
+<span class="c-kw">func</span> <span class="c-fn">NewSet</span>[T <span class="c-fn">comparable</span>](items ...T) Set[T] {
+    s := <span class="c-fn">make</span>(Set[T], <span class="c-fn">len</span>(items))
+    <span class="c-kw">for</span> _, item := <span class="c-kw">range</span> items {
+        s[item] = <span class="c-kw">struct</span>{}{}
+    }
+    <span class="c-kw">return</span> s
+}
+
+<span class="c-cm">// 为泛型类型绑定方法：接收者直接带上 [T]，方法内即可使用 T</span>
+<span class="c-kw">func</span> (s Set[T]) <span class="c-fn">Contains</span>(val T) <span class="c-fn">bool</span> {
+    _, ok := s[val]
+    <span class="c-kw">return</span> ok
+}
+<span class="c-cm">// 注：Go 1.24 起还正式支持了带类型参数的泛型类型别名（Generic Type Aliases）：</span>
+<span class="c-cm">// type Pair[T any] = [2]T</span></code></pre>
+    </div>
+  </div>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🧰 generics_stdlib.go · Go 1.21+ 官方泛型内置函数与标准库（免造轮子）</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-gen-stdlib', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-gen-stdlib"><code><span class="c-kw">import</span> (
+    <span class="c-str">"cmp"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"maps"</span>
+    <span class="c-str">"slices"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// 1. Go 1.21+ 内置泛型函数 min / max：无需再调 math.Min(float64) 强转类型</span>
+    fmt.<span class="c-fn">Println</span>(<span class="c-fn">min</span>(12, 5, 9), <span class="c-fn">max</span>(<span class="c-str">"go"</span>, <span class="c-str">"rust"</span>)) <span class="c-cm">// 输出: 5 rust</span>
+
+    <span class="c-cm">// 2. slices 标准库：泛型排序、查找、去重、克隆一行搞定</span>
+    nums := []<span class="c-fn">int</span>{30, 10, 20, 20}
+    slices.<span class="c-fn">Sort</span>(nums)                        <span class="c-cm">// 升序排序: [10 20 20 30]</span>
+    nums = slices.<span class="c-fn">Compact</span>(nums)              <span class="c-cm">// 相邻去重: [10 20 30]</span>
+    has20 := slices.<span class="c-fn">Contains</span>(nums, 20)       <span class="c-cm">// 是否包含: true</span>
+
+    <span class="c-cm">// 3. maps 与 cmp 标准库：深浅克隆字典与提供默认值回退</span>
+    mCopy := maps.<span class="c-fn">Clone</span>(<span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">int</span>{<span class="c-str">"a"</span>: 1})
+    port := cmp.<span class="c-fn">Or</span>(os.<span class="c-fn">Getenv</span>(<span class="c-str">"PORT"</span>), <span class="c-str">"8080"</span>) <span class="c-cm">// 返回第一个非零值: "8080"</span>
+    fmt.<span class="c-fn">Println</span>(has20, mCopy, port)
+}</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; justify-content:center; font-size:13.2px; line-height:1.68;">
+      <div style="font-weight:900; font-size:14.2px; color:var(--plop-ink); margin-bottom:8px;">💡 Go 泛型日常使用的三条工程边界</div>
+      <ul style="margin:0; padding-left:18px;">
+        <li><strong>什么时候用 <code>interface</code>，什么时候用泛型 <code>[T]</code>？</strong><br>如果不同类型<strong>内部处理逻辑不同</strong>（例如微信支付与支付宝支付各自调不同接口），用 <code>interface</code>；如果<strong>处理逻辑完全相同、仅仅是元素类型不同</strong>（例如通用集合 <code>Set[T]</code>、响应包装 <code>ApiResp[T]</code>、切片转换），用泛型。</li>
+        <li><strong>结构体的方法不能再额外声明新类型参数</strong>：<br>结构体 <code>Set[T]</code> 的方法可以直接用 <code>T</code>，但 Go 语法目前不支持在方法上单独加一个新的 <code>func (s Set[T]) Map[U any](...)</code>（为了确保接口方法表在编译期可静态确定）。遇到跨类型转换时，直接写成顶层泛型函数 <code>func MapSlice[T, U any](s []T, fn func(T) U) []U</code> 即可。</li>
+        <li><strong>底层编译原理深挖</strong>：想知道 Go 编译器如何通过 <code>GCShape + Dictionary</code> 兼顾编译速度与运行性能？可点击查看 <a href="principles.html#generics">📘 核心原理篇 · 06.2 泛型 GCShape 编译原理 ↗</a>。</li>
+      </ul>
     </div>
   </div>
 </div>
 
-<!-- 03.4 · 工程实战重点：基于 interface 的三大经典设计模式与开发小技巧 -->
+<!-- 03.5 · 工程实战重点：基于 interface 的三大经典设计模式与开发小技巧 -->
 <div class="wb-card" id="interface-patterns" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape tomato"></div>
-  <div class="chapter-q-pill">🏛️ 03.4 · 工程设计模式：策略注册表、装饰器增强、函数式选项（<code>WithXxx</code>）与编译期接口检查</div>
-  <h3>🏛️ 03.4 Go 项目开发核心技巧：用 <code>interface</code> 与设计模式构建高扩展性功能</h3>
+  <div class="chapter-q-pill">🏛️ 03.5 · 工程设计模式：策略注册表、装饰器增强、函数式选项（<code>WithXxx</code>）与编译期接口检查</div>
+  <h3>🏛️ 03.5 Go 项目开发核心技巧：用 <code>interface</code> 与设计模式构建高扩展性功能</h3>
 
   <p>
     在真实的 Go 工程开发中，最经典的设计思想就是<strong>围绕小巧的 <code>interface</code> 进行多渠道扩展与功能编排</strong>，并遵循社区推崇的 <strong>“接收接口，返回具体结构体（Accept interfaces, return structs）”</strong> 原则。下面展示实际项目中最常用的三大设计模式与实用技巧：

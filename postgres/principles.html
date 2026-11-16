@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="PostgreSQL 核心原理篇：深入剖析堆表 vs 索引组织表、8KB 数据页物理布局与 TOAST 机制、postmaster 多进程与 Shared Buffers 时钟扫描、PgBouncer 事务级池化、JSONB 二进制树与系统目录 MVCC、查询优化器 CBO 成本模型、23B 元组头 xmin/xmax/CLOG/Hint Bits、SSI 可串行化快照、六大索引内核结构与 Visibility Map、HOT 页内更新、32 位事务 ID 回卷冻结与 WAL 流复制。" />
+  <title>PostgreSQL · 核心原理篇 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+      </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" data-edition-target="index.html" title="切换到当前章节的环境安装、数据类型、高级 SQL 语法与日常运维实战">🌱 基础与实战篇 ↗</a>
+        <a href="principles.html" class="active principles" aria-current="page" title="深入堆表 8KB 页布局、多进程与缓冲池、MVCC 快照状态机、六大索引内核与 VACUUM 原理">📘 核心原理篇</a>
+      </nav>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + 内核参数速查 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与底层机制速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="PostgreSQL 核心原理章节书签">
+          <a href="#why" class="plop-ear-tab active" data-toc="why">
+            <span class="ear-dot"></span>
+            <span>00 堆表与8KB页布局</span>
+          </a>
+          <a href="#arch" class="plop-ear-tab" data-toc="arch">
+            <span class="ear-dot periwinkle"></span>
+            <span>01 多进程与缓冲池</span>
+          </a>
+          <a href="#types" class="plop-ear-tab" data-toc="types">
+            <span class="ear-dot mint"></span>
+            <span>02 JSONB与目录MVCC</span>
+          </a>
+          <a href="#dml" class="plop-ear-tab" data-toc="dml">
+            <span class="ear-dot mustard"></span>
+            <span>03 优化器与执行器</span>
+          </a>
+          <a href="#trx" class="plop-ear-tab" data-toc="trx">
+            <span class="ear-dot pink"></span>
+            <span>04 快照、SSI与行锁</span>
+          </a>
+          <a href="#index" class="plop-ear-tab" data-toc="index">
+            <span class="ear-dot periwinkle"></span>
+            <span>05 六大索引与VM表</span>
+          </a>
+          <a href="#vacuum" class="plop-ear-tab" data-toc="vacuum">
+            <span class="ear-dot mint"></span>
+            <span>06 HOT、回卷与WAL</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：PostgreSQL 内核关键参数速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>PG KERNEL 速查</span>
+            <span>#16/17</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>数据页 / 元组头</span>
+            <span>8 KiB / 23 B</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>TOAST 阈值</span>
+            <span>≈ 2 KiB 切片</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>缓存淘汰</span>
+            <span>Clock-Sweep</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>同页更新</span>
+            <span>HOT 链剪枝</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>XID 冻结阈值</span>
+            <span>2亿触发 / 21亿停库</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#why" class="active">00 堆表与8KB页</a>
+        <a href="#arch">01 进程与缓冲</a>
+        <a href="#types">02 JSONB与目录</a>
+        <a href="#dml">03 优化器CBO</a>
+        <a href="#trx">04 MVCC与SSI</a>
+        <a href="#index">05 索引与VM</a>
+        <a href="#vacuum">06 HOT与回卷</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape"></div>
+
+        <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三阶段阅读车票 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card" style="background:var(--plop-periwinkle);">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">DATABASE / INTERNALS</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:32px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">PostgreSQL</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">核心原理篇</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag periwinkle">📘 核心原理篇</span>
+              <span class="plop-tag mint">8KB 堆表页 · TOAST · Clock-Sweep · CBO 优化器</span>
+              <span class="plop-tag tomato">23B 元组头 MVCC · SSI · 六大索引内核 · HOT 与防回卷</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              PostgreSQL · 核心原理篇
+            </h1>
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0 0 14px; font-weight:600;">
+              面向希望深挖数据库内核机制与备战深度技术面试的读者：本篇不再重复基础语法与入门命令，直接从堆表与索引组织表的底层分歧切入，深入剖析八千字节数据页内存布局与超大字段压缩切片、多进程派发与共享缓冲池时钟扫描算法、二进制文档树与系统目录多版本保护、基于成本的查询优化器与双阶段哈希连接、二十三字节元组头与快照可见性状态机、可串行化快照隔离与无锁表膨胀的行级锁实现、六大索引物理结构与可见性映射位图，以及页内热更新链、三十二位事务号环形冻结与预写日志流复制机制。若需回顾基础语法与日常开发示例，可随时切回 <a href="index.html">🌱 基础与实战篇 ↗</a>。
+            </p>
+
+            <!-- 三阶段手账小票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#why" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 存储底座、进程与缓冲池</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—02：Heap vs IOT、8KB 页与 TOAST、Clock-Sweep、PgBouncer、JSONB 与目录 MVCC</div>
+              </a>
+              <a href="#dml" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 优化器、MVCC 与并发控制</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 03—04：CBO 成本公式与统计直方图、23B 元组头、CLOG/Hint Bits、快照算法与 SSI</div>
+              </a>
+              <a href="#index" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 索引内核、HOT 与防回卷</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 05—06：Lehman-Yao B-tree、GIN/BRIN 结构、Visibility Map、HOT 剪枝、Freeze 与 WAL</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="principles-sections/00-why.html">
+          <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/00-why.html">00 · 第一性原理与存储底座：堆表（Heap Table）vs 索引组织表（IOT）、8KB 页面布局与 TOAST 机制</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比 PostgreSQL 堆表与 MySQL InnoDB 聚簇索引的十大底层差异，拆解 8 KiB 数据页（PageHeaderData、Line Pointer 与 Tuple 双向生长）与 varlena / TOAST 切片压缩原理。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/01-arch.html">
+          <section class="wb-card" id="arch" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/01-arch.html">01 · 多进程与内存内核：postmaster 派发模型、Shared Buffers 时钟扫描算法与 PgBouncer 事务级池化</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">剖析 Backend 私有内存（work_mem 乘数分配与 Catalog Cache）、Shared Buffers 的 Clock-Sweep 淘汰状态机、双层缓存架构以及 PgBouncer 三级池化底层机制。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/02-types.html">
+          <section class="wb-card" id="types" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/02-types.html">02 · 二进制文档树与系统目录 MVCC：JSONB JEntry 内存编码、事务性 DDL 实现与元数据免重写机制</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">解析 JSONB 头部 JEntry 字典序二分查找原理、系统表 pg_class/pg_attribute 的 MVCC 事务回滚机制，以及 PG 11+ ADD COLUMN DEFAULT 免全表重写实现。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/03-dml.html">
+          <section class="wb-card" id="dml" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/03-dml.html">03 · 查询优化器与执行引擎：CBO 成本估算公式、pg_statistic 直方图、双阶段 Hash Join 与并行查询</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解 Parser → Rewriter → Planner → Executor 四阶段管线，推导 seq_page_cost / random_page_cost 与 MCV/直方图选择率计算，剖析 Hybrid Hash Join 分批落盘。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/04-mvcc.html">
+          <section class="wb-card" id="trx" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/04-mvcc.html">04 · 堆表 MVCC、快照可见性状态机、SSI 可串行化隔离与元组头行级锁底层实现</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">深入 23 字节 HeapTupleHeaderData、pg_xact (CLOG) 与 Hint Bits 写放大、SnapshotData (xmin:xmax:xip_list) 可见性判定、SIREAD 谓词锁防写偏序与 MultiXactId 行锁。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/05-index.html">
+          <section class="wb-card" id="index" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/05-index.html">05 · 六大索引内核数据结构：Lehman-Yao B-tree、GIN 倒排树 + fastupdate、BRIN 块摘要与 Visibility Map</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">图解 B-tree High Key 与右向分裂链、GIN Entry Tree + Posting Tree 与 pending list、Index Only Scan 依赖 VM 双比特位的原因，以及 Bitmap Scan 有损页退化。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/06-vacuum.html">
+          <section class="wb-card" id="vacuum" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/06-vacuum.html">06 · 空间治理与高可用内核：HOT 页内更新与剪枝、32 位 XID 环形冻结、WAL 防页撕裂与流复制 + 15 问自测</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解 LP_REDIRECT HOT 链与页内实时剪枝、模 2^32 事务号回卷与 Freeze 推进受阻排查、FSM 空闲空间二叉堆、full_page_writes 防页撕裂与 15 道深度面试自测。</p>
+          </section>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：阅读路线便签 + 全站主题跳转 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷导航与跨专题切换">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note periwinkle tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>📘 按面试高频模块直达</span>
+            </span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:7px; margin-top:8px;">
+            <a class="plop-pill-sticker" href="#why">PG vs MySQL 底层差异：看 00</a>
+            <a class="plop-pill-sticker mustard" href="#trx">MVCC、快照与行锁：看 04 + 06</a>
+            <a class="plop-pill-sticker mint" href="index.html">想看入门语法与实战：回 🌱 基础篇 ↗</a>
+          </div>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,185 @@
+<!-- ====================================================================
+     PART 02: 二进制文档树与系统目录 MVCC · JSONB 编码、事务性 DDL 与元数据免重写
+     ==================================================================== -->
+<div class="wb-sec-header" id="types">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">二进制文档树与系统目录 MVCC · JSONB 编码与事务性 DDL 原理</span>
+  <span class="plop-tag mint">JSONB JENTRY × CATALOG MVCC × SINVAL × FAST DEFAULT</span>
+</div>
+
+<!-- 02.1 · JSONB 二进制树内部内存布局与 O(log K) 二分跳读 -->
+<div class="wb-card" id="jsonb-internals" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧬 02.1 · <code>JSONB</code> 内核结构：<code>JEntry</code> 32 位偏移目录、键名长度字典序预排序与 <code>O(log K)</code> 二分查找</div>
+  <h3>🧬 02.1 <code>JSONB</code> 二进制内存布局与二分跳读原理</h3>
+
+  <p>
+    为什么普通 <code>json</code> 类型提取一个深层字段需要从头到尾扫描字符串（<code>O(N)</code> 词法解析），而 <code>jsonb</code> 能够以微秒级直接跳读目标字段？查看源码 <code>src/include/utils/jsonb.h</code> 可以发现，<code>jsonb</code> 在写入时已将 JSON 对象编译为一棵<strong>带定长头部索引目录（<code>JEntry</code> 数组）的扁平化二进制树</strong>：
+  </p>
+
+  <!-- JSONB 二进制容器内存布局与二分查找图解 (Editorial SVG) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 268" style="width:100%; min-width:820px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="pg-jsonb-title pg-jsonb-desc">
+        <title id="pg-jsonb-title">PostgreSQL JSONB 二进制容器（JsonbContainer）内存布局与二分查找图</title>
+        <desc id="pg-jsonb-desc">展示 JSONB 对象在磁盘与内存中的连续二进制结构：32 位 Header 后紧跟定长 4 字节 Key JEntry 数组、Value JEntry 数组，最后是紧凑排列的键名字符串与值数据区，支持按长度优先字典序 O(log K) 二分查找。</desc>
+        <defs>
+          <marker id="jb-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- 1. Orthogonal Jump Pointers drawn BEFORE boxes -->
+        <!-- Key JEntry[1] ("id", x=272, y=64) -> Key Data "id" (x=592, y=64) -->
+        <path d="M 272,64 V 32 Q 272,24 280,24 H 584 Q 592,24 592,32 V 64" fill="none" stroke="#bf4520" stroke-width="1.6" marker-end="url(#jb-arrow)"/>
+        <rect x="368" y="8" width="128" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="432" y="17" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="700">1. 二分命中 Key JEntry</text>
+
+        <!-- Value JEntry[1] (x=456, y=132) -> Value Data 42 (x=768, y=132) -->
+        <path d="M 456,132 V 164 Q 456,172 464,172 H 760 Q 768,172 768,164 V 132" fill="none" stroke="#bf4520" stroke-width="1.6" marker-end="url(#jb-arrow)"/>
+        <rect x="540" y="178" width="152" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="616" y="188" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="700">2. 按相同下标直跳 Value 区</text>
+
+        <!-- 2. Contiguous Binary Memory Bar (x=28 to x=892) -->
+        <!-- Header (4B) -->
+        <rect x="28" y="64" width="144" height="68" rx="0" fill="#EEF3FF" stroke="#2d3142" stroke-width="1.8"/>
+        <text x="100" y="86" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="11" font-weight="700">Header (32-bit)</text>
+        <text x="100" y="104" text-anchor="middle" fill="#4f5d75" font-size="10">JB_FOBJECT 标志</text>
+        <text x="100" y="120" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="9.5" font-weight="700">键值对数量 K = 3</text>
+
+        <!-- Key JEntries (3 * 4B) -->
+        <rect x="172" y="64" width="196" height="68" rx="0" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="270" y="86" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="11" font-weight="700">Key JEntry[0..K-1]</text>
+        <text x="270" y="104" text-anchor="middle" fill="#2d3142" font-size="10">每个 4B (类型位 + 偏移量)</text>
+        <text x="270" y="120" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">按「键长度优先 + 字典序」排好</text>
+
+        <!-- Value JEntries (3 * 4B) -->
+        <rect x="368" y="64" width="184" height="68" rx="0" fill="#FFF6E5" stroke="#2d3142" stroke-width="1.8"/>
+        <text x="460" y="86" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="11" font-weight="700">Val JEntry[0..K-1]</text>
+        <text x="460" y="104" text-anchor="middle" fill="#2d3142" font-size="10">与 Key 下标一一对应</text>
+        <text x="460" y="120" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">记录值的类型与字节偏移</text>
+
+        <!-- Keys Payload -->
+        <rect x="552" y="64" width="168" height="68" rx="0" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.8"/>
+        <text x="636" y="86" text-anchor="middle" fill="#2d3142" font-size="11" font-weight="700">Keys 连续字符串区</text>
+        <text x="636" y="104" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="10" font-weight="700">"id"(2B) | "vip"(3B)</text>
+        <text x="636" y="120" text-anchor="middle" fill="#4f5d75" font-family="ui-monospace,monospace" font-size="9.5">| "address"(7B)</text>
+
+        <!-- Values Payload -->
+        <rect x="720" y="64" width="172" height="68" rx="0" fill="#E9F9F1" stroke="#2d3142" stroke-width="1.8"/>
+        <text x="806" y="86" text-anchor="middle" fill="#2d3142" font-size="11" font-weight="700">Values 连续数据区</text>
+        <text x="806" y="104" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10">42 | true | 子Container</text>
+        <text x="806" y="120" text-anchor="middle" fill="#4f5d75" font-size="9.5">无需解析无关平级字段</text>
+
+        <!-- Bottom note -->
+        <rect x="28" y="204" width="864" height="48" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.16)" stroke-width="1"/>
+        <text x="44" y="224" fill="#2d3142" font-size="11.5" font-weight="700">⚡ 为什么 JSONB 的键顺序遵循「先比键名字节长度、长度相同再比 ASCII 字典序」？</text>
+        <text x="44" y="242" fill="#4f5d75" font-size="11">当执行 profile-&gt;&gt;'vip' 时，目标键长度为 3，二分查找直接通过 JEntry 中的长度排除所有长度 != 3 的键，极少需要真正调用 memcmp 比对字符串内容。</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="plop-callout warn" style="margin-bottom:0;">
+    <strong>⚠️ <code>JSONB</code> 局部更新的底层代价：整列重写与 TOAST 写放大</strong><br>
+    虽然 <code>jsonb</code> 的读取是 <code>O(log K)</code> 跳读，但由于 PostgreSQL 采用堆表追加写 MVCC，且 <code>JsonbContainer</code> 是紧凑连续存储的二进制块，执行 <code>UPDATE t SET profile = jsonb_set(profile, '{level}', '4')</code> 修改一个 100 KB 的大 <code>jsonb</code> 中的 1 个字节时，<strong>无法在磁盘上只原地改动那 1 个字节，而是必须生成一整份新的 100 KB <code>jsonb</code> 写入新的 TOAST 切片</strong>。因此对于每秒高频递增的计数器或状态字段，应拆分为独立的普通关系列（可利用同页 <code>HOT</code> 更新），不要塞进大体积的 <code>jsonb</code> 文档中。
+  </div>
+</div>
+
+<!-- 02.2 · 系统目录表（System Catalogs）的 MVCC 保护与事务性 DDL 原理 -->
+<div class="wb-card" id="transactional-ddl-internals" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🏛️ 02.2 · 事务性 DDL 原理：系统目录表（<code>pg_class / pg_attribute</code>）的 MVCC 多版本机制与缓存失效广播（<code>sinval</code>）</div>
+  <h3>🏛️ 02.2 事务性 DDL 的实现机制：系统表 MVCC 与延迟物理删除</h3>
+
+  <p>
+    在许多传统数据库中，表结构定义存储在特殊的非事务元数据文件或内存字典里，执行 <code>ALTER TABLE</code> 或 <code>DROP TABLE</code> 会强制隐式提交当前事务。而在 PostgreSQL 中，<strong>所有描述数据库对象元数据的系统目录表（System Catalogs，如记录表的 <code>pg_class</code>、记录列的 <code>pg_attribute</code>、记录索引的 <code>pg_index</code>）本身就是标准的 MVCC 堆表</strong>：
+  </p>
+
+  <div class="wb-grid-2">
+    <div>
+      <h4>1. 一条 <code>DDL</code> 在内核中的事务与文件生命周期</h4>
+      <ol style="margin:6px 0 0; padding-left:18px; font-size:13.1px; line-height:1.68;">
+        <li><strong>系统表行级 MVCC 修改</strong>：当事务 <code>T200</code> 执行 <code>ALTER TABLE users ADD COLUMN bio text;</code> 时，本质上是向系统表 <code>pg_attribute</code> 插入了一条 <code>xmin = 200</code> 的新元组，并更新了 <code>pg_class</code> 中该表的列数元组。在 <code>T200</code> 提交前，其他会话根据 MVCC 可见性规则根本看不到这行元数据。</li>
+        <li><strong>逻辑 OID 与物理文件 <code>relfilenode</code> 解耦</strong>：每张表在 <code>pg_class</code> 中有一个不变的对象标识 <code>oid</code>，而它对应磁盘上的真实物理文件名为 <code>relfilenode</code>（如 <code>base/16384/24576</code>）。当在事务内执行 <code>DROP TABLE</code> 或 <code>TRUNCATE</code> 时，<strong>内核并不会立刻调用操作系统的 <code>unlink()</code> 删除物理磁盘文件</strong>，而是先在系统表中将旧元组标记 <code>xmax = 200</code>，并把待删除的 <code>relfilenode</code> 登记到当前事务的<strong>待删文件队列（<code>pendingDeletes</code>）</strong>中：
+          <ul>
+            <li>若事务最终执行 <strong><code>ROLLBACK</code></strong>：<code>xmin/xmax</code>为 200 的系统表改动自动失效，原物理文件完好无损，回滚瞬间完成；</li>
+            <li>若事务最终执行 <strong><code>COMMIT</code></strong>：写完提交 WAL 记录后，才真正由内核批量删除旧 <code>relfilenode</code> 物理文件。</li>
+          </ul>
+        </li>
+        <li><strong>跨进程元数据缓存同步（<code>sinval</code> 队列）</strong>：由于每个 <code>Backend</code> 进程都在私有内存中维护了表结构缓存（<code>relcache / catcache</code>），当事务提交修改了系统表时，会向共享内存中的 <strong>共享失效消息队列（Shared Invalidation Message Queue, <code>sinval</code>）</strong> 写入失效通知，其他会话在开始下一条语句时读取该队列并刷新本地元数据缓存。</li>
+      </ol>
+    </div>
+
+    <div>
+      <h4>2. 不可放入事务块回滚的命令边界清单</h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:36%">不支持放在 <code>BEGIN</code> 块内的命令</th>
+              <th>底层限制原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>CREATE DATABASE</code> / <code>DROP DATABASE</code> / <code>CREATE TABLESPACE</code></td>
+              <td>涉及在操作系统层面跨目录复制整个模板库文件夹（<code>cp -r base/1 ...</code>）或删除整个数据库目录，无法通过单库内的系统表 MVCC 跟踪。</td>
+            </tr>
+            <tr>
+              <td><code>CREATE INDEX CONCURRENTLY</code> / <code>REINDEX CONCURRENTLY</code></td>
+              <td>在线无锁建索引需要主动拆分为多个内部事务提交，并跨事务等待全库所有早期活跃事务结束，因此不能被外层显式事务包裹。</td>
+            </tr>
+            <tr>
+              <td><code>VACUUM</code> / <code>CLUSTER</code></td>
+              <td>后台空间回收需要按页面粒度随时提交可见性修改并释放推进最老事务水位线，不支持跨全表回滚。</td>
+            </tr>
+            <tr>
+              <td><code>ALTER TYPE ... ADD VALUE</code>（特定场景）</td>
+              <td>PG 12+ 已允许在事务块内添加枚举值，但新添加的枚举值在当前事务提交前不能立即写入已存在的表（防止回滚后留下幽灵枚举引用）。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 02.3 · PG 11+ 快速加列（Fast Default）与表重写边界推导 -->
+<div class="wb-card" id="fast-default-internals" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">⚡ 02.3 · 元数据快速加列：<code>pg_attribute.attmissingval</code> 如何让上亿行大表 <code>ADD COLUMN DEFAULT</code> 免于重写</div>
+  <h3>⚡ 02.3 <code>ADD COLUMN ... DEFAULT</code> 免全表重写的内核实现</h3>
+
+  <p>
+    在 PostgreSQL 11 之前（以及早期版本的其他数据库中），执行 <code>ALTER TABLE orders ADD COLUMN flag int NOT NULL DEFAULT 1;</code> 必须把整张表的所有 8KB 数据页全部读出来、在每一行末尾拼上新字段值 <code>1</code> 并写入新的磁盘文件，上亿行大表会锁表数十分钟。从 <strong>PostgreSQL 11</strong> 起，这一操作变成了<strong>毫秒级的纯元数据修改</strong>：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">内核机制 / 改表操作</th>
+          <th style="width:22%">是否重写物理表文件？</th>
+          <th>底层读取与系统表实现原理</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 加列带非易变默认值</strong><br><code>ADD COLUMN c int DEFAULT 1</code><br>或 <code>DEFAULT now()</code></td>
+          <td><strong>不重写（0 秒完成）</strong></td>
+          <td>系统表 <code>pg_attribute</code> 新增了两个关键字段：<strong><code>atthasmissing = true</code> 与 <code>attmissingval = {1}</code></strong>（即使默认表达式是 <code>now()</code> 等稳定函数，也会在执行 <code>ALTER</code> 的那一刻求值一次存入 <code>attmissingval</code>）。此后读取老数据行时，内核发现该行的物理列数 <code>t_natts</code> 小于表定义列数，<strong>直接从 <code>attmissingval</code> 取出默认值返回</strong>，完全无需触碰老数据页。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 加列带易变函数默认值</strong><br><code>DEFAULT random()</code> 或 <code>gen_random_uuid()</code></td>
+          <td><strong>必须重写全表</strong><br>（长时持有排他锁）</td>
+          <td>因为易变函数（<code>VOLATILE</code>）要求历史每一行都生成各自不同的随机值，无法共用单个 <code>attmissingval</code> 常量，内核只能遍历重写全表每一行。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 修改列数据类型</strong><br><code>ALTER COLUMN c TYPE bigint</code></td>
+          <td><strong>绝大多数重写全表</strong><br>（有 2 类免重写特例）</td>
+          <td>将 <code>int (4B)</code> 改为 <code>bigint (8B)</code> 会改变元组内字节偏移，必须分配新 <code>relfilenode</code> 重写全表。<br><strong>免重写特例</strong>：① <code>varchar(50)</code> 放宽为 <code>varchar(100)</code> 或 <code>text</code>（底层同为 <code>varlena</code>）；② <code>numeric(10,2)</code> 放宽整数位为 <code>numeric(14,2)</code>（小数精度不变）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

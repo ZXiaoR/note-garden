@@ -1,270 +1,246 @@
 <!-- ====================================================================
-             PART 05: 六大索引体系、高级索引变体与 EXPLAIN 执行计划调优
-             ==================================================================== -->
-        <div class="wb-sec-header" id="index">
-          <span class="wb-sec-num">05</span>
-          <span class="wb-sec-title">六大索引与执行计划 · B-tree/GIN/GiST/BRIN、覆盖索引与 EXPLAIN 调优</span>
-          <span class="plop-tag periwinkle">GIN · BRIN · INCLUDE · EXPLAIN ANALYZE</span>
-        </div>
+     PART 05: 日常索引创建、组合索引设计与慢查询初步排查
+     ==================================================================== -->
+<div class="wb-sec-header" id="index">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">日常索引创建、组合索引设计与慢查询初步排查</span>
+  <span class="plop-tag periwinkle">B-TREE × GIN &amp; BRIN × INCLUDE × EXPLAIN ANALYZE</span>
+</div>
 
-        <!-- 05.1 六大索引体系与四大工程级索引变体 -->
-        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;" id="index-type">
-          <div class="washi-tape"></div>
-          <div class="chapter-q-pill">❓ 05.1 · 为什么 PostgreSQL 被称为“索引博物馆”？GIN 倒排索引和 BRIN 块范围索引分别解决什么极限场景？</div>
-          <h3>🗂️ 05.1 PG 六大索引引擎全景选型（面试王牌区分点）</h3>
-          <p>
-            PostgreSQL 默认创建的索引是 <strong>B-tree</strong>，但它把索引做成了可插拔访问方法（Access Method），原生内置了 <strong>6 种各怀绝技的索引结构</strong>：
-          </p>
+<!-- 05.1 · 常见索引类型选型与四大工程级索引变体 -->
+<div class="wb-card" id="index-type" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🗂️ 05.1 · 索引选型：六类内置索引适用场景与部分索引、表达式索引、<code>INCLUDE</code> 覆盖索引创建语法</div>
+  <h3>🗂️ 05.1 索引类型选型与高阶索引创建语法</h3>
 
-          <!-- 手绘 SVG：B-tree vs GIN (倒排索引) vs BRIN (块范围索引) 核心结构对比 -->
-          <svg viewBox="0 0 880 265" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="PostgreSQL B-tree GIN BRIN 三大核心索引结构图">
-            <!-- 1. B-tree -->
-            <rect x="14" y="14" width="274" height="237" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="24" y="24" width="254" height="26" rx="6" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="151" y="42" text-anchor="middle" font-size="11.5" font-weight="900" fill="var(--plop-ink-text)">🌲 ① B-tree（默认 · 标量等值与范围）</text>
+  <p>
+    在 PostgreSQL 中执行 <code>CREATE INDEX</code> 时，如果不指定类型，默认创建的是 <strong>B-tree 索引</strong>。同时，针对 JSONB 文档、数组、地理位置以及超大规模时序日志表，PostgreSQL 内置了多种专用索引访问方法：
+  </p>
 
-            <rect x="104" y="62" width="94" height="26" rx="5" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="151" y="79" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">[ 20 | 50 ]</text>
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%;">索引类型</th>
+          <th style="width:28%;">支持的操作符 / 查询模式</th>
+          <th>日常适用场景与选型建议</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. B-tree</strong>（默认）</td>
+          <td><code>=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>BETWEEN</code>, <code>IN</code>, <code>IS NULL</code>, 前缀匹配 <code>LIKE 'abc%'</code>, <code>ORDER BY</code></td>
+          <td><strong>90% 以上单值标量列的首选</strong>：主键、外键、用户邮箱、订单状态、时间戳范围查询与排序。</td>
+        </tr>
+        <tr>
+          <td><strong>2. GIN</strong><br>（广义倒排索引）</td>
+          <td><code>@&gt;</code>, <code>&lt;@</code>, <code>?</code>, <code>?|</code>, <code>?&amp;</code>, <code>&amp;&amp;</code>, <code>@@</code>（全文检索）</td>
+          <td><strong>当一个字段内部包含多个元素时使用</strong>：如 <code>jsonb</code> 嵌套键值包含查询、<code>text[] / int[]</code> 数组交集与包含、全文检索，或配合 <code>pg_trgm</code> 插件加速前导模糊查询 <code>LIKE '%关键词%'</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>3. BRIN</strong><br>（块范围索引）</td>
+          <td>按物理存储顺序过滤 <code>=</code>, <code>&lt;</code>, <code>&gt;</code></td>
+          <td><strong>按时间顺序只追加写入（Append-Only）的亿级日志/账单流水表</strong>：只记录连续数据页块的最小与最大值，索引体积通常仅几 MB（比 B-tree 小数百倍）。</td>
+        </tr>
+        <tr>
+          <td><strong>4. GiST / SP-GiST / Hash</strong></td>
+          <td>几何距离 <code>&lt;-&gt;</code>、范围重叠 <code>&amp;&amp;</code>、排他约束 <code>EXCLUDE</code>、超长字符串纯等值 <code>=</code></td>
+          <td><code>GiST</code> 用于 PostGIS 地理坐标与时间区间防重叠约束（如禁止同一会议室预订重叠时段）；<code>SP-GiST</code> 用于 IP 网段/前缀树；<code>Hash</code> 用于超长 URL 的纯等值查询。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 
-            <rect x="26" y="110" width="76" height="28" rx="5" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.5"/>
-            <text x="64" y="128" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink-text)">10➔(0,2)</text>
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 create_indexes.sql · 常见索引与高阶变体创建示例</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-index-sql', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="pg-index-sql"><code><span class="c-cmt">-- 1. 复合 B-tree 索引：按 (user_id, created_at DESC) 加速用户历史订单分页</span>
+<span class="c-kw">CREATE INDEX</span> idx_orders_user_created
+  <span class="c-kw">ON</span> orders (user_id, created_at <span class="c-kw">DESC</span>);
 
-            <rect x="113" y="110" width="76" height="28" rx="5" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.5"/>
-            <text x="151" y="128" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink-text)">35➔(4,1)</text>
+<span class="c-cmt">-- 2. 部分索引 (Partial Index)：带 WHERE 条件，只给热数据建索引</span>
+<span class="c-cmt">-- 例：99% 订单已完成，业务仅高频轮询未支付订单，索引体积缩小 95% 以上</span>
+<span class="c-kw">CREATE INDEX</span> idx_orders_pending
+  <span class="c-kw">ON</span> orders (created_at) <span class="c-kw">WHERE</span> status = <span class="c-str">'pending'</span>;
 
-            <rect x="200" y="110" width="76" height="28" rx="5" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.5"/>
-            <text x="238" y="128" text-anchor="middle" font-size="9.5" font-weight="800" fill="var(--plop-ink-text)">80➔(9,5)</text>
+<span class="c-cmt">-- 3. 表达式索引 (Expression Index)：对函数计算结果建唯一索引</span>
+<span class="c-kw">CREATE UNIQUE INDEX</span> idx_users_lower_email
+  <span class="c-kw">ON</span> users (<span class="c-fn">lower</span>(email));
 
-            <text x="30" y="164" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• 一行对应一个标量键 → 指向堆表 ctid</text>
-            <text x="30" y="183" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• 支持 =, &lt;, &gt;, BETWEEN, ORDER BY, 前缀 LIKE</text>
-            <text x="30" y="202" font-size="10" font-weight="900" fill="#D2381E">• 痛点：没法查 JSONB 内部键或数组包含！</text>
-            <text x="30" y="222" font-size="9.6" font-weight="700" fill="var(--plop-ink-soft)">适用：90% 常规主键、外键、时间戳、状态列</text>
+<span class="c-cmt">-- 4. 覆盖索引 (INCLUDE)：将非过滤列附带在索引叶子节点，省去回表读数据页</span>
+<span class="c-kw">CREATE INDEX</span> idx_orders_user_cov
+  <span class="c-kw">ON</span> orders (user_id) <span class="c-kw">INCLUDE</span> (amount, status);
 
-            <!-- 2. GIN -->
-            <rect x="303" y="14" width="274" height="237" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="313" y="24" width="254" height="26" rx="6" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="440" y="42" text-anchor="middle" font-size="11.5" font-weight="900" fill="var(--plop-ink-text)">🔍 ② GIN（广义倒排 · 多值元素包含）</text>
+<span class="c-cmt">-- 5. GIN 倒排索引：加速 JSONB 包含查询 (@>) 与数组检索</span>
+<span class="c-kw">CREATE INDEX</span> idx_profiles_gin <span class="c-kw">ON</span> user_profiles <span class="c-kw">USING GIN</span> (profile);</code></pre>
+    </div>
 
-            <rect x="316" y="62" width="248" height="78" rx="6" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="328" y="82" font-size="10" font-weight="900" fill="var(--plop-ink)">词项 (Element)  ➔  命中的 ctid 倒排链表</text>
-            <text x="328" y="100" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">"vip:true"      ➔  [(0,1), (0,8), (3,2)]</text>
-            <text x="328" y="116" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">"tag:go"        ➔  [(0,1), (2,4), (5,9)]</text>
-            <text x="328" y="132" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">"tag:ai"        ➔  [(0,8), (5,9)]</text>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📖 高阶索引语法说明：<code>WHERE</code> 部分索引与 <code>INCLUDE</code> 覆盖索引</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
+        <li><strong>部分索引（Partial Index）</strong>：在 <code>CREATE INDEX</code> 末尾加上 <code>WHERE 条件</code>，数据库只会把满足该条件的行放进索引树。除了加快特定状态查询，还常用于实现<strong>“软删除表中的唯一约束”</strong>：<code>CREATE UNIQUE INDEX idx_email_active ON users (email) WHERE deleted_at IS NULL;</code>（允许已注销用户的邮箱被重新注册，但未注销用户中邮箱唯一）。</li>
+        <li><strong>覆盖索引（<code>INCLUDE</code> 子句）</strong>：当高频执行 <code>SELECT amount, status FROM orders WHERE user_id = 10</code> 时，把只用于展示、不参与过滤排序的 <code>amount, status</code> 放入 <code>INCLUDE</code>，数据库直接从索引叶子节点即可拿齐所需字段（走 <code>Index Only Scan</code>），无需再去读取主表数据页。</li>
+      </ul>
+    </div>
+  </div>
+</div>
 
-            <text x="318" y="164" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• 把一行里的多个元素拆开建倒排表</text>
-            <text x="318" y="183" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• 多条件求交集直接做位图/链表合并</text>
-            <text x="318" y="202" font-size="10" font-weight="900" fill="#D2381E">• 专治：JSONB (@&gt;/?)、数组、全文检索</text>
-            <text x="318" y="222" font-size="9.6" font-weight="700" fill="var(--plop-ink-soft)">代价：写入维护开销大（开启 fastupdate 缓冲）</text>
+<!-- 05.2 · 复合索引最左前缀规则与常见索引失效写法对照 -->
+<div class="wb-card" id="index-fail" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🧭 05.2 · 索引命中规则：复合索引列顺序设计与 6 类常见索引失效写法改写对照</div>
+  <h3>🧭 05.2 复合索引设计原则与常见失效场景改写</h3>
 
-            <!-- 3. BRIN -->
-            <rect x="592" y="14" width="274" height="237" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="602" y="24" width="254" height="26" rx="6" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="729" y="42" text-anchor="middle" font-size="11.5" font-weight="900" fill="var(--plop-ink-text)">📦 ③ BRIN（块范围 · 极小体积时序表）</text>
+  <p>
+    复合 B-tree 索引（例如建立在 <code>(user_id, status, created_at)</code> 上的索引）按照从左到右的列顺序逐层排序：先按第 1 列 <code>user_id</code> 排序，当 <code>user_id</code> 相同时再按第 2 列 <code>status</code> 排序，依此类推。因此设计复合索引时应遵循<strong>“等值过滤列放前面，范围过滤或排序列放后面”</strong>的原则，并在编写 SQL 时避开以下 6 类导致索引无法高效命中的写法：
+  </p>
 
-            <rect x="605" y="62" width="248" height="78" rx="6" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="617" y="82" font-size="10" font-weight="900" fill="var(--plop-ink)">连续 128 个物理页  ➔  仅存 [min, max]</text>
-            <text x="617" y="100" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">页 000~127  ➔  [10:00, 10:05] (跳过!)</text>
-            <text x="617" y="116" font-size="9.8" font-weight="900" fill="#D2381E">页 128~255  ➔  [10:05, 10:12] (命中扫描)</text>
-            <text x="617" y="132" font-size="9.8" font-weight="800" fill="var(--plop-ink-text)">页 256~383  ➔  [10:12, 10:20] (跳过!)</text>
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">未命中索引原因</th>
+          <th style="width:38%">❌ 导致全表扫描的低效写法</th>
+          <th>✅ 命中索引的推荐改写方案</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 在索引列上套函数或做算术运算</strong></td>
+          <td><code>WHERE date_trunc('day', created_at) = '2026-11-15'</code><br>或 <code>WHERE amount + 10 &gt; 100</code></td>
+          <td>将计算移到常量一侧，改为范围比较：<br><code>WHERE created_at &gt;= '2026-11-15' AND created_at &lt; '2026-11-16'</code><br>或建立对应的函数表达式索引。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 违背复合索引最左前缀</strong></td>
+          <td>索引为 <code>(user_id, status)</code>，查询只写：<br><code>WHERE status = 'paid'</code>（缺少最左列 <code>user_id</code>）</td>
+          <td>查询条件包含最左列 <code>user_id</code>；若确实存在高频单查 <code>status</code> 的需求，需单独评估是否建立索引。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 前导通配符模糊查询</strong></td>
+          <td><code>WHERE title LIKE '%数据库%'</code><br>（普通 B-tree 只能加速右侧通配 <code>'数据库%'</code>）</td>
+          <td>启用内置三元组扩展 <code>CREATE EXTENSION pg_trgm;</code>，并建立 GIN 索引：<br><code>CREATE INDEX ON books USING GIN (title gin_trgm_ops);</code></td>
+        </tr>
+        <tr>
+          <td><strong>4. 隐式类型不匹配</strong></td>
+          <td><code>mobile</code> 列为 <code>text</code>，查询传入整数：<br><code>WHERE mobile = 13800000000</code></td>
+          <td>始终保证传入参数类型与列定义严格一致：<br><code>WHERE mobile = '13800000000'</code></td>
+        </tr>
+        <tr>
+          <td><strong>5. 查询条件与部分索引不匹配</strong></td>
+          <td>建立了部分索引 <code>WHERE status = 'pending'</code>，但查询未带 <code>WHERE status = 'pending'</code></td>
+          <td>查询语句的 <code>WHERE</code> 子句必须显式包含部分索引定义时的过滤条件，优化器才能确认该索引覆盖完整结果。</td>
+        </tr>
+        <tr>
+          <td><strong>6. 返回行数占全表比例过高</strong></td>
+          <td>大表上执行 <code>WHERE status != 'cancelled'</code>（命中全表 85% 的行）</td>
+          <td><strong>这是优化器的正常且正确行为</strong>：当预计返回行数超过全表约 10%~20% 时，顺序扫描全表（<code>Seq Scan</code>）比走索引随机回表更快，应通过 <code>LIMIT</code> 或缩小时间范围减少扫描量。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
 
-            <text x="607" y="164" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• 不存单行位置，只存连续数据块极值摘要</text>
-            <text x="607" y="183" font-size="10" font-weight="900" fill="#D2381E">• 索引体积比 B-tree 小 1000 倍！（几MB管上亿行）</text>
-            <text x="607" y="202" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• 专治：按时间顺序追加的百亿级日志/IoT流水表</text>
-            <text x="607" y="222" font-size="9.6" font-weight="700" fill="var(--plop-ink-soft)">前提：列值顺序必须与磁盘物理存放顺序高度正相关</text>
-          </svg>
+<!-- 05.3 · 使用 EXPLAIN (ANALYZE, BUFFERS) 读懂执行计划 -->
+<div class="wb-card" id="explain" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🔬 05.3 · 慢查询诊断：使用 <code>EXPLAIN (ANALYZE, BUFFERS)</code> 读懂四种扫描节点与关键指标</div>
+  <h3>🔬 05.3 使用 <code>EXPLAIN (ANALYZE, BUFFERS)</code> 分析慢查询</h3>
 
-          <div class="table-wrap">
-            <table class="plop-table">
-              <thead>
-                <tr>
-                  <th style="width:16%;">索引类型</th>
-                  <th style="width:28%;">支持的操作符 / 能力</th>
-                  <th>典型业务场景与工程要点</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><strong>1. B-tree</strong>（默认）</td>
-                  <td><code>=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>BETWEEN</code>, <code>IN</code>, <code>IS NULL</code>, 前缀 <code>LIKE 'abc%'</code>, 排序</td>
-                  <td>绝大多数标量高基数列的默认首选。底层采用 Lehman-Yao 高并发 B-Tree 变体，支持并发读写不阻塞。</td>
-                </tr>
-                <tr>
-                  <td><strong>2. GIN</strong><br>（广义倒排索引）</td>
-                  <td><code>@&gt;</code>, <code>&lt;@</code>, <code>?</code>, <code>?|</code>, <code>?&amp;</code>, <code>&amp;&amp;</code>, <code>@@</code>（全文检索）</td>
-                  <td>⭐ <strong>一列包含多个子元素时的绝对王牌：</strong><code>jsonb</code> 内部字段查询、<code>int[]/text[]</code> 数组包含/交集、<code>tsvector</code> 全文检索，或配合 <code>pg_trgm</code> 扩展加速任意位置模糊查询 <code>LIKE '%keyword%'</code>！</td>
-                </tr>
-                <tr>
-                  <td><strong>3. GiST</strong><br>（广义搜索树）</td>
-                  <td>几何包含/距离 <code>&lt;-&gt;</code>、范围重叠 <code>&amp;&amp;</code>、排他约束 <code>EXCLUDE</code></td>
-                  <td>⭐ <strong>PostGIS 地理空间索引（查附近 5km 的门店）</strong>、范围类型区间重叠检测（如 <code>EXCLUDE USING gist (room_id WITH =, during WITH &amp;&amp;)</code> 防止会议室时段冲突）。</td>
-                </tr>
-                <tr>
-                  <td><strong>4. SP-GiST</strong></td>
-                  <td>非平衡空间分割树（四叉树、K-D 树、前缀树 Radix Tree）</td>
-                  <td>适合具有明显前缀聚集或空间聚集特征的数据，如 IP 地址段（<code>inet</code>）、电话号码前缀、邮编检索。</td>
-                </tr>
-                <tr>
-                  <td><strong>5. BRIN</strong><br>（块范围索引）</td>
-                  <td>范围过滤 <code>=</code>, <code>&lt;</code>, <code>&gt;</code>（基于连续物理页块的 <code>min/max</code> 过滤）</td>
-                  <td>⭐ <strong>海量只追加（Append-Only）时序/账单/监控日志表神器</strong>：只记录每 <code>pages_per_range</code>（默认 128 页 = 1MB）的最大最小值，百亿行大表的索引只有几 MB！</td>
-                </tr>
-                <tr>
-                  <td><strong>6. Hash</strong></td>
-                  <td>仅支持纯等值比较 <code>=</code>（不支持范围与排序）</td>
-                  <td>PG 10+ 起支持写 WAL（崩溃安全）。仅当被索引的字符串/URL 极长（数百字节）且只做纯等值查询时，Hash 索引体积比 B-tree 更紧凑。</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+  <p>
+    排查慢 SQL 时，在查询语句前加上 <code>EXPLAIN</code> 可以查看优化器预估的执行计划（不会真正执行语句）；加上 <strong><code>EXPLAIN (ANALYZE, BUFFERS)</code></strong> 则会真正执行一次该 SQL，并输出每个步骤的真实耗时、实际返回行数与缓冲页读取次数（注意：若对 <code>UPDATE / DELETE</code> 执行 <code>EXPLAIN ANALYZE</code>，请包裹在 <code>BEGIN; ... ROLLBACK;</code> 中以免修改真实数据）。
+  </p>
 
-          <h4 style="margin-top:16px;">🛠️ 四大工程级索引变体与生产无锁建索引（必背 SQL）</h4>
-          <div class="wb-grid-2">
-            <div class="plop-code-box" style="margin:0;">
-              <div class="plop-code-head">
-                <span>🐘 advanced_indexes.sql · 四大高阶索引</span>
-                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-index-sql', this)">复制 SQL</button>
-              </div>
-              <pre class="plop-code-pre" id="pg-index-sql"><code><span class="c-cmt">-- 1. 部分索引 (Partial Index)：只给热数据建索引，体积锐减 95%！</span>
-<span class="c-cmt">-- 例：99% 历史订单都是 completed，业务只高频轮询 pending 订单</span>
-<span class="c-kw">CREATE INDEX</span> idx_orders_pending <span class="c-kw">ON</span> orders (created_at)
-<span class="c-kw">WHERE</span> status = <span class="c-str">'pending'</span>;
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span>🐘 explain_analyze_buffers.sql · 执行计划输出与字段解读</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-explain-demo', this)">复制 SQL</button>
+    </div>
+    <pre class="plop-code-pre" id="pg-explain-demo"><code><span class="c-kw">EXPLAIN</span> (ANALYZE, BUFFERS)
+<span class="c-kw">SELECT</span> id, amount <span class="c-kw">FROM</span> orders <span class="c-kw">WHERE</span> user_id = 42;
 
-<span class="c-cmt">-- 2. 表达式索引 (Expression Index)：对函数计算结果建索引</span>
-<span class="c-kw">CREATE UNIQUE INDEX</span> idx_users_lower_email <span class="c-kw">ON</span> users (<span class="c-fn">lower</span>(email));
-
-<span class="c-cmt">-- 3. 覆盖索引 (Covering Index · INCLUDE)：把非搜索列附带在叶子节点</span>
-<span class="c-cmt">-- 查询 SELECT amount, status FROM orders WHERE user_id = 10 时</span>
-<span class="c-cmt">-- 直接走 Index Only Scan 免回表！</span>
-<span class="c-kw">CREATE INDEX</span> idx_orders_user_cov <span class="c-kw">ON</span> orders (user_id)
-<span class="c-kw">INCLUDE</span> (amount, status);
-
-<span class="c-cmt">-- 4. ⭐ 生产铁律：在线不阻塞读写建索引 (CONCURRENTLY)</span>
-<span class="c-kw">CREATE INDEX CONCURRENTLY</span> idx_orders_uid <span class="c-kw">ON</span> orders (user_id);</code></pre>
-            </div>
-
-            <div id="index-fail">
-              <div class="plop-callout warn" style="margin:0 0 10px;">
-                <strong>⚡ 索引失效 6 大常见场景：</strong>
-                <ol style="margin:5px 0 0; padding-left:18px;">
-                  <li><strong>对索引列做函数或算术运算：</strong><code>WHERE lower(email) = 'a@b.com'</code> 或 <code>WHERE amount + 10 &gt; 100</code>（除非建了对应表达式索引）。</li>
-                  <li><strong>违背复合索引最左前缀：</strong>建了 <code>(user_id, status)</code>，单查 <code>WHERE status = 'paid'</code> 无法高效走树搜索。</li>
-                  <li><strong>前导通配符模糊匹配：</strong><code>LIKE '%abc'</code> 无法走 B-tree（解决方案：反转字符串建函数索引，或用 <code>pg_trgm + GIN</code> 索引）。</li>
-                  <li><strong>隐式类型转换：</strong>如手机号列是 <code>text</code>，却传数字 <code>WHERE mobile = 13800000000</code>。</li>
-                  <li><strong>区分度过低 / 返回行数占比过大：</strong>当优化器估算匹配行数超过全表约 10%～20% 时，走索引随机回表比顺序扫全表更慢，优化器会<strong>主动正确地选择 <code>Seq Scan</code></strong>。</li>
-                  <li><strong><code>OR</code> 两侧有一侧无索引：</strong>导致退化为全表扫描。</li>
-                </ol>
-              </div>
-            </div>
-          </div>
-
-          <details class="plop-drawer">
-            <summary>❓ 面试自测：在 PG 里建了覆盖索引（INCLUDE），为什么有时候 EXPLAIN 发现 Index Only Scan 依然产生了大量 Heap Fetches（回表）？</summary>
-            <div class="drawer-body">
-              <p>
-                这是 PostgreSQL 与 MySQL 覆盖索引最本质的区别！<br>
-                因为 PG 的<strong>索引里不保存事务可见性信息（<code>xmin/xmax</code> 只存在堆表数据页里）</strong>。为了支持 <code>Index Only Scan</code>，PG 引入了<strong>可见性映射表（Visibility Map, VM）</strong>——每个 8KB 堆表页在 VM 中占 1 个比特位，如果该页上的所有元组对当前所有事务都全部可见（没有未清理的改动），VM 对应位就被标为 <code>1</code>。<br>
-                执行 <code>Index Only Scan</code> 时，PG 会先看目标页在 VM 里是不是 <code>1</code>：若是 <code>1</code> 则直接从索引拿数据返回（零回表）；<strong>若那张表刚经历了大批量更新/写入、而 <code>VACUUM</code> 还没来得及跑去刷新 VM 位图，PG 就不得不乖乖拿 <code>ctid</code> 回堆表检查可见性（表现为 <code>EXPLAIN ANALYZE</code> 中的 <code>Heap Fetches: N</code> 很高）！</strong>解决办法就是及时触发 <code>VACUUM 表名</code>。
-              </p>
-            </div>
-          </details>
-        </div>
-
-        <!-- 05.2 EXPLAIN (ANALYZE, BUFFERS) 执行计划调优 -->
-        <div class="wb-card" style="background:var(--plop-paper);" id="explain">
-          <div class="washi-tape pink"></div>
-          <div class="chapter-q-pill">❓ 05.2 · 怎么一眼看懂 PG 的 EXPLAIN (ANALYZE, BUFFERS) 输出？四种扫描节点和三种 Join 算法怎么选？</div>
-          <h3>🔬 05.2 慢 SQL 调优实战：精读 <code>EXPLAIN (ANALYZE, BUFFERS)</code></h3>
-
-          <div class="plop-code-box">
-            <div class="plop-code-head">
-              <span>🐘 explain_analyze_buffers.sql · 读懂每一项指标</span>
-              <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-explain-demo', this)">复制 SQL</button>
-            </div>
-            <pre class="plop-code-pre" id="pg-explain-demo"><code><span class="c-cmt">-- 1. 只看优化器估算计划（不真正执行，写操作安全）</span>
-<span class="c-kw">EXPLAIN</span> <span class="c-kw">SELECT</span> * <span class="c-kw">FROM</span> orders <span class="c-kw">WHERE</span> user_id = 42;
-
-<span class="c-cmt">-- 2. ⭐ 真正执行并打印实际耗时、实际行数与缓存页命中数（最常用调优命令）</span>
-<span class="c-kw">EXPLAIN</span> (ANALYZE, BUFFERS)
-<span class="c-kw">SELECT</span> * <span class="c-kw">FROM</span> orders <span class="c-kw">WHERE</span> user_id = 42;
-
-<span class="c-cmt">/* 典型输出拆解：
-Bitmap Heap Scan on orders  (cost=4.52..48.20 rows=25 width=36) (actual time=0.045..0.112 rows=28 loops=1)
+<span class="c-cmt">/* 典型输出阅读方法（从最内层缩进的叶子节点 "->" 往外层看）：
+Bitmap Heap Scan on orders  (cost=4.52..48.20 rows=25 width=16) (actual time=0.045..0.112 rows=28 loops=1)
   Recheck Cond: (user_id = 42)
   Heap Blocks: exact=18
   Buffers: shared hit=20 read=1
-  -&gt; Bitmap Index Scan on idx_orders_uid  (cost=0.00..4.51 rows=25 width=0) (actual time=0.028..0.028 rows=28 loops=1)
+  ->  Bitmap Index Scan on idx_orders_uid  (cost=0.00..4.51 rows=25 width=0) (actual time=0.028..0.028 rows=28 loops=1)
         Index Cond: (user_id = 42)
         Buffers: shared hit=3
+Planning Time: 0.085 ms
+Execution Time: 0.142 ms
 */</span></code></pre>
-          </div>
+  </div>
 
-          <div class="wb-grid-2" style="margin-top:14px;">
-            <div>
-              <h4>1. 四大扫描方式（Scan Nodes）何时出现？</h4>
-              <div class="table-wrap">
-                <table class="plop-table">
-                  <thead>
-                    <tr>
-                      <th>扫描节点</th>
-                      <th>执行机制与适用边界</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><strong>Seq Scan</strong></td>
-                      <td><strong>顺序全表扫描</strong>：小表或查询返回全表较大比例行数时，顺序磁盘读反而比随机跳索引更快。</td>
-                    </tr>
-                    <tr>
-                      <td><strong>Index Scan</strong></td>
-                      <td><strong>索引扫描 + 逐行回表</strong>：扫一条索引记录就立刻拿 <code>ctid</code> 去堆表取一行。适合命中行数<strong>极少</strong>的点查或需要直接利用索引顺序做 <code>ORDER BY ... LIMIT</code> 的场景。</td>
-                    </tr>
-                    <tr>
-                      <td><strong>Index Only Scan</strong></td>
-                      <td>⭐ <strong>覆盖索引只读索引</strong>：查询列全在索引里且对应页在 Visibility Map 中全可见，无需回表。</td>
-                    </tr>
-                    <tr>
-                      <td><strong>Bitmap Index Scan + Bitmap Heap Scan</strong></td>
-                      <td>⭐ <strong>位图批量扫描（中等匹配量神器）</strong>：当命中几十到几万行时，如果用普通 Index Scan 会产生大量随机磁盘 IO；PG 会先扫索引把命中的页号标记在内存位图里，<strong>按物理页号从小到大排序后再顺序去堆表批量捞取</strong>，还能把多个单列索引通过 <code>BitmapAnd / BitmapOr</code> 组合使用！</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+  <div class="wb-grid-2">
+    <div>
+      <h4>1. 四类常见扫描节点（Scan Nodes）</h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">扫描节点名称</th>
+              <th>执行方式与出现场景</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Seq Scan</code></td>
+              <td><strong>顺序全表扫描</strong>：从头到尾读取表的数据页。出现在无可用索引、表体积很小（仅几页）或命中行数占比很大的情况。</td>
+            </tr>
+            <tr>
+              <td><code>Index Scan</code></td>
+              <td><strong>索引扫描 + 逐行回表</strong>：在索引树中找到一条匹配项后，立即根据物理位置去表数据页读取整行。适合返回行数很少的点查或带 <code>ORDER BY ... LIMIT</code> 的查询。</td>
+            </tr>
+            <tr>
+              <td><code>Index Only Scan</code></td>
+              <td><strong>纯索引覆盖扫描</strong>：查询所需的所有列均包含在索引中，且对应数据页对所有事务可见，直接从索引返回结果，无需读取表数据页。</td>
+            </tr>
+            <tr>
+              <td><code>Bitmap Index Scan</code> + <code>Bitmap Heap Scan</code></td>
+              <td><strong>位图批量扫描</strong>：当命中行数较多（几十至数万行）时，先扫描索引将命中的数据页号记录在内存位图中，<strong>按物理页号从小到大排序后再顺序读取表数据页</strong>，将随机磁盘 I/O 转化为顺序 I/O，并支持通过 <code>BitmapAnd / BitmapOr</code> 组合多个独立单列索引。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-            <div>
-              <h4>2. 三大表连接算法（Join Nodes）与调优清单</h4>
-              <div class="table-wrap">
-                <table class="plop-table">
-                  <thead>
-                    <tr>
-                      <th>Join 算法</th>
-                      <th>复杂度与最佳搭档场景</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><strong>Nested Loop</strong><br>（嵌套循环连接）</td>
-                      <td>外层驱动表每取一行，就去内层被驱动表查一次（若内表有索引则为 <code>O(N log M)</code>）。<strong>适合驱动表结果集极小、内表连接键有索引的场景。</strong></td>
-                    </tr>
-                    <tr>
-                      <td><strong>Hash Join</strong><br>（哈希连接）</td>
-                      <td>把较小的一张表在内存（<code>work_mem</code>）里建成 Hash 表，再扫大表探测匹配（<code>O(N + M)</code>）。<strong>适合两张大表做等值连接且无序的场景</strong>（注意避免 <code>Batches &gt; 1</code> 溢出磁盘）。</td>
-                    </tr>
-                    <tr>
-                      <td><strong>Merge Join</strong><br>（归并连接）</td>
-                      <td>左右两表都已经按连接键排好序（比如都有索引），像拉拉链一样双指针并排走一遍。<strong>适合超大表且连接键已有序或支持非等值连接。</strong></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+    <div>
+      <h4>2. 读懂括号内的核心指标</h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:32%">输出指标</th>
+              <th>物理含义与排障关注点</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>cost=启动成本..总成本</code></td>
+              <td>优化器按代价公式算出的相对开销评分（非毫秒数），用于比较不同候选方案的优劣。</td>
+            </tr>
+            <tr>
+              <td><code>rows=25</code> vs <code>actual rows=28</code></td>
+              <td>前者是优化器根据统计信息预估的行数，后者是真实执行返回的行数。<strong>若两者相差几个数量级（如预估 1 行、实际 50 万行），说明统计信息过期，需执行 <code>ANALYZE 表名;</code> 更新统计信息。</strong></td>
+            </tr>
+            <tr>
+              <td><code>actual time=0.045..0.112</code> 与 <code>loops=1</code></td>
+              <td>单次循环返回第一行的耗时与返回全部行的耗时（单位毫秒）。<strong>若 <code>loops &gt; 1</code>，该节点的真实总耗时需乘以 <code>loops</code> 次数。</strong></td>
+            </tr>
+            <tr>
+              <td><code>Buffers: shared hit=20 read=1</code></td>
+              <td><code>shared hit</code> 表示直接从内存缓存池命中了 20 个 8KB 页；<code>read</code> 表示从操作系统缓存或磁盘读取了 1 个页；若出现 <code>temp read/written</code>，说明排序或哈希操作超出了 <code>work_mem</code> 内存限制，发生了临时文件落盘。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-              <div class="plop-callout tip" style="margin-top:10px;">
-                <strong>🎯 慢 SQL 四步必杀排查法：</strong><br>
-                ① <strong>比对估算 <code>rows</code> 与实际 <code>actual rows</code>：</strong>如果估算 1 行、实际跑出 50 万行，说明统计信息严重失真导致优化器错选了 <code>Nested Loop</code>，立即执行 <code>ANALYZE 表名;</code>！<br>
-                ② <strong>看 <code>Buffers: shared hit vs read</code>：</strong><code>hit</code> 是直接命中共享内存，<code>read</code> 是去底层 OS/磁盘读页；若 <code>temp read/written</code> 出现，说明排序或 Hash Join 撑爆了 <code>work_mem</code> 落了临时磁盘文件！<br>
-                ③ <strong>注意 <code>loops=N</code> 倍数：</strong>子节点的 <code>actual time</code> 是单次循环平均耗时，真实总耗时必须乘以 <code>loops</code>！<br>
-                ④ <strong>开启 <code>pg_stat_statements</code> 扩展：</strong>按 <code>total_exec_time DESC</code> 揪出全库最耗 CPU 和 IO 的 Top 10 慢 SQL。
-              </div>
-            </div>
-          </div>
-        </div>
+      <div class="plop-callout info" style="margin-top:10px; margin-bottom:0;">
+        <strong>📘 底层原理延伸：</strong>优化器的 <code>cost</code> 评分公式是如何根据直方图计算的？为什么建立了 <code>INCLUDE</code> 覆盖索引后，有时 <code>Index Only Scan</code> 依然会出现大量 <code>Heap Fetches</code> 回表？详见 <a href="principles.html#index">📘 核心原理篇 · 03 优化器 CBO 与 05 六大索引内核 ↗</a>。
+      </div>
+    </div>
+  </div>
+</div>

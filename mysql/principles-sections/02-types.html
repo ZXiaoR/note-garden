@@ -1,0 +1,162 @@
+<!-- ====================================================================
+     PART 02: 3 层 B+ 树千万级容量定量推导、页分裂与 8.0 原子 DDL 原理
+     ==================================================================== -->
+<div class="wb-sec-header" id="types" style="background:var(--plop-mint);">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">3 层 B+ 树千万级容量定量推导、页分裂与 8.0 原子 DDL 原理</span>
+  <span class="plop-tag periwinkle">B+ TREE FANOUT MATH × PAGE SPLIT × ATOMIC DDL</span>
+</div>
+
+<!-- 02.1 · 为什么 3 层 B+ 树就能装下约 2000 万行数据？（阶数定量推导） -->
+<div class="wb-card" id="btree-fanout-math" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧮 02.1 · B+ 树阶数定量推导：为什么 3 层高 B+ 树可支撑约 2000 万行且最多只需 1~3 次磁盘 I/O</div>
+  <h3>🧮 02.1 InnoDB 选择 B+ 树的原因与 3 层 B+ 树容量定量计算</h3>
+
+  <p>
+    在机械硬盘或云盘上，一次跨页随机磁盘 I/O 耗时约 <code>0.5 ~ 10ms</code>。如果索引树有 20 层高（如平衡二叉树 AVL / 红黑树，<code>log₂(2000万) ≈ 24</code> 层），查一行数据就要做 24 次磁盘 I/O。为了<strong>把树的高度死死压在 3 ~ 4 层以内</strong>，InnoDB 采用了高扇出（High Fan-out）的多叉平衡搜索树 —— <strong>B+ 树</strong>，其核心设计在于：<strong>非叶子节点完全不存放真实行数据，只存放轻量的“主键值 + 子页页号（目录项记录）”，让单个 16 KiB 根节点能指向上千个子页</strong>：
+  </p>
+
+  <!-- Editorial SVG: 3-Level B+Tree Fanout & Page Capacity Math -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 330" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="bt-math-title bt-math-desc">
+        <title id="bt-math-title">InnoDB 3 层聚簇索引 B+ 树扇出阶数与两千万行容量推导图</title>
+        <desc id="bt-math-desc">展示第 1 层 Root 页（常驻内存，16KB 存约 1170 个目录项：8B BIGINT 主键 + 4B 页号 + 5B 头 ≈ 14B）、第 2 层 1170 个非叶子节点页（共指向 1170×1170 ≈ 136.89 万个叶子页）、第 3 层叶子页（每页假设存 16 行 1KB 记录），总计 1170 × 1170 × 16 ≈ 2190 万行数据。</desc>
+        <defs>
+          <marker id="bm-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+          </marker>
+          <marker id="bm-arr-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors drawn BEFORE node boxes -->
+        <!-- Root -> Internal L, M, R (Fanned ports on bottom of Root y=98) -->
+        <path d="M 380 98 L 380 112 Q 380 120 372 120 L 188 120 Q 180 120 180 128 L 180 140" fill="none" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#bm-arr-ink)"/>
+        <line x1="460" y1="98" x2="460" y2="140" stroke="#bf4520" stroke-width="2" marker-end="url(#bm-arr-coral)"/>
+        <path d="M 540 98 L 540 112 Q 540 120 548 120 L 732 120 Q 740 120 740 128 L 740 140" fill="none" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#bm-arr-ink)"/>
+
+        <!-- Internal -> Leaf Pages (y=204 to y=236) -->
+        <line x1="180" y1="204" x2="180" y2="236" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#bm-arr-ink)"/>
+        <line x1="460" y1="204" x2="460" y2="236" stroke="#bf4520" stroke-width="2" marker-end="url(#bm-arr-coral)"/>
+        <line x1="740" y1="204" x2="740" y2="236" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#bm-arr-ink)"/>
+
+        <!-- Bidirectional arrows between Leaf Pages -->
+        <line x1="306" y1="268" x2="332" y2="268" stroke="#bf4520" stroke-width="1.8" marker-end="url(#bm-arr-coral)"/>
+        <line x1="586" y1="268" x2="612" y2="268" stroke="#bf4520" stroke-width="1.8" marker-end="url(#bm-arr-coral)"/>
+
+        <!-- Level 1: Root Page (x=230, y=24, w=460, h=74) -->
+        <rect x="230" y="24" width="460" height="74" rx="10" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="460" y="46" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#bf4520">Level 1 · 根节点页 Root Page（16 KiB，常驻 Buffer Pool 内存 · 0 次磁盘 I/O）</text>
+        <text x="460" y="66" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">单条目录项 = BIGINT主键(8B) + 页号指针(4B) + 记录头(5B) ≈ 14 Bytes</text>
+        <text x="460" y="84" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1b5e20">单页扇出阶数 M ≈ 16000B / 14B ≈ 1,170 个子页指针</text>
+
+        <!-- Level 2: Non-Leaf Internal Pages (y=142, h=62) -->
+        <rect x="54" y="142" width="252" height="62" rx="8" fill="#F4EFE6" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="180" y="164" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">Internal Page #1 (16 KiB)</text>
+        <text x="180" y="184" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">存放 1,170 个叶子页指针</text>
+
+        <rect x="334" y="142" width="252" height="62" rx="8" fill="#FFFDF7" stroke="#bf4520" stroke-width="2"/>
+        <text x="460" y="164" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#bf4520">Internal Page #k (共 1,170 页)</text>
+        <text x="460" y="184" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#1F1F23">1,170 × 1,170 = 1,368,900 个叶子页</text>
+
+        <rect x="614" y="142" width="252" height="62" rx="8" fill="#F4EFE6" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="740" y="164" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">Internal Page #1170 (16 KiB)</text>
+        <text x="740" y="184" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">存放 1,170 个叶子页指针</text>
+
+        <!-- Level 3: Leaf Pages (y=238, h=68) -->
+        <rect x="54" y="238" width="252" height="68" rx="8" fill="#E8F5E9" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="180" y="260" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1b5e20">Leaf Page (16 KiB · 存完整行)</text>
+        <text x="180" y="278" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">假定单行 1KB → 每页约装 16 行</text>
+        <text x="180" y="294" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">假定单行 500B → 每页约装 32 行</text>
+
+        <rect x="334" y="238" width="252" height="68" rx="8" fill="#E8F5E9" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="460" y="260" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#bf4520">3 层总容量 = 1170² × 16 行</text>
+        <text x="460" y="280" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="12.5" font-weight="800" fill="#1b5e20">≈ 2,190 万行 ~ 4,380 万行</text>
+        <text x="460" y="296" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">双向链表连接相邻叶子页，范围扫描极速</text>
+
+        <rect x="614" y="238" width="252" height="68" rx="8" fill="#E8F5E9" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="740" y="260" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1b5e20">Leaf Page #1,368,900</text>
+        <text x="740" y="278" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">前两层热目录页常驻内存时，</text>
+        <text x="740" y="294" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" font-weight="700" fill="#bf4520">按主键点查最多仅需 1 次叶子页磁盘 I/O</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="table-wrap" style="margin-bottom:0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">对比候选结构</th>
+          <th style="width:40%">结构特征</th>
+          <th>为什么 InnoDB 主索引选 B+ 树而不选它</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>B 树（B-Tree）</strong></td>
+          <td>非叶子节点既存键也存完整的行记录 Value</td>
+          <td>1. 非叶子节点被大体积的行记录塞满，导致单个 16KB 页能装的子节点指针从 1170 个骤降到十几个，<strong>树高大幅增加，磁盘 I/O 次数变多</strong>；<br>2. 叶子节点未串成双向链表，做范围查询时必须频繁跨层中序回溯。</td>
+        </tr>
+        <tr>
+          <td><strong>哈希表（Hash）</strong></td>
+          <td>按哈希函数映射桶槽位，精确等值查找为 <code>O(1)</code></td>
+          <td>哈希打散后完全无序，<strong>无法支持任何范围查询（<code>WHERE age &gt; 20</code>）、<code>ORDER BY</code> 排序与最左前缀匹配</strong>（InnoDB 仅在内存内部自动为高频等值页建立自适应哈希索引 AHI）。</td>
+        </tr>
+        <tr>
+          <td><strong>LSM-Tree</strong><br>（RocksDB / HBase）</td>
+          <td>将随机写转为内存 MemTable + 磁盘 SSTable 顺序追加写与后台 Compaction</td>
+          <td>写入吞吐极高，但读请求可能需要合并查询多层 SSTable（读放大明显）。MySQL 定位于读写均衡且点查/范围读延迟敏感的 OLTP 场景，因此默认采用 B+ 树。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 02.2 · 页分裂（Page Split）：为什么 InnoDB 忌讳随机 UUID 主键 -->
+<div class="wb-card" id="innodb-page-split" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">⚡ 02.2 · 顺序写 vs 页分裂：自增主键 15/16 填充率与随机 UUID 主键引发的三大性能退化</div>
+  <h3>⚡ 02.2 顺序追加写与随机插入触发的「页分裂（Page Split）」</h3>
+
+  <p>
+    因为 InnoDB 的聚簇索引要求叶子节点内的所有行记录必须<strong>严格按主键值递增顺序存放</strong>，所以主键的生成方式直接决定了底层 16 KiB 数据页的写入形态：
+  </p>
+
+  <div class="wb-grid-2">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="font-weight:900; font-size:14.5px; color:#1b5e20; margin-bottom:6px;">✅ 单调递增主键（<code>AUTO_INCREMENT</code> / 有序雪花 ID）</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65;">
+        <li><strong>紧凑顺序追加</strong>：每次新插入的记录主键值一定大于当前最大主键，因此 InnoDB 只需将新记录顺序追加到当前最后一个数据页的末尾。</li>
+        <li><strong>预留 <code>1/16</code> 页空间（填充因子 <code>15/16</code>）</strong>：当当前页写满到 <code>15/16</code>（约预留 1KB 供后续该页内的记录 <code>UPDATE</code> 变长时原地扩展）后，直接顺序申请下一个全新的 16KB 页继续顺序写，几乎不触发历史页分裂。</li>
+        <li><strong>二级索引极其精简</strong>：每个二级索引叶子节点只需附带 <code>8 字节</code>的 <code>BIGINT</code> 主键。</li>
+      </ul>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="font-weight:900; font-size:14.5px; color:#bf4520; margin-bottom:6px;">❌ 无序随机主键（如 `UUID()` 字符串 `CHAR(36)`）</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65;">
+        <li><strong>1. 频繁页分裂与数据搬移</strong>：新生成的 UUID 随机落在某张早已写满的历史数据页中间；InnoDB 被迫申请一个新页，将原页后半部分记录搬移过去，并修改前后双向链表与父节点目录项，伴随大量额外 Redo Log。</li>
+        <li><strong>2. 空间碎片率高达 50%</strong>：大量数据页分裂后长期处于半满状态，表空间体积膨胀近一倍。</li>
+        <li><strong>3. Buffer Pool 缓存频繁换出 + 二级索引膨胀</strong>：每次插入都要从磁盘随机读取不同的历史页；且表上<strong>每一个二级索引的每一行都要多存 36 字节的字符串主键</strong>。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 02.3 · MySQL 8.0 统一数据字典与原子 DDL（Atomic DDL）原理 -->
+<div class="wb-card" id="mysql-atomic-ddl" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🏛️ 02.3 · 元数据内核：MySQL 8.0 统一 InnoDB 数据字典、原子 DDL 实现与隐式提交边界</div>
+  <h3>🏛️ 02.3 MySQL 8.0 原子 DDL 原理与为什么 DDL 不能跨语句回滚</h3>
+
+  <p>
+    在 MySQL 5.7 及更早版本中，表的元数据被分裂存放在两处：Server 层磁盘上的 <code>.frm / .par / .trg</code> 文件，以及 InnoDB 内部的系统表。如果在执行 <code>DROP TABLE t1, t2</code> 途中数据库掉电崩溃，经常会出现“<code>.frm</code> 文件删掉了但 InnoDB 表空间还在”的元数据不一致故障。
+  </p>
+  <ul>
+    <li><strong>MySQL 8.0 统一数据字典与 <code>innodb_ddl_log</code></strong>：MySQL 8.0 彻底废除了所有 <code>.frm</code> 文件，将全部数据字典表（如 <code>mysql.tables</code>、<code>mysql.columns</code>、<code>mysql.indexes</code>）统一存储在系统表空间 <code>mysql.ibd</code> 的 InnoDB 事务表中，并引入了专门的 <strong><code>mysql.innodb_ddl_log</code>（DDL 日志表）</strong>。当执行一条 DDL 时，内核将“数据字典表修改 + 物理文件创建/重命名/删除操作日志”捆绑在同一个内部事务中：若中途掉电，重启恢复时会根据 <code>innodb_ddl_log</code> 自动重做或完整回滚这单条 DDL，保证<strong>单条 DDL 语句 100% 原子生效或原子回滚（Atomic DDL）</strong>。</li>
+    <li><strong>为什么 MySQL 的 DDL 仍会触发隐式提交（不能像 PostgreSQL 那样放在 <code>BEGIN ... ROLLBACK</code> 里回滚）</strong>：因为 MySQL 的原子 DDL 仅针对<strong>单条 DDL 语句自身崩溃恢复的原子性</strong>；为了清理之前持有的行锁与事务状态并独立记录 <code>innodb_ddl_log</code>，MySQL 在开始执行任何 <code>CREATE / ALTER / DROP / TRUNCATE</code> 语句前，都会在 Server 层先强制执行一次隐式 <code>COMMIT</code> 提交掉当前未结束的用户事务。</li>
+  </ul>
+</div>

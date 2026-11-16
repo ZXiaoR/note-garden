@@ -1,242 +1,269 @@
 <!-- ====================================================================
-             PART 01: 进程架构、四级目录层级与 psql 高频实战
-             ==================================================================== -->
-        <div class="wb-sec-header" id="arch">
-          <span class="wb-sec-num">01</span>
-          <span class="wb-sec-title">进程架构与层级模型 · 多进程 postmaster、共享内存与 psql 实战</span>
-          <span class="plop-tag periwinkle">MULTI-PROCESS · SHARED BUFFERS · PGBOUNCER</span>
-        </div>
+     PART 01: 四级目录结构、角色权限与连接配置基础
+     ==================================================================== -->
+<div class="wb-sec-header" id="arch">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">四级目录结构、角色权限与连接配置</span>
+  <span class="plop-tag periwinkle">HIERARCHY × SCHEMA × ROLE × CONNECTION POOL</span>
+</div>
 
-        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
-          <div class="washi-tape periwinkle"></div>
-          <div class="chapter-q-pill">❓ 01.1 · 为什么 PostgreSQL 坚持用“多进程”而不是 MySQL 的“多线程”？生产环境为什么一定要挂 PgBouncer？</div>
-          <h3>🏛️ 01.1 进程模型：多进程（Process-per-Connection）架构全拆解</h3>
-          <p>
-            PostgreSQL 是一个开源的<strong>对象-关系型数据库（ORDBMS）</strong>，以严格遵循 SQL 标准、复杂查询优化器强大和扩展生态丰富著称。在进程模型上，它与 MySQL（单进程多线程）截然不同：每个客户端连接到达时，主守护进程 <code>postmaster</code> 会 <strong><code>fork()</code> 出一个独立的后端进程（<code>postgres backend process</code>）</strong>专门服务该会话。
-          </p>
-          <ul>
-            <li><strong>多进程的核心优势（故障隔离）：</strong>某个连接因为复杂扩展（如 C 插件）或极端 SQL 触发段错误崩溃时，不会直接把整个数据库地址空间搞挂，<code>postmaster</code> 可以安全接管并执行恢复。</li>
-            <li><strong>多进程的工程代价（连接开销 → 必配 PgBouncer）：</strong>每个 <code>backend</code> 进程独享一份私有内存（<code>work_mem</code>、<code>temp_buffers</code>、系统表缓存 Catalog Cache，单连接常占 5～15 MB），且新建连接要经历 <code>fork()</code> 开销。因此当业务有上千个微服务实例直连时，<strong>严禁把 <code>max_connections</code> 盲目调到几千</strong>，而是必须在前面部署轻量级连接池 <strong>PgBouncer（推荐使用 <code>transaction</code> 事务级池化模式，把几千个客户端连接复用在 100～200 个真实 PG 进程上）</strong>。</li>
-          </ul>
+<!-- 01.1 · 四级目录层级模型：Cluster → Database → Schema → Table -->
+<div class="wb-card" id="hierarchy-schema" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🗂️ 01.1 · 逻辑层级：<code>Cluster → Database → Schema → Table</code> 四层结构与搜索路径 <code>search_path</code></div>
+  <h3>🗂️ 01.1 四级目录层级模型与 <code>Schema</code> 命名空间</h3>
 
-          <!-- 手绘 SVG：PostgreSQL 多进程 + 共享内存 + 磁盘落盘全景图 -->
-          <svg viewBox="0 0 880 350" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="PostgreSQL 多进程与内存架构图">
-            <defs>
-              <marker id="pa-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
-              </marker>
-            </defs>
+  <p>
+    从 MySQL 转向 PostgreSQL 时，最先遇到的结构差异是<strong>数据库（Database）与模式（Schema）的关系</strong>。在 MySQL 中，<code>CREATE SCHEMA</code> 与 <code>CREATE DATABASE</code> 是同义词，属于“实例 → 库 → 表”三层结构；而在 PostgreSQL 中，逻辑结构严格划分为四层：
+  </p>
 
-            <!-- 左侧：客户端与 PgBouncer + Postmaster -->
-            <rect x="16" y="20" width="166" height="90" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <text x="99" y="44" text-anchor="middle" font-size="12" font-weight="900" fill="var(--plop-ink-text)">💻 应用客户端集群</text>
-            <text x="99" y="64" text-anchor="middle" font-size="10.2" font-weight="700" fill="var(--plop-ink-soft)">成百上千并发连接</text>
-            <rect x="28" y="74" width="142" height="24" rx="6" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="99" y="90" text-anchor="middle" font-size="10.2" font-weight="900" fill="var(--plop-ink-text)">🛡️ PgBouncer 连接池</text>
+  <!-- PostgreSQL 四级逻辑结构与 Schema 隔离图 (Editorial SVG) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 300" style="width:100%; min-width:820px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="pg-hierarchy-title pg-hierarchy-desc">
+        <title id="pg-hierarchy-title">PostgreSQL 四级逻辑目录结构与 Schema 命名空间示意图</title>
+        <desc id="pg-hierarchy-desc">展示单个 PostgreSQL 实例集群下包含物理隔离的多个 Database，而每个 Database 内部通过 public、auth、billing 等多个 Schema 命名空间组织数据表，支持跨 Schema 直接关联查询。</desc>
+        <defs>
+          <marker id="hier-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="hier-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
 
-            <path d="M99 110 L99 144" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#pa-arr)"/>
+        <!-- 1. Zone Containers -->
+        <rect x="20" y="20" width="880" height="260" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="32" y="24" width="320" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="192" y="34" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.08em">LEVEL 1 · POSTGRESQL INSTANCE CLUSTER (PORT 5432)</text>
 
-            <rect x="16" y="148" width="166" height="82" rx="10" fill="var(--plop-tomato)" stroke="var(--plop-ink)" stroke-width="2.4"/>
-            <text x="99" y="175" text-anchor="middle" font-size="13" font-weight="900" fill="#FFF8E7">🎩 postmaster 主进程</text>
-            <text x="99" y="195" text-anchor="middle" font-size="10" font-weight="700" fill="#FFF8E7">监听 5432 · fork 子进程</text>
-            <text x="99" y="212" text-anchor="middle" font-size="10" font-weight="700" fill="#FFF8E7">守护后台进程与崩溃恢复</text>
+        <!-- Database 1: app_prod (Focal active database) -->
+        <rect x="40" y="48" width="584" height="216" rx="8" fill="rgba(191,69,32,0.03)" stroke="#bf4520" stroke-width="1.4"/>
+        <rect x="52" y="52" width="268" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="186" y="62" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.06em">LEVEL 2 · DATABASE: app_prod (当前会话连接库)</text>
 
-            <path d="M182 185 L224 72" stroke="var(--plop-ink)" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#pa-arr)"/>
-            <path d="M182 189 L224 148" stroke="var(--plop-ink)" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#pa-arr)"/>
+        <!-- Database 2: analytics_db (Isolated database) -->
+        <rect x="652" y="48" width="228" height="216" rx="8" fill="#FFFFFF" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4"/>
+        <rect x="664" y="52" width="204" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="766" y="62" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8.5" font-weight="600" letter-spacing="0.06em">LEVEL 2 · DATABASE: analytics_db</text>
 
-            <!-- 中上：Backend 会话进程群 -->
-            <rect x="228" y="20" width="388" height="162" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.3"/>
-            <text x="422" y="42" text-anchor="middle" font-size="12.2" font-weight="900" fill="var(--plop-ink)">⚙️ 会话工作进程群 (Backend Processes · 一连接一进程)</text>
+        <!-- 2. Orthogonal Connectors drawn BEFORE node boxes -->
+        <!-- Direct JOIN between Schema auth and Schema billing inside app_prod -->
+        <path d="M 224,200 H 256" fill="none" stroke="#bf4520" stroke-width="1.8" marker-end="url(#hier-arrow-accent)"/>
+        <rect x="227" y="178" width="26" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="240" y="188" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8" font-weight="700">JOIN</text>
 
-            <rect x="242" y="54" width="172" height="52" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="328" y="74" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">Backend #1 (PID 4012)</text>
-            <text x="328" y="92" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">解析→重写→规划→执行 SQL</text>
+        <!-- Cross-DB isolation boundary line -->
+        <path d="M 604,156 H 672" fill="none" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#hier-arrow)"/>
+        <rect x="608" y="132" width="60" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="638" y="142" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="8" font-weight="600">FDW ONLY</text>
 
-            <rect x="428" y="54" width="172" height="52" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="514" y="74" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">Backend #2 ... #N</text>
-            <text x="514" y="92" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">Parallel Worker 并行查询子进程</text>
+        <!-- 3. Node Boxes (Schemas & Tables) -->
+        <!-- Schema 1: auth -->
+        <rect x="56" y="76" width="168" height="168" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <rect x="64" y="84" width="64" height="14" rx="2" fill="#EEF3FF" stroke="#2d3142" stroke-width="0.8"/>
+        <text x="96" y="94" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="8" font-weight="700">SCHEMA 01</text>
+        <text x="140" y="114" text-anchor="middle" fill="#2d3142" font-size="13" font-weight="700">auth（认证模块）</text>
+        <rect x="68" y="128" width="144" height="44" rx="4" fill="#FBF8F0" stroke="#2d3142" stroke-width="1"/>
+        <text x="140" y="146" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">auth.users</text>
+        <text x="140" y="162" text-anchor="middle" fill="#5a6580" font-size="9.5">用户主表 (id, email)</text>
+        <rect x="68" y="182" width="144" height="44" rx="4" fill="#FBF8F0" stroke="#2d3142" stroke-width="1"/>
+        <text x="140" y="200" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">auth.roles</text>
+        <text x="140" y="216" text-anchor="middle" fill="#5a6580" font-size="9.5">角色权限表</text>
 
-            <rect x="242" y="116" width="358" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6" stroke-dasharray="4 2"/>
-            <text x="421" y="136" text-anchor="middle" font-size="10.5" font-weight="900" fill="#D2381E">📦 每个 Backend 进程独享的私有内存 (Local Memory)</text>
-            <text x="421" y="154" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">work_mem (排序/Hash表每算子独占) · temp_buffers (临时表) · Catalog Cache</text>
+        <!-- Schema 2: billing (Focal) -->
+        <rect x="256" y="76" width="168" height="168" rx="6" fill="#FFE8E5" stroke="#bf4520" stroke-width="1.8"/>
+        <rect x="264" y="84" width="64" height="14" rx="2" fill="#FFFDF7" stroke="#bf4520" stroke-width="0.8"/>
+        <text x="296" y="94" text-anchor="middle" fill="#bf4520" font-family="ui-monospace,monospace" font-size="8" font-weight="700">SCHEMA 02</text>
+        <text x="340" y="114" text-anchor="middle" fill="#bf4520" font-size="13" font-weight="700">billing（订单模块）</text>
+        <rect x="268" y="128" width="144" height="44" rx="4" fill="#FFFFFF" stroke="#bf4520" stroke-width="1.2"/>
+        <text x="340" y="146" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">billing.orders</text>
+        <text x="340" y="162" text-anchor="middle" fill="#5a6580" font-size="9.5">可外键关联 auth.users</text>
+        <rect x="268" y="182" width="144" height="44" rx="4" fill="#FFFFFF" stroke="#2d3142" stroke-width="1"/>
+        <text x="340" y="200" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">billing.invoices</text>
+        <text x="340" y="216" text-anchor="middle" fill="#5a6580" font-size="9.5">账单流水表</text>
 
-            <!-- 中下：Shared Memory 共享内存 -->
-            <rect x="228" y="200" width="388" height="132" rx="12" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2.4"/>
-            <text x="422" y="223" text-anchor="middle" font-size="12.5" font-weight="900" fill="var(--plop-ink-text)">🧠 共享内存区 (Shared Memory · 所有进程共同读写)</text>
+        <!-- Schema 3: public -->
+        <rect x="440" y="76" width="164" height="168" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.5"/>
+        <rect x="448" y="84" width="64" height="14" rx="2" fill="#E9F9F1" stroke="#2d3142" stroke-width="0.8"/>
+        <text x="480" y="94" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="8" font-weight="700">DEFAULT</text>
+        <text x="522" y="114" text-anchor="middle" fill="#2d3142" font-size="13" font-weight="700">public（默认模式）</text>
+        <rect x="452" y="128" width="140" height="44" rx="4" fill="#FBF8F0" stroke="#2d3142" stroke-width="1"/>
+        <text x="522" y="146" text-anchor="middle" fill="#2d3142" font-family="ui-monospace,monospace" font-size="10.5" font-weight="700">public.dict_items</text>
+        <text x="522" y="162" text-anchor="middle" fill="#5a6580" font-size="9.5">未写前缀时默认落入此处</text>
+        <rect x="452" y="182" width="140" height="44" rx="4" fill="#FBF8F0" stroke="#2d3142" stroke-width="1"/>
+        <text x="522" y="200" text-anchor="middle" fill="#5a6580" font-size="10">同库内所有 Schema</text>
+        <text x="522" y="216" text-anchor="middle" fill="#bf4520" font-size="10" font-weight="700">共享同一连接与事务</text>
 
-            <rect x="242" y="234" width="174" height="84" rx="8" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="329" y="255" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">Shared Buffers (8KB 页池)</text>
-            <text x="329" y="273" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">缓存堆表页与索引页 (Clock-Sweep)</text>
-            <text x="329" y="290" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">生产建议设为物理内存 25%~40%</text>
+        <!-- Isolated DB Schema -->
+        <rect x="672" y="76" width="188" height="168" rx="6" fill="#FBF8F0" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="766" y="110" text-anchor="middle" fill="#2d3142" font-size="12.5" font-weight="700">物理隔离的另一数据库</text>
+        <text x="766" y="136" text-anchor="middle" fill="#4f5d75" font-size="11">• 连接绑定单个 Database</text>
+        <text x="766" y="158" text-anchor="middle" fill="#4f5d75" font-size="11">• 不能直接写跨库 SQL JOIN</text>
+        <text x="766" y="180" text-anchor="middle" fill="#4f5d75" font-size="11">• 跨库访问需配 postgres_fdw</text>
+        <text x="766" y="208" text-anchor="middle" fill="#5a6580" font-family="ui-monospace,monospace" font-size="9.5">适合完全独立的环境或系统</text>
+      </svg>
+    </div>
+  </figure>
 
-            <rect x="426" y="234" width="174" height="84" rx="8" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="513" y="255" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">WAL Buffers &amp; CLOG</text>
-            <text x="513" y="273" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">预写日志缓冲 + pg_xact 事务状态</text>
-            <text x="513" y="290" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">Lock Table 全局锁表与快照信息</text>
+  <div class="wb-grid-2">
+    <div>
+      <h4>📋 四级结构的核心边界与工程选型</h4>
+      <ul style="margin:6px 0 0; padding-left:18px; font-size:13.2px; line-height:1.68;">
+        <li><strong>第 1 层 · 实例集群（Cluster）</strong>：由一套启动进程管理的整个数据目录（<code>$PGDATA</code>），监听同一个端口（如 <code>5432</code>）。</li>
+        <li><strong>第 2 层 · 数据库（Database）</strong>：物理与会话完全隔离的容器。客户端建立连接时必须指定连入某一个具体的 <code>Database</code>，<strong>不同 Database 之间不能直接写 <code>SELECT * FROM db1.t1 JOIN db2.t2</code></strong>。</li>
+        <li><strong>第 3 层 · 模式（Schema）</strong>：同一个 <code>Database</code> 内部的<strong>命名空间（文件夹）</strong>。每个新库默认自带一个名为 <code>public</code> 的模式。一个业务系统的多个子模块（如用户模块 <code>auth</code>、订单模块 <code>billing</code>）推荐建成<strong>同一个 Database 下的不同 Schema</strong>，既能避免表名冲突、按模块控制权限，又能直接在同一个事务里跨 Schema 做关联查询与外键引用。</li>
+        <li><strong>第 4 层 · 数据库对象（Table / View / Index / Sequence / Function）</strong>：具体的数据表、视图、索引和序列均归属于某个 Schema 下，完整限定名为 <code>schema名.表名</code>（如 <code>billing.orders</code>）。</li>
+      </ul>
+    </div>
 
-            <path d="M422 182 L422 200" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#pa-arr)"/>
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 schema_and_search_path.sql · 模式创建与搜索路径</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-schema', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-schema"><code><span class="c-cmt">-- 1. 在当前数据库下创建两个业务模块 Schema</span>
+<span class="c-kw">CREATE SCHEMA IF NOT EXISTS</span> auth;
+<span class="c-kw">CREATE SCHEMA IF NOT EXISTS</span> billing;
 
-            <!-- 右侧：后台辅助进程 + 磁盘存储 -->
-            <rect x="636" y="20" width="228" height="196" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.3"/>
-            <text x="750" y="42" text-anchor="middle" font-size="12" font-weight="900" fill="var(--plop-ink)">🧹 后台守护进程 (Background)</text>
+<span class="c-cmt">-- 2. 使用 Schema.表名 在指定模式下建表并跨模式建立外键</span>
+<span class="c-kw">CREATE TABLE</span> auth.users (
+  id    bigint <span class="c-kw">GENERATED ALWAYS AS IDENTITY PRIMARY KEY</span>,
+  email text   <span class="c-kw">NOT NULL UNIQUE</span>
+);
 
-            <rect x="648" y="52" width="204" height="34" rx="7" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="750" y="73" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--plop-ink-text)">WAL Writer (刷 WAL 保证持久性)</text>
+<span class="c-kw">CREATE TABLE</span> billing.orders (
+  id      bigint <span class="c-kw">GENERATED ALWAYS AS IDENTITY PRIMARY KEY</span>,
+  user_id bigint <span class="c-kw">NOT NULL REFERENCES</span> auth.users(id),
+  amount  numeric(10, 2) <span class="c-kw">NOT NULL</span>
+);
 
-            <rect x="648" y="92" width="204" height="34" rx="7" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="750" y="113" text-anchor="middle" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">Bgwriter (平滑异步刷脏页)</text>
+<span class="c-cmt">-- 3. 查看与修改 search_path（不写 Schema 前缀时的默认查找顺序）</span>
+<span class="c-kw">SHOW</span> search_path;  <span class="c-cmt">-- 默认返回: "$user", public</span>
+<span class="c-kw">SET</span> search_path <span class="c-kw">TO</span> billing, auth, public;
 
-            <rect x="648" y="132" width="204" height="34" rx="7" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="750" y="153" text-anchor="middle" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">Checkpointer (定期刷脏打检查点)</text>
+<span class="c-cmt">-- 设置后，直接写 SELECT * FROM orders 会优先去 billing 下查找</span>
+<span class="c-kw">SELECT</span> u.email, o.amount
+<span class="c-kw">FROM</span> auth.users u
+<span class="c-kw">JOIN</span> billing.orders o <span class="c-kw">ON</span> o.user_id = u.id;</code></pre>
+    </div>
+  </div>
+</div>
 
-            <rect x="648" y="172" width="204" height="34" rx="7" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="750" y="193" text-anchor="middle" font-size="10.5" font-weight="900" fill="var(--plop-ink-text)">⭐ Autovacuum (清死元组+防回卷)</text>
+<!-- 01.2 · 角色（Role）、权限管理与核心配置文件 -->
+<div class="wb-card" id="role-permission" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🔐 01.2 · 权限与配置：角色（Role）与用户管理、最小权限赋权及两大核心配置文件</div>
+  <h3>🔐 01.2 角色权限管理与核心配置文件</h3>
 
-            <!-- 右下：磁盘文件 -->
-            <rect x="636" y="232" width="228" height="100" rx="12" fill="var(--plop-sheet)" stroke="var(--plop-ink)" stroke-width="2.4"/>
-            <text x="750" y="256" text-anchor="middle" font-size="12" font-weight="900" fill="var(--plop-ink-text)">💽 磁盘文件 ($PGDATA)</text>
-            <text x="750" y="277" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• base/ : 堆表页 + 索引 + FSM + VM</text>
-            <text x="750" y="295" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• pg_wal/ : 16MB 预写日志段文件</text>
-            <text x="750" y="313" text-anchor="middle" font-size="10" font-weight="800" fill="var(--plop-ink-text)">• pg_xact/ : 事务提交状态位图</text>
+  <p>
+    PostgreSQL 采用统一的<strong>角色（Role）</strong>模型来管理账号与权限组：一个带有登录权限（<code>LOGIN</code>）的 Role 就是传统意义上的“数据库用户（User）”；不带登录权限的 Role 则相当于“权限角色组（Group）”，可以把一组权限赋予组角色，再把组角色授予具体用户。
+  </p>
 
-            <path d="M616 265 L636 265" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#pa-arr)"/>
-            <path d="M750 216 L750 232" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#pa-arr)"/>
-          </svg>
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 role_and_grant.sql · 创建应用账号与最小权限赋权</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-role', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-role"><code><span class="c-cmt">-- 1. 创建带登录密码的业务应用账号（等同于 CREATE USER）</span>
+<span class="c-kw">CREATE ROLE</span> app_rw <span class="c-kw">WITH LOGIN PASSWORD</span> <span class="c-str">'StrongPass_2026'</span>;
 
-          <div class="table-wrap">
-            <table class="plop-table">
-              <thead>
-                <tr>
-                  <th style="width:24%;">核心组件</th>
-                  <th>职责与生产调优关键点</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><strong>postmaster 主进程</strong></td>
-                  <td>数据库实例总管：监听 <code>5432</code> 端口、为新连接 <code>fork</code> 后端进程、启动后台守护进程，并在后端异常崩溃时负责共享内存重置与 WAL 崩溃恢复。</td>
-                </tr>
-                <tr>
-                  <td><strong>backend 会话进程</strong></td>
-                  <td>每个客户端连接独占一个进程，负责完成该连接上 SQL 的解析（Parser）、重写（Rewriter）、优化器规划（Planner）与执行（Executor）。注意：<code>work_mem</code>（默认 <code>4MB</code>）是<strong>每个排序/哈希算子都可以分配一份</strong>，并非整个连接上限！</td>
-                </tr>
-                <tr>
-                  <td><strong>Shared Buffers</strong></td>
-                  <td>所有进程共享的数据页缓存池（页大小默认 <code>8 KiB</code>），地位等同于 MySQL 的 <code>Buffer Pool</code>。默认仅 <code>128MB</code>，<strong>生产环境通常调至机器内存的 25%～40%</strong>（剩余留给 OS Page Cache，因为 PG 依赖双层缓存）。</td>
-                </tr>
-                <tr>
-                  <td><strong>WAL Writer</strong></td>
-                  <td>定期将共享内存 <code>WAL Buffers</code> 中的预写日志刷入磁盘 <code>pg_wal/</code>，保障事务提交的持久性（Durability）。</td>
-                </tr>
-                <tr>
-                  <td><strong>Bgwriter &amp; Checkpointer</strong></td>
-                  <td><code>Bgwriter</code> 后台平滑把少量脏页写回磁盘，避免查询进程自己找空页时被迫刷盘；<code>Checkpointer</code> 按时间（<code>checkpoint_timeout</code>）或 WAL 量（<code>max_wal_size</code>）将所有脏页落盘并推进恢复起点。</td>
-                </tr>
-                <tr>
-                  <td><strong>⭐ Autovacuum</strong></td>
-                  <td>PG 运维命脉：定期唤醒 Worker 进程扫描表，<strong>回收 MVCC 留下的死元组空间、更新可见性映射（VM）与统计信息（ANALYZE），并冻结（Freeze）老事务 ID 防止 32 位事务号回卷</strong>（详见第 06 章）。</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+<span class="c-cmt">-- 2. 授予连接数据库、进入 billing 模式的权限（缺一不可）</span>
+<span class="c-kw">GRANT CONNECT ON DATABASE</span> app_prod <span class="c-kw">TO</span> app_rw;
+<span class="c-kw">GRANT USAGE ON SCHEMA</span> billing <span class="c-kw">TO</span> app_rw;
 
-        <!-- 01.2 安装、四级逻辑层级与 psql 元命令 -->
-        <div class="wb-card" style="background:var(--plop-paper);">
-          <div class="washi-tape mint"></div>
-          <div class="chapter-q-pill">❓ 01.2 · PG 里的 Database 和 Schema 有什么区别？为什么跨库不能直接写 JOIN？</div>
-          <h3>🛠️ 01.2 四级目录层级、安装启动与 <code>psql</code> 元命令速查</h3>
+<span class="c-cmt">-- 3. 授予模式下现有所有表的增删改查权限与序列使用权限</span>
+<span class="c-kw">GRANT SELECT, INSERT, UPDATE, DELETE</span>
+  <span class="c-kw">ON ALL TABLES IN SCHEMA</span> billing <span class="c-kw">TO</span> app_rw;
+<span class="c-kw">GRANT USAGE, SELECT</span>
+  <span class="c-kw">ON ALL SEQUENCES IN SCHEMA</span> billing <span class="c-kw">TO</span> app_rw;
 
-          <div class="plop-callout info" style="margin-bottom:14px;">
-            <strong>🧭 概念澄清：PostgreSQL 的四层逻辑结构（对比 MySQL 的三层扁平结构）</strong><br>
-            在 MySQL 中，<code>CREATE SCHEMA</code> 等同于 <code>CREATE DATABASE</code>，同一实例下不同库可以直接 <code>SELECT * FROM db1.t1 JOIN db2.t2</code>。<br>
-            而在 PostgreSQL 中，严格划分为四层：<strong>实例集群（Cluster） → 数据库（Database，物理隔离） → 模式（Schema，命名空间，默认 <code>public</code>） → 表/视图/函数</strong>。不同 <code>Database</code> 之间连接隔离、<strong>不能直接写 SQL JOIN</strong>（跨库需借用 <code>postgres_fdw</code> 外部表）；一个项目内的多模块分治，推荐放在<strong>同一个 Database 下的不同 Schema</strong> 中（如 <code>SELECT * FROM auth.users JOIN billing.orders ...</code>），通过 <code>SET search_path TO auth, public;</code> 控制默认查找顺序。
-          </div>
+<span class="c-cmt">-- 4. 设置默认权限：让未来在 billing 下新建的表也自动对 app_rw 授权</span>
+<span class="c-kw">ALTER DEFAULT PRIVILEGES IN SCHEMA</span> billing
+  <span class="c-kw">GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO</span> app_rw;</code></pre>
+    </div>
 
-          <div class="wb-grid-2">
-            <div>
-              <h4>💻 安装与连接常用命令</h4>
-              <div class="plop-code-box">
-                <div class="plop-code-head">
-                  <span>🐚 macOS / Linux 启动与连接</span>
-                </div>
-                <pre class="plop-code-pre"><code><span class="c-cmt"># macOS Homebrew 安装与后台启动</span>
-brew install postgresql@16
-brew services start postgresql@16
+    <div>
+      <h4>⚙️ 数据目录（<code>$PGDATA</code>）下的两大核心配置文件</h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">配置文件</th>
+              <th>核心职责与常用配置项</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. <code>postgresql.conf</code></strong><br>（实例主参数文件）</td>
+              <td>控制监听地址、端口、内存与日志策略：<br>• <code>listen_addresses = '*'</code>：允许远程网卡连接（默认仅 <code>localhost</code>）；<br>• <code>max_connections = 200</code>：最大并发后端进程连接数；<br>• <code>shared_buffers = 4GB</code>：共享数据页缓存大小（通常设为物理内存的 25%~40%）；<br>• <code>log_min_duration_statement = 500</code>：记录执行耗时超过 500ms 的慢 SQL。</td>
+            </tr>
+            <tr>
+              <td><strong>2. <code>pg_hba.conf</code></strong><br>（客户端认证白名单）</td>
+              <td><strong>Host-Based Authentication</strong>，按顺序匹配“连接类型 + 数据库 + 用户 + 客户端网段 + 认证算法”：<br>• 例如 <code>host all all 10.0.0.0/8 scram-sha-256</code> 表示允许内网 <code>10.x</code> 网段使用安全的 <code>SCRAM-SHA-256</code> 哈希密码认证登录。<br>• 修改后无需重启实例，执行 <code>SELECT pg_reload_conf();</code> 即可热加载生效。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
 
-<span class="c-cmt"># 命令行连接（默认连接同名库/当前系统用户）</span>
-psql postgres
-psql -h localhost -p 5432 -U myuser -d mydb
+<!-- 01.3 · 应用层连接配置与连接池基础 -->
+<div class="wb-card" id="connection-pool-intro" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔌 01.3 · 连接管理：标准连接串 URL 格式、应用层连接池与 <code>PgBouncer</code> 的日常定位</div>
+  <h3>🔌 01.3 标准连接串格式与连接池配置规范</h3>
 
-<span class="c-cmt"># 查看当前连接的库、用户、Schema 搜索路径</span>
-<span class="c-kw">SELECT</span> current_database(), current_user;
-<span class="c-kw">SHOW</span> search_path;</code></pre>
-              </div>
-            </div>
+  <p>
+    在 Go、Node.js、Java 或 Python 等后端服务中连接 PostgreSQL 时，通常通过标准的 <strong>PostgreSQL Connection URI</strong> 传入连接信息与超时参数：
+  </p>
 
-            <div>
-              <h4>⚡ <code>psql</code> 终端反斜杠元命令（高频必背）</h4>
-              <div class="table-wrap" style="margin-top:6px;">
-                <table class="plop-table">
-                  <thead>
-                    <tr>
-                      <th>元命令</th>
-                      <th>作用说明</th>
-                      <th>元命令</th>
-                      <th>作用说明</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><code>\l</code></td>
-                      <td>列出所有数据库</td>
-                      <td><code>\c 库名</code></td>
-                      <td>切换连接的数据库</td>
-                    </tr>
-                    <tr>
-                      <td><code>\dn</code></td>
-                      <td>列出所有 Schema</td>
-                      <td><code>\dt</code></td>
-                      <td>列出当前 Schema 的表</td>
-                    </tr>
-                    <tr>
-                      <td><code>\d 表名</code></td>
-                      <td>查看表字段、索引与外键</td>
-                      <td><code>\d+ 表名</code></td>
-                      <td>连同表大小、注释一起看</td>
-                    </tr>
-                    <tr>
-                      <td><code>\di</code></td>
-                      <td>列出所有索引</td>
-                      <td><code>\du</code></td>
-                      <td>列出所有角色/用户权限</td>
-                    </tr>
-                    <tr>
-                      <td><code>\x</code></td>
-                      <td>⭐切换竖排展示（宽表神器）</td>
-                      <td><code>\timing</code></td>
-                      <td>⭐开启/关闭 SQL 毫秒耗时</td>
-                    </tr>
-                    <tr>
-                      <td><code>\df</code> / <code>\dx</code></td>
-                      <td>查看函数 / 已安装扩展</td>
-                      <td><code>\e</code> / <code>\q</code></td>
-                      <td>打开外部编辑器写 SQL / 退出</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span>🔗 标准 PostgreSQL 连接串格式与常用查询参数</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-uri', this)">复制连接串</button>
+    </div>
+    <pre class="plop-code-pre" id="code-pg-uri"><code><span class="c-cm"># 标准格式：postgresql://用户名:密码@主机名:端口/数据库名?参数名=参数值</span>
+<span class="c-kw">postgresql://</span><span class="c-fn">app_rw</span>:<span class="c-str">StrongPass_2026</span>@<span class="c-fn">db.internal</span>:<span class="c-num">5432</span>/<span class="c-str">app_prod</span>?<span class="c-flag">sslmode</span>=<span class="c-str">require</span>&amp;<span class="c-flag">connect_timeout</span>=<span class="c-num">5</span>&amp;<span class="c-flag">application_name</span>=<span class="c-str">order-service</span>&amp;<span class="c-flag">options</span>=<span class="c-str">-c%20statement_timeout%3D3000</span></code></pre>
+  </div>
 
-          <details class="plop-drawer">
-            <summary>❓ 面试自测：PostgreSQL 和 MySQL 最核心的三大架构区别是什么？</summary>
-            <div class="drawer-body">
-              <ol>
-                <li><strong>并发模型（多进程 vs 多线程）：</strong>PG 每个连接由 <code>postmaster</code> fork 独立 <code>backend</code> 进程，故障隔离好但单连接开销大，高并发必配 <code>PgBouncer</code>；MySQL 每连接一个线程。</li>
-                <li><strong>存储引擎与表组织（单一堆表引擎 vs 插件式聚簇索引）：</strong>PG 没有插件式引擎概念，表统一采用无序堆表（Heap）+ <code>ctid</code> 物理寻址；MySQL InnoDB 表即主键 B+ 树（索引组织表）。</li>
-                <li><strong>MVCC 多版本落盘位置（堆表内追加 vs Undo Log）：</strong>PG 把旧版本直接留在数据表页里（靠 <code>xmin/xmax</code> 标记），靠后台 <code>VACUUM</code> 异步清理死元组；InnoDB 把旧版本放进独立的 <code>undo log</code> 回滚段。这一点直接衍生出 PG 特有的“表膨胀”、“HOT 更新”与“事务 ID 回卷”运维体系。</li>
-              </ol>
-            </div>
-          </details>
-        </div>
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">连接参数 / 概念</th>
+          <th style="width:26%">推荐配置值示例</th>
+          <th>工程作用说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>application_name</code></td>
+          <td><code>order-service</code></td>
+          <td>将当前微服务名称上报给数据库。排查慢查询或锁等待时，可在 <code>pg_stat_activity</code> 视图中直接看到是哪个业务服务发出的请求。</td>
+        </tr>
+        <tr>
+          <td><code>statement_timeout</code></td>
+          <td><code>3000</code>（即 3 秒）</td>
+          <td>单条 SQL 最大允许执行时长。超时后服务端主动中止该语句，防止慢查询无限期占用数据库连接与 CPU。</td>
+        </tr>
+        <tr>
+          <td><code>idle_in_transaction_session_timeout</code></td>
+          <td><code>10000</code>（即 10 秒）</td>
+          <td>防止应用代码开启事务 <code>BEGIN</code> 后因逻辑 Bug 或外部接口卡住而忘记 <code>COMMIT/ROLLBACK</code>，超时自动断开释放行锁。</td>
+        </tr>
+        <tr>
+          <td><strong>应用层连接池 &amp; PgBouncer</strong></td>
+          <td>单实例连接池 <code>10~20</code>；多实例前置 <code>PgBouncer</code></td>
+          <td>PostgreSQL 服务端采用<strong>“一连接一进程”</strong>模型，每个连接进程会占用约 5~15MB 内存。因此业务代码必须使用连接池复用连接；当微服务容器实例扩展到上百个时，建议在数据库前部署轻量级连接池中间件 <strong><code>PgBouncer</code></strong>，将数千个应用连接收敛到百余个真实数据库进程上。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout info" style="margin-bottom:0;">
+    <strong>📘 底层原理延伸：</strong>想深入了解 PostgreSQL 的 <code>postmaster</code> 主进程如何通过 <code>fork()</code> 派发 <code>backend</code> 会话进程、共享缓冲池 <code>Shared Buffers</code> 的时钟扫描（Clock-Sweep）淘汰算法以及 <code>PgBouncer</code> 事务级池化的内部原理，可点击查看 <a href="principles.html#arch">📘 核心原理篇 · 01 多进程与内存内核 ↗</a>。
+  </div>
+</div>

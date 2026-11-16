@@ -1,0 +1,385 @@
+<!-- ====================================================================
+     PART 03: SQL 基础操作与查询进阶 · 增删改查、NULL 三值逻辑、分组关联与窗口函数
+     ==================================================================== -->
+<div class="wb-sec-header" id="dml" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">SQL 基础操作与查询进阶 · 增删改查、分组关联、UPSERT 与窗口函数</span>
+  <span class="plop-tag mint">CRUD × WHERE &amp; NULL × GROUP BY &amp; HAVING × JOIN &amp; UNION × WINDOW &amp; CTE</span>
+</div>
+
+<!-- 03.1 · 标准增删改（INSERT / UPDATE / DELETE）与幂等写入（UPSERT） -->
+<div class="wb-card" id="mysql-crud-upsert" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">✍️ 03.1 · 写操作全集：单行与批量 INSERT、关联 UPDATE、安全 DELETE 与 ON DUPLICATE KEY UPDATE 幂等写入</div>
+  <h3>✍️ 03.1 标准增删改（<code>INSERT / UPDATE / DELETE</code>）与幂等写入（UPSERT）</h3>
+
+  <p>
+    SQL 按职责分为四大类：<strong>DDL（数据定义：<code>CREATE / ALTER / DROP / TRUNCATE</code>）</strong>、<strong>DML（数据操作：<code>INSERT / UPDATE / DELETE</code>）</strong>、<strong>DQL（数据查询：<code>SELECT</code>）</strong> 与 <strong>DCL（数据控制：<code>GRANT / REVOKE</code>）</strong>。在日常业务开发中，数据写入与修改涵盖了从基础单行/批量操作到唯一键冲突幂等更新（UPSERT）的完整模式：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>⚡ dml_write_patterns.sql · 批量插入、关联更新、安全删除与 UPSERT</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-upsert', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mysql-upsert"><code><span class="c-cm">-- 1. 批量插入（单条 INSERT 传多组 VALUES，比循环单条插入快约 10 倍，减少网络与事务开销）</span>
+<span class="c-kw">INSERT INTO</span> `users` (`username`, `city`, `balance`) <span class="c-kw">VALUES</span>
+  (<span class="c-str">'lin'</span>,  <span class="c-str">'杭州'</span>, <span class="c-num">100.00</span>),
+  (<span class="c-str">'zhou'</span>, <span class="c-str">'杭州'</span>, <span class="c-num">200.00</span>),
+  (<span class="c-str">'chen'</span>, <span class="c-str">'上海'</span>, <span class="c-num">300.00</span>);
+
+<span class="c-cm">-- 2. INSERT INTO ... SELECT：将查询统计结果直接批量导入另一张表</span>
+<span class="c-kw">INSERT INTO</span> `vip_users_archive` (`user_id`, `username`, `balance`)
+<span class="c-kw">SELECT</span> `id`, `username`, `balance` <span class="c-kw">FROM</span> `users` <span class="c-kw">WHERE</span> `balance` &gt;= <span class="c-num">1000.00</span>;
+
+<span class="c-cm">-- 3. 条件更新与多表 JOIN 关联更新（根据部门表状态同步更新员工表津贴）</span>
+<span class="c-kw">UPDATE</span> `employees` `e`
+<span class="c-kw">INNER JOIN</span> `departments` `d` <span class="c-kw">ON</span> `e`.`dept_id` = `d`.`id`
+<span class="c-kw">SET</span> `e`.`bonus` = `e`.`bonus` + <span class="c-num">500.00</span>
+<span class="c-kw">WHERE</span> `d`.`city` = <span class="c-str">'杭州'</span> <span class="c-kw">AND</span> `e`.`status` = <span class="c-num">1</span>;
+
+<span class="c-cm">-- 4. 幂等写入（UPSERT）：若唯一键 (stat_date, item_id) 不存在则插入，已存在则累加</span>
+<span class="c-cm">-- 注：MySQL 8.0.20+ 推荐使用 AS new 行别名引用待插入的新值</span>
+<span class="c-kw">INSERT INTO</span> `daily_stats` (`stat_date`, `item_id`, `view_cnt`, `pay_amt`)
+<span class="c-kw">VALUES</span> (<span class="c-str">'2026-11-15'</span>, <span class="c-num">1001</span>, <span class="c-num">1</span>, <span class="c-num">99.00</span>) <span class="c-kw">AS</span> `new`
+<span class="c-kw">ON DUPLICATE KEY UPDATE</span>
+  `view_cnt` = `daily_stats`.`view_cnt` + `new`.`view_cnt`,
+  `pay_amt`  = `daily_stats`.`pay_amt`  + `new`.`pay_amt`;
+
+<span class="c-cm">-- 5. 清理百万级历史数据时，按索引加 LIMIT 分批小事务删除（防锁表与主从延迟）</span>
+<span class="c-kw">DELETE FROM</span> `audit_logs`
+<span class="c-kw">WHERE</span> `created_at` &lt; <span class="c-str">'2025-01-01 00:00:00'</span>
+<span class="c-kw">ORDER BY</span> `id` <span class="c-kw">ASC</span> <span class="c-kw">LIMIT</span> <span class="c-num">2000</span>;</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">🔍 写操作四大工程细节说明</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
+        <li><strong>防误删全表保护开关（<code>sql_safe_updates = 1</code>）</strong>：在生产终端手工执行 SQL 时，建议开启 <code>SET sql_safe_updates = 1;</code>（或在连接命令加 <code>mysql --safe-updates</code>）。开启后，任何<strong>没写 <code>WHERE</code> 条件（且没写 <code>LIMIT</code>）或 <code>WHERE</code> 条件未走索引</strong>的 <code>UPDATE / DELETE</code> 都会被直接拦截报错，避免手滑覆写整表。</li>
+        <li><strong><code>ON DUPLICATE KEY UPDATE</code> 的受影响行数</strong>：如果是纯新增返回受影响行数为 <code>1</code>；如果触发了唯一键冲突并修改了旧值则返回 <code>2</code>；如果冲突但更新前后的值完全相同则返回 <code>0</code>。</li>
+        <li><strong>为什么不推荐用 <code>REPLACE INTO</code></strong>：当唯一键冲突时，<code>REPLACE INTO</code> 并不是原地 <code>UPDATE</code>，而是<strong>先把旧行物理 <code>DELETE</code> 再重新 <code>INSERT</code> 一行新记录</strong>。这会导致该行的自增主键 <code>id</code> 被悄悄换掉、未在语句中写出的列被重置为默认值，并迫使所有二级索引重新维护。</li>
+        <li><strong>为什么大批量 <code>DELETE / UPDATE</code> 要加 <code>LIMIT</code> 拆批</strong>：单条修改百万行的大事务会长时间持有大量记录锁与间隙锁，阻塞正常业务写入并撑爆 <code>Undo Log</code>，拆为每次 <code>1000 ~ 5000</code> 行最为稳妥。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 03.2 · 单表查询基本功：SELECT 子句、WHERE 过滤运算符与 NULL 三值逻辑 -->
+<div class="wb-card" id="mysql-select-where-null" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🔎 03.2 · 单表查询与 NULL 避坑：WHERE 过滤操作符、NULL 三值逻辑（为什么 NOT IN 遇到 NULL 返回空）与排序分页</div>
+  <h3>🔎 03.2 单表查询（<code>SELECT / WHERE / ORDER BY / LIMIT</code>）与 <code>NULL</code> 三值逻辑</h3>
+
+  <p>
+    单表查询涵盖了投影（<code>SELECT</code>）、去重（<code>DISTINCT</code>）、条件过滤（<code>WHERE</code>）、排序（<code>ORDER BY</code>）与分页（<code>LIMIT</code>）。在编写过滤条件时，最核心的基本功是掌握各类操作符的边界语义以及 SQL 特有的 <strong><code>NULL</code> 三值逻辑（<code>TRUE / FALSE / UNKNOWN</code>）</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">操作符 / 表达式</th>
+          <th style="width:32%">标准语法示例</th>
+          <th>边界语义与避坑要点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>比较与安全等于</strong><br><code>= / != / &lt;=&gt;</code></td>
+          <td><code>WHERE city = '杭州'</code><br><code>WHERE phone &lt;=&gt; NULL</code></td>
+          <td>普通等于号 <code>=</code> 和不等于号 <code>!=</code>（或 <code>&lt;&gt;</code>）<strong>一旦任意一侧为 <code>NULL</code>，结果永远是 <code>UNKNOWN</code>（不会命中任何行）</strong>。MySQL 特有的太空船运算符 <strong><code>&lt;=&gt;</code>（NULL-safe equal）</strong> 可安全比较 <code>NULL</code>（<code>NULL &lt;=&gt; NULL</code> 返回 <code>1</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong>区间与集合</strong><br><code>BETWEEN / IN / NOT IN</code></td>
+          <td><code>WHERE age BETWEEN 18 AND 30</code><br><code>WHERE status IN (1, 2, 3)</code></td>
+          <td>• <code>BETWEEN a AND b</code> 是<strong>闭区间 <code>[a, b]</code></strong>（包含首尾两端点 <code>a</code> 和 <code>b</code>）；<br>• <strong><code>NOT IN</code> 含 <code>NULL</code> 陷阱</strong>：<code>WHERE id NOT IN (10, 20, NULL)</code> 等价于 <code>id != 10 AND id != 20 AND id != NULL</code>，由于 <code>id != NULL</code> 恒为 <code>UNKNOWN</code>，<strong>整条查询永远返回 0 行</strong>。子查询判不存在时应优先使用 <code>NOT EXISTS</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>模糊与正则匹配</strong><br><code>LIKE / REGEXP</code></td>
+          <td><code>WHERE name LIKE '张%'</code><br><code>WHERE code REGEXP '^[A-Z]{2}[0-9]+$'</code></td>
+          <td><code>LIKE</code> 中 <strong><code>%</code> 匹配任意 0 到多个字符</strong>，<strong><code>_</code> 匹配严格单个字符</strong>（若要匹配字面量下划线需转义写为 <code>\_</code>）。注意最左前缀原则：<code>'张%'</code> 可走索引，而左通配 <code>'%张%'</code> 会导致 B+ 树索引失效。</td>
+        </tr>
+        <tr>
+          <td><strong>逻辑组合优先级</strong><br><code>AND / OR / NOT</code></td>
+          <td><code>WHERE (city = '杭州' OR city = '上海') AND status = 1</code></td>
+          <td><strong><code>AND</code> 的运算优先级高于 <code>OR</code></strong>。如果漏写括号写成 <code>WHERE city = '杭州' OR city = '上海' AND status = 1</code>，会被数据库解析为 <code>city = '杭州' OR (city = '上海' AND status = 1)</code>，导致杭州已禁用（<code>status = 0</code>）的用户被意外查出。</td>
+        </tr>
+        <tr>
+          <td><strong>空值兜底与条件分支</strong><br><code>COALESCE / IFNULL / CASE</code></td>
+          <td><code>COALESCE(nickname, username, '匿名')</code><br><code>CASE WHEN score &gt;= 60 THEN '及格' ELSE '不及格' END</code></td>
+          <td>任何数值与 <code>NULL</code> 做算术运算结果都是 <code>NULL</code>（如 <code>100 + NULL = NULL</code>），做金额累加或拼接前需用标准 SQL 函数 <code>COALESCE(col, 0)</code>（返回参数列表中第一个非 <code>NULL</code> 值）或 <code>IFNULL(col, 0)</code> 兜底。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box" style="margin-bottom:0;">
+    <div class="plop-code-head">
+      <span>🧪 select_single_table.sql · 去重、条件表达式、NULL 安全处理与排序分页标准写法</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-select-basic', this)">复制 SQL</button>
+    </div>
+    <pre class="plop-code-pre" id="code-mysql-select-basic"><code><span class="c-cm">-- 1. 投影、列别名 AS、COALESCE 空值兜底与 CASE WHEN 条件派生列</span>
+<span class="c-kw">SELECT</span>
+  `id`,
+  <span class="c-fn">COALESCE</span>(`nickname`, `username`, <span class="c-str">'未命名用户'</span>) <span class="c-kw">AS</span> `display_name`,
+  `balance` + <span class="c-fn">IFNULL</span>(`frozen_balance`, <span class="c-num">0.00</span>)     <span class="c-kw">AS</span> `total_assets`,
+  <span class="c-kw">CASE</span>
+    <span class="c-kw">WHEN</span> `balance` &gt;= <span class="c-num">10000.00</span> <span class="c-kw">THEN</span> <span class="c-str">'钻石会员'</span>
+    <span class="c-kw">WHEN</span> `balance` &gt;= <span class="c-num">1000.00</span>  <span class="c-kw">THEN</span> <span class="c-str">'黄金会员'</span>
+    <span class="c-kw">ELSE</span> <span class="c-str">'普通会员'</span>
+  <span class="c-kw">END</span> <span class="c-kw">AS</span> `vip_tier`
+<span class="c-kw">FROM</span> `users`
+<span class="c-kw">WHERE</span> (`city` = <span class="c-str">'杭州'</span> <span class="c-kw">OR</span> `city` = <span class="c-str">'上海'</span>)
+  <span class="c-kw">AND</span> `phone` <span class="c-kw">IS NOT NULL</span>                  <span class="c-cm">-- 判空必须用 IS NULL / IS NOT NULL，不可写 != NULL</span>
+  <span class="c-kw">AND</span> `created_at` <span class="c-kw">BETWEEN</span> <span class="c-str">'2026-01-01 00:00:00'</span> <span class="c-kw">AND</span> <span class="c-str">'2026-12-31 23:59:59'</span>
+<span class="c-kw">ORDER BY</span> `balance` <span class="c-kw">DESC</span>, `id` <span class="c-kw">ASC</span>          <span class="c-cm">-- 先按余额降序；余额相同时按主键 id 升序保证顺序稳定</span>
+<span class="c-kw">LIMIT</span> <span class="c-num">20</span> <span class="c-kw">OFFSET</span> <span class="c-num">40</span>;                        <span class="c-cm">-- 跳过前 40 条，取第 41~60 条（等价于 MySQL 简写 LIMIT 40, 20）</span>
+
+<span class="c-cm">-- 2. DISTINCT 多列去重：返回所有不重复的 (city, status) 组合</span>
+<span class="c-kw">SELECT DISTINCT</span> `city`, `status` <span class="c-kw">FROM</span> `users`;</code></pre>
+  </div>
+</div>
+
+<!-- 03.3 · 分组聚合（GROUP BY）、五大聚合函数与 WHERE vs HAVING 对照 -->
+<div class="wb-card" id="mysql-groupby-having" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">📊 03.3 · 分组与聚合：五大聚合函数、GROUP_CONCAT、WHERE 与 HAVING 的本质区别及 COUNT(*) 规范</div>
+  <h3>📊 03.3 分组聚合（<code>GROUP BY</code>）、<code>WHERE</code> vs <code>HAVING</code> 与 <code>COUNT</code> 规范</h3>
+
+  <p>
+    当需要按某个维度（如按城市、按日期、按商品分类）汇总统计时，使用 <code>GROUP BY</code> 将具有相同分组键的多行折叠为一行，并配合聚合函数（<code>COUNT / SUM / AVG / MAX / MIN / GROUP_CONCAT</code>）计算统计值。初学者最常混淆的是 <strong><code>WHERE</code> 与 <code>HAVING</code> 的过滤时机差异</strong>：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:22%">对比维度</th>
+              <th style="width:39%"><code>WHERE</code> 子句</th>
+              <th><code>HAVING</code> 子句</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>执行时机</strong></td>
+              <td>在 <strong><code>GROUP BY</code> 分组之前</strong>，对原表中的每一行逐行过滤</td>
+              <td>在 <strong><code>GROUP BY</code> 分组并算出聚合值之后</strong>，对分组汇总结果做二次过滤</td>
+            </tr>
+            <tr>
+              <td><strong>能否使用聚合函数</strong></td>
+              <td><strong>不能</strong>（如写 <code>WHERE COUNT(*) &gt; 5</code> 会直接报语法错误，因为此时尚未分组）</td>
+              <td><strong>专门用于过滤聚合函数结果</strong>（如 <code>HAVING COUNT(*) &gt; 5 AND SUM(pay_amt) &gt;= 1000</code>）</td>
+            </tr>
+            <tr>
+              <td><strong>能否走索引与性能</strong></td>
+              <td><strong>可以直接利用 B+ 树索引</strong>提前过滤掉无关数据，减少参与分组排序的行数</td>
+              <td>在内存/临时表聚合完成后才过滤，无法利用索引减少扫描量</td>
+            </tr>
+            <tr>
+              <td><strong>工程编写准则</strong></td>
+              <td colspan="2">凡是不依赖聚合函数的普通列过滤条件（如 <code>status = 'PAID'</code>、时间范围），<strong>一律写在 <code>WHERE</code> 中提前过滤</strong>；只有依赖 <code>COUNT / SUM / AVG</code> 的结果条件才写在 <code>HAVING</code> 中。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📊 groupby_having.sql · 分组统计、条件聚合与 GROUP_CONCAT</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-groupby', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mysql-groupby"><code><span class="c-cm">-- 统计 2026 年各城市的：总订单数、已支付订单数、已支付总金额、客单价及前 3 个用户名单</span>
+<span class="c-cm">-- 且只保留“已支付总金额 &gt;= 5000 元”的城市：</span>
+<span class="c-kw">SELECT</span>
+  `city`,
+  <span class="c-fn">COUNT</span>(*) <span class="c-kw">AS</span> `total_orders`,
+  <span class="c-cm">-- 条件聚合：单次扫描内同时统计满足特定子条件的行数与金额</span>
+  <span class="c-fn">COUNT</span>(<span class="c-kw">CASE WHEN</span> `status` = <span class="c-str">'PAID'</span> <span class="c-kw">THEN</span> <span class="c-num">1</span> <span class="c-kw">END</span>) <span class="c-kw">AS</span> `paid_orders`,
+  <span class="c-fn">SUM</span>(<span class="c-kw">CASE WHEN</span> `status` = <span class="c-str">'PAID'</span> <span class="c-kw">THEN</span> `amount` <span class="c-kw">ELSE</span> <span class="c-num">0</span> <span class="c-kw">END</span>) <span class="c-kw">AS</span> `paid_sum`,
+  <span class="c-fn">ROUND</span>(<span class="c-fn">AVG</span>(`amount`), <span class="c-num">2</span>) <span class="c-kw">AS</span> `avg_amount`,
+  <span class="c-cm">-- GROUP_CONCAT：将同一分组内的多行字段值拼接成逗号分隔字符串</span>
+  <span class="c-fn">GROUP_CONCAT</span>(<span class="c-kw">DISTINCT</span> `username` <span class="c-kw">ORDER BY</span> `amount` <span class="c-kw">DESC SEPARATOR</span> <span class="c-str">', '</span>) <span class="c-kw">AS</span> `buyers`
+<span class="c-kw">FROM</span> `orders`
+<span class="c-kw">WHERE</span> `created_at` &gt;= <span class="c-str">'2026-01-01 00:00:00'</span>   <span class="c-cm">-- 分组前走索引过滤时间</span>
+<span class="c-kw">GROUP BY</span> `city`
+<span class="c-kw">HAVING</span> `paid_sum` &gt;= <span class="c-num">5000.00</span>                  <span class="c-cm">-- 分组后过滤聚合结果</span>
+<span class="c-kw">ORDER BY</span> `paid_sum` <span class="c-kw">DESC</span>;</code></pre>
+    </div>
+  </div>
+
+  <ul style="margin:0; padding-left:20px; font-size:13.2px; line-height:1.68;">
+    <li><strong><code>ONLY_FULL_GROUP_BY</code> 规范（MySQL 5.7.5+ 默认开启）</strong>：要求 <code>SELECT</code> 列表中出现的每一列，要么包含在 <code>GROUP BY</code> 分组键中，要么被包裹在聚合函数（如 <code>SUM() / MAX() / COUNT() / ANY_VALUE()</code>）内，从而杜绝从同一分组的多行里随机挑一行非分组列值的不确定行为。</li>
+    <li><strong><code>COUNT(*)</code> vs <code>COUNT(1)</code> vs <code>COUNT(列名)</code></strong>：<code>COUNT(*)</code> 与 <code>COUNT(1)</code> 均统计符合条件的总行数（包含列值为 <code>NULL</code> 的行），<strong>在 MySQL InnoDB 中两者的执行计划和性能完全相同</strong>（优化器会自动挑选体积最小的二级索引树进行遍历计数，不会读取整行），按 SQL 标准推荐统一写 <code>COUNT(*)</code>；而 <code>COUNT(列名)</code> 只统计该列<strong>非 <code>NULL</code></strong> 的行数。</li>
+  </ul>
+</div>
+
+<!-- 03.4 · 多表关联查询（JOIN）、子查询（IN vs EXISTS）与集合运算（UNION） -->
+<div class="wb-card" id="mysql-join-subquery-union" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔗 03.4 · 多表关联与集合：JOIN 类型、LEFT JOIN 中 ON 与 WHERE 的差异、EXISTS 子查询与 UNION ALL</div>
+  <h3>🔗 03.4 多表关联（<code>JOIN</code>）、子查询（<code>EXISTS</code>）与集合合并（<code>UNION ALL</code>）</h3>
+
+  <p>
+    当数据分布在多张关系表中时，可以通过<strong>横向列关联（<code>JOIN</code>）</strong>、<strong>嵌套子查询（<code>IN / EXISTS</code>）</strong>或<strong>纵向行合并（<code>UNION ALL / UNION</code>）</strong>组合查询。其中最关键的实战细节是区分 <code>LEFT JOIN</code> 中过滤条件写在 <code>ON</code> 还是写在 <code>WHERE</code>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:26%">关联 / 集合语法</th>
+          <th style="width:36%">典型写法示例</th>
+          <th>集合语义与执行过程解析</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>内连接 <code>INNER JOIN</code></strong><br>（两表交集 <code>A ∩ B</code>）</td>
+          <td><code>FROM users u INNER JOIN orders o ON u.id = o.user_id</code></td>
+          <td>只返回左右两张表都能匹配上连接条件的行（没有任何订单的用户不会出现在结果中）。</td>
+        </tr>
+        <tr>
+          <td><strong>左外连接 + 条件写在 <code>ON</code></strong><br>（保持左表全集）</td>
+          <td><code>FROM users u LEFT JOIN orders o ON u.id = o.user_id AND o.status = 'PAID'</code></td>
+          <td>在连接匹配阶段只关联该用户的已支付订单；<strong>如果某个用户没有任何已支付订单，左表 <code>users</code> 的该行依然会保留返回</strong>（右侧订单列全部补 <code>NULL</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong>左外连接 + 右表条件写在 <code>WHERE</code></strong><br>（隐式退化为 <code>INNER JOIN</code>）</td>
+          <td><code>FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.status = 'PAID'</code></td>
+          <td>先生成包含 <code>NULL</code> 补位行的左连接临时结果，随后执行 <code>WHERE o.status = 'PAID'</code>；由于 <code>NULL = 'PAID'</code> 为假，<strong>所有未下单用户的行被 <code>WHERE</code> 全部滤除，导致 <code>LEFT JOIN</code> 退化成了 <code>INNER JOIN</code></strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>查找左表独有差集（Anti-Join）</strong><br><code>LEFT JOIN ... WHERE 右表主键 IS NULL</code> 或 <code>NOT EXISTS</code></td>
+          <td><code>SELECT * FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)</code></td>
+          <td>查询“注册后从未下过单的用户”。使用 <code>NOT EXISTS</code>（或 <code>LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL</code>）不仅能走索引反半连接优化（Anti-Join），还能彻底规避 <code>NOT IN</code> 遇到 <code>NULL</code> 返回空集的隐患。</td>
+        </tr>
+        <tr>
+          <td><strong>纵向合并结果集</strong><br><code>UNION ALL</code> vs <code>UNION</code></td>
+          <td><code>SELECT id, amount FROM orders_2025 UNION ALL SELECT id, amount FROM orders_2026</code></td>
+          <td>• <strong><code>UNION ALL</code>（首选）</strong>：直接将上下两个查询的结果集追加拼接，<strong>不做去重、不创建临时表排序</strong>，性能极高；<br>• <strong><code>UNION</code></strong>：拼接后还会对全部列做一次全量去重，开销远高于 <code>UNION ALL</code>，除非明确需要去重否则一律写 <code>UNION ALL</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 03.5 · 窗口函数 OVER (...)、递归 CTE 与 SQL 逻辑执行顺序 -->
+<div class="wb-card" id="mysql-window-cte" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🪟 03.5 · MySQL 8.0+ 分析查询：窗口函数 OVER (PARTITION BY ... ORDER BY ...)、递归 CTE 与 9 步执行顺序</div>
+  <h3>🪟 03.5 窗口函数、递归公共表表达式（<code>WITH RECURSIVE</code>）与执行顺序</h3>
+
+  <p>
+    自 MySQL 8.0 起，原生支持完整的 SQL 标准<strong>窗口函数（Window Functions）</strong>与<strong>公共表表达式（CTE）</strong>。与普通 <code>GROUP BY</code> 把多行折叠合并成一行不同，<strong>窗口函数通过 <code>函数名() OVER (PARTITION BY 分组列 ORDER BY 排序列)</code> 在保留每一行原始明细的同时，为每一行计算出它在所属分组窗口内的排名、累计求和或前后相邻行对比值</strong>：
+  </p>
+
+  <!-- Editorial SVG: GROUP BY vs Window Function OVER (...) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 236" style="width:100%; min-width:760px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mysql-win-title mysql-win-desc">
+        <title id="mysql-win-title">GROUP BY 折叠聚合与窗口函数 OVER 保留原行对比图</title>
+        <desc id="mysql-win-desc">左侧展示原始 4 行城市用户数据；中间展示 GROUP BY city 将 4 行折叠为 2 行汇总；右侧展示窗口函数 OVER (PARTITION BY city ORDER BY balance DESC) 保留全部 4 行并附加组内排名与城市总额。</desc>
+        <defs>
+          <marker id="mw-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+          </marker>
+          <marker id="mw-arr-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors drawn BEFORE boxes -->
+        <line x1="254" y1="124" x2="306" y2="124" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#mw-arr-ink)"/>
+        <path d="M 144 196 L 144 210 Q 144 218 152 218 L 552 218 Q 560 218 560 210 L 560 198" fill="none" stroke="#bf4520" stroke-width="2" marker-end="url(#mw-arr-coral)"/>
+        <rect x="292" y="200" width="160" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="372" y="210" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#bf4520">OVER (PARTITION BY city)</text>
+
+        <!-- Box 1: Source Rows -->
+        <rect x="28" y="34" width="226" height="162" rx="10" fill="#F4EFE6" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="141" y="56" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="12" font-weight="800" fill="#1F1F23">1. 原始表行（4 行明细）</text>
+        <rect x="42" y="68" width="198" height="26" rx="4" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="141" y="85" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#1F1F23">杭州 │ 小周 │ balance: 200</text>
+        <rect x="42" y="98" width="198" height="26" rx="4" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="141" y="115" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#1F1F23">杭州 │ 小林 │ balance: 100</text>
+        <rect x="42" y="128" width="198" height="26" rx="4" fill="#E8F5E9" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="141" y="145" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#1b5e20">上海 │ 小陈 │ balance: 300</text>
+        <rect x="42" y="158" width="198" height="26" rx="4" fill="#E8F5E9" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="141" y="175" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#1b5e20">上海 │ 小张 │ balance: 150</text>
+
+        <!-- Box 2: GROUP BY (Collapsed) -->
+        <rect x="308" y="54" width="212" height="122" rx="10" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="414" y="76" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="12" font-weight="800" fill="#5A5860">2. GROUP BY city（折叠为 2 行）</text>
+        <rect x="322" y="90" width="184" height="32" rx="5" fill="#F4EFE6" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="414" y="110" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#1F1F23">杭州 │ SUM = 300 (丢失个人明细)</text>
+        <rect x="322" y="130" width="184" height="32" rx="5" fill="#E8F5E9" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="414" y="150" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#1b5e20">上海 │ SUM = 450 (丢失个人明细)</text>
+
+        <!-- Box 3: Window Function (Focal Preserves 4 Rows) -->
+        <rect x="552" y="34" width="340" height="162" rx="10" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="722" y="56" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="12" font-weight="800" fill="#bf4520">3. 窗口函数 OVER (...)（保留全部 4 行 + 追加窗口计算列）</text>
+        <rect x="566" y="68" width="312" height="26" rx="4" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.2"/>
+        <text x="722" y="85" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#1F1F23">杭州 │ 小周 │ 200 │ <tspan font-weight="800" fill="#bf4520">rk=1 │ city_sum=300</tspan></text>
+        <rect x="566" y="98" width="312" height="26" rx="4" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.2"/>
+        <text x="722" y="115" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#1F1F23">杭州 │ 小林 │ 100 │ <tspan font-weight="800" fill="#bf4520">rk=2 │ city_sum=300</tspan></text>
+        <rect x="566" y="128" width="312" height="26" rx="4" fill="#FFFDF7" stroke="#1b5e20" stroke-width="1.2"/>
+        <text x="722" y="145" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#1F1F23">上海 │ 小陈 │ 300 │ <tspan font-weight="800" fill="#1b5e20">rk=1 │ city_sum=450</tspan></text>
+        <rect x="566" y="158" width="312" height="26" rx="4" fill="#FFFDF7" stroke="#1b5e20" stroke-width="1.2"/>
+        <text x="722" y="175" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#1F1F23">上海 │ 小张 │ 150 │ <tspan font-weight="800" fill="#1b5e20">rk=2 │ city_sum=450</tspan></text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🏆 window_and_cte.sql · 分组 Top-N 排名与 WITH RECURSIVE 递归树查询</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-window', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mysql-window"><code><span class="c-cm">-- 1. 经典高频题：用 CTE + 窗口函数查出“每个城市余额排名前 2 的用户”</span>
+<span class="c-cm">-- ROW_NUMBER(): 连续唯一序号(1,2,3)；DENSE_RANK(): 并列不跳号(1,1,2)；RANK(): 并列跳号(1,1,3)</span>
+<span class="c-kw">WITH</span> `ranked_users` <span class="c-kw">AS</span> (
+  <span class="c-kw">SELECT</span>
+    `id`, `name`, `city`, `balance`,
+    <span class="c-fn">DENSE_RANK</span>() <span class="c-kw">OVER</span> (<span class="c-kw">PARTITION BY</span> `city` <span class="c-kw">ORDER BY</span> `balance` <span class="c-kw">DESC</span>) <span class="c-kw">AS</span> `rk`,
+    <span class="c-fn">SUM</span>(`balance`) <span class="c-kw">OVER</span> (<span class="c-kw">PARTITION BY</span> `city`) <span class="c-kw">AS</span> `city_total`
+  <span class="c-kw">FROM</span> `users`
+)
+<span class="c-kw">SELECT</span> * <span class="c-kw">FROM</span> `ranked_users` <span class="c-kw">WHERE</span> `rk` &lt;= <span class="c-num">2</span>;
+
+<span class="c-cm">-- 2. 递归 CTE (WITH RECURSIVE)：向下查询某个部门（id=1）及其所有层级的子孙部门</span>
+<span class="c-kw">WITH RECURSIVE</span> `dept_tree` <span class="c-kw">AS</span> (
+  <span class="c-cm">-- ① 锚点成员（起点）：先查出顶层根节点部门</span>
+  <span class="c-kw">SELECT</span> `id`, `name`, `parent_id`, <span class="c-num">1</span> <span class="c-kw">AS</span> `level`
+  <span class="c-kw">FROM</span> `departments` <span class="c-kw">WHERE</span> `id` = <span class="c-num">1</span>
+  <span class="c-kw">UNION ALL</span>
+  <span class="c-cm">-- ② 递归成员：拿上一层查出的 dept_tree.id 去匹配下一层的 parent_id</span>
+  <span class="c-kw">SELECT</span> `d`.`id`, `d`.`name`, `d`.`parent_id`, `t`.`level` + <span class="c-num">1</span>
+  <span class="c-kw">FROM</span> `departments` `d`
+  <span class="c-kw">INNER JOIN</span> `dept_tree` `t` <span class="c-kw">ON</span> `d`.`parent_id` = `t`.`id`
+)
+<span class="c-kw">SELECT</span> * <span class="c-kw">FROM</span> `dept_tree`;</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">🧭 SQL 子句的真实逻辑执行顺序</div>
+      <p style="font-size:12.8px; margin:0 0 8px; line-height:1.6;">
+        虽然我们书写 SQL 时以 <code>SELECT</code> 开头，但数据库内部是按以下 9 步顺序求值的：
+      </p>
+      <div style="font-family:var(--font-mono); font-size:12px; font-weight:800; background:var(--plop-paper); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px 10px; margin-bottom:8px; line-height:1.6;">
+        ① FROM / JOIN ON ➔ ② WHERE ➔ ③ GROUP BY ➔ ④ HAVING ➔ ⑤ 窗口函数 OVER(...) ➔ ⑥ SELECT (生成列别名) ➔ ⑦ DISTINCT ➔ ⑧ ORDER BY ➔ ⑨ LIMIT / OFFSET
+      </div>
+      <ul style="margin:0; padding-left:18px; font-size:12.6px; line-height:1.6; color:var(--plop-ink-text);">
+        <li><strong>为什么 <code>WHERE</code> 和 <code>HAVING</code> 里不能直接用窗口函数，且 <code>WHERE</code> 里不能引用 <code>SELECT</code> 定义的列别名</strong>：因为第 ② 步执行 <code>WHERE</code> 时，第 ⑤ 步的窗口函数和第 ⑥ 步的 <code>SELECT</code> 别名还没有计算出来；而第 ⑧ 步的 <code>ORDER BY</code> 排在第 ⑥ 步之后，所以 <code>ORDER BY</code> 里可以直接使用 <code>SELECT</code> 的列别名。</li>
+        <li><strong>递归 CTE 安全上限</strong>：MySQL 通过系统变量 <code>cte_max_recursion_depth</code>（默认 <code>1000</code>）防止脏数据环路导致无限递归。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="plop-callout info" style="margin-top:14px; margin-bottom:0;">
+    <strong>📘 底层原理延伸：</strong>想了解 MySQL 优化器如何计算 I/O 与 CPU 成本、<code>Hash Join</code> 与 <code>NLJ</code> 的内部执行流程，以及 <code>ORDER BY (Using filesort)</code> 在全字段排序与 <code>rowid</code> 排序之间的切换机制，可点击查看 <a href="principles.html#dml">📘 核心原理篇 · 03 优化器与连接排序内核 ↗</a>。
+  </div>
+</div>

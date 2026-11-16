@@ -1,0 +1,355 @@
+<!-- ====================================================================
+     PART 06: HOT 页内更新、VACUUM 垃圾回收、XID 回卷与 WAL 崩溃恢复
+     ==================================================================== -->
+<div class="wb-sec-header" id="vacuum" style="background:var(--plop-mint);">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">HOT 页内更新、VACUUM 垃圾回收、XID 回卷与 WAL 崩溃恢复</span>
+  <span class="plop-tag tomato">HOT CHAIN &amp; PRUNING × XID WRAPAROUND × VACUUM FREEZE × WAL &amp; FPI</span>
+</div>
+
+<!-- 06.1 · HOT (Heap-Only Tuple) 页内更新链与实时页内剪枝 -->
+<div class="wb-card" id="hot-update-pruning" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔥 06.1 · HOT (Heap-Only Tuple) 页内更新链与实时页内剪枝（Page Pruning）</div>
+  <h3>🔥 06.1 HOT 页内更新与实时页内剪枝（On-Access Page Pruning）</h3>
+
+        <p>在 PostgreSQL 的堆表架构下，一次普通的 <code>UPDATE</code> 默认会产生双倍放大：不仅要在堆表中插入一条新元组，还要<strong>为这张表上的每一个索引都追加一条指向新元组 <code>ctid</code> 的索引记录</strong>（即使被更新的列根本不在索引里）。为了攻克这一痛点，PostgreSQL 8.3 引入了极为关键的 <strong>HOT（Heap-Only Tuple，仅堆元组）优化机制</strong>。</p>
+
+        <h4>触发 HOT 更新的两大充要条件与 <code>LP_REDIRECT</code> 转发链</h4>
+        <ol>
+          <li><strong>条件一（未动索引列）</strong>：本次 <code>UPDATE</code> 语句<strong>没有修改任何被索引引用的列</strong>（包括主键、唯一索引、普通索引、部分索引的谓词列以及表达式索引涉及的列）。</li>
+          <li><strong>条件二（同页放得下）</strong>：旧版本元组所在的同一个 8 KiB 数据页内，<strong>仍有足够的剩余空闲空间容纳更新后的新元组</strong>。</li>
+        </ol>
+        <p>一旦同时满足这两个条件，内核就会走 HOT 路径：<strong>完全不去触碰任何外部 B-tree 索引</strong>。所有外部索引依然指向该页最初的根行指针槽位（Root Line Pointer，例如槽位 <code>1</code>），而在数据页内部通过元组头的 <code>HEAP_HOT_UPDATED</code> 与 <code>HEAP_ONLY_TUPLE</code> 标志构建一条<strong>页内 HOT 链</strong>。更妙的是，后续任何普通查询在访问该数据页时，只要顺手发现页内存在已对所有活跃事务不可见的中间旧版本，无需等待后台 <code>autovacuum</code>，当场就能触发轻量级的 <strong>实时页内剪枝（On-Access Page Pruning）</strong>，把根槽位改为 <code>LP_REDIRECT</code> 直接指向最新元组，并立刻回收中间旧版本占用的页内字节空间。</p>
+
+        <!-- SVG: HOT In-Page Chain & 32-Bit XID Wraparound Ring -->
+        <div style="margin:22px 0;">
+          <svg viewBox="0 0 920 390" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="hot-xid-title hot-xid-desc">
+            <title id="hot-xid-title">HOT 页内更新重定向链与 32 位事务 ID 环形回卷示意图</title>
+            <desc id="hot-xid-desc">左半部分展示 8 KiB 数据页内的 HOT 更新与页内剪枝：外部 B-tree 索引始终指向 Slot 1 (LP_REDIRECT)，经剪枝后直接跳过已回收的 Slot 2 指向最新 Slot 3 (Heap-Only Tuple)；右半部分展示 32 位 XID 模 2^32 环形空间（过去 21 亿可见，未来 21 亿不可见）与 VACUUM FREEZE 冻结安全线。</desc>
+            <defs>
+              <marker id="hx-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+                <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+              </marker>
+              <marker id="hx-arr-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+                <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+              </marker>
+              <marker id="hx-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+                <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1b5e20"/>
+              </marker>
+            </defs>
+
+            <!-- Left Panel: HOT Chain & Page Pruning -->
+            <rect x="24" y="24" width="446" height="342" rx="12" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+            <text x="247" y="50" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13.5" font-weight="800" fill="#1F1F23">1. HOT 页内更新与实时剪枝（Zero Index Churn）</text>
+
+            <!-- Connectors in Left Panel (drawn BEFORE boxes) -->
+            <!-- B-tree Index -> Slot 1 -->
+            <line x1="154" y1="92" x2="210" y2="92" stroke="#1F1F23" stroke-width="2" marker-end="url(#hx-arr-ink)"/>
+            <!-- Slot 1 (LP_REDIRECT) -> Slot 3 (LP_NORMAL) -->
+            <path d="M 332 114 L 332 134 Q 332 142 340 142 L 386 142 Q 394 142 394 150 L 394 166" fill="none" stroke="#bf4520" stroke-width="2.2" marker-end="url(#hx-arr-coral)"/>
+            <!-- Slot 3 -> Tuple V3 -->
+            <line x1="394" y1="226" x2="394" y2="254" stroke="#1b5e20" stroke-width="2" marker-end="url(#hx-arr-green)"/>
+
+            <!-- External B-tree Box -->
+            <rect x="40" y="68" width="114" height="48" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="97" y="88" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1F1F23">外部所有索引</text>
+            <text x="97" y="105" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">ctid = (0, 1)</text>
+
+            <!-- Root Slot 1 -->
+            <rect x="212" y="68" width="240" height="46" rx="8" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
+            <text x="332" y="87" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#bf4520">Slot 1 · LP_REDIRECT → Slot 3</text>
+            <text x="332" y="104" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">根行指针保持 (0,1) 不变，外部索引零修改</text>
+
+            <!-- Slot 2 (Pruned / LP_UNUSED) -->
+            <rect x="40" y="168" width="144" height="58" rx="8" fill="#EAE6DF" stroke="#5A5860" stroke-width="1.6" stroke-dasharray="4 3"/>
+            <text x="112" y="189" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#5A5860">Slot 2 · LP_UNUSED</text>
+            <text x="112" y="206" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">旧版本 V1/V2 已被</text>
+            <text x="112" y="219" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">页内实时剪枝直接回收</text>
+
+            <!-- Slot 3 (Active HOT Tuple Pointer) -->
+            <rect x="316" y="168" width="136" height="58" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="384" y="189" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1b5e20">Slot 3 · LP_NORMAL</text>
+            <text x="384" y="206" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#1F1F23">HEAP_ONLY_TUPLE</text>
+            <text x="384" y="219" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">指向页内最新元组 V3</text>
+
+            <!-- Tuple V3 Box -->
+            <rect x="40" y="256" width="412" height="94" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="56" y="278" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">Heap-Only Tuple V3（位于同一个 8 KiB 页内）</text>
+            <text x="56" y="298" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• 高频更新非索引列的表，建议设置 <tspan font-family="'JetBrains Mono',monospace" font-weight="700" fill="#bf4520">fillfactor = 80 ~ 90</tspan></text>
+            <text x="56" y="316" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• 预先在每个 8 KiB 页留出 10%~20% 空槽，让 UPDATE 100% 走页内 HOT</text>
+            <text x="56" y="334" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">• 验证指标：查询 pg_stat_user_tables 中的 n_tup_hot_upd / n_tup_upd 比值</text>
+
+            <!-- Right Panel: 32-Bit XID Modulo 2^32 Ring -->
+            <rect x="488" y="24" width="408" height="342" rx="12" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+            <text x="692" y="50" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13.5" font-weight="800" fill="#1F1F23">2. 32 位 XID 环形空间与 VACUUM FREEZE</text>
+
+            <!-- Ring Split: Left Semicircle (Past 2^31 Visible), Right Semicircle (Future 2^31 Invisible) -->
+            <!-- Center (692, 182), Radius 86 -->
+            <!-- Left half arc: Past 2.1 Billion (Green) -->
+            <path d="M 692 96 A 86 86 0 0 0 692 268 Z" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
+            <!-- Right half arc: Future 2.1 Billion (Coral) -->
+            <path d="M 692 96 A 86 86 0 0 1 692 268 Z" fill="#FBE9E7" stroke="#1F1F23" stroke-width="2"/>
+            <!-- Inner Circle Hollow -->
+            <circle cx="692" cy="182" r="42" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="692" y="178" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#1F1F23">Mod 2^32</text>
+            <text x="692" y="193" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">42.9 亿环</text>
+
+            <!-- Top Current XID Marker -->
+            <rect x="634" y="66" width="116" height="24" rx="6" fill="#1F1F23"/>
+            <text x="692" y="82" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#FFFDF7">当前事务 cur_xid</text>
+
+            <!-- Left Label (Past) -->
+            <text x="546" y="168" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="11" font-weight="800" fill="#1b5e20">过去 2^31</text>
+            <text x="546" y="185" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1b5e20">(约 21.4 亿个 XID)</text>
+            <text x="546" y="202" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" font-weight="700" fill="#1F1F23">判定为「过去可见」</text>
+
+            <!-- Right Label (Future) -->
+            <text x="836" y="168" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="11" font-weight="800" fill="#bf4520">未来 2^31</text>
+            <text x="836" y="185" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#bf4520">(约 21.4 亿个 XID)</text>
+            <text x="836" y="202" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" font-weight="700" fill="#1F1F23">判定为「未来不可见」</text>
+
+            <!-- Bottom Opposite Point (Wraparound Cliff at +2^31) -->
+            <rect x="614" y="274" width="156" height="24" rx="6" fill="#bf4520"/>
+            <text x="692" y="290" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" font-weight="700" fill="#FFFDF7">⚠️ 21 亿回卷分界点</text>
+
+            <!-- Bottom Explanation -->
+            <text x="506" y="322" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• 老元组若超过 21 亿次事务仍未冻结，将被误判为「未来事务」瞬间消失</text>
+            <text x="506" y="342" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="700" fill="#1b5e20">VACUUM FREEZE</tspan> 为老元组置位 <tspan font-family="'JetBrains Mono',monospace" font-size="10">HEAP_XMIN_FROZEN</tspan>，使其超越环形年龄比较</text>
+          </svg>
+        </div>
+</div>
+
+<!-- 06.2 · 32 位 XID 环形回卷、VACUUM FREEZE 与四大膨胀阻塞源 -->
+<div class="wb-card" id="xid-wraparound-freeze" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">♻️ 06.2 · 32 位 XID 环形回卷、VACUUM FREEZE 与四大膨胀阻塞源</div>
+  <h3>♻️ 06.2 32 位 XID 环形回卷、<code>VACUUM FREEZE</code> 与死元组膨胀根因</h3>
+
+        <h4>32 位 XID <code>TransactionIdPrecedes</code> 环形比较算法与元组冻结（Freeze）</h4>
+        <p>如果把元组头里的 <code>t_xmin</code>（4B）和 <code>t_xmax</code>（4B）直接扩充为 8 字节的 64 位整数，每一行元组就会永久多出 8 字节开销，百亿行大表平白膨胀上百 GB。因此 PostgreSQL 至今在磁盘元组头中保留了 <strong>32 位无符号事务 ID（共 <code>2<sup>32</sup> ≈ 42.9 亿</code> 个编号，其中 <code>0=Invalid</code>、<code>1=Bootstrap</code>、<code>2=Frozen</code>，普通事务从 <code>3</code> 开始分配）</strong>，并使用模 <code>2<sup>32</sup></code> 算术来比较两个 XID 的先后：</p>
+
+        <div class="plop-code-box" style="margin:12px 0;">
+          <div class="plop-code-head">
+            <span>🔄 TransactionIdPrecedes · 32 位事务 ID 模 2^32 环形先后比较算法（src/backend/access/transam/transam.c）</span>
+            <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-xid-ring', this)">复制代码</button>
+          </div>
+          <pre class="plop-code-pre" id="code-xid-ring"><code><span class="c-cm">// 比较两个 32 位无符号事务 ID (id1 是否在 id2 之前发生)：</span>
+<span class="c-kw">bool</span> <span class="c-fn">TransactionIdPrecedes</span>(TransactionId id1, TransactionId id2) {
+    <span class="c-kw">int32</span> diff = (<span class="c-kw">int32</span>) (id1 - id2);
+    <span class="c-kw">return</span> (diff &lt; <span class="c-num">0</span>); <span class="c-cm">// 与当前 XID 向后距离小于 2^31 (约 21.4 亿) 的视为过去，大于 2^31 的视为未来</span>
+}</code></pre>
+        </div>
+
+        <p>这就意味着：假定某一行数据是由 <code>XID = 100</code> 插入的，只要系统继续往前推进了超过 <code>2<sup>31</sup></code>（约 21.47 亿）个写事务，当新事务来到 <code>XID = 2147483749</code> 时，<code>100 - 2147483749</code> 在 32 位有符号整数下发生溢出变成正数，<strong>内核就会认为 <code>XID = 100</code> 是一个尚未发生的未来事务，导致这行早已提交的历史数据在查询中瞬间消失（即 XID Wraparound 事务回卷故障）</strong>。</p>
+        <p>为了彻底消除这一风险，<code>VACUUM</code> 进程在后台扫描数据页时，只要发现某条已提交元组的 <code>t_xmin</code> 年龄超过了 <strong><code>vacuum_freeze_min_age</code>（默认 5000 万个事务）</strong>，就会将其元组头中的 <code>t_infomask</code> 打上 <strong><code>HEAP_XMIN_FROZEN</code>（即 <code>HEAP_XMIN_COMMITTED | HEAP_XMIN_INVALID</code> 组合位）</strong>。任何被打上冻结标记的元组，无论未来事务 ID 绕环多少圈，都被无条件判定为「永恒的过去，对所有事务可见」。当整张表的 XID 年龄达到 <strong><code>autovacuum_freeze_max_age</code>（默认 2 亿）</strong>时，即使关闭了普通 <code>autovacuum</code>，内核也会强制拉起不可取消的 <code>anti-wraparound autovacuum</code> 推进该表的 <code>relfrozenxid</code>。</p>
+
+        <h4>阻止死元组回收与 <code>relfrozenxid</code> 推进的「四大元凶」</h4>
+        <p>在生产运维中，有时你会发现对一张膨胀严重的表手动执行 <code>VACUUM VERBOSE table_name</code>，日志却提示 <code>0dead item identifiers removed, X dead row versions cannot be removed yet, oldest xmin: 123456</code>。这是因为全局死元组回收水位线（<code>OldestXmin</code>）被卡住了，常见根因有且仅有以下四类：</p>
+
+        <div class="table-wrap">
+          <table class="plop-table">
+            <thead>
+              <tr>
+                <th style="width:24%">阻塞源类型</th>
+                <th style="width:38%">为什么会卡住全局 <code>OldestXmin</code></th>
+                <th>排查系统视图与处置方案</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>1. 未提交的长事务 / <code>idle in transaction</code></strong></td>
+                <td>某个会话在 <code>Repeatable Read</code> 下开启了事务（或正在跑数小时的大报表），它随时可能读取该事务启动时刻之后的旧版本，导致整个实例在此之后产生的所有死元组都无法回收</td>
+                <td>查 <code>pg_stat_activity</code> 中 <code>backend_xmin IS NOT NULL</code> 且 <code>age(backend_xmin)</code> 最大的会话；配置 <code>idle_in_transaction_session_timeout = '60s'</code> 自动清理僵尸事务</td>
+              </tr>
+              <tr>
+                <td><strong>2. 废弃或断开的复制槽（Replication Slots）</strong></td>
+                <td>物理备库开启了 <code>hot_standby_feedback = on</code>，或者逻辑订阅端下线后遗留了 <code>active = false</code> 的复制槽，主库为了照顾下游仍牢牢锁住旧 <code>xmin / catalog_xmin</code></td>
+                <td>查 <code>pg_replication_slots</code> 的 <code>xmin</code> 与 <code>catalog_xmin</code>；对废弃槽调用 <code>pg_drop_replication_slot('slot_name')</code>，并配置 <code>max_slot_wal_keep_size</code> 保底</td>
+              </tr>
+              <tr>
+                <td><strong>3. 孤儿两阶段提交事务（Orphaned 2PC Prepared Xacts）</strong></td>
+                <td>分布式事务执行了 <code>PREPARE TRANSACTION 'gid'</code> 后，协调者崩溃未发 <code>COMMIT PREPARED</code>，该事务永久悬停在内存中</td>
+                <td>查 <code>pg_prepared_xacts</code> 视图（关注 <code>age(transaction)</code>）；确认业务状态后执行 <code>ROLLBACK PREPARED 'gid';</code></td>
+              </tr>
+              <tr>
+                <td><strong>4. 跨事务游标与延迟索引构建</strong></td>
+                <td>连接池会话中遗留了未关闭的 <code>DECLARE ... CURSOR WITH HOLD</code>，或别的表正在跑长达数小时的 <code>CREATE INDEX CONCURRENTLY</code></td>
+                <td>查 <code>pg_cursors</code> 视图；在 PgBouncer Transaction Pooling 下清理会话级游标</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="plop-callout tip" style="margin-bottom:0;">
+          <strong>📦 <code>VACUUM</code> vs <code>VACUUM FULL</code> vs <code>pg_repack</code> 空间回收边界：</strong><br>
+          标准 <strong><code>VACUUM</code>（不带 <code>FULL</code>）</strong>不阻塞任何读写 DML，但它只是把死元组占用的页内空间清理后登记到附属的 <strong>空闲空间映射表（Free Space Map，后缀 <code>_fsm</code>，内部是一棵三层二叉最大堆树，每个数据页用 1 字节以 32 字节为步长记录剩余空间）</strong>中，供本表后续 <code>INSERT / UPDATE</code> 复用，<strong>不会把已分配的数据页归还给操作系统文件系统</strong>（除非表末尾恰好有连续全空页且能瞬间拿到排他锁截断）。<br>
+          若表因历史故障已膨胀至 200 GB（有效数据仅 20 GB），想要把 180 GB 磁盘空间真正归还给操作系统：切忌在业务高峰期直接跑 <code>VACUUM FULL</code>（它会申请 8 级最强排他锁 <code>AccessExclusiveLock</code> 重写全表，彻底冻结读写）。生产标准做法是使用社区成熟的在线缩表工具 <strong><code>pg_repack</code></strong>：它先创建一张与原表结构一致的影子新表，通过触发器（或逻辑解码）记录重放期间的增量变更，全量拷贝并建好索引后，仅在最后毫秒级切换新旧表 <code>relfilenode</code> 时短暂加锁。
+        </div>
+</div>
+
+<!-- 06.3 · WAL 预写日志、Full Page Writes 防页撕裂与流复制架构 -->
+<div class="wb-card" id="wal-and-replication" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📝 06.3 · WAL 预写日志、Full Page Writes 防页撕裂与流复制架构</div>
+  <h3>📝 06.3 WAL 预写日志、<code>full_page_writes</code> 防页撕裂与流复制</h3>
+
+        <h4>LSN（日志序列号）、<code>pd_lsn</code> 与预写式法则（Write-Ahead Logging）</h4>
+        <p>PostgreSQL 的一切持久性保证都建立在 <strong>WAL（Write-Ahead Log，位于 <code>pg_wal/</code> 目录，默认每个切片文件 16 MB）</strong>之上。每一条 WAL 记录在整个数据库簇生命周期内的字节偏移量被称为 <strong><code>LSN</code>（Log Sequence Number，64 位整数，显示为 <code>XXXX/YYYYYYYY</code> 格式，可通过 <code>pg_current_wal_lsn()</code> 查看）</strong>。</p>
+        <ul>
+          <li><strong>先写日志后刷脏页原则（WAL Rule）</strong>：每当后台进程修改了 <code>Shared Buffers</code> 中的某个 8 KiB 数据页，它不仅会生成一条 WAL 记录放入 <code>WAL Buffers</code>，还会把这条 WAL 记录的结束位置写入该数据页头部的 <strong><code>pd_lsn</code></strong> 字段。当 <code>BgWriter</code> 或 <code>Checkpointer</code> 准备把一个脏数据页刷回磁盘前，内核必须校验：<strong>当前已经安全落盘的 WAL LSN 位置必须大于等于该数据页头的 <code>pd_lsn</code></strong>；否则必须先把对应的 WAL 刷盘，绝不允许未落盘日志的脏页提前写入数据文件。</li>
+          <li><strong>为什么需要 <code>full_page_writes = on</code>？（防御操作系统 4 KiB 页撕裂 Torn Page）</strong>：PostgreSQL 的数据页是 <strong>8 KiB</strong>，而 Linux 文件系统块与底层 SSD 硬件页通常是 <strong>4 KiB</strong>。如果在刷写一个 8 KiB 数据页的瞬间发生断电，磁盘上可能出现<strong>前 4 KiB 是新数据、后 4 KiB 还是旧数据</strong>的「半页撕裂（Torn Page）」。由于标准 WAL 记录里保存的是基于完整旧页的物理字节增量，面对一个损坏撕裂的半页根本无法重放（Redo）恢复。因此，PostgreSQL 默认开启 <code>full_page_writes = on</code>：<strong>每次 Checkpoint 之后，任意一个 8 KiB 数据页第一次被修改时，内核会将这整张 8 KiB 数据页的完整镜像（Full Page Image, FPI）直接写入 WAL 中</strong>。崩溃重启时若遇到撕裂页，直接用 WAL 中的完整 8 KiB 镜像覆盖修复，随后再重放后续增量 WAL。</li>
+        </ul>
+
+        <h4>物理流复制（Physical Streaming Replication）与逻辑复制（Logical Replication）对比</h4>
+        <div class="table-wrap">
+          <table class="plop-table">
+            <thead>
+              <tr>
+                <th style="width:18%">对比维度</th>
+                <th style="width:41%">物理流复制（Physical Streaming Replication）</th>
+                <th>逻辑复制（Logical Replication，Publication / Subscription）</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>传输内容</strong></td>
+                <td>直接传输底层 <code>WAL</code> 字节流（包含哪张表哪个块号哪个偏移量改了哪些字节）</td>
+                <td>通过解码插件（<code>pgoutput</code>）将 WAL 解析为逻辑行变更事件（<code>INSERT / UPDATE / DELETE</code> 元组值）</td>
+              </tr>
+              <tr>
+                <td><strong>粒度与跨版本能力</strong></td>
+                <td><strong>整实例级（Cluster-wide）逐字节镜像</strong>；主备库大版本号与硬件架构必须完全一致</td>
+                <td>支持<strong>按单表、按指定列、按行过滤条件（PG 15+ <code>WHERE</code>）</strong>选择性复制；支持<strong>跨大版本零停机升级</strong>（如 PG 13 → PG 16）</td>
+              </tr>
+              <tr>
+                <td><strong>备库可写性与索引</strong></td>
+                <td>备库只读（Hot Standby），主库建索引备库自动同步拥有</td>
+                <td>订阅端是一台完全独立可写的实例，可在订阅端针对报表分析需求建立与主库不同的专属索引</td>
+              </tr>
+              <tr>
+                <td><strong>同步提交等级（<code>synchronous_commit</code>）</strong></td>
+                <td colspan="2">支持五级精细调节：<code>off</code>（异步刷本地 WAL）→ <code>local</code>（仅主库本地刷盘）→ <code>remote_write</code>（备库接收写入 OS 缓存）→ <code>on</code>（默认同步模式，备库 WAL 落盘即返回）→ <code>remote_apply</code>（备库不仅落盘且已完成 Redo 回放，读备库立即可见，实现零延迟读写分离）</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+</div>
+
+<!-- 06.4 · PostgreSQL 原理与架构深度自测（15 题闭卷检验） -->
+<div class="wb-card" id="pg-principles-quiz" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🎯 06.4 · PostgreSQL 原理与架构深度自测（15 题闭卷检验）</div>
+  <h3>🎯 06.4 PostgreSQL 核心原理与架构调优闭卷自测（15 题）</h3>
+
+        <p>以下 15 道核心原理与架构调优题串联了本篇从存储页布局、进程内存、MVCC 快照、索引算法到垃圾回收与崩溃恢复的完整知识链路。建议先在脑海中组织回答，再点击展开核对内核级解析：</p>
+
+        <details class="plop-drawer">
+          <summary>01. 对比 MySQL InnoDB，为什么说 PostgreSQL 的堆表架构在「读历史版本」上更快，但在「按主键点查」和「高频更新」上面临不同挑战？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>InnoDB 是索引组织表（IOT），新版本原地覆盖并把旧版本写入 Undo Log，因此读取老快照时需要顺着回滚段逐跳逆向重构，长事务下历史读会变慢；而 PostgreSQL 是堆表（Heap），新旧版本并排存在 8 KiB 数据页内，读历史版本只需根据快照过滤 <code>t_xmin / t_xmax</code>，无需回滚计算。代价是：1）PG 的主键也是二级索引，按主键点查需要「B-tree 查 <code>ctid</code> + 堆表取数据」两步；2）每次跨页的非 HOT 更新都会改变元组的物理 <code>ctid</code>，迫使表上所有索引都追加一条新索引项，且必须依赖 <code>VACUUM</code> 异步回收死元组。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>02. 8 KiB 数据页内部为什么采用「行指针数组向下生长、元组数据从页尾向上生长」的双向对向布局？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>为了将「外部逻辑寻址」与「页内物理搬移」彻底解耦。外部 B-tree 索引只存储 6 字节的 <code>ctid = (块号, 页内行指针槽号)</code>，从不记录元组在页内的真实字节偏移。当页内发生死元组清理或页内紧凑整理（Defragmentation）时，内核可以在页尾自由移动存活元组的位置以合并碎片，随后只需修改页头对应的 4 字节 <code>ItemIdData (lp_off)</code> 偏移量即可，外部所有索引无需做任何修改。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>03. 什么是 TOAST 机制？如果一张表包含一个 5 MB 的 <code>TEXT</code> 大字段，查询时不读取该列，为什么不会拖慢全表扫描？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>PostgreSQL 不允许单条元组跨越 8 KiB 页边界。当变长列超过约 2 KB（<code>TOAST_TUPLE_THRESHOLD</code>）时，TOAST 机制会先用 <code>pglz / lz4</code> 压缩该列；若仍超标则将其按约 2 KB 切片存入独立的附属表 <code>pg_toast.pg_toast_&lt;oid&gt;</code> 中，原主表元组内仅保留一个 18 字节的轻量级 TOAST 指针。因此，只要查询语句明确指定列名（不写 <code>SELECT *</code>）且未访问该大字段，执行器在扫描主表时根本不会去读取和解压 TOAST 表，从而保持极高的页密度与扫描速度。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>04. 为什么把 <code>work_mem</code> 盲目调大到 <code>1GB</code> 极其危险？它与 <code>shared_buffers</code> 的内存分配模型有何本质区别？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong><code>shared_buffers</code> 是整个 PostgreSQL 实例在启动时一次性分配的<strong>全局共享内存</strong>（无论有多少并发连接都只有一份）；而 <code>work_mem</code> 是<strong>每个后台进程内每一个排序（Sort）或哈希（Hash Join / HashAggregate）算子节点独立申请的私有内存上限</strong>。一条复杂 SQL 若包含 5 个哈希/排序算子，且开启了 4 个并行 Worker，单条 SQL 最高就能消耗 <code>5 × 4 × work_mem</code>；若此时有 100 个并发会话同时执行，总内存需求会瞬间达到数百 GB，直接触发 Linux 内核 OOM Killer 杀掉 <code>postmaster</code> 主进程。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>05. 为什么在大批量导入数据（如 <code>COPY</code> 1000 万行）之后，第一次执行纯只读的 <code>SELECT COUNT(*)</code> 会产生极其密集的磁盘写 I/O？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>因为事务提交时为了极速响应，只修改了 <code>pg_xact (CLOG)</code> 中 2 个 bit 的事务状态，并未去修改那 1000 万行数据所在数据页上的元组头。当第一次执行 <code>SELECT COUNT(*)</code> 扫描这些数据页时，读进程发现元组头的 <code>t_infomask</code> 尚未打上 <code>HEAP_XMIN_COMMITTED</code> 提示位（Hint Bits），就会去查询 <code>pg_xact</code> 并顺手将 <code>HEAP_XMIN_COMMITTED</code> 回写到每个元组头中，导致所有被读过的数据页全部变成脏页并触发大量写盘。导入后立即执行一次 <code>VACUUM ANALYZE</code> 可以一次性完成提示位标记、生成可见性映射表（<code>_vm</code>）并收集统计信息。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>06. 在 PostgreSQL 中，<code>JSONB</code> 与 <code>JSON</code> 的底层存储与访问复杂度有何差异？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong><code>JSON</code> 类型仅原样保存原始文本字符串，每次提取字段都必须从头做词法解析（<code>O(N)</code>）；而 <code>JSONB</code> 在写入时已解析为紧凑的二进制树：每个对象层级头部都带有一个定长 4 字节的 <code>JEntry</code> 目录数组，且所有键（Key）在写入时已按<strong>「先比字节长度、同长度再比 ASCII 字典序」</strong>去重排好序。因此读取 <code>data-&gt;'target_key'</code> 时，内核直接在 <code>JEntry</code> 数组上做 <code>O(log K)</code> 二分查找，比对时甚至先看长度是否相等，长度不等连字符串内容都不用碰，查中后直接按偏移量一步跳到对应的 Value 位置。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>07. 为什么 PostgreSQL 支持几乎所有 DDL（建表、加列、改类型、删表）放入 <code>BEGIN ... ROLLBACK</code> 中原子回滚，而 MySQL 却会隐式提交？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>因为 PostgreSQL 的数据字典本身就是一组受标准 MVCC 保护的普通系统表（如 <code>pg_class</code>、<code>pg_attribute</code>、<code>pg_index</code>）。执行 <code>CREATE TABLE</code> 或 <code>ALTER TABLE</code> 本质上是在当前事务 XID 下向这些系统表执行 <code>INSERT / UPDATE / DELETE</code>；对于 <code>DROP TABLE</code> 或 <code>TRUNCATE</code>，内核也不会当场调用操作系统 <code>unlink()</code> 删除物理文件，而是先将其 <code>relfilenode</code> 登记到当前事务的「待删除文件列表」中。一旦执行 <code>ROLLBACK</code>，系统表中的元数据元组因 <code>t_xmin</code> 回滚而自动对所有事务不可见，待删除队列被丢弃，从而实现纯粹的事务性 DDL。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>08. 同样是一张 1000 万行的表，<code>WHERE a = 1</code> 和 <code>WHERE b = 1</code> 各自都命中 10 万行（选择率均为 1%），为什么优化器对列 <code>a</code> 走 <code>Index Scan</code>，对列 <code>b</code> 却走 <code>Bitmap Heap Scan</code>？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>关键在于统计信息 <code>pg_stats.correlation</code>（物理线性相关系数）。列 <code>a</code>（如自增 ID 或创建时间）的物理存储顺序与索引顺序高度一致（<code>correlation ≈ 1.0</code>），命中 10 万行只需连续顺序读取约 1000 个相邻数据页，因此直接走 <code>Index Scan</code> 最快；而列 <code>b</code>（如随机分布的用户状态或哈希值）的 <code>correlation ≈ 0.0</code>，10 万行均匀散落在全表近 10 万个不同数据页上，若走普通 <code>Index Scan</code> 会触发 10 万次跨页随机 I/O，因此优化器改走 <code>Bitmap Index Scan + Bitmap Heap Scan</code>，先在内存中按物理页号排好序再批量顺序跳读。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>09. 并发执行同一条 <code>UPDATE accounts SET balance = balance - 30 WHERE id = 1 AND balance &gt;= 30</code>，在 <code>Read Committed</code> 和 <code>Repeatable Read</code> 下分别会发生什么？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>当事务 B 等待事务 A 提交后被唤醒时：1）在默认的 <code>Read Committed</code> 下，事务 B 触发 <strong><code>EvalPlanQual (EPQ)</code></strong> 机制，顺着旧版本的 <code>t_ctid</code> 指针找到事务 A 刚提交的最新元组版本，重新校验一次 <code>WHERE balance &gt;= 30</code> 条件，若仍满足则基于新版本继续扣减；2）在 <code>Repeatable Read</code> 或 <code>Serializable</code> 下，遵循 First-Updater-Wins 原则，检测到目标元组已被并发事务修改后立即抛出 <code>SQLSTATE 40001 (could not serialize access due to concurrent update)</code>，要求应用层重试事务。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>10. PostgreSQL 的行级锁（如 <code>FOR UPDATE / FOR SHARE</code>）存放在哪里？为什么在 PG 中一个事务锁住 500 万行也不会发生「行锁升级为表锁（Lock Escalation）」？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>PostgreSQL 的行级锁不存储在有限的共享内存锁哈希表中，而是直接记录在 8 KiB 数据页内每一条元组的头部（将加锁事务的 XID 或多事务组合 <code>MultiXactId</code> 写入 <code>t_xmax</code>，并在 <code>t_infomask</code> 中置位锁类型标志）。因为锁信息随数据页一起持久化并可换出内存，所以无论单个事务锁定多少行，都不会撑爆共享内存锁表，内核也永远不需要把行锁粗化升级为表锁。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>11. 既然 PostgreSQL 的 B-tree 索引项中只存了「键值 + <code>ctid</code>」而没有存 <code>t_xmin / t_xmax</code>，它是如何实现免回表的 <code>Index Only Scan</code> 的？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>依靠每个表附属的<strong>可见性映射表（Visibility Map，后缀 <code>_vm</code>）</strong>。<code>_vm</code> 为每个 8 KiB 数据页维护 2 个 bit（其中第 1 位是 <code>ALL_VISIBLE</code>）。当 <code>VACUUM</code> 清理完某个数据页并确认页内所有元组对当前及未来所有事务均可见后，会将该页的 <code>ALL_VISIBLE</code> 位置为 <code>1</code>。<code>Index Only Scan</code> 从索引拿到 <code>ctid</code> 后，先查内存中的 <code>_vm</code> 位图：若目标页为 <code>1</code> 则直接返回索引列值（免回表）；若该页近期被修改过导致位图为 <code>0</code>，则必须回表检查元组头（体现在 <code>EXPLAIN ANALYZE</code> 的 <code>Heap Fetches</code> 计数中）。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>12. 什么是 HOT（Heap-Only Tuple）更新？高频更新的表应该如何配置以最大化 HOT 比例？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>当一次 <code>UPDATE</code> 既<strong>没有修改任何索引列</strong>，且<strong>旧元组所在的同一个 8 KiB 数据页内仍有足够空间存放新元组</strong>时，就会触发 HOT 更新：外部所有 B-tree 索引完全不用修改（继续指向页内最初的根槽位），新旧版本在页内构成短链，并且支持在后续普通查询访问该页时当场执行<strong>实时页内剪枝（Page Pruning）</strong>回收死空间。对于高频更新非索引列的表，应通过 <code>ALTER TABLE ... SET (fillfactor = 80);</code> 在每个数据页预留 10%~20% 的空闲空间，确保更新始终能留在同页内走 HOT 路径。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>13. 什么是 32 位事务 ID 回卷（XID Wraparound）？<code>VACUUM FREEZE</code> 是如何解决这个问题的？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>为了节省元组头空间，<code>t_xmin / t_xmax</code> 采用 32 位无符号整数（约 42.9 亿），并通过模 <code>2<sup>32</sup></code> 环形算法比较先后：与当前 XID 向后距离小于 <code>2<sup>31</sup></code>（约 21.4 亿）的视为过去，大于 <code>2<sup>31</sup></code> 的视为未来。如果一行已提交的老元组经历了超过 21.4 亿次新写事务仍未被处理，它就会跨过半环分界线被误判为「未来未提交事务」而瞬间不可见。为此，<code>VACUUM</code> 会在老元组年龄达到阈值时将其元组头的 <code>t_infomask</code> 置位 <code>HEAP_XMIN_FROZEN</code>（冻结），被冻结的元组不再参与环形年龄计算，永远对所有事务可见。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>14. 线上某张核心表空间持续暴涨，手动执行 <code>VACUUM VERBOSE</code> 发现大量死元组显示 <code>cannot be removed yet</code>，应该按什么顺序排查？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>说明全局回收水位线 <code>OldestXmin</code> 被某个老快照卡住了，按以下四步排查：<br/>
+            1）查 <code>pg_stat_activity</code> 中 <code>backend_xmin IS NOT NULL</code> 的长事务或 <code>idle in transaction</code> 僵尸连接；<br/>
+            2）查 <code>pg_replication_slots</code> 中是否存在 <code>active = false</code> 的废弃复制槽或落后严重的备库锁住了 <code>xmin / catalog_xmin</code>；<br/>
+            3）查 <code>pg_prepared_xacts</code> 中是否有未决的孤儿两阶段提交事务（<code>PREPARE TRANSACTION</code>）；<br/>
+            4）查 <code>pg_cursors</code> 或是否有其他大表正在跑耗时数小时的 <code>CREATE INDEX CONCURRENTLY</code>。</p>
+          </div>
+        </details>
+
+        <details class="plop-drawer">
+          <summary>15. 为什么 PostgreSQL 的 WAL 日志默认必须开启 <code>full_page_writes = on</code>？关闭它会有什么风险？</summary>
+          <div class="plop-drawer-body">
+            <p><strong>解析：</strong>因为 PostgreSQL 的数据页大小是 8 KiB，而 Linux 操作系统与底层磁盘硬件的原子写入粒度通常是 4 KiB。若在刷写 8 KiB 脏页途中发生掉电或内核崩溃，磁盘上会出现前 4 KiB 已更新、后 4 KiB 仍是旧数据的「页撕裂（Torn Page）」，此时仅靠增量 WAL 日志无法在损坏的半页上完成 Redo 恢复。开启 <code>full_page_writes = on</code> 后，每次 Checkpoint 之后每个数据页第一次被修改时，都会把整张 8 KiB 完整页面镜像写入 WAL；崩溃恢复时直接用该完整镜像覆盖修复撕裂页，从而保证 100% 的数据完整性。</p>
+          </div>
+        </details>
+</div>

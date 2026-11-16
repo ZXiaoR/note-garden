@@ -1,166 +1,427 @@
 <!-- ====================================================================
-             PART 00: 第一性原理导读 · 为什么要学 MySQL？入门懂什么、进阶在解决什么？
-             ==================================================================== -->
-        <div class="wb-sec-header tomato" id="why" style="background:var(--plop-mustard);">
-          <span class="wb-sec-num">00</span>
-          <span class="wb-sec-title">第一性原理导读 · 我们为什么学 MySQL？入门懂什么就够、进阶到底在解决什么？</span>
-          <span class="plop-tag tomato">FIRST PRINCIPLES · 必读心法</span>
-        </div>
+     PART 00: 认识 MySQL、全平台环境安装与第一个 SQL 脚本
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">认识 MySQL、全平台环境安装与第一个 SQL 脚本</span>
+  <span class="plop-tag mint">OVERVIEW × SETUP × FIRST SQL</span>
+</div>
 
-        <div class="wb-card" style="background:var(--plop-paper);">
-          <div class="washi-tape"></div>
-          <div class="chapter-q-pill">🧭 先搞清楚目的 · 别把数据库当成一堆孤立的八股名词来背</div>
-          <h3>💡 从第一性原理出发：如果不用数据库，直接读写磁盘文件会死在哪里？</h3>
-          <p>
-            很多同学刚接触 MySQL 时，会被满屏的 <code>B+ 树</code>、<code>ACID</code>、<code>隔离级别</code>、<code>MVCC</code>、<code>间隙锁 (Gap Lock)</code>、<code>CAP / 主从复制 / Redis 一致性</code> 劝退，不知道学这些到底是为了干什么。其实数据库没有任何“凭空发明”的概念——<strong>每一个机制，都是被真实的物理硬件限制、高并发冲突与分布式同步痛点一步步逼出来的</strong>。
-          </p>
-          <p>
-            假设你写一个业务系统，最朴素的想法是把数据存成服务器硬盘上的文件。当系统只有你一个人测试、只有 100 条数据时，只要会写基础的增删改查就够了；但只要业务真正上线，你会依次撞上 <strong>三堵逃不掉的高墙（慢查询墙 → 单机并发墙 → 分布式与缓存同步墙）</strong>：
-          </p>
+<!-- 00.1 · MySQL 8.0 / 8.4 的核心定位与版本演进 -->
+<div class="wb-card" id="mysql-intro" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧭 00.1 · 核心定位：关系型数据库管理系统（RDBMS）的设计特点与版本演进</div>
+  <h3>🧭 00.1 MySQL 的核心设计特点与 5.7 → 8.0 → 8.4 演进对照</h3>
 
-          <!-- 大字号手账卡片图解：从第一性原理推导 MySQL 三大进阶主线（自适应换行，绝不溢出） -->
-          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
-            <div style="display:grid; grid-template-columns:240px 1fr; gap:16px; align-items:stretch;">
-              <!-- 左侧：入门阶段（起点） -->
-              <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:10px;">
-                <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:8px; padding:6px 10px; text-align:center; font-weight:900; font-size:14px; color:var(--plop-ink-text);">
-                  🌱 入门阶段（起点）
-                </div>
-                <div style="text-align:center;">
-                  <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink);">常规的「增删改查」</div>
-                  <div style="font-size:12.2px; font-weight:700; color:var(--plop-ink-soft);">（表建模 + SQL CRUD）</div>
-                </div>
+  <p>
+    MySQL 是全球应用最广泛的开源<strong>关系型数据库管理系统（RDBMS）</strong>。它采用“<strong>Server 层 + 可插拔存储引擎层</strong>”的双层架构，默认使用支持完整 ACID 事务、行级锁与崩溃自动恢复的 <strong><code>InnoDB</code></strong> 存储引擎。在现代企业生产环境中，<strong>MySQL 8.0 与 MySQL 8.4（最新 LTS 长期支持版）</strong> 已全面取代旧版 5.7：
+  </p>
 
-                <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 10px; text-align:center;">
-                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">① 把业务建成结构化表</div>
-                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">主键 / 字段类型 / 非空唯一约束</div>
-                </div>
+  <div class="wb-grid-3" style="margin:14px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag mint">特点 ① · 聚簇索引存储</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Index-Organized</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">表即索引（主键 B+ 树直接存整行）</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        InnoDB 采用索引组织表（IOT）设计，整张表的数据行直接存放在主键 B+ 树的叶子节点中，按主键等值点查与主键范围扫描的 I/O 路径极短。
+      </p>
+    </div>
 
-                <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 10px; text-align:center;">
-                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">② 写出正确的增删改查</div>
-                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">SELECT / INSERT / UPDATE / JOIN</div>
-                </div>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag periwinkle">特点 ② · 读写并发隔离</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">MVCC + Row Lock</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">Undo 版本链与细粒度行锁协同</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        原地更新数据页并把旧版本写入独立的 <code>Undo Log</code> 回滚段，配合 <code>ReadView</code> 快照实现普通 <code>SELECT</code> 不加锁，读写互不阻塞。
+      </p>
+    </div>
 
-                <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 10px; text-align:center;">
-                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">③ 基础事务意识</div>
-                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">多步写操作捆成事务一起提交</div>
-                </div>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag tomato">特点 ③ · 成熟高可用生态</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">WAL + Binlog</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">两阶段提交与一主多从 / MGR 复制</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        通过引擎层 <code>Redo Log</code> 与 Server 层 <code>Binlog</code> 的两阶段提交保证单机崩溃恢复与主从复制严格一致，配套 Canal / CDC 生态完善。
+      </p>
+    </div>
+  </div>
 
-                <div style="background:#FFF0F5; border:2px dashed var(--plop-tomato); border-radius:9px; padding:9px 10px; text-align:center; margin-top:auto;">
-                  <div style="font-weight:900; font-size:12.8px; color:var(--plop-tomato);">⚠️ 为什么不能停在入门？</div>
-                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin-top:3px; line-height:1.45;">
-                    当数据上百万、并发上千、机器变多台时，立刻撞上<strong style="color:var(--plop-tomato);">右侧三大工程主线 ➔</strong>
-                  </div>
-                </div>
-              </div>
+  <div class="table-wrap" style="margin-top:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">核心能力维度</th>
+          <th style="width:26%">旧版 MySQL 5.7（已停止维护）</th>
+          <th style="width:54%">现代 MySQL 8.0 / 8.4 LTS（当前主流标准）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>默认字符集與排序规则</strong></td>
+          <td>默认为 <code>latin1</code>，中文需手动改 <code>utf8</code>（且仅支持 3 字节，存 Emoji 会报错）</td>
+          <td>默认即为真 4 字节 UTF-8 <strong><code>utf8mb4</code></strong>，排序规则默认为 <code>utf8mb4_0900_ai_ci</code>，原生支持生僻字与 Emoji 表情。</td>
+        </tr>
+        <tr>
+          <td><strong>查询缓存（Query Cache）</strong></td>
+          <td>保留鸡肋的 Server 层 Query Cache（表一旦有写入即整表缓存失效，锁争用严重）</td>
+          <td><strong>彻底移除 Query Cache 模块及参数</strong>；数据页缓存全部由 InnoDB 引擎层的 <code>Buffer Pool</code> 承担。</td>
+        </tr>
+        <tr>
+          <td><strong>现代 SQL 与执行算子</strong></td>
+          <td>不支持窗口函数与 CTE；无索引等值连接只能走慢速 Block Nested-Loop (BNL)</td>
+          <td>完整支持 <strong>窗口函数 <code>OVER (...)</code>、递归公共表表达式 <code>WITH RECURSIVE</code>、<code>Hash Join</code>、直方图统计信息、函数索引与不可见索引</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>数据字典与 Online DDL</strong></td>
+          <td>元数据散落在 <code>.frm</code> 等外部文件中，DDL 中途崩溃易留残余；加列往往需重建表</td>
+          <td>消除 <code>.frm</code> 文件，元数据统一存入 InnoDB 事务表并支持<strong>原子 DDL</strong>；新增 <strong><code>ALGORITHM=INSTANT</code> 秒级加列/删列</strong>（仅修改元数据，无需拷贝大表）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
 
-              <!-- 右侧：三大进阶主线 -->
-              <div style="display:grid; gap:12px;">
-                <!-- 主线一 -->
-                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px;">
-                  <div style="background:var(--plop-mustard); border:1.8px solid var(--plop-ink); border-radius:8px; padding:5px 12px; font-weight:900; font-size:13.5px; color:var(--plop-ink-text); margin-bottom:10px;">
-                    🚀 进阶主线一：单机「查询速度变慢」怎么破？（第 02～03 章 · 存储与索引）
-                  </div>
-                  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:8px; text-align:center;">
-                    <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">
-                      <div style="font-weight:900; font-size:13px; color:var(--plop-tomato);">痛点：磁盘慢 + 全表扫描</div>
-                      <div style="font-size:12px; color:var(--plop-ink-text); margin-top:3px;">百万行逐行读盘要几秒 → 引入 <strong>16KB 页 + Buffer Pool</strong></div>
-                    </div>
-                    <div style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">
-                      <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">武器：B+ 树索引体系</div>
-                      <div style="font-size:12px; color:var(--plop-ink-text); margin-top:3px;">聚簇索引(存行) vs 二级索引(存主键) → <strong>回表、覆盖索引、最左前缀</strong></div>
-                    </div>
-                    <div style="background:var(--plop-periwinkle); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">
-                      <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">验证：EXPLAIN 执行计划</div>
-                      <div style="font-size:12px; color:var(--plop-ink-text); margin-top:3px;">为什么建了索引却没走？慢在扫描、回表还是排序？</div>
-                    </div>
-                  </div>
-                </div>
+<!-- 00.2 · 全平台环境安装、首次初始化与服务管理 -->
+<div class="wb-card" id="mysql-install" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🛠️ 00.2 · 全平台环境搭建：Docker / macOS / Linux / Windows 安装、首次初始化与排障</div>
+  <h3>🛠️ 00.2 全平台环境安装、首次初始化与服务管理</h3>
 
-                <!-- 主线二 -->
-                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px;">
-                  <div style="background:var(--plop-bubblegum); border:1.8px solid var(--plop-ink); border-radius:8px; padding:5px 12px; font-weight:900; font-size:13.5px; color:var(--plop-ink-text); margin-bottom:10px;">
-                    🛡️ 进阶主线二：单机「高并发读写一致性与死锁」怎么破？（第 04～05 章 · 事务、MVCC 与锁）
-                  </div>
-                  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(135px, 1fr)); gap:8px; text-align:center;">
-                    <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">
-                      <div style="font-weight:900; font-size:12.8px; color:var(--plop-ink);">① ACID 事务基础</div>
-                      <div style="font-size:11.8px; color:var(--plop-ink-text); margin-top:3px;">Undo 保原子回滚 · Redo 保持久恢复</div>
-                    </div>
-                    <div style="background:var(--plop-mustard); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">
-                      <div style="font-weight:900; font-size:12.8px; color:var(--plop-ink-text);">② 四大隔离级别</div>
-                      <div style="font-size:11.8px; color:var(--plop-ink-text); margin-top:3px;">脏读 / 不可重复读 / 幻读（RU / RC / RR / 串行）</div>
-                    </div>
-                    <div style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">
-                      <div style="font-weight:900; font-size:12.8px; color:var(--plop-ink-text);">③ MVCC 多版本</div>
-                      <div style="font-size:11.8px; color:var(--plop-ink-text); margin-top:3px;">ReadView + Undo 链表，管「读与写」不阻塞</div>
-                    </div>
-                    <div style="background:var(--plop-periwinkle); border:1.8px solid var(--plop-ink); border-radius:8px; padding:8px;">
-                      <div style="font-weight:900; font-size:12.8px; color:var(--plop-ink-text);">④ 锁的范围粒度</div>
-                      <div style="font-size:11.8px; color:var(--plop-ink-text); margin-top:3px;">记录锁 / 间隙锁 / 临键锁，管「写与写」互斥</div>
-                    </div>
-                  </div>
-                </div>
+  <p>
+    MySQL 服务端默认监听 TCP <strong><code>3306</code></strong> 端口（MySQL X Protocol 扩展协议端口为 <code>33060</code>）。下面按 <strong>Docker 容器、macOS、Linux（Ubuntu / RHEL）、Windows</strong> 四种环境给出从安装、环境变量配置到首次登录建库的完整命令：
+  </p>
 
-                <!-- 主线三 -->
-                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px;">
-                  <div style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:8px; padding:5px 12px; font-weight:900; font-size:13.5px; color:var(--plop-ink-text); margin-bottom:10px;">
-                    🌐 进阶主线三：多节点与跨组件「数据同步一致性」怎么选？（第 06 章 · 日志、主从复制与 Redis 同步）
-                  </div>
-                  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:8px;">
-                    <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:8px; padding:9px 11px;">
-                      <div style="font-weight:900; font-size:13px; color:var(--plop-ink);">📡 同服务多节点：一主多从读写分离 (CAP)</div>
-                      <div style="font-size:12px; color:var(--plop-ink-text); margin-top:3px; line-height:1.45;">
-                        主库增删改 → <code>binlog</code> → 从库查。选 <strong>AP（异步最终一致）</strong> 还是 <strong>CP（无损半同步 / 强制读主库）</strong>？
-                      </div>
-                    </div>
-                    <div style="background:var(--plop-mustard); border:1.8px solid var(--plop-ink); border-radius:8px; padding:9px 11px;">
-                      <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">🧱 跨组件同步：MySQL × Redis 缓存一致性</div>
-                      <div style="font-size:12px; color:var(--plop-ink-text); margin-top:3px; line-height:1.45;">
-                        主流最终一致方案：<strong>Cache-Aside（先更库再删缓存）</strong> + <strong>Canal 订阅 binlog 异步重试删</strong>。
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+  <!-- 第一排：Docker / Docker Compose 与 macOS -->
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐳 方式一 · Docker 与 Docker Compose（跨平台隔离首选）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-docker', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mysql-docker"><code><span class="c-cm"># A. 单命令启动 MySQL 8.4 LTS（指定 utf8mb4 字符集、东八区时区与持久化卷）</span>
+<span class="c-fn">docker</span> <span class="c-kw">run</span> <span class="c-flag">-d</span> \
+  <span class="c-flag">--name</span> <span class="c-str">mysql84</span> \
+  <span class="c-flag">-p</span> <span class="c-num">3306:3306</span> \
+  <span class="c-flag">-e</span> <span class="c-kw">MYSQL_ROOT_PASSWORD</span>=<span class="c-str">Secret_2026</span> \
+  <span class="c-flag">-e</span> <span class="c-kw">MYSQL_DATABASE</span>=<span class="c-str">mydb</span> \
+  <span class="c-flag">-e</span> <span class="c-kw">TZ</span>=<span class="c-str">Asia/Shanghai</span> \
+  <span class="c-flag">-v</span> <span class="c-str">mysql84_data:/var/lib/mysql</span> \
+  <span class="c-str">mysql:8.4</span> \
+  <span class="c-flag">--character-set-server</span>=<span class="c-str">utf8mb4</span> \
+  <span class="c-flag">--collation-server</span>=<span class="c-str">utf8mb4_0900_ai_ci</span>
 
-          <!-- 入门 vs 进阶双栏拆解 -->
-          <div class="wb-grid-2" style="margin-top:14px;">
-            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
-              <span class="plop-tag mint" style="margin-bottom:8px;">STAGE 1 · 入门阶段我们懂什么就够了？</span>
-              <h4>🎯 目标：把单库业务数据存对、查对（应对基础功能开发）</h4>
-              <p>
-                在入门阶段，你不需要一上来就去背页分裂、锁退化或分布式一致性，只需要掌握好 <strong>3 件事</strong> 就能胜任日常 CRUD 功能开发：
-              </p>
-              <ol>
-                <li><strong>会设计一张干净的表（第 01 章）：</strong>懂得每张表必须有主键（<code>PRIMARY KEY</code>），金额用精确的 <code>DECIMAL</code> 而不用浮点数，合理设置 <code>NOT NULL</code> 与唯一约束。</li>
-                <li><strong>会写常规的增删改查 CRUD（第 01 &amp; 03 章）：</strong>熟练使用 <code>SELECT / INSERT / UPDATE / DELETE</code>、<code>WHERE</code> 过滤、<code>ORDER BY</code> 排序、<code>LIMIT</code> 分页，以及给高频查询字段建上基础索引。</li>
-                <li><strong>有基本的单机事务意识（第 04 章）：</strong>知道“扣 A 的钱 + 给 B 加钱”这种多步写操作必须包在 <code>START TRANSACTION ... COMMIT</code> 事务里，不能拆成两条裸 SQL 各自跑。</li>
-              </ol>
-            </div>
+<span class="c-cm"># B. 探测容器内 MySQL 是否就绪，并进入交互式 mysql 终端</span>
+<span class="c-fn">docker</span> <span class="c-kw">exec</span> mysql84 <span class="c-fn">mysqladmin</span> <span class="c-kw">ping</span> <span class="c-flag">-h</span> <span class="c-num">127.0.0.1</span> <span class="c-flag">-u</span> <span class="c-str">root</span> <span class="c-flag">-pSecret_2026</span>
+<span class="c-fn">docker</span> <span class="c-kw">exec</span> <span class="c-flag">-it</span> mysql84 <span class="c-fn">mysql</span> <span class="c-flag">-u</span> <span class="c-str">root</span> <span class="c-flag">-pSecret_2026</span> <span class="c-str">mydb</span>
 
-            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
-              <span class="plop-tag tomato" style="margin-bottom:8px;">STAGE 2 · 进阶在干什么？为什么要了解进阶？</span>
-              <h4>🔥 目标：解决「慢查询」「并发错乱/死锁」与「多节点/Redis 同步」（应对生产与面试）</h4>
-              <p>
-                <strong>入门解决的是“功能写得出来”，进阶解决的是“数据大了不慢、并发高了不乱、加了从库和 Redis 后数据还一致”。</strong>具体对应这 4 类生产必遇问题：
-              </p>
-              <ul>
-                <li><strong>问题 ①（慢查询）：明明建了索引，为什么线上查询还是慢到超时？</strong><br>
-                  👉 对应 <strong>第 02～03 章（B+ 树、回表、覆盖索引、最左前缀与 EXPLAIN）</strong>。</li>
-                <li><strong>问题 ②（并发读写）：高并发下怎么防止超卖/脏数据，又让普通查询不卡死？</strong><br>
-                  👉 对应 <strong>第 04 章（ACID → 隔离级别 → MVCC 历史版本链）</strong>：靠 MVCC 让读写不阻塞，靠事务与当前读防超卖。</li>
-                <li><strong>问题 ③（锁的范围与粒度）：两个接口改的不是同一行，为什么突然死锁？</strong><br>
-                  👉 对应 <strong>第 05 章（行锁 Record / 间隙锁 Gap / 临键锁 Next-Key）</strong>：理解不同隔离级别与索引条件下，锁的范围如何扩大或退化。</li>
-                <li><strong>问题 ④（分布式与异构同步）：一主多从刚写完为什么查不到？MySQL 和 Redis 怎么保持一致？</strong><br>
-                  👉 对应 <strong>第 06 章（内部 2PC、一主多从 CAP 取舍、Cache-Aside 先改库再删缓存 &amp; Binlog 异步订阅）</strong>。</li>
-              </ul>
-            </div>
-          </div>
+<span class="c-cm"># C. 推荐：使用 docker-compose.yml 编排 MySQL 8.4 与健康检查</span>
+<span class="c-fn">cat</span> <span class="c-kw">&lt;&lt; 'EOF' &gt;</span> <span class="c-str">docker-compose.yml</span>
+<span class="c-kw">services:</span>
+  <span class="c-fn">mysql:</span>
+    <span class="c-kw">image:</span> <span class="c-str">mysql:8.4</span>
+    <span class="c-kw">container_name:</span> <span class="c-str">mysql84</span>
+    <span class="c-kw">restart:</span> <span class="c-str">unless-stopped</span>
+    <span class="c-kw">ports:</span>
+      - <span class="c-str">"3306:3306"</span>
+    <span class="c-kw">environment:</span>
+      <span class="c-fn">MYSQL_ROOT_PASSWORD:</span> <span class="c-str">Secret_2026</span>
+      <span class="c-fn">MYSQL_DATABASE:</span> <span class="c-str">mydb</span>
+      <span class="c-fn">TZ:</span> <span class="c-str">Asia/Shanghai</span>
+    <span class="c-kw">command:</span>
+      - <span class="c-str">--character-set-server=utf8mb4</span>
+      - <span class="c-str">--collation-server=utf8mb4_0900_ai_ci</span>
+    <span class="c-kw">volumes:</span>
+      - <span class="c-str">mysql84_data:/var/lib/mysql</span>
+    <span class="c-kw">healthcheck:</span>
+      <span class="c-fn">test:</span> [<span class="c-str">"CMD"</span>, <span class="c-str">"mysqladmin"</span>, <span class="c-str">"ping"</span>, <span class="c-str">"-h"</span>, <span class="c-str">"localhost"</span>]
+      <span class="c-fn">interval:</span> <span class="c-num">5s</span>
+      <span class="c-fn">timeout:</span> <span class="c-num">3s</span>
+      <span class="c-fn">retries:</span> <span class="c-num">10</span>
+<span class="c-kw">volumes:</span>
+  <span class="c-fn">mysql84_data:</span>
+<span class="c-kw">EOF</span>
+<span class="c-fn">docker</span> <span class="c-kw">compose up</span> <span class="c-flag">-d</span></code></pre>
+    </div>
 
-          <div class="plop-bridge">
-            <span>👇 现在带着这张地图往下读：从 <strong>01 一张表与一条 SQL 的旅程</strong> 出发，顺着「存储与索引 → 事务与 MVCC → 锁的范围 → 一主多从与 Redis 同步」一步步推导出整个体系！</span>
-          </div>
-        </div>
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🍎 方式二 · macOS 安装（Homebrew 命令行 / 官方 DMG）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-mac', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mysql-mac"><code><span class="c-cm"># 1. 使用 Homebrew 安装最新稳定版 MySQL（或指定版本 brew install mysql@8.4）</span>
+<span class="c-fn">brew</span> <span class="c-kw">install</span> <span class="c-str">mysql</span>
+
+<span class="c-cm"># 2. 若安装的是带版本号的 mysql@8.4（keg-only），需将 bin 目录加入 PATH：</span>
+<span class="c-cm"># Apple Silicon (M1/M2/M3/M4) 路径为 /opt/homebrew/opt/mysql@8.4/bin</span>
+<span class="c-fn">echo</span> <span class="c-str">'export PATH="/opt/homebrew/opt/mysql@8.4/bin:$PATH"'</span> <span class="c-kw">&gt;&gt;</span> <span class="c-str">~/.zshrc</span>
+<span class="c-fn">source</span> <span class="c-str">~/.zshrc</span> <span class="c-kw">&amp;&amp;</span> <span class="c-fn">mysql</span> <span class="c-flag">--version</span>
+
+<span class="c-cm"># 3. 启动 MySQL 后台服务并查看运行状态</span>
+<span class="c-fn">brew</span> <span class="c-kw">services start</span> <span class="c-str">mysql</span>
+<span class="c-fn">brew</span> <span class="c-kw">services list</span>
+
+<span class="c-cm"># 4. 【关键】Homebrew 初装后 root 默认为空密码，首次免密登录并设置安全密码：</span>
+<span class="c-fn">mysql</span> <span class="c-flag">-u</span> <span class="c-str">root</span> <span class="c-flag">-e</span> <span class="c-str">"ALTER USER 'root'@'localhost' IDENTIFIED BY 'Secret_2026';"</span>
+<span class="c-fn">mysql</span> <span class="c-flag">-u</span> <span class="c-str">root</span> <span class="c-flag">-pSecret_2026</span> <span class="c-flag">-e</span> <span class="c-str">"CREATE DATABASE IF NOT EXISTS mydb DEFAULT CHARSET utf8mb4;"</span>
+
+<span class="c-cm"># 5. 也可运行官方安全初始化向导（交互式设置密码强度、清理匿名用户与测试库）：</span>
+<span class="c-fn">mysql_secure_installation</span>
+
+<span class="c-cm"># 6. 使用密码连接本地 mydb 数据库：</span>
+<span class="c-fn">mysql</span> <span class="c-flag">-h</span> <span class="c-num">127.0.0.1</span> <span class="c-flag">-P</span> <span class="c-num">3306</span> <span class="c-flag">-u</span> <span class="c-str">root</span> <span class="c-flag">-p</span> <span class="c-str">mydb</span></code></pre>
+    </div>
+  </div>
+
+  <!-- 第二排：Linux (Ubuntu/Debian & RHEL/Rocky) 与 Windows -->
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐧 方式三 · Linux 安装（Ubuntu / Debian 与 RHEL / Rocky）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-linux', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mysql-linux"><code><span class="c-cm"># ========= A. Ubuntu / Debian 系列 =========</span>
+<span class="c-cm"># 1. 更新软件源并安装 MySQL Server 8.0+，安装完成后服务会自动启动</span>
+<span class="c-fn">sudo</span> <span class="c-kw">apt update</span> <span class="c-kw">&amp;&amp;</span> <span class="c-fn">sudo</span> <span class="c-kw">apt install</span> <span class="c-flag">-y</span> <span class="c-str">mysql-server</span>
+<span class="c-fn">sudo</span> <span class="c-fn">systemctl</span> <span class="c-kw">enable</span> <span class="c-flag">--now</span> <span class="c-str">mysql</span>
+
+<span class="c-cm"># 2. 【关键】Ubuntu 初装后 root 默认启用 auth_socket 插件（仅允许 sudo 免密登录），</span>
+<span class="c-cm"># 直接执行 mysql -u root -p 会报错 Access denied。首次需用 sudo 登录并改为密码认证：</span>
+<span class="c-fn">sudo</span> <span class="c-fn">mysql</span>
+<span class="c-cm">-- 在 mysql&gt; 提示符下执行：</span>
+<span class="c-kw">ALTER USER</span> <span class="c-str">'root'</span>@<span class="c-str">'localhost'</span> <span class="c-kw">IDENTIFIED WITH</span> caching_sha2_password <span class="c-kw">BY</span> <span class="c-str">'Secret_2026'</span>;
+<span class="c-kw">CREATE DATABASE IF NOT EXISTS</span> mydb <span class="c-kw">DEFAULT CHARSET</span> utf8mb4;
+<span class="c-fn">EXIT</span>;
+
+<span class="c-cm"># ========= B. RHEL / Rocky / AlmaLinux / CentOS 系列 =========</span>
+<span class="c-cm"># 1. 安装 mysql-server 并启动服务</span>
+<span class="c-fn">sudo</span> <span class="c-kw">dnf install</span> <span class="c-flag">-y</span> <span class="c-str">mysql-server</span>
+<span class="c-fn">sudo</span> <span class="c-fn">systemctl</span> <span class="c-kw">enable</span> <span class="c-flag">--now</span> <span class="c-str">mysqld</span>
+
+<span class="c-cm"># 2. 若使用官方 MySQL Yum 源安装，首次启动会在日志中生成临时随机密码，用 grep 提取：</span>
+<span class="c-fn">sudo</span> <span class="c-fn">grep</span> <span class="c-str">'temporary password'</span> <span class="c-str">/var/log/mysqld.log</span>
+<span class="c-cm"># 拿到临时密码登录后立即执行 ALTER USER 'root'@'localhost' IDENTIFIED BY '新密码';</span></code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🪟 方式四 · Windows 安装（MySQL Installer / Winget）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-win', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mysql-win"><code><span class="c-cm"># ========= A. 使用 Windows Winget 安装（或从官网下载 .msi 安装包） =========</span>
+<span class="c-fn">winget</span> <span class="c-kw">install</span> <span class="c-str">Oracle.MySQL</span>
+
+<span class="c-cm"># ========= B. 将 MySQL bin 目录加入系统 PATH（PowerShell 管理员执行） =========</span>
+<span class="c-cm"># 解决在 CMD / PowerShell 中输入 mysql 提示“不是内部或外部命令”的问题：</span>
+[<span class="c-kw">Environment</span>]::<span class="c-fn">SetEnvironmentVariable</span>(
+  <span class="c-str">"Path"</span>,
+  [<span class="c-kw">Environment</span>]::<span class="c-fn">GetEnvironmentVariable</span>(<span class="c-str">"Path"</span>, <span class="c-str">"Machine"</span>) + <span class="c-str">";C:\Program Files\MySQL\MySQL Server 8.4\bin"</span>,
+  <span class="c-str">"Machine"</span>
+)
+
+<span class="c-cm"># ========= C. 若通过免安装版 .zip 解压，需管理员执行一次初始化与注册服务 =========</span>
+<span class="c-fn">mysqld</span> <span class="c-flag">--initialize-insecure</span> <span class="c-flag">--user</span>=<span class="c-str">mysql</span> <span class="c-flag">--console</span>
+<span class="c-fn">mysqld</span> <span class="c-flag">--install</span> <span class="c-str">MySQL84</span>
+
+<span class="c-cm"># ========= D. 启停 Windows 后台服务并连接建库 =========</span>
+<span class="c-fn">net</span> <span class="c-kw">start</span> <span class="c-str">MySQL84</span>
+<span class="c-fn">mysql</span> <span class="c-flag">-h</span> <span class="c-str">localhost</span> <span class="c-flag">-P</span> <span class="c-num">3306</span> <span class="c-flag">-u</span> <span class="c-str">root</span> <span class="c-flag">-p</span> <span class="c-flag">-e</span> <span class="c-str">"CREATE DATABASE IF NOT EXISTS mydb DEFAULT CHARSET utf8mb4;"</span></code></pre>
+    </div>
+  </div>
+
+  <!-- 各平台默认目录路径与服务启停速查表 -->
+  <h4 style="margin:16px 0 8px;">📂 各平台默认数据目录、配置文件路径与服务管理速查表</h4>
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">运行环境</th>
+          <th style="width:28%">数据目录 <code>datadir</code> 默认路径</th>
+          <th style="width:26%">主配置文件 <code>my.cnf / my.ini</code> 路径</th>
+          <th style="width:30%">启动 / 停止 / 查看状态命令</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>🐳 Docker 容器</strong></td>
+          <td><code>/var/lib/mysql</code>（容器内路径，通过 <code>-v</code> 挂载到宿主机卷）</td>
+          <td><code>/etc/my.cnf</code> 或 <code>/etc/mysql/conf.d/*.cnf</code></td>
+          <td><code>docker start / stop / restart mysql84</code><br>查看日志：<code>docker logs -f mysql84</code></td>
+        </tr>
+        <tr>
+          <td><strong>🍎 macOS (Homebrew)</strong></td>
+          <td>Apple Silicon：<code>/opt/homebrew/var/mysql</code><br>Intel 芯片：<code>/usr/local/var/mysql</code></td>
+          <td><code>/opt/homebrew/etc/my.cnf</code><br>（Intel 为 <code>/usr/local/etc/my.cnf</code>）</td>
+          <td><code>brew services start / stop / restart mysql</code><br>或：<code>mysql.server start / stop</code></td>
+        </tr>
+        <tr>
+          <td><strong>🐧 Ubuntu / Debian</strong></td>
+          <td><code>/var/lib/mysql</code></td>
+          <td><code>/etc/mysql/mysql.conf.d/mysqld.cnf</code></td>
+          <td><code>sudo systemctl start / stop / restart mysql</code><br>状态检查：<code>sudo systemctl status mysql</code></td>
+        </tr>
+        <tr>
+          <td><strong>🐧 RHEL / Rocky</strong></td>
+          <td><code>/var/lib/mysql</code></td>
+          <td><code>/etc/my.cnf</code> 或 <code>/etc/my.cnf.d/mysql-server.cnf</code></td>
+          <td><code>sudo systemctl start / stop / restart mysqld</code></td>
+        </tr>
+        <tr>
+          <td><strong>🪟 Windows (MSI)</strong></td>
+          <td><code>C:\ProgramData\MySQL\MySQL Server 8.4\Data</code>（注意 <code>ProgramData</code> 默认为隐藏文件夹）</td>
+          <td><code>C:\ProgramData\MySQL\MySQL Server 8.4\my.ini</code></td>
+          <td>管理员终端执行：<br><code>net start MySQL84</code><br><code>net stop MySQL84</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 新手首次连接 4 大高频报错排查表 -->
+  <h4 style="margin:16px 0 8px;">🩺 安装后首次连接 4 大高频报错排查对照表</h4>
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:32%">首次连接常见报错信息</th>
+          <th style="width:30%">触发原因</th>
+          <th>一步解决命令</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ERROR 1698 (28000): Access denied for user 'root'@'localhost'</code>（Ubuntu 最常见）</td>
+          <td>Ubuntu 初装默认对本地 <code>root</code> 使用 <code>auth_socket</code> 插件，只认系统 <code>sudo</code> 身份，不认密码</td>
+          <td>先运行 <code>sudo mysql</code> 免密进入，再执行 <code>ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY '你的密码';</code>。</td>
+        </tr>
+        <tr>
+          <td><code>Authentication plugin 'caching_sha2_password' cannot be loaded</code> 或 <code>Public Key Retrieval is not allowed</code></td>
+          <td>MySQL 8.0+ 默认加密插件为 <code>caching_sha2_password</code>，旧版客户端驱动未开启 SSL 或公钥拉取</td>
+          <td>在客户端连接串追加参数 <code>allowPublicKeyRetrieval=true&amp;useSSL=false</code>；或在服务端将该账号改为兼容模式：<code>ALTER USER 'app'@'%' IDENTIFIED WITH mysql_native_password BY '密码';</code>。</td>
+        </tr>
+        <tr>
+          <td><code>ERROR 2002 (HY000): Can't connect to local MySQL server through socket '/tmp/mysql.sock'</code></td>
+          <td>MySQL 服务尚未启动，或者不带 <code>-h</code> 时客户端尝试找本地 Unix Socket 文件但路径不匹配</td>
+          <td>先确认服务已启动（<code>brew services list</code> 或 <code>systemctl status mysql</code>）；连接时显式指定 TCP 回环地址 <code>mysql -h 127.0.0.1 -P 3306 -u root -p</code>。</td>
+        </tr>
+        <tr>
+          <td><code>command not found: mysql</code> 或 <code>'mysql' 不是内部或外部命令</code></td>
+          <td>未将 MySQL 的 <code>bin</code> 目录加入环境变量 <code>PATH</code>（注意区分端口参数是大写 <strong><code>-P 3306</code></strong>，小写 <code>-p</code> 代表密码）</td>
+          <td>将 macOS 的 <code>/opt/homebrew/opt/mysql@8.4/bin</code> 或 Windows 的 <code>C:\Program Files\MySQL\MySQL Server 8.4\bin</code> 加入系统 <code>PATH</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>🧰 随服务端安装的 5 个核心命令行工具与图形化客户端（GUI）搭配：</strong><br>
+    • <strong>官方内置命令行工具集（位于 <code>bin/</code> 目录）</strong>：除了交互终端 <strong><code>mysql</code></strong> 外，日常高频使用的还有 <strong><code>mysqladmin</code></strong>（执行 <code>ping / status / processlist</code> 探活与管理）、<strong><code>mysqldump</code></strong>（逻辑备份导出 SQL，生产常用 <code>mysqldump --single-transaction -u root -p mydb &gt; backup.sql</code> 无锁备份）、<strong><code>mysqlbinlog</code></strong>（解析查看二进制日志 <code>binlog</code> 进行闪回恢复）、以及 <strong><code>mysqlslap</code></strong>（官方自带的并发压测工具）。<br>
+    • <strong>图形化客户端（GUI）推荐</strong>：日常开发推荐搭配免费开源的 <strong>DBeaver Community</strong>、官方自带的 <strong>MySQL Workbench</strong>，或商业工具 <strong>JetBrains DataGrip / Navicat / TablePlus</strong>。
+  </div>
+</div>
+
+<!-- 00.3 · mysql 终端高频命令与第一个建表 CRUD 脚本 -->
+<div class="wb-card" id="first-sql" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📝 00.3 · 第一个会话：<code>mysql</code> 终端高频管理命令速查与最小 CRUD 脚本拆解</div>
+  <h3>📝 00.3 <code>mysql</code> 终端高频命令与第一个 SQL 脚本</h3>
+
+  <p>
+    连接进入 <code>mysql&gt;</code> 交互式提示符后，你可以通过内置的 <code>SHOW / USE / DESC</code> 命令查看库表结构，也可以直接执行标准 SQL 语句（普通语句以分号 <code>;</code> 结尾；当返回列特别多导致终端折行错乱时，用 <strong><code>\G</code></strong> 代替分号即可切换为清晰的竖排键值对卡片展示）：
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0 16px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">终端命令</th>
+          <th style="width:28%">功能说明</th>
+          <th style="width:22%">终端命令</th>
+          <th style="width:28%">功能说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>SHOW DATABASES;</code></td>
+          <td>列出当前实例下的所有数据库</td>
+          <td><code>USE mydb;</code></td>
+          <td>切换到指定数据库（无需加分号也可执行）</td>
+        </tr>
+        <tr>
+          <td><code>SHOW TABLES;</code></td>
+          <td>列出当前数据库下的所有表</td>
+          <td><code>DESC users;</code></td>
+          <td>查看 <code>users</code> 表的列名、类型、是否允许 NULL 与索引标志</td>
+        </tr>
+        <tr>
+          <td><code>SHOW CREATE TABLE users\G</code></td>
+          <td>查看该表完整的建表 DDL 语句、引擎与字符集（极力推荐）</td>
+          <td><code>SHOW INDEX FROM users;</code></td>
+          <td>查看指定表上的所有索引列、唯一性与基数（Cardinality）</td>
+        </tr>
+        <tr>
+          <td><code>SELECT ... \G</code></td>
+          <td>将查询结果按<strong>每行一张竖排卡片</strong>打印（替代末尾的 <code>;</code>）</td>
+          <td><code>SOURCE /path/init.sql;</code></td>
+          <td>在当前会话中批量执行外部 <code>.sql</code> 脚本文件</td>
+        </tr>
+        <tr>
+          <td><code>STATUS;</code>（或 <code>\s</code>）</td>
+          <td>查看当前服务端版本、当前用户、连接字符集与运行时长</td>
+          <td><code>SHOW PROCESSLIST;</code> / <code>\q</code></td>
+          <td>查看当前所有活跃会话正在执行的 SQL / 退出终端</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐬 first_users.sql · 创建贯穿全文的 users 表并完成 CRUD</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('sql-users-init', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="sql-users-init"><code><span class="c-cm">-- 1. 创建用户表 users（InnoDB 引擎 + utf8mb4 字符集）</span>
+<span class="c-kw">CREATE TABLE</span> `users` (
+  `id`         <span class="c-fn">BIGINT UNSIGNED</span> <span class="c-kw">NOT NULL AUTO_INCREMENT COMMENT</span> <span class="c-str">'自增主键ID'</span>,
+  `name`       <span class="c-fn">VARCHAR</span>(<span class="c-num">50</span>)     <span class="c-kw">NOT NULL COMMENT</span> <span class="c-str">'用户姓名'</span>,
+  `age`        <span class="c-fn">TINYINT UNSIGNED</span> <span class="c-kw">NOT NULL DEFAULT</span> <span class="c-num">0</span> <span class="c-kw">COMMENT</span> <span class="c-str">'年龄'</span>,
+  `city`       <span class="c-fn">VARCHAR</span>(<span class="c-num">50</span>)     <span class="c-kw">NOT NULL COMMENT</span> <span class="c-str">'所在城市'</span>,
+  `balance`    <span class="c-fn">DECIMAL</span>(<span class="c-num">12</span>,<span class="c-num">2</span>)   <span class="c-kw">NOT NULL DEFAULT</span> <span class="c-num">0.00</span> <span class="c-kw">COMMENT</span> <span class="c-str">'账户余额(元)'</span>,
+  `created_at` <span class="c-fn">DATETIME</span>        <span class="c-kw">NOT NULL DEFAULT CURRENT_TIMESTAMP</span>,
+  `updated_at` <span class="c-fn">DATETIME</span>        <span class="c-kw">NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP</span>,
+  <span class="c-kw">PRIMARY KEY</span> (`id`),
+  <span class="c-kw">KEY</span> `idx_city_age` (`city`, `age`)
+) <span class="c-kw">ENGINE</span>=InnoDB <span class="c-kw">DEFAULT CHARSET</span>=utf8mb4 <span class="c-kw">COMMENT</span>=<span class="c-str">'用户账户表'</span>;
+
+<span class="c-cm">-- 2. 批量插入 3 条测试数据（id 由 AUTO_INCREMENT 自动生成 1, 2, 3）</span>
+<span class="c-kw">INSERT INTO</span> `users` (`name`, `age`, `city`, `balance`) <span class="c-kw">VALUES</span>
+  (<span class="c-str">'小林'</span>, <span class="c-num">20</span>, <span class="c-str">'杭州'</span>, <span class="c-num">100.00</span>),
+  (<span class="c-str">'小周'</span>, <span class="c-num">25</span>, <span class="c-str">'杭州'</span>, <span class="c-num">200.00</span>),
+  (<span class="c-str">'小陈'</span>, <span class="c-num">30</span>, <span class="c-str">'上海'</span>, <span class="c-num">300.00</span>);
+
+<span class="c-cm">-- 3. 条件过滤查询与按主键更新余额</span>
+<span class="c-kw">SELECT</span> `id`, `name`, `balance` <span class="c-kw">FROM</span> `users` <span class="c-kw">WHERE</span> `city` = <span class="c-str">'杭州'</span> <span class="c-kw">AND</span> `age` &gt;= <span class="c-num">20</span>;
+<span class="c-kw">UPDATE</span> `users` <span class="c-kw">SET</span> `balance` = `balance` + <span class="c-num">50.00</span> <span class="c-kw">WHERE</span> `id` = <span class="c-num">1</span>;</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📖 逐行语法拆解（初学者对照指南）</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65; color:var(--plop-ink-text);">
+        <li><strong>反引号 <code>`...`</code> vs 单引号 <code>'...'</code></strong>：在 MySQL 中，<strong>反引号 <code>`users`</code> 用于包裹表名或列名</strong>（防止字段名恰好与 <code>order / status / desc</code> 等 SQL 保留字冲突）；而<strong>单引号 <code>'杭州'</code> 用于包裹字符串字面量值</strong>，两者不可混用。</li>
+        <li><strong><code>BIGINT UNSIGNED NOT NULL AUTO_INCREMENT</code></strong>：<code>BIGINT</code> 为 8 字节整数，<code>UNSIGNED</code> 表示无符号非负数（上限翻倍且禁止负数 ID），<code>AUTO_INCREMENT</code> 让数据库在插入时自动按顺序递增编号；插入后可通过 <code>SELECT LAST_INSERT_ID();</code> 获取刚生成的自增 ID。</li>
+        <li><strong><code>DECIMAL(12,2)</code></strong>：表示总有效位数最多 12 位、其中小数部分固定占 2 位的精确十进制数，专门用于存储账户余额与订单价格，避免 <code>FLOAT / DOUBLE</code> 二进制浮点数的精度丢失。</li>
+        <li><strong><code>ON UPDATE CURRENT_TIMESTAMP</code></strong>：MySQL 的实用特性，每当该行记录的任何列发生数值变更时，数据库会自动将 <code>updated_at</code> 刷新为当前修改时刻，无需业务代码手动维护。</li>
+        <li><strong><code>KEY idx_city_age (city, age)</code></strong>：在建表时直接为 <code>(city, age)</code> 两列建立联合二级索引（<code>KEY</code> 与 <code>INDEX</code> 在此完全同义），加速按城市与年龄的组合检索。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="plop-callout tip" style="margin-top:14px; margin-bottom:0;">
+    <strong>💡 阅读指引：</strong>本篇（🌱 基础与实战篇）将顺着日常开发与数据库设计的自然顺序，带你掌握体系结构与账号授权、字段选型与 JSON 生成列、高级 SQL 与窗口函数、并发防超卖与索引调优。如果你想直接深入 InnoDB 16 KiB 数据页的 7 大物理分区、<code>COMPACT / DYNAMIC</code> 行记录头与三大隐藏系统列，可点击顶部切换栏前往 <a href="principles.html#why">📘 核心原理篇 · 00 16KB 页与行格式 ↗</a>。
+  </div>
+</div>

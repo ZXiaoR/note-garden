@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="由浅入深的 MySQL 学习手账：从表和 SQL 到索引、事务、MVCC、锁、日志与复制，附双会话实验和官方文档。" />
-  <title>MySQL：从一张表，到可靠的数据库 · note-garden 技术知识花园</title>
+  <meta name="description" content="MySQL 基础与实战篇：从全平台环境安装、mysql 命令行与账号权限管理出发，依次梳理核心数据类型与字符集规范、表结构建模与约束、高频写操作与 JOIN/窗口函数/CTE、事务隔离与防超卖并发模式、索引设计与 EXPLAIN 慢查询调优，以及 Online DDL、深分页优化与线上排障实战。" />
+  <title>MySQL · 基础与实战篇 · note-garden 技术知识花园</title>
   <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
   <link rel="stylesheet" href="../assets/plop-garden.css" />
   <script src="../assets/plop-garden.js"></script>
@@ -23,8 +23,11 @@
       <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
         <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
         <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
-        <span class="plop-tag mint">🐬 MYSQL 8.0 / 8.4 全览</span>
       </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" class="active" aria-current="page" title="循序渐进：从全平台环境安装、账号权限、数据类型、进阶 SQL 到事务并发、索引调优与日常运维">🌱 基础与实战篇</a>
+        <a href="principles.html" data-edition-target="principles.html" title="切换到当前章节的 16KB 页与行格式、Buffer Pool 冷热 LRU、B+ 树阶数推导、MVCC ReadView、Next-Key Lock 与两阶段提交原理">📘 核心原理篇 ↗</a>
+      </nav>
     </div>
 
     <div class="console-group">
@@ -38,8 +41,8 @@
   </header>
 
   <div class="plop-desk-stage">
-    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + InnoDB 速查小票 ==================== -->
-    <aside class="plop-side-rail left" aria-label="本篇章节导航与参数速查">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + MySQL 日常开发速查 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与日常开发速查">
       <div class="rail-sticky-cluster">
         <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
         <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
@@ -58,70 +61,62 @@
         </div>
 
         <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
-        <nav class="plop-index-tabs" id="toc-tabs" aria-label="MySQL 章节书签">
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="MySQL 基础与实战章节书签">
           <a href="#why" class="plop-ear-tab active" data-toc="why">
             <span class="ear-dot"></span>
-            <span>00 第一性原理导读</span>
+            <span>00 环境安装与入门</span>
           </a>
-          <a href="#start" class="plop-ear-tab" data-toc="start">
-            <span class="ear-dot mustard"></span>
-            <span>01 表与 SQL 旅程</span>
+          <a href="#arch" class="plop-ear-tab" data-toc="arch">
+            <span class="ear-dot periwinkle"></span>
+            <span>01 体系结构与权限</span>
           </a>
-          <a href="#storage" class="plop-ear-tab" data-toc="storage">
+          <a href="#types" class="plop-ear-tab" data-toc="types">
             <span class="ear-dot mint"></span>
-            <span>02 页、B+树与内存</span>
+            <span>02 数据类型与建表</span>
+          </a>
+          <a href="#dml" class="plop-ear-tab" data-toc="dml">
+            <span class="ear-dot mustard"></span>
+            <span>03 进阶查询与窗口</span>
+          </a>
+          <a href="#trx" class="plop-ear-tab" data-toc="trx">
+            <span class="ear-dot pink"></span>
+            <span>04 事务与并发实战</span>
           </a>
           <a href="#index" class="plop-ear-tab" data-toc="index">
             <span class="ear-dot periwinkle"></span>
-            <span>03 索引与 EXPLAIN</span>
-          </a>
-          <a href="#trx" class="plop-ear-tab" data-toc="trx">
-            <span class="ear-dot mustard"></span>
-            <span>04 事务与 MVCC</span>
-          </a>
-          <a href="#lock" class="plop-ear-tab" data-toc="lock">
-            <span class="ear-dot pink"></span>
-            <span>05 锁机制与死锁</span>
+            <span>05 索引设计与调优</span>
           </a>
           <a href="#log" class="plop-ear-tab" data-toc="log">
             <span class="ear-dot mint"></span>
-            <span>06 三大日志与复制</span>
-          </a>
-          <a href="#lifecycle" class="plop-ear-tab" data-toc="lifecycle">
-            <span class="ear-dot periwinkle"></span>
-            <span>07 链路串联与实验</span>
-          </a>
-          <a href="#advanced" class="plop-ear-tab" data-toc="advanced">
-            <span class="ear-dot mustard"></span>
-            <span>08 进阶抽屉与自测</span>
+            <span>06 运维、分页与排障</span>
           </a>
         </nav>
 
-        <!-- 3. 打孔小票贴纸：InnoDB 关键参数与边界速查 -->
+        <!-- 3. 打孔小票贴纸：MySQL 日常开发速查 -->
         <div class="plop-side-ticket tilt-right">
           <div class="plop-side-ticket-head">
-            <span>INNODB 机制速查</span>
+            <span>MYSQL 开发速查</span>
             <span>#8.0/8.4</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>默认页大小</span>
-            <span>16 KiB</span>
+            <span>标准字符集</span>
+            <span>utf8mb4</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>默认隔离</span>
-            <span>RR (可重复读)</span>
+            <span>精确金额</span>
+            <span>DECIMAL(p,s)</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>默认行格式</span>
-            <span>DYNAMIC</span>
+            <span>幂等更新</span>
+            <span>ON DUPLICATE</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>ChangeBuf</span>
-            <span>8.0=all / 8.4=none</span>
+            <span>秒级加列</span>
+            <span>INSTANT DDL</span>
           </div>
           <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
-            <span>双 1 持久化</span>
-            <span>redo=1 &amp; binlog=1</span>
+            <span>内核深挖</span>
+            <span>顶部 📘原理篇</span>
           </div>
         </div>
       </div>
@@ -131,15 +126,13 @@
     <main class="plop-workbench" id="content">
       <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
       <nav class="plop-mobile-toc" aria-label="章节快速跳转">
-        <a href="#why" class="active">00 第一性原理</a>
-        <a href="#start">01 表与架构</a>
-        <a href="#storage">02 页与B+树</a>
-        <a href="#index">03 索引与EXPLAIN</a>
-        <a href="#trx">04 事务与MVCC</a>
-        <a href="#lock">05 锁与死锁</a>
-        <a href="#log">06 日志与复制</a>
-        <a href="#lifecycle">07 串联与实验</a>
-        <a href="#advanced">08 进阶与自测</a>
+        <a href="#why" class="active">00 安装与入门</a>
+        <a href="#arch">01 结构与权限</a>
+        <a href="#types">02 类型与建表</a>
+        <a href="#dml">03 进阶SQL</a>
+        <a href="#trx">04 事务与并发</a>
+        <a href="#index">05 索引与调优</a>
+        <a href="#log">06 运维与排障</a>
       </nav>
 
       <div class="wb-sheet plop-journal-book">
@@ -148,146 +141,122 @@
         <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
         <div class="journal-spine-rings" aria-hidden="true"></div>
 
-        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三遍读法车票 -->
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 路线车票 -->
         <header class="wb-masthead">
           <div class="wb-card wb-date-card mint">
-            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">DATABASE / 01</span>
-            <div style="font-family:var(--font-head); font-style:italic; font-size:38px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">MySQL</div>
-            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">8.0 · 8.4 / INNODB</span>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">EDITION 01 / GUIDE</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:36px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">MySQL</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">🌱 基础与实战篇</span>
           </div>
 
           <div class="wb-masthead-main">
             <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
-              <span class="plop-tag tomato">CORE DATABASE GUIDE</span>
-              <span class="plop-tag mint">B+ TREE &amp; BUFFER POOL</span>
-              <span class="plop-tag periwinkle">MVCC · LOCKS · WAL 2PC</span>
+              <span class="plop-tag mint">🌱 EDITION 1 · 基础与实战篇</span>
+              <span class="plop-tag periwinkle">SQL · MODELING · CONCURRENCY</span>
+              <span class="plop-tag tomato">INDEX TUNING · ONLINE DDL</span>
             </div>
-            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
-              MySQL：从一张表，到可靠的数据库
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              MySQL · 基础与实战篇：从环境搭建到高性能 SQL 与生产运维
             </h1>
-            <p style="font-size:14.8px; color:var(--plop-ink-soft); margin:0; font-weight:600;">
-              先把 SQL 用起来，再理解查询、并发和恢复背后的机制。每一章解决一个问题，下一章接着问为什么。正文讲必备知识，“进阶”折叠卡可第二遍再读；示例执行计划取决于数据量、分布与版本，不预设固定输出。
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0; font-weight:600; line-height:1.6;">
+              从全平台环境安装、命令行终端与两层体系结构出发，依次梳理数据类型与建表规范、幂等写入与窗口函数、事务隔离与高并发防超卖模式、索引设计与执行计划分析，以及大表无锁变更、深分页优化与日常排障。若想深入 16KB 页内存布局、Buffer Pool、MVCC ReadView 与两阶段提交内核，可随时通过顶部按钮切入核心原理篇。
             </p>
 
-            <!-- 三遍读法手账小票卡片 -->
+            <!-- 三阶段学习路径车票卡片 -->
             <div class="wb-kpi-grid">
-              <a href="#start" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 第一遍：建立直觉</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 01—04：先会用表，理解 B+ 树、索引与事务边界</div>
+              <a href="#why" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">① 环境、权限与建表</div>
+                <div style="font-size:12px; font-weight:700;">章节 00—02：全平台安装、账号授权、字符集与字段选型</div>
               </a>
-              <a href="#mvcc" class="plop-ticket-kpi" style="background:var(--plop-mint);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 第二遍：理解机制</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 04—06：搞懂 ReadView 版本链、间隙锁、WAL 与复制</div>
+              <a href="#dml" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">② 进阶查询与并发控制</div>
+                <div style="font-size:12px; font-weight:700;">章节 03—04：幂等写入、窗口函数、递归查询与防超卖加锁</div>
               </a>
-              <a href="#practice" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 第三遍：动手验证</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 07—08：跑通双会话实验 → 展开进阶抽屉 → 闭卷自测</div>
+              <a href="#index" class="plop-ticket-kpi" style="background:var(--plop-periwinkle);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">③ 索引调优与生产运维</div>
+                <div style="font-size:12px; font-weight:700;">章节 05—06：联合索引、EXPLAIN 诊断、Online DDL 与深分页</div>
               </a>
             </div>
           </div>
         </header>
 
-        <!-- ====================================================================
-             9 大章节纯 HTML 子模块（由 assets/plop-garden.js 自动并行加载拼装）
-             平时修改某个章节，直接编辑 mysql/sections/ 下的对应小文件即可；
-             每个挂载点内预置静态章节摘要与直达链接，兼顾搜索引擎、阅读器、AI 抓取与无 JS 环境可达性
-             ==================================================================== -->
         <noscript>
           <div class="plop-callout warn" style="margin:14px 0;">
-            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 9 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
           </div>
         </noscript>
 
         <div data-plop-section="sections/00-why.html">
           <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 第一性原理导读：我们为什么学 MySQL？入门懂什么就够、进阶到底在解决什么？</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">从直接读写裸磁盘文件的三大工程死穴（全表扫描慢、并发读写脏数据、断电半写丢数据）出发，推导 MySQL InnoDB「存储与 B+ 树索引、MVCC 与行锁并发控制、三大日志与主从高可用」三大进阶主线。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 认识 MySQL、全平台环境安装与第一个 SQL 脚本</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">介绍 MySQL 8.0 / 8.4 的核心特点与版本演进，提供 Docker、macOS、Linux、Windows 四大平台安装与初始化流程，以及 mysql 终端高频命令与第一个建表 CRUD 脚本拆解。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/01-start.html">
-          <section class="wb-card" id="start" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-start.html">01 · 起步：从一张 <code>users</code> 表开始，看一条 SQL 在 Server 层与 InnoDB 引擎层的完整旅程</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">建立贯穿全文的 <code>users</code> 实验表，拆解连接器、解析器、优化器、执行器与 InnoDB 存储引擎层的两层分工协作。</p>
+        <div data-plop-section="sections/01-arch.html">
+          <section class="wb-card" id="arch" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-arch.html">01 · 体系结构、账号权限管理与连接池配置</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">图解 Server 层与 InnoDB 存储引擎层的分工协作，梳理 MySQL 8.0 账号创建与最小权限授权规范、核心配置文件 my.cnf 参数以及应用层连接池实践。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/02-storage.html">
-          <section class="wb-card" id="storage" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-storage.html">02 · 存储与内存：为什么需要 16 KiB 数据页、B+ 树多级页目录与 Buffer Pool 缓冲池？</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解 InnoDB 16 KiB 页结构、3 层 B+ 树如何支撑千万级数据仅需 3 次 I/O、为什么选 B+ 树而非 B 树/哈希/跳表，以及 Buffer Pool 冷热双段 LRU 与脏页管理。</p>
+        <div data-plop-section="sections/02-types.html">
+          <section class="wb-card" id="types" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-types.html">02 · 数据类型选型、utf8mb4 字符集、JSON 生成列与建表规范</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解数值、精确金额 DECIMAL、字符串、DATETIME vs TIMESTAMP 的选型边界，说明 utf8mb4 字符集与排序规则，演示 JSON 操作符与生成列索引及多表关系建模。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/03-index.html">
-          <section class="wb-card" id="index" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-index.html">03 · 查询加速：聚簇索引 vs 二级索引、回表与覆盖索引、最左前缀原则、索引下推 ICP 与 <code>EXPLAIN</code> 验证</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比聚簇索引与二级索引叶子节点差异，拆解联合索引排序规则、范围查询后的列、Index Condition Pushdown (ICP)、常见索引失效根因，以及 <code>EXPLAIN</code> 核心字段（<code>type / key / key_len / Extra</code>）判读。</p>
+        <div data-plop-section="sections/03-dml.html">
+          <section class="wb-card" id="dml" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-dml.html">03 · 核心 SQL 进阶：幂等 UPSERT、JOIN 细节、窗口函数与递归 CTE</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">掌握 INSERT ... ON DUPLICATE KEY UPDATE 幂等写入、LEFT JOIN 中 ON 与 WHERE 的语义差异、GROUP BY 聚合规范、窗口函数 OVER (...) 以及 WITH RECURSIVE 递归查询。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/04-trx.html">
           <section class="wb-card" id="trx" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-trx.html">04 · 并发正确：事务 ACID、四大隔离级别、脏读/不可重复读/幻读与 MVCC ReadView 版本链推演</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">厘清四大隔离级别标准，深入 InnoDB 隐藏列（<code>DB_TRX_ID / DB_ROLL_PTR</code>）、Undo Log 版本链与 <code>ReadView</code> 四大水位字段，手把手推演 RC 与 RR 下的可见性判断与快照读/当前读防幻读机制。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-trx.html">04 · 事务控制、隔离级别与高并发防超卖实战</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">梳理事务 ACID 与 autocommit 提交边界，对比四大隔离级别与三类并发读异常，结合原子条件更新、FOR UPDATE 悲观锁与 version 乐观锁解决高并发扣减问题。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/05-lock.html">
-          <section class="wb-card" id="lock" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-lock.html">05 · 并发互斥：全局锁/表锁/意向锁、Record Lock / Gap Lock / Next-Key Lock 加锁退化规则与死锁排查</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">通过数轴图解记录锁、间隙锁与临键锁，结合唯一索引等值/范围查询与非唯一索引场景推演 InnoDB 自动加锁范围，提供生产级行锁等待与死锁日志排查 SQL。</p>
+        <div data-plop-section="sections/05-index.html">
+          <section class="wb-card" id="index" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-index.html">05 · 索引设计、最左前缀、常见失效改写与 EXPLAIN 调优</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比聚簇索引与二级索引回表机制，掌握覆盖索引、联合索引最左前缀、前缀索引与函数索引，总结 7 类常见索引失效改写方案与 EXPLAIN / EXPLAIN ANALYZE 判读方法。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/06-log.html">
           <section class="wb-card" id="log" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-log.html">06 · 可靠与高可用：Undo Log / Redo Log / Binlog 三大日志、两阶段提交 (2PC)、双 1 配置与主从复制</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解 WAL 预写日志、Redo Log 与 Binlog 两阶段提交防不一致、Doublewrite Buffer 防部分写失效、三档刷盘配置（双 1 / 折中 / 高吞吐）、异步/半同步/MGR 主从复制与缓存双写一致性。</p>
-          </section>
-        </div>
-
-        <div data-plop-section="sections/07-lifecycle.html">
-          <section class="wb-card" id="lifecycle" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/07-lifecycle.html">07 · 串联与实验：<code>SELECT</code> 与 <code>UPDATE</code> 全链路复盘 + 双会话亲手验证 MVCC 快照与行锁等待</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">将前 6 章机制串联为完整的读写执行流，并配套可直接复制执行的双终端会话 SQL 实验。</p>
-          </section>
-        </div>
-
-        <div data-plop-section="sections/08-advanced.html">
-          <section class="wb-card" id="advanced" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/08-advanced.html">08 · 进阶抽屉与自测：Compact/Dynamic 行格式、页分裂、深分页优化、<code>COUNT(*)</code> 对比与 7 道闭卷自测</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖溢出页、自增主键 vs UUID、Change Buffer、<code>JOIN</code> 算法（NLJ/BNL/Hash Join）、深分页延迟关联优化与 MySQL 8.0/8.4 官方参考依据。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-log.html">06 · 生产运维实战：Online DDL、深分页优化、锁排查与后端接入</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖 MySQL 8.0 Online DDL (INSTANT / INPLACE / COPY) 选型、游标分页与延迟关联优化深分页、线上行锁等待与慢查询排查 SQL，以及后端连接池参数化事务模板。</p>
           </section>
         </div>
 
       </div>
     </main>
 
-    <!-- ==================== 右侧手账贴纸栏：SQL 实验速拷贴 + 跨专题切换耳标 ==================== -->
+    <!-- ==================== 右侧手账贴纸栏：跨专题切换耳标 + 原理篇直达 ==================== -->
     <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
       <div class="rail-sticky-cluster">
-        <!-- 1. 毛线帽吉祥物 + 快捷复制 SQL 便签 -->
+        <!-- 1. 毛线帽吉祥物 + 双篇切换提示便签 -->
         <div class="plop-sticky-note mint tilt-right">
           <div class="plop-pin"></div>
           <div class="sticky-title">
             <span style="display:inline-flex; align-items:center; gap:5px;">
               <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
-              <span>📋 实验 SQL 速拷</span>
+              <span>📘 切换核心原理篇</span>
             </span>
-            <span>COPY</span>
+            <span>DEEP</span>
           </div>
-          <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
-            <button type="button" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('sql-users-init', this)">
-              🐬 复制 users 建表 SQL
-            </button>
-            <button type="button" class="plop-pill-sticker mustard" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('sql-explain-demo', this)">
-              🔬 复制 EXPLAIN 验证
-            </button>
-            <button type="button" class="plop-pill-sticker paper" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('sql-lock-inspect', this)">
-              🔎 复制行锁排查 SQL
-            </button>
-          </div>
+          <p style="font-size:11.8px; line-height:1.5; margin:6px 0 8px; color:var(--plop-ink-text); font-weight:700;">
+            想看 16KB 页布局、Buffer Pool 冷热 LRU、MVCC ReadView 版本链、Next-Key Lock 加锁退化与两阶段提交？
+          </p>
+          <a href="principles.html" data-edition-target="principles.html" class="plop-pill-sticker mustard" style="display:block; text-align:center; font-size:11.8px; padding:6px 8px; text-decoration:none;">
+            📘 进入核心原理篇 ↗
+          </a>
         </div>
 
         <!-- 2. 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
@@ -299,5 +268,6 @@
       </div>
     </aside>
   </div>
+
 </body>
 </html>

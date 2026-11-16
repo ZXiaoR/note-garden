@@ -1,176 +1,436 @@
 <!-- ====================================================================
-             PART 00: 第一性原理导读 · 为什么有了 MySQL 还要学 PostgreSQL？
-             ==================================================================== -->
-        <div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
-          <span class="wb-sec-num">00</span>
-          <span class="wb-sec-title">第一性原理导读 · 为什么有了 MySQL 还要学 PostgreSQL？入门懂什么、进阶在解决什么？</span>
-          <span class="plop-tag tomato">FIRST PRINCIPLES · 必读心法</span>
-        </div>
+     PART 00: 认识 PostgreSQL、环境安装与第一个 SQL 脚本
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">认识 PostgreSQL、环境安装与第一个 SQL 脚本</span>
+  <span class="plop-tag mint">OVERVIEW × SETUP × FIRST SQL</span>
+</div>
 
-        <div class="wb-card" style="background:var(--plop-paper);">
-          <div class="washi-tape"></div>
-          <div class="chapter-q-pill">🧭 先抓底层设计哲学 · MySQL 与 PostgreSQL 的一切差异，都源自「一张表在磁盘上怎么放、改一行数据旧版本往哪塞」</div>
-          <h3>💡 从第一性原理出发：同样是关系型数据库，PostgreSQL 和 MySQL 到底分道扬镳在哪里？</h3>
-          <p>
-            很多同学学完 MySQL 再看 PostgreSQL（简称 PG），会觉得：“不都是建表、写 SQL、建 B+ 树索引、开事务么？为什么要多学一套？”<br>
-            但只要进入复杂业务、AI 向量检索、GIS 地理空间、海量 JSON 文档或高并发更新场景，你会发现两者的底层脾气截然不同——因为它们在设计之初做出了<strong>三个最根本的底层架构抉择</strong>：
-          </p>
-          <ul>
-            <li><strong>抉择一：表数据怎么存？（堆表 Heap vs 索引组织表 IOT）</strong><br>
-              MySQL InnoDB 的表本身就是一棵<strong>主键 B+ 树（聚簇索引）</strong>，数据行按主键顺序存在叶子节点里，二级索引存的是主键值（查二级索引要再查一遍主键树，即回表）；而 PostgreSQL 的表是<strong>无序追加的堆表（Heap Table）</strong>，每一行有一个物理坐标 <code>ctid = (页号, 页内槽位号)</code>，<strong>主键和普通索引平起平坐，统统直接存 <code>ctid</code> 指向堆表物理位置</strong>。</li>
-            <li><strong>抉择二：改一行数据时，旧版本放哪？（追加新元组 vs Undo Log 回滚段）</strong><br>
-              MySQL InnoDB 原地修改数据页，把旧版本写进独立的 <strong>Undo Log</strong>；而 PostgreSQL 采用<strong>追加写多版本（Append-Only MVCC）</strong>：<code>UPDATE = 把旧行标上失效事务号 xmax + 在堆表里直接插入一条新版本行 (xmin)</code>！这样事务回滚几乎是 <code>O(1)</code> 瞬间完成（不用重放 Undo），但也直接导致了 PG 最具辨识度的运维核心：<strong>死元组（Dead Tuple）堆积 → 表膨胀（Bloat）→ 必须靠 VACUUM 清道夫回收与 Freeze 防事务 ID 回卷</strong>。</li>
-            <li><strong>抉择三：数据库只存简单标量，还是允许扩展一切？（ORDBMS 对象-关系型底座）</strong><br>
-              PostgreSQL 把自己设计成一个<strong>可扩展的类型与索引框架</strong>：原生内置 <code>JSONB</code>、数组、范围类型，提供 <strong>6 大索引引擎（B-tree / GIN / GiST / SP-GiST / BRIN / Hash）</strong>，还能通过扩展（<code>PostGIS</code> 空间地理、<code>pgvector</code> 向量数据库）直接生长出新物种。</li>
-          </ul>
+<!-- 00.1 · PostgreSQL 的核心定位与适用场景 -->
+<div class="wb-card" id="pg-intro" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧭 00.1 · 核心定位：对象-关系型数据库（ORDBMS）的设计特点与适用场景</div>
+  <h3>🧭 00.1 PostgreSQL 的设计特点与常见应用领域</h3>
 
-          <!-- 手绘 SVG：从第一性原理推导 PostgreSQL 全景知识体系 -->
-          <svg viewBox="0 0 880 398" style="width:100%; height:auto; display:block; background:var(--plop-sheet); border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" aria-label="PostgreSQL 第一性原理推导全景图">
-            <defs>
-              <marker id="pg-arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 1 1 L 9 5 L 1 9 z" fill="var(--plop-ink)" stroke="var(--plop-ink)" stroke-linejoin="round"/>
-              </marker>
-              <marker id="pg-arr-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 1 1 L 9 5 L 1 9 z" fill="#D2381E" stroke="#D2381E" stroke-linejoin="round"/>
-              </marker>
-            </defs>
+  <p>
+    PostgreSQL（常简称为 <strong>PG</strong> 或 <strong>Postgres</strong>）诞生于加州大学伯克利分校的 POSTGRES 项目，是目前功能最完备的开源<strong>对象-关系型数据库管理系统（ORDBMS）</strong>。它在传统关系型二维表（行与列）的基础上，原生融合了对复杂数据类型、高级分析查询以及插件扩展的支持：
+  </p>
 
-            <!-- 左侧：入门起点 -->
-            <rect x="14" y="16" width="204" height="366" rx="12" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.4"/>
-            <rect x="26" y="28" width="180" height="28" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="2"/>
-            <text x="116" y="47" text-anchor="middle" font-size="12.2" font-weight="900" fill="var(--plop-ink-text)">🌱 入门阶段（起点）</text>
+  <div class="wb-grid-3" style="margin:14px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag mint">特点 ① · 标准与严谨</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">SQL Standard</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">高度遵循 SQL 标准与事务安全</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        完整支持窗口函数、递归公共表表达式（<code>WITH RECURSIVE</code>）、全外连接（<code>FULL OUTER JOIN</code>）以及可包裹在事务中安全回滚的事务性 DDL（<code>BEGIN ... ALTER ... ROLLBACK</code>）。
+      </p>
+    </div>
 
-            <text x="116" y="78" text-anchor="middle" font-size="13" font-weight="900" fill="var(--plop-ink)">更强大的「标准 SQL 库」</text>
-            <text x="116" y="96" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--plop-ink-soft)">(建模 + 强类型 + 高级查询)</text>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag periwinkle">特点 ② · 丰富数据类型</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Rich Types</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">原生内置 JSONB、数组与范围类型</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        除了数值、文本和时间戳外，直接支持二进制结构化文档 <code>jsonb</code>、一维或多维数组 <code>text[]</code>、时间区间 <code>tstzrange</code>，并可针对内部元素建立倒排索引。
+      </p>
+    </div>
 
-            <rect x="28" y="112" width="176" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="116" y="132" text-anchor="middle" font-size="10.8" font-weight="800" fill="var(--plop-ink-text)">① 理解四级结构与强类型</text>
-            <text x="116" y="149" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">库→Schema→表 / text·numeric·jsonb</text>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag tomato">特点 ③ · 可扩展底座</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Extensions</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">通过插件平滑扩展专业领域能力</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        无需额外部署多套异构存储，即可通过 <code>PostGIS</code> 处理地理空间坐标、通过 <code>pgvector</code> 实现 AI 向量相似度检索、通过 <code>TimescaleDB</code> 处理时序监控数据。
+      </p>
+    </div>
+  </div>
 
-            <rect x="28" y="174" width="176" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="116" y="194" text-anchor="middle" font-size="10.8" font-weight="800" fill="var(--plop-ink-text)">② 事务性 DDL 与表间关系</text>
-            <text x="116" y="211" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">IDENTITY 自增 / 1:1·1:N·M:N 外键</text>
+  <div class="table-wrap" style="margin-top:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">对比维度</th>
+          <th style="width:42%">🐘 PostgreSQL (14 / 16 / 17)</th>
+          <th style="width:40%">🐬 MySQL (8.0 / 8.4 InnoDB)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>日常开发体感</strong></td>
+          <td>类型校验严格，原生支持 <code>RETURNING</code>（修改后直接返回行）、<code>FULL JOIN</code>、数组与 <code>JSONB</code> 倒排检索，复杂多表报表与分析查询能力强。</td>
+          <td>语法相对宽松，侧重高并发简单点查与常规 OLTP 增删改查，主从复制与生态工具成熟。</td>
+        </tr>
+        <tr>
+          <td><strong>表结构变更 (DDL)</strong></td>
+          <td><strong>支持事务性 DDL</strong>：绝大多数建表、改表操作可放在 <code>BEGIN ... ROLLBACK</code> 事务块中原子回滚，执行数据库迁移脚本更安全。</td>
+          <td>执行 <code>ALTER / CREATE / DROP</code> 会触发隐式提交（Implicit Commit），中途报错无法回滚已执行的 DDL 步骤。</td>
+        </tr>
+        <tr>
+          <td><strong>自增主键写法</strong></td>
+          <td>使用 SQL 标准语法 <code>bigint GENERATED ALWAYS AS IDENTITY</code>（底层关联序列对象 <code>SEQUENCE</code>）。</td>
+          <td>在列定义后附加 <code>AUTO_INCREMENT</code> 属性。</td>
+        </tr>
+        <tr>
+          <td><strong>典型适用场景</strong></td>
+          <td><strong>复杂业务建模、SaaS 多租户系统、金融账务、含动态 JSON 属性的业务、GIS 地理服务、AI 知识库向量检索（<code>pgvector</code>）</strong>。</td>
+          <td>传统电商交易流水、高并发简单键值/主外键读写、已有成熟 MySQL 运维体系的业务。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
 
-            <rect x="28" y="236" width="176" height="52" rx="8" fill="#FBF8F0" stroke="var(--plop-ink)" stroke-width="1.6"/>
-            <text x="116" y="256" text-anchor="middle" font-size="10.8" font-weight="800" fill="var(--plop-ink-text)">③ 王牌 SQL 生产力语法</text>
-            <text x="116" y="273" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--plop-ink-soft)">RETURNING / ON CONFLICT / 窗口函数</text>
+<!-- 00.2 · 开发环境安装、服务启动与客户端工具准备 -->
+<div class="wb-card" id="pg-install" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🛠️ 00.2 · 全平台环境搭建：Docker / macOS / Linux / Windows 安装、首次初始化与排障</div>
+  <h3>🛠️ 00.2 全平台环境安装、首次初始化与服务管理</h3>
 
-            <rect x="28" y="298" width="176" height="68" rx="8" fill="#FFF6F4" stroke="#D2381E" stroke-width="1.8" stroke-dasharray="4 3"/>
-            <text x="116" y="318" text-anchor="middle" font-size="10.5" font-weight="900" fill="#D2381E">⚠️ 上生产后会撞上什么墙？</text>
-            <text x="116" y="335" text-anchor="middle" font-size="9.6" font-weight="700" fill="var(--plop-ink-text)">连接数爆内存、高频更新导致</text>
-            <text x="116" y="352" text-anchor="middle" font-size="9.6" font-weight="800" fill="#D2381E">表膨胀 10 倍、XID 回卷停库 ➔</text>
+  <p>
+    PostgreSQL 支持在所有主流操作系统上运行，服务端默认监听 TCP <strong><code>5432</code></strong> 端口。针对本地开发与服务器部署，下面按 <strong>Docker 容器、macOS、Linux（Ubuntu / RHEL）、Windows</strong> 四种环境给出从安装、环境变量配置到首次建库建用户的完整命令闭环：
+  </p>
 
-            <!-- 分叉箭头 -->
-            <path d="M218 90 L252 60" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pg-arr-red)"/>
-            <path d="M218 165 L252 152" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pg-arr-red)"/>
-            <path d="M218 235 L252 246" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pg-arr-red)"/>
-            <path d="M218 308 L252 338" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pg-arr-red)"/>
+  <!-- 第一排：Docker / Docker Compose 与 macOS -->
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐳 方式一 · Docker 与 Docker Compose（跨平台隔离首选）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-docker', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-docker"><code><span class="c-cm"># A. 单命令快速启动 PostgreSQL 16（指定时区、UTF8 编码与持久化数据卷）</span>
+<span class="c-fn">docker</span> <span class="c-kw">run</span> <span class="c-flag">-d</span> \
+  <span class="c-flag">--name</span> <span class="c-str">pg16</span> \
+  <span class="c-flag">-p</span> <span class="c-num">5432:5432</span> \
+  <span class="c-flag">-e</span> <span class="c-kw">POSTGRES_USER</span>=<span class="c-str">postgres</span> \
+  <span class="c-flag">-e</span> <span class="c-kw">POSTGRES_PASSWORD</span>=<span class="c-str">secret</span> \
+  <span class="c-flag">-e</span> <span class="c-kw">POSTGRES_DB</span>=<span class="c-str">mydb</span> \
+  <span class="c-flag">-e</span> <span class="c-kw">TZ</span>=<span class="c-str">Asia/Shanghai</span> \
+  <span class="c-flag">-v</span> <span class="c-str">pg16_data:/var/lib/postgresql/data</span> \
+  <span class="c-str">postgres:16-alpine</span>
 
-            <!-- 右侧四大进阶主线 -->
-            <!-- 主线 1 -->
-            <rect x="256" y="16" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="268" y="24" width="182" height="64" rx="8" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="359" y="45" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🏛️ 主线一：多进程与特色类型</text>
-            <text x="359" y="62" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 01～02 章 · 架构与建模）</text>
-            <text x="359" y="77" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">postmaster + JSONB + 事务 DDL</text>
-            <text x="466" y="46" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 进程模型：每连接 fork 独立 backend 进程（崩溃隔离好，但生产必配 PgBouncer）</text>
-            <text x="466" y="66" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 特色类型：JSONB 二进制解析树 + 数组 + TOAST 大字段切片 + 可回滚的事务性 DDL</text>
-            <text x="466" y="83" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 明白为什么 PG 不用拆表也能高效查复杂 JSON，以及大表加列怎么避免全表重写锁死</text>
+<span class="c-cm"># B. 探测容器数据库是否就绪，并进入交互式 psql 终端</span>
+<span class="c-fn">docker</span> <span class="c-kw">exec</span> pg16 <span class="c-fn">pg_isready</span> <span class="c-flag">-U</span> <span class="c-str">postgres</span>
+<span class="c-fn">docker</span> <span class="c-kw">exec</span> <span class="c-flag">-it</span> pg16 <span class="c-fn">psql</span> <span class="c-flag">-U</span> <span class="c-str">postgres</span> <span class="c-flag">-d</span> <span class="c-str">mydb</span>
 
-            <!-- 主线 2 -->
-            <rect x="256" y="108" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="268" y="116" width="182" height="64" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="359" y="137" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🚀 主线二：高级 SQL 武器库</text>
-            <text x="359" y="154" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 03 章 · DML 与分析查询）</text>
-            <text x="359" y="169" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">一条 SQL 顶十行应用层循环</text>
-            <text x="466" y="138" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 原子写入：RETURNING 直接返回修改行 + ON CONFLICT DO UPDATE 原子 UPSERT</text>
-            <text x="466" y="158" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 分析王牌：OVER(PARTITION BY...) 窗口函数排名/环比 + WITH RECURSIVE 递归查树</text>
-            <text x="466" y="175" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 彻底掌握“取每组最新一条”、“无限级部门树”、“执行顺序陷阱”等高频 SQL 题</text>
+<span class="c-cm"># C. 推荐：使用 docker-compose.yml 编排 PG 16 与健康检查</span>
+<span class="c-fn">cat</span> <span class="c-kw">&lt;&lt; 'EOF' &gt;</span> <span class="c-str">docker-compose.yml</span>
+<span class="c-kw">services:</span>
+  <span class="c-fn">postgres:</span>
+    <span class="c-kw">image:</span> <span class="c-str">postgres:16-alpine</span>
+    <span class="c-kw">container_name:</span> <span class="c-str">pg16</span>
+    <span class="c-kw">restart:</span> <span class="c-str">unless-stopped</span>
+    <span class="c-kw">ports:</span>
+      - <span class="c-str">"5432:5432"</span>
+    <span class="c-kw">environment:</span>
+      <span class="c-fn">POSTGRES_USER:</span> <span class="c-str">postgres</span>
+      <span class="c-fn">POSTGRES_PASSWORD:</span> <span class="c-str">secret</span>
+      <span class="c-fn">POSTGRES_DB:</span> <span class="c-str">mydb</span>
+      <span class="c-fn">TZ:</span> <span class="c-str">Asia/Shanghai</span>
+    <span class="c-kw">volumes:</span>
+      - <span class="c-str">pg16_data:/var/lib/postgresql/data</span>
+    <span class="c-kw">healthcheck:</span>
+      <span class="c-fn">test:</span> [<span class="c-str">"CMD-SHELL"</span>, <span class="c-str">"pg_isready -U postgres -d mydb"</span>]
+      <span class="c-fn">interval:</span> <span class="c-num">5s</span>
+      <span class="c-fn">timeout:</span> <span class="c-num">3s</span>
+      <span class="c-fn">retries:</span> <span class="c-num">5</span>
+<span class="c-kw">volumes:</span>
+  <span class="c-fn">pg16_data:</span>
+<span class="c-kw">EOF</span>
+<span class="c-fn">docker</span> <span class="c-kw">compose up</span> <span class="c-flag">-d</span></code></pre>
+    </div>
 
-            <!-- 主线 3 -->
-            <rect x="256" y="200" width="610" height="80" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="268" y="208" width="182" height="64" rx="8" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="359" y="229" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🔒 主线三：堆表 MVCC 与并发锁</text>
-            <text x="359" y="246" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 04 章 · xmin/xmax 与 SSI）</text>
-            <text x="359" y="261" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">PG 区别于 MySQL 的灵魂机制</text>
-            <text x="466" y="230" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 多版本元组：每行带 xmin/xmax，UPDATE = 标旧行 xmax + 插新行版本（留在堆表里）</text>
-            <text x="466" y="250" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 隔离与锁：默认 RC、RR 快照防幻读、SSI 可串行化快照 + FOR UPDATE SKIP LOCKED 抢单</text>
-            <text x="466" y="267" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 看懂为什么 PG 没有脏读、为什么 RR 下更新同一行会直接报错要求客户端重试</text>
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🍎 方式二 · macOS 安装（Homebrew 命令行 / Postgres.app）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-mac', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-mac"><code><span class="c-cm"># 1. 使用 Homebrew 安装 PostgreSQL 16</span>
+<span class="c-fn">brew</span> <span class="c-kw">install</span> <span class="c-str">postgresql@16</span>
 
-            <!-- 主线 4 -->
-            <rect x="256" y="292" width="610" height="88" rx="10" fill="var(--plop-paper)" stroke="var(--plop-ink)" stroke-width="2.2"/>
-            <rect x="268" y="300" width="182" height="72" rx="8" fill="var(--plop-bubblegum)" stroke="var(--plop-ink)" stroke-width="1.8"/>
-            <text x="359" y="321" text-anchor="middle" font-size="11" font-weight="900" fill="var(--plop-ink-text)">🧹 主线四：六大索引与 VACUUM</text>
-            <text x="359" y="338" text-anchor="middle" font-size="9.8" font-weight="700" fill="var(--plop-ink-text)">（第 05～06 章 · 调优与防膨胀）</text>
-            <text x="359" y="355" text-anchor="middle" font-size="9.5" font-weight="800" fill="#D2381E">面试与生产事故最高频考点</text>
-            <text x="466" y="320" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 索引与计划：B-tree / GIN(倒排) / GiST / BRIN(块范围) + INCLUDE 覆盖索引 + EXPLAIN</text>
-            <text x="466" y="340" font-size="10.5" font-weight="800" fill="var(--plop-ink-text)">• 膨胀与清道夫：VACUUM 回收死元组 + Freeze 冻结防 32位 XID 回卷 + HOT 页内更新优化</text>
-            <text x="466" y="359" font-size="9.8" font-weight="700" fill="var(--plop-ink-soft)">👉 为什么删了数据磁盘不减小？为什么没跑 VACUUM 连 Index Only Scan 都会退化回表？</text>
-          </svg>
+<span class="c-cm"># 2. 【关键】postgresql@16 为 keg-only 包，必须将 bin 目录加入 PATH</span>
+<span class="c-cm"># 否则终端直接输入 psql 会提示: zsh: command not found: psql</span>
+<span class="c-cm"># Apple Silicon (M1/M2/M3/M4) 芯片路径：</span>
+<span class="c-fn">echo</span> <span class="c-str">'export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"'</span> <span class="c-kw">&gt;&gt;</span> <span class="c-str">~/.zshrc</span>
+<span class="c-cm"># Intel 芯片 Mac 请改为：/usr/local/opt/postgresql@16/bin</span>
+<span class="c-fn">source</span> <span class="c-str">~/.zshrc</span> <span class="c-kw">&amp;&amp;</span> <span class="c-fn">psql</span> <span class="c-flag">--version</span>
 
-          <!-- PostgreSQL vs MySQL (InnoDB) 10 大维度对比总表 -->
-          <h3 style="margin-top:18px;">⚔️ 一表打通：PostgreSQL vs MySQL (InnoDB) 10 大核心架构差异对照</h3>
-          <div class="table-wrap">
-            <table class="plop-table">
-              <thead>
-                <tr>
-                  <th style="width:16%;">对比维度</th>
-                  <th style="width:43%;">🐘 PostgreSQL (14 / 16 / 17)</th>
-                  <th style="width:41%;">🐬 MySQL (8.0 / 8.4 InnoDB)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><strong>1. 并发连接模型</strong></td>
-                  <td><strong>多进程模型</strong>：主进程 <code>postmaster</code> 为每个连接 <code>fork</code> 独立 <code>backend</code> 进程；隔离性极强，但高并发需配 <strong>PgBouncer</strong> 连接池</td>
-                  <td><strong>多线程模型</strong>：单进程内每个连接对应一个线程（企业版/Percona 支持线程池），单连接内存开销较小</td>
-                </tr>
-                <tr>
-                  <td><strong>2. 表存储结构</strong></td>
-                  <td><strong>堆表（Heap Table，无序组织）</strong>：数据行按追加写入位置存放，靠物理坐标 <code>ctid=(页号,槽位)</code> 寻址；无聚簇索引</td>
-                  <td><strong>索引组织表（IOT，聚簇索引）</strong>：表本身就是按主键排序的 B+ 树，主键叶子节点直接存完整数据行</td>
-                </tr>
-                <tr>
-                  <td><strong>3. 二级索引与回表</strong></td>
-                  <td>所有索引（含主键）都是二级索引，叶子存 <code>ctid</code> <strong>直接一步跳回堆表物理页</strong>；但未命中的 HOT 更新需额外更新全表所有索引</td>
-                  <td>二级索引叶子存<strong>主键值</strong>，回表需拿主键值再去主键 B+ 树做二次树搜索；但非主键列更新若不改该二级索引列则无需动它</td>
-                </tr>
-                <tr>
-                  <td><strong>4. MVCC 多版本实现</strong></td>
-                  <td><strong>页内追加新版本（<code>xmin/xmax</code>）</strong>：<code>UPDATE = 旧行标 xmax + 插新行</code>，旧版本留在堆表里 → 回滚极快（<code>O(1)</code>），但产生<strong>死元组与表膨胀</strong>，靠 <code>VACUUM</code> 回收</td>
-                  <td><strong>原地更新 + Undo Log 回滚段</strong>：数据页只留最新版本，旧版本通过 <code>roll_pointer</code> 串在独立 Undo Log 中，由后台 Purge 线程清理</td>
-                </tr>
-                <tr>
-                  <td><strong>5. 默认页大小</strong></td>
-                  <td>默认 <strong>8 KiB</strong>（编译期可配，常见 8KB）</td>
-                  <td>默认 <strong>16 KiB</strong></td>
-                </tr>
-                <tr>
-                  <td><strong>6. 默认隔离级别与实现</strong></td>
-                  <td>默认 <strong>Read Committed (RC)</strong>；RR 级别直接靠事务级快照挡掉幻读；<code>Serializable</code> 采用无读锁的 <strong>SSI（可串行化快照隔离）</strong></td>
-                  <td>默认 <strong>Repeatable Read (RR)</strong>；快照读靠 MVCC ReadView，当前读靠 <strong>Next-Key Lock（记录锁 + 间隙锁 Gap Lock）</strong>防幻读</td>
-                </tr>
-                <tr>
-                  <td><strong>7. 索引丰富度</strong></td>
-                  <td><strong>6 大原生索引引擎</strong>：<code>B-tree</code>、<code>GIN</code>（JSONB/数组/全文倒排）、<code>GiST</code>（空间/范围排他）、<code>SP-GiST</code>、<code>BRIN</code>（超小块范围）、<code>Hash</code>；支持部分索引与表达式索引</td>
-                  <td>以 <code>B+ 树</code> 为绝对主力（另支持全文索引与 R-Tree 空间索引；8.0+ 支持函数索引，但不支持 <code>WHERE</code> 部分索引）</td>
-                </tr>
-                <tr>
-                  <td><strong>8. DDL 事务安全性</strong></td>
-                  <td><strong>支持事务性 DDL</strong>：绝大多数 <code>CREATE / ALTER / DROP</code> 可包裹在 <code>BEGIN ... ROLLBACK</code> 中原子回滚，迁移脚本极安全</td>
-                  <td><strong>DDL 隐式提交（Implicit Commit）</strong>：执行 DDL 会强制提交当前事务，无法通过 <code>ROLLBACK</code> 回滚</td>
-                </tr>
-                <tr>
-                  <td><strong>9. 复杂查询与优化器</strong></td>
-                  <td>支持 <code>Hash Join / Merge Join / Nested Loop</code> 全套连接算法、并行查询、完整窗口函数、递归 CTE、<code>RETURNING</code>、物化视图</td>
-                  <td>8.0 才补齐窗口函数、CTE 与 <code>Hash Join</code>，复杂多表分析查询与统计成本估算相比 PG 略逊一筹</td>
-                </tr>
-                <tr>
-                  <td><strong>10. 杀手级扩展生态</strong></td>
-                  <td><strong>插件化内核扩展</strong>：<code>PostGIS</code>（行业标准 GIS）、<code>pgvector</code>（AI 向量检索）、<code>TimescaleDB</code>（时序）、<code>Citus</code>（分布式分片）</td>
-                  <td>架构相对封闭，侧重传统 OLTP 稳定读写与主从高可用生态（MHA / Orchestrator / MGR / Canal）</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+<span class="c-cm"># 3. 启动后台服务（开机自启）并查看运行状态</span>
+<span class="c-fn">brew</span> <span class="c-kw">services start</span> <span class="c-str">postgresql@16</span>
+<span class="c-fn">brew</span> <span class="c-kw">services list</span>
+
+<span class="c-cm"># 4. 【关键】Homebrew 默认仅创建与 macOS 当前用户名同名的超级用户，</span>
+<span class="c-cm"># 并未自动创建名为 postgres 的角色。首次需先免密连入默认 postgres 库，</span>
+<span class="c-cm"># 手动补建通用的 postgres 超级用户与练习库 mydb：</span>
+<span class="c-fn">psql</span> postgres <span class="c-flag">-c</span> <span class="c-str">"CREATE ROLE postgres WITH SUPERUSER LOGIN PASSWORD 'secret';"</span>
+<span class="c-fn">psql</span> postgres <span class="c-flag">-c</span> <span class="c-str">"CREATE DATABASE mydb OWNER postgres;"</span>
+
+<span class="c-cm"># 5. 此后即可使用标准的 postgres 账号连接：</span>
+<span class="c-fn">psql</span> <span class="c-flag">-h</span> <span class="c-str">localhost</span> <span class="c-flag">-p</span> <span class="c-num">5432</span> <span class="c-flag">-U</span> <span class="c-str">postgres</span> <span class="c-flag">-d</span> <span class="c-str">mydb</span>
+
+<span class="c-cm"># 附：若偏好图形化状态栏管理，也可直接安装原生桌面版 Postgres.app：</span>
+<span class="c-fn">brew</span> <span class="c-kw">install</span> <span class="c-flag">--cask</span> <span class="c-str">postgres-unofficial</span></code></pre>
+    </div>
+  </div>
+
+  <!-- 第二排：Linux (Ubuntu/Debian & RHEL/Rocky) 与 Windows -->
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐧 方式三 · Linux 安装（Ubuntu / Debian 与 RHEL / Rocky）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-linux', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-linux"><code><span class="c-cm"># ========= A. Ubuntu / Debian 系列 =========</span>
+<span class="c-cm"># 1. 添加官方 PGDG 软件源并安装 PostgreSQL 16（含 contrib 常用扩展包）</span>
+<span class="c-fn">sudo</span> <span class="c-kw">apt update</span> <span class="c-kw">&amp;&amp;</span> <span class="c-fn">sudo</span> <span class="c-kw">apt install</span> <span class="c-flag">-y</span> <span class="c-str">postgresql-common</span>
+<span class="c-fn">sudo</span> <span class="c-str">/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh</span> <span class="c-flag">-y</span>
+<span class="c-fn">sudo</span> <span class="c-kw">apt install</span> <span class="c-flag">-y</span> <span class="c-str">postgresql-16 postgresql-contrib-16</span>
+
+<span class="c-cm"># ========= B. RHEL / Rocky / AlmaLinux / CentOS 系列 =========</span>
+<span class="c-cm"># 1. 安装 RPM 包后，必须手动执行一次 initdb 初始化数据目录</span>
+<span class="c-fn">sudo</span> <span class="c-kw">dnf install</span> <span class="c-flag">-y</span> <span class="c-str">postgresql16-server postgresql16-contrib</span>
+<span class="c-fn">sudo</span> <span class="c-str">/usr/pgsql-16/bin/postgresql-16-setup</span> <span class="c-kw">initdb</span>
+<span class="c-fn">sudo</span> <span class="c-fn">systemctl</span> <span class="c-kw">enable</span> <span class="c-flag">--now</span> <span class="c-str">postgresql-16</span>
+
+<span class="c-cm"># ========= C. Linux 安装后首次初始化（必做） =========</span>
+<span class="c-cm"># Linux 安装后会自动创建操作系统用户 postgres，且默认开启 peer 同名认证。</span>
+<span class="c-cm"># 首次必须先切换到系统用户 postgres 进入 psql，设置密码并创建业务库：</span>
+<span class="c-fn">sudo</span> <span class="c-flag">-i -u</span> <span class="c-str">postgres</span> <span class="c-fn">psql</span>
+<span class="c-cm">-- 在 psql 提示符下执行以下两条 SQL 命令：</span>
+<span class="c-kw">ALTER USER</span> postgres <span class="c-kw">WITH PASSWORD</span> <span class="c-str">'secret'</span>;
+<span class="c-kw">CREATE DATABASE</span> mydb <span class="c-kw">OWNER</span> postgres;
+<span class="c-fn">\q</span>
+
+<span class="c-cm"># 完成后即可通过 TCP 密码方式正常连接本机数据库：</span>
+<span class="c-fn">psql</span> <span class="c-flag">-h</span> <span class="c-num">127.0.0.1</span> <span class="c-flag">-p</span> <span class="c-num">5432</span> <span class="c-flag">-U</span> <span class="c-str">postgres</span> <span class="c-flag">-d</span> <span class="c-str">mydb</span></code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🪟 方式四 · Windows 安装（EDB 官方安装包 / Winget / Scoop）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-win', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-win"><code><span class="c-cm"># ========= A. 使用 Windows 官方 Winget 一键安装（或从官网下载 .exe） =========</span>
+<span class="c-cm"># 安装过程中会提示设置超级用户 postgres 的密码，端口保持默认 5432，</span>
+<span class="c-cm"># 区域（Locale）建议选择 "C" 或 "Chinese (Simplified), China"</span>
+<span class="c-fn">winget</span> <span class="c-kw">install</span> <span class="c-str">PostgreSQL.PostgreSQL.16</span>
+
+<span class="c-cm"># ========= B. 将命令行工具目录加入系统 PATH（PowerShell 管理员执行） =========</span>
+<span class="c-cm"># 解决在 CMD / PowerShell 中输入 psql 提示“不是内部或外部命令”的问题：</span>
+[<span class="c-kw">Environment</span>]::<span class="c-fn">SetEnvironmentVariable</span>(
+  <span class="c-str">"Path"</span>,
+  [<span class="c-kw">Environment</span>]::<span class="c-fn">GetEnvironmentVariable</span>(<span class="c-str">"Path"</span>, <span class="c-str">"Machine"</span>) + <span class="c-str">";C:\Program Files\PostgreSQL\16\bin"</span>,
+  <span class="c-str">"Machine"</span>
+)
+
+<span class="c-cm"># ========= C. 重启终端后验证版本、管理服务并连接建库 =========</span>
+<span class="c-fn">psql</span> <span class="c-flag">--version</span>
+<span class="c-cm"># 查看 / 启动 / 停止 Windows 后台服务（服务名通常为 postgresql-x64-16）：</span>
+<span class="c-fn">Get-Service</span> <span class="c-str">postgresql*</span>
+<span class="c-fn">net</span> <span class="c-kw">start</span> <span class="c-str">postgresql-x64-16</span>
+
+<span class="c-cm"># 连接默认 postgres 库（回车后输入安装时设置的密码）并创建 mydb：</span>
+<span class="c-fn">psql</span> <span class="c-flag">-h</span> <span class="c-str">localhost</span> <span class="c-flag">-p</span> <span class="c-num">5432</span> <span class="c-flag">-U</span> <span class="c-str">postgres</span> <span class="c-flag">-d</span> <span class="c-str">postgres</span> <span class="c-flag">-c</span> <span class="c-str">"CREATE DATABASE mydb;"</span>
+<span class="c-fn">psql</span> <span class="c-flag">-h</span> <span class="c-str">localhost</span> <span class="c-flag">-p</span> <span class="c-num">5432</span> <span class="c-flag">-U</span> <span class="c-str">postgres</span> <span class="c-flag">-d</span> <span class="c-str">mydb</span></code></pre>
+    </div>
+  </div>
+
+  <!-- 各平台默认路径、默认账户与服务管理速查表 -->
+  <h4 style="margin:16px 0 8px;">📂 各平台默认目录路径与服务启停命令对照表</h4>
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">运行环境</th>
+          <th style="width:28%">数据目录 <code>$PGDATA</code> 默认路径</th>
+          <th style="width:26%">配置文件 <code>postgresql.conf</code> 路径</th>
+          <th style="width:30%">启动 / 停止 / 热重载配置命令</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>🐳 Docker 容器</strong></td>
+          <td><code>/var/lib/postgresql/data</code>（容器内路径，通过 <code>-v</code> 挂载到宿主机卷）</td>
+          <td>位于容器内 <code>/var/lib/postgresql/data/postgresql.conf</code></td>
+          <td><code>docker start / stop / restart pg16</code><br>重载配置：<code>docker exec pg16 pg_ctl reload</code></td>
+        </tr>
+        <tr>
+          <td><strong>🍎 macOS (Apple Silicon)</strong></td>
+          <td><code>/opt/homebrew/var/postgresql@16</code><br>（Intel 芯片为 <code>/usr/local/var/postgresql@16</code>）</td>
+          <td>直接位于上述数据目录根路径下</td>
+          <td><code>brew services start / stop / restart postgresql@16</code><br>重载配置：<code>pg_ctl -D /opt/homebrew/var/postgresql@16 reload</code></td>
+        </tr>
+        <tr>
+          <td><strong>🐧 Ubuntu / Debian</strong></td>
+          <td><code>/var/lib/postgresql/16/main</code></td>
+          <td><strong>独立存放于</strong> <code>/etc/postgresql/16/main/postgresql.conf</code></td>
+          <td><code>sudo systemctl start / stop / restart postgresql</code><br>不中断连接热重载：<code>sudo systemctl reload postgresql</code></td>
+        </tr>
+        <tr>
+          <td><strong>🐧 RHEL / Rocky</strong></td>
+          <td><code>/var/lib/pgsql/16/data</code></td>
+          <td>直接位于 <code>/var/lib/pgsql/16/data/postgresql.conf</code></td>
+          <td><code>sudo systemctl start / stop / reload postgresql-16</code></td>
+        </tr>
+        <tr>
+          <td><strong>🪟 Windows (EDB)</strong></td>
+          <td><code>C:\Program Files\PostgreSQL\16\data</code></td>
+          <td>直接位于上述 <code>data\postgresql.conf</code></td>
+          <td>管理员命令提示符执行：<br><code>net start postgresql-x64-16</code><br><code>net stop postgresql-x64-16</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 新手首次连接 3 大高频报错与免密配置 -->
+  <h4 style="margin:16px 0 8px;">🩺 安装后首次连接 3 大高频报错排查与随附命令行工具</h4>
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:32%">首次连接常见报错信息</th>
+          <th style="width:30%">触发原因</th>
+          <th>一步解决命令</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>command not found: psql</code> 或 <code>'psql' 不是内部或外部命令</code></td>
+          <td>安装了服务端，但尚未把包含 <code>psql</code> 的 <code>bin</code> 目录加入系统环境变量 <code>PATH</code></td>
+          <td>macOS 将 <code>/opt/homebrew/opt/postgresql@16/bin</code> 加入 <code>~/.zshrc</code>；Windows 将 <code>C:\Program Files\PostgreSQL\16\bin</code> 加入系统 <code>Path</code>。</td>
+        </tr>
+        <tr>
+          <td><code>FATAL: role "postgres" does not exist</code>（macOS 常见）</td>
+          <td>macOS Homebrew 初始化时，默认只创建了与<strong>当前 Mac 登录用户名同名</strong>的超级用户，没有创建 <code>postgres</code> 用户</td>
+          <td>先直接运行 <code>psql postgres</code>（默认以当前系统用户名免密登录），再执行 <code>CREATE ROLE postgres WITH SUPERUSER LOGIN PASSWORD 'secret';</code>。</td>
+        </tr>
+        <tr>
+          <td><code>FATAL: Peer authentication failed for user "postgres"</code>（Linux 常见）</td>
+          <td>Linux 本地 Socket 默认启用 <code>peer</code> 认证，要求操作系统当前用户名必须与数据库用户名一致</td>
+          <td>切换系统用户登录：<code>sudo -i -u postgres psql</code> 设置密码后，改用带 <code>-h 127.0.0.1</code> 的 TCP 方式连接（走密码认证而非本地 Socket）。</td>
+        </tr>
+        <tr>
+          <td><code>connection to server at "localhost" (127.0.0.1), port 5432 failed: Connection refused</code></td>
+          <td>后台数据库服务未启动，或者跨机器访问时服务端仅监听了本地回环地址 <code>127.0.0.1</code></td>
+          <td>先用 <code>pg_isready -h localhost -p 5432</code> 检查存活；若需局域网/远程连接，在 <code>postgresql.conf</code> 设置 <code>listen_addresses = '*'</code> 并在 <code>pg_hba.conf</code> 放行网段（详见下一章 <code>01.3</code>）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>🧰 随服务端安装的 5 个核心命令行工具与图形化客户端（GUI）建议：</strong><br>
+    • <strong>官方内置命令行工具集（位于 <code>bin/</code> 目录）</strong>：除了交互终端 <strong><code>psql</code></strong> 外，日常最常用的还有 <strong><code>pg_isready</code></strong>（一行命令检测数据库是否存活就绪）、<strong><code>pg_ctl</code></strong>（直接启停或热重载指定数据目录）、<strong><code>pg_dump / pg_restore</code></strong>（导出与恢复数据库备份）、以及 <strong><code>pgbench</code></strong>（官方自带的 TPC-B 并发压测工具）。<br>
+    • <strong>图形化客户端（GUI）搭配</strong>：编写复杂多表 SQL、查看可视化 ER 关系图或导出数据时，推荐使用免费开源的 <strong>DBeaver Community</strong>、随安装包附带的 <strong>pgAdmin 4</strong>，或商业工具 <strong>JetBrains DataGrip / TablePlus</strong>；若使用 VS Code，可安装 <strong>PostgreSQL (by Chris Kolkman)</strong> 或 <strong>Database Client</strong> 插件直接在编辑器侧边栏浏览表数据。
+  </div>
+</div>
+
+<!-- 00.3 · psql 高频元命令与第一个建表查询脚本 -->
+<div class="wb-card" id="first-sql" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📝 00.3 · 第一个会话：<code>psql</code> 终端反斜杠元命令速查与最小 CRUD 脚本拆解</div>
+  <h3>📝 00.3 <code>psql</code> 高频元命令与第一个 SQL 脚本</h3>
+
+  <p>
+    进入 <code>psql</code> 终端后，输入分为两类：一类是以<strong>反斜杠 <code>\</code> 开头</strong>的客户端快捷命令（称为<strong>元命令 Meta-Commands</strong>，由 <code>psql</code> 直接解析，无需加分号）；另一类是标准 <strong>SQL 语句</strong>（必须以分号 <code>;</code> 结尾才会发送给服务端执行）。
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0 16px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">元命令</th>
+          <th style="width:34%">功能说明</th>
+          <th style="width:16%">元命令</th>
+          <th style="width:34%">功能说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>\l</code></td>
+          <td>列出当前实例下的所有数据库（Database）</td>
+          <td><code>\c 库名</code></td>
+          <td>切换连接到指定的数据库（相当于 MySQL 的 <code>USE</code>）</td>
+        </tr>
+        <tr>
+          <td><code>\dn</code></td>
+          <td>列出当前数据库下的所有模式（Schema）</td>
+          <td><code>\dt</code></td>
+          <td>列出当前搜索路径下的所有数据表</td>
+        </tr>
+        <tr>
+          <td><code>\d 表名</code></td>
+          <td>查看指定表的字段类型、默认值、主键、索引与外键引用</td>
+          <td><code>\d+ 表名</code></td>
+          <td>在 <code>\d</code> 基础上额外显示列注释、存储策略与表占用空间</td>
+        </tr>
+        <tr>
+          <td><code>\di</code> / <code>\dv</code></td>
+          <td>列出当前模式下的所有索引（Index） / 视图（View）</td>
+          <td><code>\du</code></td>
+          <td>列出所有数据库角色（Role / User）及其权限属性</td>
+        </tr>
+        <tr>
+          <td><code>\x</code></td>
+          <td>切换<strong>竖排扩展展示模式</strong>（字段很多、单行折行错乱时非常实用）</td>
+          <td><code>\timing</code></td>
+          <td>开启或关闭每条 SQL 语句执行后的精确毫秒耗时统计</td>
+        </tr>
+        <tr>
+          <td><code>\df</code> / <code>\dx</code></td>
+          <td>查看自定义函数列表 / 查看已安装的扩展插件（Extension）</td>
+          <td><code>\i 文件.sql</code> / <code>\q</code></td>
+          <td>执行外部 SQL 脚本文件 / 退出 <code>psql</code> 终端</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🐘 first_steps.sql · 创建第一张表并完成增删改查</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-first-sql', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pg-first-sql"><code><span class="c-cmt">-- 1. 创建一张图书表 books</span>
+<span class="c-kw">CREATE TABLE</span> books (
+  id           bigint        <span class="c-kw">GENERATED ALWAYS AS IDENTITY PRIMARY KEY</span>,
+  title        text          <span class="c-kw">NOT NULL</span>,
+  price        numeric(10,2) <span class="c-kw">NOT NULL DEFAULT</span> 0.00,
+  published_at timestamptz   <span class="c-kw">NOT NULL DEFAULT</span> now()
+);
+
+<span class="c-cmt">-- 2. 插入两条记录，并用 RETURNING 直接拿回自动生成的 id</span>
+<span class="c-kw">INSERT INTO</span> books (title, price)
+<span class="c-kw">VALUES</span> (<span class="c-str">'PostgreSQL 实战指南'</span>, 79.50),
+       (<span class="c-str">'数据库系统概念'</span>, 128.00)
+<span class="c-kw">RETURNING</span> id, title, price;
+
+<span class="c-cmt">-- 3. 条件查询与价格更新</span>
+<span class="c-kw">SELECT</span> id, title, price <span class="c-kw">FROM</span> books <span class="c-kw">WHERE</span> price &lt; 100;
+
+<span class="c-kw">UPDATE</span> books <span class="c-kw">SET</span> price = 69.00 <span class="c-kw">WHERE</span> id = 1 <span class="c-kw">RETURNING</span> *;</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📖 逐行语法拆解（初学者必读对照）</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65; color:var(--plop-ink-text);">
+        <li><strong><code>bigint GENERATED ALWAYS AS IDENTITY</code></strong>：声明 <code>id</code> 列为 8 字节长整型，并由数据库按顺序自动生成唯一递增编号（从 1 开始），无需在 <code>INSERT</code> 时手动传入。</li>
+        <li><strong><code>PRIMARY KEY</code> 与 <code>NOT NULL</code></strong>：<code>PRIMARY KEY</code>（主键）标识每一行的唯一身份，自动包含非空与唯一约束；<code>NOT NULL</code> 要求该字段必须有值，禁止存入空值 <code>NULL</code>。</li>
+        <li><strong><code>text</code> 与 <code>numeric(10,2)</code></strong>：在 PostgreSQL 中，变长字符串直接使用 <code>text</code> 即可；<code>numeric(10,2)</code> 表示总位数最多 10 位、其中小数占 2 位的精确十进制数，专门用于存储金额。</li>
+        <li><strong><code>timestamptz DEFAULT now()</code></strong>：<code>timestamptz</code> 是带时区的时间戳类型；<code>DEFAULT now()</code> 表示插入数据时若未指定该列，自动填入当前事务的开始时间。</li>
+        <li><strong>单引号 <code>'...'</code> 与 <code>RETURNING</code></strong>：SQL 标准中字符串字面量<strong>必须使用单引号</strong>（双引号 <code>"..."</code> 仅用于包裹区分大小写的表名或列名）；末尾的 <code>RETURNING</code> 子句会在写入完成后直接把受影响的行像 <code>SELECT</code> 一样返回给客户端，省去再查一次数据库的步骤。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="plop-callout tip" style="margin-top:14px; margin-bottom:0;">
+    <strong>💡 阅读指引：</strong>本篇（🌱 基础与实战篇）将顺着日常开发与数据库设计的自然顺序，带你掌握四级目录与权限、数据类型与 JSONB、高级查询与窗口函数、并发事务与索引调优。如果你希望直接探讨 PostgreSQL 堆表 8KB 数据页的物理结构、MVCC 多版本快照以及与 MySQL InnoDB 的底层架构差异，可点击顶部切换栏前往 <a href="principles.html#why">📘 核心原理篇 · 00 堆表与 8KB 页面布局 ↗</a>。
+  </div>
+</div>

@@ -1,0 +1,174 @@
+<!-- ====================================================================
+     PART 05: 索引底层机制 · Lehman-Yao B-tree、GIN/BRIN 结构与可见性映射
+     ==================================================================== -->
+<div class="wb-sec-header" id="index" style="background:var(--plop-periwinkle);">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">索引底层机制 · Lehman-Yao B-tree、GIN/BRIN 结构与可见性映射</span>
+  <span class="plop-tag mint">LEHMAN-YAO NBTREE × DEDUPLICATION × GIN PENDING LIST × VISIBILITY MAP</span>
+</div>
+
+<!-- 05.1 · B-tree (nbtree) 内核 -->
+<div class="wb-card" id="nbtree-internals" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🌳 05.1 · B-tree (nbtree) 内核：Lehman-Yao 高并发算法、重复键去重与自底向上清理</div>
+  <h3>🌳 05.1 Lehman-Yao 高并发 B-tree 与去重清理机制</h3>
+
+        <p>PostgreSQL 的默认 B-tree 索引实现（源码位于 <code>src/backend/access/nbtree/</code>）并非教科书里的基础 B+Tree，而是基于 <strong>Lehman &amp; Yao (1981) 高并发 B-link Tree 算法</strong>，并融合了现代版本的多项工业级改良。</p>
+
+        <h4>1. 并发页面分裂期间的无锁读取机制（<code>High Key</code> 与右向兄弟链接）</h4>
+        <p>在传统 B+Tree 中，当叶子页分裂为左右两页并向父节点插入新路由键时，为了防止并发读事务迷路，往往需要自顶向下加锁（Crabbing / Latch Coupling）。而 PostgreSQL 的 <code>nbtree</code> 在每个索引页中额外引入了两个关键设计：</p>
+        <ul>
+          <li><strong>上界高键（<code>High Key</code>，固定存放在页内槽位 <code>PageGetItemId(page, 1)</code>）</strong>：明确记录当前索引页允许存放的<strong>最大键值上界</strong>。</li>
+          <li><strong>右向兄弟指针（<code>btpo_next</code>）</strong>：当页 P 分裂为左页 P 和右页 P' 时，内核先在同一个原子操作中把后半部分数据搬到右页 P'，更新左页 P 的 <code>High Key</code>，并让左页 P 的 <code>btpo_next</code> 指向右页 P'，随后<strong>立即释放页锁</strong>，再去异步更新父节点。</li>
+          <li><strong>读操作自愈右移</strong>：如果在父节点还没来得及更新的极短时间窗内，一个并发读事务顺着旧父节点指针落到了左页 P，它只需将搜索目标值与左页 P 的 <code>High Key</code> 比较；一旦发现目标值大于 <code>High Key</code>，读事务无需回溯父节点，直接顺着 <code>btpo_next</code> 向右横移一格即可找到右页 P'。这保证了<strong>索引读操作在任何时候都只需锁住单个当前页，且永远不会与自底向上的页面分裂发生死锁</strong>。</li>
+        </ul>
+
+        <h4>2. PG 13+ 重复键去重（Deduplication）与 PG 14+ 自底向上死元组删除</h4>
+        <ul>
+          <li><strong>B-tree 重复键倒排压缩（PG 13+）</strong>：对于低基数或中基数列（如状态码、城市 ID、外键 ID），旧版 B-tree 会为每一行都存储一条完整的索引项（包含重复的键值 + 6B <code>ctid</code> + 对齐开销，至少 16 字节）。自 PG 13 起，当索引页即将发生分裂时，内核会自动触发 <strong>Deduplication（去重压缩）</strong>：将相同的键值合并为一条<strong>投递列表元组（Posting List Tuple：仅保存 1 份键值 + 紧凑排列的 <code>ctid[]</code> 数组）</strong>，使非唯一索引体积普遍缩减 <strong>50% ~ 75%</strong>。</li>
+          <li><strong>自底向上索引死元组删除（Bottom-Up Index Deletion，PG 14+）</strong>：由于 PostgreSQL 的堆表每次更新若发生跨页（非 HOT 更新），就必须向表上的<strong>所有索引</strong>插入一条指向新 <code>ctid</code> 的索引项。为了防止索引页被高频更新迅速撑爆分裂，PG 14 引入了主动防膨胀机制：当向 B-tree 叶子页插入新索引项即将触发页面分裂时，内核会先挑选该页中存在重复键的索引项，回表检查它们指向的堆元组是否已死亡（Dead Tuple），当场清理掉死索引项以腾出空间，从而<strong>在不依赖后台 <code>VACUUM</code> 的情况下消除绝大多数由高频更新引起的非必要索引分裂</strong>。</li>
+        </ul>
+</div>
+
+<!-- 05.2 · B-tree vs GIN vs BRIN 物理结构对比 -->
+<div class="wb-card" id="gin-brin-internals" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🗂️ 05.2 · B-tree vs GIN vs BRIN：三大索引物理结构对比与 GIN 写缓冲毛刺调优</div>
+  <h3>🗂️ 05.2 B-tree、GIN 倒排树与 BRIN 极值块映射的物理结构对比</h3>
+
+        <p>针对不同形态的数据访问模式，PostgreSQL 提供了开放的索引访问方法接口（Index Access Method API）。理解 <strong>B-tree、GIN（通用倒排索引）与 BRIN（块范围索引）</strong> 的物理页面拓扑，是解决复杂检索与写入延迟毛刺的关键：</p>
+
+        <!-- SVG: B-tree vs GIN vs BRIN Physical Structures -->
+        <div style="margin:22px 0;">
+          <svg viewBox="0 0 920 380" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="idx-arch-title idx-arch-desc">
+            <title id="idx-arch-title">B-tree、GIN 倒排索引与 BRIN 块范围索引的物理结构对比图</title>
+            <desc id="idx-arch-desc">分三栏对比：左栏 B-tree 展示 Meta Page、Root/Internal Page 与带 High Key 和双向链表的 Leaf Page（含 PG13+ Posting List 去重）；中栏 GIN 展示 fastupdate Pending List 写缓冲与 Entry B-tree 加 Posting List/Tree；右栏 BRIN 展示极小体积的 Revmap 与每 128 个数据页仅存 1 条 min/max 极值摘要。</desc>
+            <defs>
+              <marker id="idx-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+                <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+              </marker>
+              <marker id="idx-arr-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+                <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+              </marker>
+            </defs>
+
+            <text x="460" y="28" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="14" font-weight="800" fill="#1F1F23">PostgreSQL 三大核心索引引擎物理存储拓扑对比（B-tree vs GIN vs BRIN）</text>
+
+            <!-- Column 1: B-tree (x=24, w=276) -->
+            <rect x="24" y="46" width="276" height="314" rx="12" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+            <text x="162" y="70" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">1. B-tree (Lehman-Yao nbtree)</text>
+            <text x="162" y="88" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#5A5860">O(log N) 标量点查 / 范围扫描 / 排序</text>
+
+            <!-- Connectors in Col 1 -->
+            <path d="M 136 150 L 136 166 Q 136 174 128 174 L 106 174 Q 98 174 98 182 L 98 194" fill="none" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#idx-arr-ink)"/>
+            <path d="M 188 150 L 188 166 Q 188 174 196 174 L 218 174 Q 226 174 226 182 L 226 194" fill="none" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#idx-arr-ink)"/>
+            <line x1="154" y1="234" x2="170" y2="234" stroke="#bf4520" stroke-width="2" marker-end="url(#idx-arr-coral)"/>
+
+            <!-- Nodes in Col 1 -->
+            <rect x="64" y="102" width="196" height="48" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="162" y="122" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">Root / Internal Page</text>
+            <text x="162" y="139" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">Separator Keys + Downlinks</text>
+
+            <rect x="38" y="196" width="116" height="76" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="96" y="215" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1F1F23">Leaf Page L</text>
+            <text x="96" y="232" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#bf4520">Slot1: High Key</text>
+            <text x="96" y="248" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#5A5860">btpo_next ───►</text>
+            <text x="96" y="263" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#1b5e20">Dedup: k1→[t1,t2]</text>
+
+            <rect x="172" y="196" width="114" height="76" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="229" y="215" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1F1F23">Leaf Page R</text>
+            <text x="229" y="232" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#bf4520">Slot1: High Key</text>
+            <text x="229" y="248" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#5A5860">◄── btpo_prev</text>
+            <text x="229" y="263" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#1b5e20">Dedup: k9→[t5,t8]</text>
+
+            <rect x="38" y="286" width="248" height="58" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.5"/>
+            <text x="50" y="306" font-family="'Noto Sans SC',sans-serif" font-size="10.5" font-weight="700" fill="#1F1F23">核心特性：</text>
+            <text x="50" y="322" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">• 高键 + 右向链接支持分裂期间无锁并发读</text>
+            <text x="50" y="337" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">• PG13 去重压缩 + PG14 自底向上消亡清理</text>
+
+            <!-- Column 2: GIN (x=322, w=276) -->
+            <rect x="322" y="46" width="276" height="314" rx="12" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+            <text x="460" y="70" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#bf4520">2. GIN (通用倒排索引)</text>
+            <text x="460" y="88" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#5A5860">JSONB @&gt; / 数组 / 全文检索多元素拆分</text>
+
+            <!-- Connectors in Col 2 -->
+            <line x1="460" y1="146" x2="460" y2="168" stroke="#bf4520" stroke-width="2" marker-end="url(#idx-arr-coral)"/>
+            <line x1="460" y1="220" x2="460" y2="240" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#idx-arr-ink)"/>
+
+            <!-- Nodes in Col 2 -->
+            <rect x="338" y="100" width="244" height="46" rx="8" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
+            <text x="460" y="119" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#bf4520">Pending List (fastupdate=on)</text>
+            <text x="460" y="136" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">新写入先追加至此链表，满 4MB 批量刷入主树</text>
+
+            <rect x="338" y="170" width="244" height="50" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="460" y="190" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">Entry B-tree (词元字典树)</text>
+            <text x="460" y="208" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">"role:admin" │ "tag:vip" │ "city:bj"</text>
+
+            <rect x="338" y="242" width="244" height="102" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="460" y="262" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1b5e20">Posting List / Posting B-tree</text>
+            <text x="352" y="282" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">• 命中行少：内联压缩 <code>ctid[]</code> 数组</text>
+            <text x="352" y="300" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">• 命中行多：自动分裂为独立 Posting B-tree</text>
+            <text x="352" y="322" font-family="'Noto Sans SC',sans-serif" font-size="9.5" font-weight="700" fill="#bf4520">⚠️ 调优：同步刷空 Pending List 会阻塞当前 INSERT</text>
+
+            <!-- Column 3: BRIN (x=620, w=276) -->
+            <rect x="620" y="46" width="276" height="314" rx="12" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+            <text x="758" y="70" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">3. BRIN (块范围极值索引)</text>
+            <text x="758" y="88" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#5A5860">按物理追加的时序大表 · 体积仅为 B-tree 0.1%</text>
+
+            <!-- Connectors in Col 3 -->
+            <line x1="758" y1="150" x2="758" y2="174" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#idx-arr-ink)"/>
+
+            <!-- Nodes in Col 3 -->
+            <rect x="636" y="102" width="244" height="48" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="758" y="122" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">Revmap (Range Map 页映射表)</text>
+            <text x="758" y="139" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">默认每 128 个连续数据页 (1 MiB) 对应 1 个槽位</text>
+
+            <rect x="636" y="176" width="244" height="92" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+            <text x="758" y="196" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#0d47a1">BRIN Summary Tuples (极值摘要)</text>
+            <text x="648" y="216" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#1F1F23">Pages [0..127]:   min=10:00, max=10:05</text>
+            <text x="648" y="235" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#1F1F23">Pages [128..255]: min=10:05, max=10:11</text>
+            <text x="648" y="254" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#1F1F23">Pages [256..383]: min=10:11, max=10:18</text>
+
+            <rect x="636" y="282" width="244" height="62" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.5"/>
+            <text x="648" y="302" font-family="'Noto Sans SC',sans-serif" font-size="10" font-weight="700" fill="#1F1F23">前提条件：物理存储顺序与列值高度相关</text>
+            <text x="648" y="319" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">（correlation ≈ 1.0）。若随机乱序更新，每个块范围的</text>
+            <text x="648" y="335" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">[min, max] 全部重叠，BRIN 将退化为全表扫描。</text>
+          </svg>
+        </div>
+
+        <div class="plop-callout warn" style="margin-bottom:0;">
+          <strong>🔧 生产调优：消除 GIN 索引的写入延迟毛刺（<code>gin_pending_list_limit</code>）：</strong><br>
+          由于一行 <code>JSONB</code> 文档可能包含 50 个键值对，如果每次 <code>INSERT</code> 都同步去修改 GIN 的 Entry B-tree 中的 50 个节点，写入吞吐量会急剧下降。为此 GIN 默认开启了 <strong><code>fastupdate = on</code></strong>：新插入的词元先顺序追加到一个无序的 <strong><code>Pending List</code>（待处理链表）</strong>中；但这带来了两个副作用：<br>
+          1. <strong>任何 <code>SELECT</code> 查询除了查 GIN 主树外，还必须额外顺序扫描整个 <code>Pending List</code></strong>；<br>
+          2. 当 <code>Pending List</code> 累积达到阈值 <strong><code>gin_pending_list_limit</code>（默认 <code>4MB</code>）</strong>时，<strong>恰好触发阈值的那条普通用户 <code>INSERT / UPDATE</code> 语句会被迫同步承担将 4MB 待处理列表合并刷入主树的重任</strong>，导致该次写入偶发数百毫秒的延迟毛刺。在延迟敏感型 OLTP 表上，建议通过 <code>ALTER INDEX idx_name SET (gin_pending_list_limit = 1024);</code> 将阈值调小至 <code>1MB</code>，或为该表调积极 <code>autovacuum</code> 以在后台高频异步清空 <code>Pending List</code>。
+        </div>
+</div>
+
+<!-- 05.3 · Index Only Scan 与 Visibility Map，以及 Bitmap Scan 有损退化 -->
+<div class="wb-card" id="vm-and-bitmap-scan" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">👁️ 05.3 · Index Only Scan 与 Visibility Map，以及 Bitmap Scan 有损退化</div>
+  <h3>👁️ 05.3 可见性映射表（<code>_vm</code>）与位图扫描 <code>exact / lossy</code> 退化机制</h3>
+
+        <h4>可见性映射表（Visibility Map, <code>_vm</code>）与 <code>Index Only Scan</code> 免回表原理</h4>
+        <p>在阅读 <code>EXPLAIN ANALYZE</code> 时，很多工程师会疑惑：既然元组的可见性信息（<code>t_xmin / t_xmax</code>）只存在堆表（Heap）的元组头里，而 B-tree 索引项里只存了「键值 + <code>ctid</code>」，那为什么 <code>Index Only Scan</code> 可以不回表就判断该索引项对当前事务可见？</p>
+        <p>答案在于每个表文件旁边的附属派生文件 —— <strong>可见性映射表（Visibility Map，文件名后缀 <code>_vm</code>）</strong>：</p>
+        <ul>
+          <li><strong>每个 8 KiB 数据页在 <code>_vm</code> 中仅占 2 个比特位</strong>：第 1 位是 <code>ALL_VISIBLE</code>（标记该数据页上的<strong>所有元组对当前及未来任何事务全都可见</strong>，不存在任何未提交修改或待清理的死元组）；第 2 位是 <code>ALL_FROZEN</code>（标记该页所有元组均已完成 XID 冻结，<code>VACUUM</code> 甚至无需再扫描它）。</li>
+          <li>由于每个页只占 2 bit，一张 100 GB 的大表，其 <code>_vm</code> 文件也只有大约 <strong>3.2 MB</strong>，可以常驻在内存缓存中。</li>
+          <li>当执行 <code>Index Only Scan</code> 从索引中拿到一条 <code>(key, ctid=(block_no, offset))</code> 时，执行器先去内存里的 <code>_vm</code> 查一下第 <code>block_no</code> 号数据页的 <code>ALL_VISIBLE</code> 位是否为 <code>1</code>：
+            <ul>
+              <li>若为 <code>1</code>：无需访问堆表数据页，直接将索引中的列值返回给客户端（<code>Heap Fetches: 0</code>）。</li>
+              <li>若为 <code>0</code>（说明该页近期发生过 <code>INSERT / UPDATE / DELETE</code> 且尚未被 <code>VACUUM</code> 清扫标记）：<strong>必须老老实实回表读取该数据页检查元组头 <code>t_xmin / t_xmax</code></strong>，并在执行计划中累加 <code>Heap Fetches</code> 计数。</li>
+            </ul>
+          </li>
+        </ul>
+
+        <h4><code>Bitmap Index Scan + Bitmap Heap Scan</code> 的 <code>exact</code> 与 <code>lossy</code>（有损页级退化）</h4>
+        <p>当查询命中几千至几十万行（或者需要把多个索引的条件做 <code>BitmapAnd / BitmapOr</code> 交并集）时，如果直接用普通 <code>Index Scan</code> 按索引顺序一条条回表，会在磁盘上产生大量跨页跳跃的随机 I/O，并且同一个数据页可能被反复读多次。此时优化器会选择两阶段位图扫描：</p>
+        <ol>
+          <li><strong>阶段一（<code>Bitmap Index Scan</code>）</strong>：先遍历索引，不立即回表，而是在内存中建立一张按物理页号排序的位图（<code>TIDBitmap</code>），记录哪些数据页的哪些行槽位命中了条件。</li>
+          <li><strong>阶段二（<code>Bitmap Heap Scan</code>）</strong>：按照物理页号从小到大的顺序依次读取数据页，把随机 I/O 转化为近似顺序的批量跳读。</li>
+          <li><strong>内存溢出时的有损退化（<code>lossy</code> blocks）</strong>：<code>TIDBitmap</code> 占用的最大内存受 <strong><code>work_mem</code></strong> 限制。一旦命中的行数过多导致位图超出 <code>work_mem</code>，内核会将部分哈希桶从「精确记录到每一行（<code>exact</code>）」降级为「只用 1 个 bit 记录某一个 8 KiB 数据页整体命中（<code>lossy</code>）」。对于被降级为 <code>lossy</code> 的数据页，<code>Bitmap Heap Scan</code> 读取该页后必须通过 <code>Recheck Cond</code> 对页内的每一行重新校验一次过滤条件。如果在 <code>EXPLAIN ANALYZE</code> 中看到 <code>Heap Blocks: exact=1200 lossy=45000</code>，说明 <code>work_mem</code> 偏小，适当调大会话级 <code>work_mem</code> 即可消除 <code>lossy</code> 重检开销。</li>
+        </ol>
+</div>

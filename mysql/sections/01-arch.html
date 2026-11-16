@@ -1,0 +1,248 @@
+<!-- ====================================================================
+     PART 01: 体系结构、账号权限管理与连接池配置
+     ==================================================================== -->
+<div class="wb-sec-header" id="arch" style="background:var(--plop-periwinkle);">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">体系结构、账号权限管理与连接池配置</span>
+  <span class="plop-tag tomato">SERVER × INNODB × RBAC × CONNECTION POOL</span>
+</div>
+
+<!-- 01.1 · 实例逻辑层次与一条 SQL 的两层执行链路 -->
+<div class="wb-card" id="mysql-arch-flow" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🏛️ 01.1 · 体系结构：实例逻辑层次（Database ≡ Schema）与 Server 层 / InnoDB 引擎层两层协作</div>
+  <h3>🏛️ 01.1 实例逻辑层次与一条 SQL 的两层执行链路</h3>
+
+  <p>
+    首先厘清一个经常与其他数据库混淆的术语：在 MySQL 中，<strong><code>Database</code> 与 <code>Schema</code> 是完全同义词</strong>（执行 <code>CREATE SCHEMA app_db;</code> 与 <code>CREATE DATABASE app_db;</code> 效果完全相同），因此 MySQL 的逻辑目录是三层结构：<strong>实例（MySQL Instance）→ 数据库（Database / Schema）→ 数据表（Table）</strong>。在同一个 MySQL 实例下，只要当前账号拥有权限，就可以直接在一条 SQL 中通过 <code>库名.表名</code>（如 <code>SELECT * FROM auth_db.users JOIN order_db.orders ...</code>）跨库关联查询。
+  </p>
+  <p>
+    当客户端发出一句 SQL 时，请求在 MySQL 内部会依次穿过 <strong>Server 层（负责连接管理、词法/语法解析、成本优化与执行器调度，维护归档日志 <code>binlog</code>）</strong> 与 <strong>存储引擎层（默认 InnoDB，负责真正的内存缓冲池读写、B+ 树索引查找、行锁与 <code>redo / undo</code> 事务日志）</strong>：
+  </p>
+
+  <!-- Editorial SVG: MySQL Server Layer & InnoDB Engine Layer Architecture -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 330" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mysql-arch-title mysql-arch-desc">
+        <title id="mysql-arch-title">MySQL Server 层与 InnoDB 存储引擎层两层协作架构图</title>
+        <desc id="mysql-arch-desc">展示客户端连接池经过 Server 层的连接器、解析器、优化器、执行器（写 binlog），再通过存储引擎 API 调用 InnoDB 层的 Buffer Pool、B+Tree 索引、MVCC/行锁与 Redo/Undo 日志的完整执行路径。</desc>
+        <defs>
+          <marker id="ma-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+          </marker>
+          <marker id="ma-arr-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Layer 1 Container: MySQL Server Layer -->
+        <rect x="24" y="20" width="872" height="148" rx="10" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+        <text x="44" y="44" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">第一层：MySQL Server 层（跨存储引擎通用 · 负责连接认证、SQL 解析、CBO 优化与执行调度 · 维护 binlog）</text>
+
+        <!-- Layer 2 Container: InnoDB Storage Engine Layer -->
+        <rect x="24" y="196" width="872" height="114" rx="10" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
+        <text x="44" y="220" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#1b5e20">第二层：InnoDB 存储引擎层（负责事务 ACID、16KB 页缓存、B+ 树聚簇/二级索引、MVCC 与行锁 · 维护 redo / undo log）</text>
+
+        <!-- Orthogonal Connectors drawn BEFORE node boxes -->
+        <!-- Client (174,104) -> Connector (210,104) -->
+        <line x1="174" y1="104" x2="208" y2="104" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#ma-arr-ink)"/>
+        <!-- Connector (362,104) -> Parser (396,104) -->
+        <line x1="362" y1="104" x2="396" y2="104" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#ma-arr-ink)"/>
+        <!-- Parser (548,104) -> Optimizer (582,104) -->
+        <line x1="548" y1="104" x2="582" y2="104" stroke="#1F1F23" stroke-width="1.8" marker-end="url(#ma-arr-ink)"/>
+        <!-- Optimizer (726,104) -> Executor (758,104) -->
+        <line x1="726" y1="104" x2="758" y2="104" stroke="#bf4520" stroke-width="2" marker-end="url(#ma-arr-coral)"/>
+
+        <!-- Executor (bottom x=820, y=150) -> InnoDB Engine API (top x=820, y=234) -->
+        <line x1="820" y1="150" x2="820" y2="232" stroke="#bf4520" stroke-width="2.2" marker-end="url(#ma-arr-coral)"/>
+        <rect x="692" y="172" width="120" height="16" rx="3" fill="#FFFDF7"/>
+        <text x="752" y="183" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#bf4520">Handler API 逐行读写</text>
+
+        <!-- InnoDB Stats (top x=654, y=234) -> Optimizer (bottom x=654, y=150) -->
+        <line x1="654" y1="234" x2="654" y2="152" stroke="#1F1F23" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#ma-arr-ink)"/>
+        <rect x="524" y="172" width="122" height="16" rx="3" fill="#FFFDF7"/>
+        <text x="585" y="183" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#5A5860">反馈索引行数/页统计</text>
+
+        <!-- Server Layer Boxes (y=58, h=92) -->
+        <!-- Box 0: App Client Pool -->
+        <rect x="42" y="58" width="132" height="92" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="108" y="80" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#1F1F23">客户端连接池</text>
+        <text x="108" y="98" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">TCP Port 3306</text>
+        <text x="108" y="116" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">复用长连接会话</text>
+        <text x="108" y="134" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#1b5e20">wait_timeout</text>
+
+        <!-- Box 1: Connector -->
+        <rect x="210" y="58" width="152" height="92" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="286" y="80" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#1F1F23">① 连接器</text>
+        <text x="286" y="98" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">校验账号密码与 SSL</text>
+        <text x="286" y="116" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">读取 user/db 权限表</text>
+        <text x="286" y="134" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#bf4520">8.0 已移除 QueryCache</text>
+
+        <!-- Box 2: Parser & Preprocessor -->
+        <rect x="398" y="58" width="150" height="92" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="473" y="80" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#1F1F23">② 解析与预处理器</text>
+        <text x="473" y="98" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">词法/语法分析生成 AST</text>
+        <text x="473" y="116" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">检查库表列名是否存在</text>
+        <text x="473" y="134" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="#5A5860">展开视图与通配符 *</text>
+
+        <!-- Box 3: Optimizer (Focal 1) -->
+        <rect x="584" y="58" width="142" height="92" rx="8" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="655" y="80" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#bf4520">③ 优化器 (CBO)</text>
+        <text x="655" y="98" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">估算 I/O + CPU 成本</text>
+        <text x="655" y="116" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">决定选哪个索引与</text>
+        <text x="655" y="134" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">多表 JOIN 连接顺序</text>
+
+        <!-- Box 4: Executor -->
+        <rect x="760" y="58" width="120" height="92" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="820" y="80" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#1F1F23">④ 执行器</text>
+        <text x="820" y="98" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">校验表级读写权限</text>
+        <text x="820" y="116" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">调用引擎接口取行</text>
+        <text x="820" y="134" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" font-weight="700" fill="#0d47a1">写 Server 层 binlog</text>
+
+        <!-- InnoDB Sub-Modules (y=234, h=62) -->
+        <rect x="42" y="234" width="200" height="62" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="142" y="256" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">Buffer Pool (缓冲池)</text>
+        <text x="142" y="276" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">缓存 16KiB 数据页与索引页</text>
+
+        <rect x="258" y="234" width="200" height="62" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="358" y="256" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">B+Tree 聚簇/二级索引</text>
+        <text x="358" y="276" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">iot 表数据组织与回表检索</text>
+
+        <rect x="474" y="234" width="200" height="62" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="574" y="256" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#1F1F23">MVCC 快照 &amp; 行锁/间隙锁</text>
+        <text x="574" y="276" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">ReadView + Next-Key Lock</text>
+
+        <rect x="690" y="234" width="190" height="62" rx="8" fill="#FBE9E7" stroke="#bf4520" stroke-width="2"/>
+        <text x="785" y="256" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#bf4520">Redo Log &amp; Undo Log</text>
+        <text x="785" y="276" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">WAL 崩溃恢复与事务回滚</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="plop-callout info" style="margin-bottom:0;">
+    <strong>📌 架构分工核心要点：</strong><br>
+    1. <strong>为什么区分 Server 层与引擎层日志</strong>：<code>binlog</code>（二进制归档日志）位于 Server 层，任何存储引擎都可以使用它做主从复制与时间点恢复；而 <code>redo log</code>（重做日志）与 <code>undo log</code>（回滚日志）是 InnoDB 引擎专有的，用于实现 WAL 崩溃恢复与 MVCC 多版本读。<br>
+    2. <strong>为什么 MySQL 8.0 彻底删掉了旧的 Query Cache</strong>：旧版 Query Cache 以“SQL 文本哈希 → 结果集”缓存，但只要某张表发生任何一次 <code>INSERT / UPDATE / DELETE</code>，该表关联的所有 Query Cache 条目就会全部清空失效，高并发读写下反而成为严重的全局锁瓶颈。注意：删除 Query Cache 并不影响 InnoDB 的 <strong><code>Buffer Pool</code></strong>（缓存 16KB 数据页），后者始终是 MySQL 高性能的核心。
+  </div>
+</div>
+
+<!-- 01.2 · 账号创建、最小权限授权与认证插件 -->
+<div class="wb-card" id="mysql-rbac" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🔐 01.2 · 权限管理：MySQL 8.0 账号身份（<code>'user'@'host'</code>）、两步法授权与最小权限规范</div>
+  <h3>🔐 01.2 账号创建與最小权限控制（RBAC）</h3>
+
+  <p>
+    在 MySQL 中，一个账号的完整唯一标识由 <strong><code>'用户名'@'允许连接的客户端主机地址'</code></strong> 共同组成（例如 <code>'app_rw'@'10.0.%'</code> 与 <code>'app_rw'@'localhost'</code> 在数据库内部是两个完全独立的账号）。在 MySQL 8.0+ 中，<strong>不再允许使用一条 <code>GRANT ... IDENTIFIED BY</code> 隐式创建用户，必须严格分两步执行：先 <code>CREATE USER</code>，再 <code>GRANT</code> 授权</strong>：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🛡️ 生产环境标准账号创建与最小权限授权脚本</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-grant', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mysql-grant"><code><span class="c-cm">-- 1. 创建业务读写账号（仅允许内网 10.0.x.x 网段连接，禁止直接使用 root）</span>
+<span class="c-kw">CREATE USER</span> <span class="c-str">'app_rw'</span>@<span class="c-str">'10.0.%'</span> <span class="c-kw">IDENTIFIED BY</span> <span class="c-str">'AppPass_2026#'</span>;
+
+<span class="c-cm">-- 2. 授予 mydb 库下所有表的增删改查权限（不授予 DROP / GRANT OPTION）</span>
+<span class="c-kw">GRANT SELECT, INSERT, UPDATE, DELETE ON</span> `mydb`.* <span class="c-kw">TO</span> <span class="c-str">'app_rw'</span>@<span class="c-str">'10.0.%'</span>;
+
+<span class="c-cm">-- 3. 创建只读报表账号（仅供数据分析服务连接从库查询）</span>
+<span class="c-kw">CREATE USER</span> <span class="c-str">'bi_ro'</span>@<span class="c-str">'10.0.%'</span> <span class="c-kw">IDENTIFIED BY</span> <span class="c-str">'ReadOnly_2026#'</span>;
+<span class="c-kw">GRANT SELECT ON</span> `mydb`.* <span class="c-kw">TO</span> <span class="c-str">'bi_ro'</span>@<span class="c-str">'10.0.%'</span>;
+
+<span class="c-cm">-- 4. 查看某账号拥有的权限与回收特定权限</span>
+<span class="c-kw">SHOW GRANTS FOR</span> <span class="c-str">'app_rw'</span>@<span class="c-str">'10.0.%'</span>;
+<span class="c-kw">REVOKE DELETE ON</span> `mydb`.* <span class="c-kw">FROM</span> <span class="c-str">'app_rw'</span>@<span class="c-str">'10.0.%'</span>;</code></pre>
+    </div>
+
+    <div>
+      <h4>⚙️ 主机匹配符与核心服务端配置（<code>my.cnf</code>）</h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:32%">配置项 / 概念</th>
+              <th>工程含义与生产推荐值</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>'user'@'localhost'</code> vs <code>'user'@'%'</code></td>
+              <td><code>'localhost'</code> 仅允许本机连接；<code>'%'</code> 允许任意远程 IP 连接；生产环境推荐限定为内网子网段如 <code>'10.0.%'</code> 或 <code>'172.16.%'</code>。</td>
+            </tr>
+            <tr>
+              <td><code>bind-address</code></td>
+              <td>在 <code>my.cnf</code> 中默认为 <code>127.0.0.1</code>（仅监听本机）；若需其他机器连接，需改为内网网卡 IP 或 <code>0.0.0.0</code>。</td>
+            </tr>
+            <tr>
+              <td><code>innodb_buffer_pool_size</code></td>
+              <td>InnoDB 数据与索引页缓存大小。默认仅 <code>128MB</code>，<strong>生产专机必须显式调大至物理内存的 50% ~ 70%</strong>。</td>
+            </tr>
+            <tr>
+              <td><code>slow_query_log = ON</code><br><code>long_query_time = 1</code></td>
+              <td>开启慢查询日志，并将慢查询阈值设为 <code>1</code> 秒（或 <code>0.5</code> 秒），记录所有超时 SQL 以便用 <code>EXPLAIN</code> 调优。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 01.3 · 应用层连接串参数与连接池配置规范 -->
+<div class="wb-card" id="mysql-connection-pool" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🔌 01.3 · 连接管理：后端标准连接串参数（时区、字符集、超时）与连接池防断连配置</div>
+  <h3>🔌 01.3 后端连接串参数与连接池配置规范</h3>
+
+  <p>
+    在 Go、Java（JDBC / HikariCP）、Node.js 或 Python 中连接 MySQL 时，连接串中的查询参数直接决定了字符集编码、时间戳解析时区以及网络超时行为：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span>🔗 Go (go-sql-driver/mysql) 与 Java (JDBC) 标准生产连接串格式</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-dsn', this)">复制连接串</button>
+    </div>
+    <pre class="plop-code-pre" id="code-mysql-dsn"><code><span class="c-cm"># 1. Go DSN 标准格式（必加 parseTime=true 与 loc=Asia%2FShanghai，否则 DATETIME 读写相差 8 小时）</span>
+<span class="c-fn">app_rw</span>:<span class="c-str">AppPass_2026#</span>@<span class="c-kw">tcp</span>(<span class="c-fn">db.internal</span>:<span class="c-num">3306</span>)/<span class="c-str">mydb</span>?<span class="c-flag">charset</span>=<span class="c-str">utf8mb4</span>&amp;<span class="c-flag">parseTime</span>=<span class="c-num">true</span>&amp;<span class="c-flag">loc</span>=<span class="c-str">Asia%2FShanghai</span>&amp;<span class="c-flag">timeout</span>=<span class="c-num">3s</span>&amp;<span class="c-flag">readTimeout</span>=<span class="c-num">5s</span>&amp;<span class="c-flag">writeTimeout</span>=<span class="c-num">5s</span>
+
+<span class="c-cm"># 2. Java JDBC URL 标准格式（MySQL Connector/J 8.0+）</span>
+<span class="c-kw">jdbc:mysql://</span><span class="c-fn">db.internal</span>:<span class="c-num">3306</span>/<span class="c-str">mydb</span>?<span class="c-flag">characterEncoding</span>=<span class="c-str">utf8</span>&amp;<span class="c-flag">serverTimezone</span>=<span class="c-str">Asia/Shanghai</span>&amp;<span class="c-flag">connectTimeout</span>=<span class="c-num">3000</span>&amp;<span class="c-flag">socketTimeout</span>=<span class="c-num">5000</span>&amp;<span class="c-flag">rewriteBatchedStatements</span>=<span class="c-num">true</span></code></pre>
+  </div>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:26%">连接池 / 连接串关键项</th>
+          <th style="width:24%">推荐配置原则</th>
+          <th>为什么必须这样配</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>时区参数（<code>loc</code> / <code>serverTimezone</code>）</strong></td>
+          <td>统一显式指定为 <code>Asia/Shanghai</code>（或全链路 <code>UTC</code>）</td>
+          <td>若不指定，Go 的 <code>go-sql-driver</code> 默认按 <code>UTC</code> 解析 <code>DATETIME</code>，会导致写入和读出的时间与北京时间偏差 8 小时。</td>
+        </tr>
+        <tr>
+          <td><strong>连接最大存活时间（<code>ConnMaxLifetime</code> / <code>maxLifetime</code>）</strong></td>
+          <td><strong>必须小于</strong> MySQL 服务端的 <code>wait_timeout</code>（建议设为 <code>3 ~ 10 分钟</code>）</td>
+          <td>MySQL 服务端会自动主动断开空闲超过 <code>wait_timeout</code>（默认 8 小时，云数据库或 SLB 网关常设为 600 秒）的连接。若应用连接池不主动提前轮换回收，取到被服务端半关闭的死连接就会报 <code>invalid connection / broken pipe</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>批量重写参数（<code>rewriteBatchedStatements=true</code>）</strong></td>
+          <td>JDBC 批量写入开启为 <code>true</code></td>
+          <td>开启后驱动会自动把多条单行 <code>INSERT INTO t VALUES (?)</code> 合并改写为一条多值 <code>INSERT INTO t VALUES (?), (?), (?)</code> 发送，批量写入吞吐量可提升 5~10 倍。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout info" style="margin-bottom:0;">
+    <strong>📘 底层原理延伸：</strong>想深入了解 InnoDB 内部的 <code>Buffer Pool</code> 如何通过 <code>Free / Flush / LRU</code> 三大链表管理内存页、为什么采用 5:3 冷热分区防御全表扫描冲刷缓存，以及 <code>Change Buffer</code> 写缓冲的合并机制，可点击查看 <a href="principles.html#arch">📘 核心原理篇 · 01 缓冲池与后台线程 ↗</a>。
+  </div>
+</div>
