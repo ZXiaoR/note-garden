@@ -17,6 +17,7 @@
     { path: 'ai/index.html', title: '🧠 Gemini 4 Carbon', dot: '' },
     { path: 'ai/memory.html', title: '🌙 Agent 记忆架构', dot: 'pink' },
     { path: 'pi-agent/index.html', title: '🤖 Coding Agent (pi)', dot: 'periwinkle' },
+    { path: 'pi-agent/guide.html', title: '🧭 Pi 源码与架构权衡', dot: 'mint' },
     { path: 'mysql/index.html', aliases: ['mysql/principles.html', 'mysql/principles'], title: '🐬 MySQL 基础与原理', dot: 'mint' },
     { path: 'postgres/index.html', aliases: ['postgres/principles.html', 'postgres/principles'], title: '🐘 PostgreSQL 基础与原理', dot: 'periwinkle' },
     { path: 'redis/index.html', title: '🧱 Redis 原理与集群', dot: 'pink' },

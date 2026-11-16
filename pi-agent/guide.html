@@ -1,0 +1,2071 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Coding Agent (Pi) 架构与源码全解：从 Monorepo 12 个子包职责拆解、双层 Agent Loop 状态机、流式输出与三级打断、工具执行三道防线与 QuickJS 沙箱、会话树与 6 段式安全切分压缩、Prefix Cache 缓存经济学、流式 ripgrep 与 BM25 工具检索、容器化防作弊盲测，到 Agent Runtime / Framework / Harness 四层生态对比、6 大架构 Trade-off 与未来演进趋势。" />
+  <title>Coding Agent (Pi) 架构与源码全解：从内核实现到主流框架权衡 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+        <span class="plop-tag periwinkle">🤖 CODING AGENT (PI) 源码与工程全览</span>
+      </div>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + Pi 源码参数速查小票 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与源码参数速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="Pi 源码与工程架构章节书签">
+          <a href="#arch" class="plop-ear-tab active" data-toc="arch">
+            <span class="ear-dot"></span>
+            <span>00 仓库全景与12子包</span>
+          </a>
+          <a href="#loop" class="plop-ear-tab" data-toc="loop">
+            <span class="ear-dot mustard"></span>
+            <span>01 双层循环与流式操控</span>
+          </a>
+          <a href="#tools" class="plop-ear-tab" data-toc="tools">
+            <span class="ear-dot mint"></span>
+            <span>02 工具防线与Wasm沙箱</span>
+          </a>
+          <a href="#context" class="plop-ear-tab" data-toc="context">
+            <span class="ear-dot pink"></span>
+            <span>03 会话树、压缩与缓存</span>
+          </a>
+          <a href="#search-mcp" class="plop-ear-tab" data-toc="search-mcp">
+            <span class="ear-dot periwinkle"></span>
+            <span>04 渐进披露、rg与BM25</span>
+          </a>
+          <a href="#evals" class="plop-ear-tab" data-toc="evals">
+            <span class="ear-dot mint"></span>
+            <span>05 容器化A/B防作弊评测</span>
+          </a>
+          <a href="#ecosystem" class="plop-ear-tab" data-toc="ecosystem">
+            <span class="ear-dot mustard"></span>
+            <span>06 框架分层、取舍与趋势</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：Pi 源码关键阈值与参数速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>PI 源码核心参数</span>
+            <span>#62752fd</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>纯循环内核</span>
+            <span>packages/agent (6文件)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>rg 流式截断</span>
+            <span>500字 / 100条 / 50KB</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>bash 保尾截断</span>
+            <span>末尾 2000行 / 50KB</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>压缩保留近期</span>
+            <span>keepRecent 20k tok</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>QuickJS 沙箱</span>
+            <span>64MB / 30s 超时</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>盲测容器降权</span>
+            <span>0o600 + UID 65532</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#arch" class="active">00 仓库与12子包</a>
+        <a href="#loop">01 双层循环</a>
+        <a href="#tools">02 工具防线与沙箱</a>
+        <a href="#context">03 压缩与缓存</a>
+        <a href="#search-mcp">04 rg与BM25</a>
+        <a href="#evals">05 容器评测</a>
+        <a href="#ecosystem">06 框架权衡与趋势</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape"></div>
+
+        <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三阶段阅读车票 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card" style="background:var(--plop-periwinkle);">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">AI &amp; AGENT / 03</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:32px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">Pi Agent</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">源码与架构工程全解</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag tomato">COMMIT 62752fd4c37a</span>
+              <span class="plop-tag mint">MONOREPO 12 PACKAGES · DUAL LOOP · HARNESS</span>
+              <span class="plop-tag periwinkle">TRADE-OFFS · RUNTIME vs FRAMEWORK vs HARNESS</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              Coding Agent (Pi) 架构与源码导读：从内核机制到主流框架权衡
+            </h1>
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0 0 14px; font-weight:600;">
+              以开源编码智能体 Pi 的真实代码库为主线，先拆解 Monorepo 十二个子包的职责边界与运行期调用链路，再按一次真实任务的推进顺序，逐一剖析双层循环状态机、流式输出与三级打断、工具执行三道防线与 Wasm 沙箱、会话树与结构化压缩、前缀缓存经济学、流式代码检索与按需工具发现，以及容器化防作弊评测。在每个模块中同步提炼底层工程取舍，并在末章横向对比当前主流的 Runtime、Framework 与 Harness 分层体系及未来演进趋势。
+            </p>
+
+            <!-- 三阶段手账小票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#arch" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 仓库骨架、双层循环与工具防线</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—02：12 个子包分层、双层 Loop 与流式打断、工具三道防线自愈、模糊 Diff 与 QuickJS 沙箱</div>
+              </a>
+              <a href="#context" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 会话树、压缩、检索与盲测评测</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 03—05：安全切分与 6 段式压缩、Prefix Cache 保护、流式 rg 截断、BM25 工具发现与 Docker 盲测</div>
+              </a>
+              <a href="#ecosystem" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 生态四层划分、6 大权衡与趋势</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 06：Runtime / Framework / Harness 边界辨析、主流开源框架 6 维横评与 5 大演进方向</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <!-- ====================================================================
+             PART 00: 仓库全景与架构解耦 · Monorepo 12 个子包职责拆解与运行期调用拓扑
+             ==================================================================== -->
+        <div class="wb-sec-header" id="arch" style="background:var(--plop-mustard);">
+          <span class="wb-sec-num">00</span>
+          <span class="wb-sec-title">仓库全景与架构解耦 · Monorepo 12 个子包职责拆解与运行期调用拓扑</span>
+          <span class="plop-tag tomato">MONOREPO ARCHITECTURE · 源码地图与入口</span>
+        </div>
+
+        <!-- 00.1 · 核心分包原则与 12 个子包全景清单 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🧭 00.1 · 仓库目录结构：通用循环内核（packages/agent）与编码宿主（packages/coding-agent）的单向解耦</div>
+          <h3>💡 00.1 Pi 仓库 12 个子包（packages/*）的职责边界与单向依赖关系</h3>
+
+          <p>
+            阅读一个大型开源 Agent 项目，第一步是看清它的目录边界。打开 Pi 仓库（固定快照 <a href="https://github.com/earendil-works/pi/tree/62752fd4c37a" target="_blank" rel="noopener"><code>62752fd4c37a</code> ↗</a>）的 <code>packages/</code> 目录，一共包含 <strong>12 个子包</strong>。其中最关键的架构设计是<strong>将「通用双层循环内核（<code>packages/agent</code>）」与「编码业务宿主（<code>packages/coding-agent</code>）」彻底解耦</strong>：<br>
+            底层的 <code>packages/agent</code> 整个包只有 <strong>6 个源码文件</strong>，仅依赖 <code>packages/ai</code> 与 <code>packages/schema</code>，完全不知道文件系统、Git、终端界面或上下文压缩的存在；所有与“读写代码、管理会话树、压缩历史、加载技能、并发文件锁”相关的工程策略，全部收敛在上层宿主包 <code>packages/coding-agent</code> 中，通过配置回调注入内核。
+          </p>
+
+          <!-- 6 大核心引擎包 2x3 卡片网格 -->
+          <div class="wb-grid-2" style="margin:14px 0;">
+            <!-- 包 1: packages/agent -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                <span style="font-family:var(--font-mono); font-size:14px; font-weight:900; color:var(--plop-ink);">① packages/agent</span>
+                <span class="plop-tag tomato">@earendil-works/pi-agent-core · 仅 6 个文件</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">通用双层循环与工具防线状态机内核（对应 Ch.01 &amp; Ch.02）</div>
+              <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.65; color:var(--plop-ink-soft);">
+                <li><a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/agent-loop.ts" target="_blank" rel="noopener"><code>src/agent-loop.ts</code> ↗</a>：实现外层/内层双循环 <code>runLoop</code>、队尾 <code>&lt;system-reminder&gt;</code> 工具增量声明、流式响应拼装、<code>length</code> 截断拒止、pi-schema 参数校验与 <code>1:1 toolCallId</code> 异常捕获自愈。</li>
+                <li><a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/agent.ts" target="_blank" rel="noopener"><code>src/agent.ts</code> ↗</a>：有状态包装类，维护运行期 <code>steeringQueue</code>（即时插话）与 <code>followUpQueue</code>（回合后排队）双队列。</li>
+                <li><code>src/types.ts · stream-fn.ts · proxy.ts</code>：定义 <code>AgentMessage</code>、<code>AgentTool</code> 与 4 个生命周期钩子契约。</li>
+              </ul>
+            </div>
+
+            <!-- 包 2: packages/coding-agent -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                <span style="font-family:var(--font-mono); font-size:14px; font-weight:900; color:var(--plop-ink);">② packages/coding-agent</span>
+                <span class="plop-tag mustard">@earendil-works/pi-coding-agent · 宿主核心</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">编码宿主策略、内置工具链、压缩与扩展总线（对应 Ch.02—Ch.04）</div>
+              <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.65; color:var(--plop-ink-soft);">
+                <li><code>src/core/</code>：含 <a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/sdk.ts" target="_blank" rel="noopener"><code>sdk.ts</code> ↗</a> 宿主装配、<code>session-manager.ts</code> 会话树、<code>system-prompt.ts</code> + <code>skills.ts</code> 渐进披露、<code>project-trust.ts</code> 信任门禁、<code>output-guard.ts</code> 与 <code>cache-stats.ts</code>。</li>
+                <li><code>src/core/tools/</code>：内置工具与辅助模块（<code>read.ts</code>、<code>write.ts</code>、<code>edit.ts</code> + <code>edit-diff.ts</code> 模糊匹配、<code>grep.ts</code> 流式 rg、<code>bash.ts</code>、<code>file-mutation-queue.ts</code> 同文件写锁、<code>truncate.ts</code>）。</li>
+                <li><code>src/core/compaction/ · extensions/ · modes/</code>：6 段式压缩（<code>compaction.ts</code>）、跨分支 LCA 摘要（<code>branch-summarization.ts</code>）、生命周期事件执行器（<code>runner.ts</code>）及 4 种运行模式（<code>interactive / print / json-event / rpc</code>）。</li>
+              </ul>
+            </div>
+
+            <!-- 包 3: packages/ai -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                <span style="font-family:var(--font-mono); font-size:14px; font-weight:900; color:var(--plop-ink);">③ packages/ai</span>
+                <span class="plop-tag periwinkle">@earendil-works/pi-ai · 统一模型协议</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">多厂商 LLM 流式适配与跨模型消息清洗层（对应 Ch.01 &amp; Ch.03）</div>
+              <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.65; color:var(--plop-ink-soft);">
+                <li><code>src/api/</code>：封装 Anthropic、OpenAI Responses、Gemini、Vertex、Bedrock、Mistral 等流式协议；核心文件 <a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/ai/src/api/transform-messages.ts" target="_blank" rel="noopener"><code>transform-messages.ts</code> ↗</a> 负责跨模型切换时的两遍扫描清洗。</li>
+                <li><code>src/utils/json-parse.ts</code>：区分流式阶段（<code>partial-json</code> 容忍半截括号）与终态阶段（<code>repairJson</code> 仅修控制字符与反斜杠）。</li>
+                <li><code>src/utils/overflow.ts · transcript.ts</code>：25+ 厂商上下文溢出正则检测与历史工具视图三档折叠。</li>
+              </ul>
+            </div>
+
+            <!-- 包 4: packages/mcp -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                <span style="font-family:var(--font-mono); font-size:14px; font-weight:900; color:var(--plop-ink);">④ packages/mcp</span>
+                <span class="plop-tag mint">@earendil-works/pi-mcp · 外部工具协议</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">零内部耦合的 MCP 客户端与传输层（对应 Ch.04）</div>
+              <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.65; color:var(--plop-ink-soft);">
+                <li><code>src/client.ts · transports/</code>：支持本地子进程 <code>stdio</code> 与远程 <code>Streamable HTTP / SSE</code> 传输通道及 JSON-RPC 生命周期管理。</li>
+                <li><code>src/oauth/ · auth-provider.ts</code>：处理远程 MCP 服务的 OAuth 授权发现与令牌刷新；由宿主 <code>mcp-servers.ts</code> 包装为薄暴露策略。</li>
+              </ul>
+            </div>
+
+            <!-- 包 5: packages/codemode -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                <span style="font-family:var(--font-mono); font-size:14px; font-weight:900; color:var(--plop-ink);">⑤ packages/codemode</span>
+                <span class="plop-tag pink">@earendil-works/pi-codemode · Wasm 沙箱</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">QuickJS Wasm 隔离脚本执行器（对应 Ch.02）</div>
+              <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.65; color:var(--plop-ink-soft);">
+                <li><code>src/declarations.ts</code>：将当前工具集的 JSON Schema 动态转为 TypeScript <code>declare namespace tools</code> 类型签名供模型编写组合脚本。</li>
+                <li><a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/codemode/src/runtime/vm.ts" target="_blank" rel="noopener"><code>src/runtime/vm.ts</code> ↗</a>：启动无文件系统、无网络权限的 QuickJS Wasm VM（64MB 内存 / 30s 超时），通过 <code>settle</code> 桥接调用宿主工具。</li>
+              </ul>
+            </div>
+
+            <!-- 包 6: packages/evals -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:2px 3px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                <span style="font-family:var(--font-mono); font-size:14px; font-weight:900; color:var(--plop-ink);">⑥ packages/evals</span>
+                <span class="plop-tag periwinkle">@earendil-works/pi-evals · 容器化盲测</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">Docker 防作弊 A/B 对照评测套件（对应 Ch.05）</div>
+              <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.65; color:var(--plop-ink-soft);">
+                <li><a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/evals/src/harness.ts" target="_blank" rel="noopener"><code>src/harness.ts · docker.ts</code> ↗</a>：在无网 Docker 容器中将测试断言脚本设为 <code>0o600</code>，并将 Agent 进程永久降权至 <code>UID/GID 65532</code> 防止偷看或篡改测试。</li>
+                <li><code>src/plan.ts · report.ts</code>：跑 <code>without_docs</code> vs <code>with_docs</code> 对照实验，结合硬性断言与 <code>ToolCallJudge</code> 输出净增益（Lift）报告。</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- 其余 6 个外围与通用底座包速查表 -->
+          <div class="table-wrap" style="margin-top:12px;">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:22%">其余 6 个通用底座包</th>
+                  <th style="width:26%">包名与内部依赖</th>
+                  <th style="width:36%">核心职责与关键文件</th>
+                  <th style="width:16%">读源码优先级</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>packages/tui</code></td>
+                  <td><code>@earendil-works/pi-tui</code>（零内部依赖）</td>
+                  <td>自研终端字符界面差分渲染引擎（<code>tui.ts</code>、<code>layout.ts</code>、<code>editor-component.ts</code>、ANSI 光标与按键绑定）</td>
+                  <td><span class="plop-tag">专注 UI 时再看</span></td>
+                </tr>
+                <tr>
+                  <td><code>packages/schema</code></td>
+                  <td><code>@earendil-works/pi-schema</code>（零内部依赖）</td>
+                  <td>自有 JSON Schema 构造与校验器（兼容部分 TypeBox 类型），支持参数编译、类型强转（<code>coerce.ts</code>）与结构化错误解释（<code>explain.ts</code>）</td>
+                  <td><span class="plop-tag mint">配合 Ch.02 查阅</span></td>
+                </tr>
+                <tr>
+                  <td><code>packages/telemetry</code></td>
+                  <td><code>@earendil-works/pi-telemetry</code>（零内部依赖）</td>
+                  <td>显式 TelemetryContext / Span 合同、指标（<code>metrics.ts</code>）、跨进程传播与内存参考实现</td>
+                  <td><span class="plop-tag">观测链路时查阅</span></td>
+                </tr>
+                <tr>
+                  <td><code>packages/durable · env · chord</code></td>
+                  <td>持久化 / 远程环境 / 分布式通信扩展底座</td>
+                  <td><code>durable</code>（持久化任务与定时器）、<code>env</code>（SSH 远程终端与文件监听）、<code>chord</code>（SQLite/WebSocket 分布式状态同步）</td>
+                  <td><span class="plop-tag">分布式/远程扩展查阅</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 00.2 · 运行期调用拓扑图与本地源码调试入口 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">🗺️ 00.2 · 运行期调用拓扑图：从用户输入、宿主装配到内核双层循环的完整源码路径</div>
+          <h3>🔬 00.2 一张图认清 Pi 的模块协作关系与 3 个必看调试断点</h3>
+
+          <p>
+            理清了 12 个子包的静态目录后，下图展示了当用户在终端输入一句指令（例如“排查登录 Issue 并修复 <code>src/login.ts</code>”）时，数据如何在 <strong>宿主层（<code>coding-agent</code>）</strong>、<strong>纯循环内核（<code>agent</code>）</strong>、<strong>模型流层（<code>ai</code>）</strong> 与 <strong>工具/沙箱层（<code>tools / mcp / codemode</code>）</strong> 之间流转：
+          </p>
+
+          <!-- SVG 图 1: Pi 架构分层与运行期调用拓扑图 (遵循 diagram-design 正交连线与先画线后画框规范) -->
+          <svg viewBox="0 0 960 460" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="Pi Monorepo 依赖分层与运行期调用拓扑图">
+            <defs>
+              <marker id="pi-arr" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="var(--plop-ink)" />
+              </marker>
+              <marker id="pi-arr-red" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="#D2381E" />
+              </marker>
+            </defs>
+
+            <!-- 1. 背景分组框 -->
+            <rect x="16" y="16" width="244" height="428" rx="12" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2" />
+            <text x="138" y="38" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">📦 Monorepo 单向依赖栈</text>
+
+            <rect x="276" y="16" width="668" height="428" rx="12" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2" />
+            <text x="610" y="38" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.5" font-weight="900">⚡ 单次 Agent 任务运行期调用拓扑</text>
+
+            <!-- 2. 所有正交连接线 (先画线后画框) -->
+            <!-- 左侧依赖箭头 (自顶向下依赖) -->
+            <path d="M 138 126 L 138 150" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#pi-arr)" />
+            <path d="M 138 220 L 138 244" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#pi-arr)" />
+            <path d="M 138 314 L 138 338" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#pi-arr)" />
+
+            <!-- 右侧拓扑连接线 (全垂直独立通道，零交叉折线) -->
+            <!-- ① Entry -> Loop -->
+            <path d="M 446 130 L 446 178" fill="none" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#pi-arr)" />
+            <!-- ② Context -> Loop -->
+            <path d="M 773 130 L 773 178" fill="none" stroke="var(--plop-ink)" stroke-width="2.2" marker-end="url(#pi-arr)" />
+            <!-- Loop <-> ③ pi-ai (左通道请求，右通道响应) -->
+            <path d="M 386 276 L 386 332" fill="none" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pi-arr-red)" />
+            <path d="M 506 332 L 506 276" fill="none" stroke="var(--plop-ink)" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#pi-arr)" />
+            <!-- Loop <-> ④ Tools & Sandbox (左通道派发，右通道回填) -->
+            <path d="M 713 276 L 713 332" fill="none" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pi-arr-red)" />
+            <path d="M 833 332 L 833 276" fill="none" stroke="var(--plop-ink)" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#pi-arr)" />
+
+            <!-- 连线标签遮罩 (不透明底色遮罩，留出上下 8px 间距) -->
+            <rect x="394" y="144" width="104" height="19" rx="4" fill="#EEF3FF" />
+            <text x="446" y="157" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.5" font-weight="800">1. 双队列与中断</text>
+
+            <rect x="717" y="144" width="112" height="19" rx="4" fill="#EEF3FF" />
+            <text x="773" y="157" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.5" font-weight="800">2. 会话树与提示词</text>
+
+            <rect x="332" y="294" width="108" height="19" rx="4" fill="#EEF3FF" />
+            <text x="386" y="307" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.5" font-weight="800">3. streamFn 请求</text>
+
+            <rect x="444" y="294" width="124" height="19" rx="4" fill="#EEF3FF" />
+            <text x="506" y="307" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="9.2" font-weight="800">delta / stopReason</text>
+
+            <rect x="659" y="294" width="108" height="19" rx="4" fill="#EEF3FF" />
+            <text x="713" y="307" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.5" font-weight="800">4. 校验与工具派发</text>
+
+            <rect x="777" y="294" width="112" height="19" rx="4" fill="#EEF3FF" />
+            <text x="833" y="307" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="9.2" font-weight="800">结果 / 1:1 自愈回填</text>
+
+            <!-- 3. 左侧：4 层依赖栈节点框 -->
+            <rect x="28" y="52" width="220" height="74" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="138" y="73" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.8" font-weight="900">L3 · 编码宿主与评测层</text>
+            <text x="138" y="92" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="800">coding-agent · evals</text>
+            <text x="138" y="111" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.8" font-weight="700">会话树 / 工具链 / 压缩 / Hook</text>
+
+            <rect x="28" y="150" width="220" height="70" rx="8" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="2" />
+            <text x="138" y="171" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.8" font-weight="900">L2 · 纯循环状态机内核 ★</text>
+            <text x="138" y="190" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="800">pi-agent-core (仅 6 文件)</text>
+            <text x="138" y="207" text-anchor="middle" fill="var(--plop-ink-text)" font-size="9.6" font-weight="700">零文件/UI耦合，仅依赖 ai+schema</text>
+
+            <rect x="28" y="244" width="220" height="70" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="138" y="265" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.8" font-weight="900">L1 · 统一模型流与协议层</text>
+            <text x="138" y="284" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="800">pi-ai</text>
+            <text x="138" y="301" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.6" font-weight="700">多厂商流适配 / transformMessages</text>
+
+            <rect x="28" y="338" width="220" height="88" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="138" y="359" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.8" font-weight="900">L0 · 零内部耦合底座包</text>
+            <text x="138" y="377" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.6" font-weight="800">mcp · codemode · schema · tui</text>
+            <text x="138" y="395" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.6" font-weight="700">MCP客户端 / QuickJS沙箱 / pi-schema</text>
+            <text x="138" y="412" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.4" font-weight="700">均可脱离宿主独立复用</text>
+
+            <!-- 4. 右侧：运行期调用拓扑节点框 -->
+            <!-- Top Left: CLI & AgentSession -->
+            <rect x="292" y="52" width="308" height="78" rx="9" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="446" y="74" text-anchor="middle" fill="var(--plop-ink)" font-size="11.8" font-weight="900">① 宿主入口、会话装配与双队列</text>
+            <text x="446" y="94" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.8" font-weight="800">AgentSession · createAgentSession()</text>
+            <text x="446" y="113" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">管理 AbortSignal 中断、Steering 与 Follow-up</text>
+
+            <!-- Top Right: Session Tree, Prompt & Compaction -->
+            <rect x="618" y="52" width="310" height="78" rx="9" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="773" y="74" text-anchor="middle" fill="var(--plop-ink)" font-size="11.8" font-weight="900">② 会话树、Skills 渐进披露与 6 段压缩</text>
+            <text x="773" y="94" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.6" font-weight="800">SessionManager · Skills · Compaction</text>
+            <text x="773" y="113" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">按 leafId 回溯分支 · 注入 &lt;skills&gt; 索引 · 安全切分</text>
+
+            <!-- Center Hub: runAgentLoop (Focal Accent Node, spans full 636px width) -->
+            <rect x="292" y="178" width="636" height="98" rx="10" fill="#FFE8E5" stroke="#D2381E" stroke-width="2.4" />
+            <text x="610" y="201" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="12" font-weight="900">★ 核心状态机：runAgentLoop / runLoop（双层嵌套循环引擎）</text>
+            <text x="610" y="222" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.8" font-weight="800">外层循环（消费 Follow-up 排队续接） × 内层循环（推进 toolCalls 与消费 Steering 即时插话）</text>
+            <text x="610" y="243" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="9.8" font-weight="700">① declareToolChanges(队尾保缓存)  ➔  ② streamAssistantResponse(流式拼装)  ➔  ③ length 截断拒止</text>
+            <text x="610" y="261" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="9.8" font-weight="700">④ prepareToolCall(pi-schema 校验与 Hook 拦截)  ➔  ⑤ executePreparedToolCall(捕获异常 1:1 配对自愈)</text>
+
+            <!-- Bottom Left: pi-ai Stream & Transform -->
+            <rect x="292" y="332" width="308" height="94" rx="9" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="446" y="353" text-anchor="middle" fill="var(--plop-ink)" font-size="11.8" font-weight="900">③ 统一模型流与跨模型消息清洗</text>
+            <text x="446" y="372" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.6" font-weight="800">AssistantMessageEventStream · transformMessages</text>
+            <text x="446" y="391" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.8" font-weight="700">输出统一 text / thinking / toolcall_delta 事件</text>
+            <text x="446" y="409" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.8" font-weight="700">两遍扫描剥离异源 thinking · 双轨 JSON 解析修复</text>
+
+            <!-- Bottom Right: Host Tools, BM25 & QuickJS Sandbox -->
+            <rect x="618" y="332" width="310" height="94" rx="9" fill="#E9F9F1" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="773" y="353" text-anchor="middle" fill="var(--plop-ink)" font-size="11.8" font-weight="900">④ 宿主工具链、BM25 检索与 Wasm 沙箱</text>
+            <text x="773" y="372" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="9.6" font-weight="800">Host Tools · Bm25Ranker · QuickJS VM</text>
+            <text x="773" y="391" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.8" font-weight="700">rg 流式三重截断 · 4级模糊Diff · 同文件队列写锁</text>
+            <text x="773" y="409" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.8" font-weight="700">bash 保尾落盘 · BM25 按需挂载 · QuickJS 隔离桥接</text>
+          </svg>
+
+          <div class="wb-grid-2" style="margin-top:14px;">
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>🛠️ 本地克隆、锁定快照与 VS Code 断点调试启动命令</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-boot', this)">复制命令</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-boot"><code>git clone https://github.com/earendil-works/pi.git
+cd pi
+git checkout 62752fd4c37a
+npm ci --ignore-scripts
+
+<span class="c-cm"># 在 VS Code 打开「JavaScript Debug Terminal」直接运行 TS 源码：</span>
+./pi-test.sh</code></pre>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+              <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">🎯 推荐上手的 3 个黄金调试断点：</div>
+              <ol style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65; color:var(--plop-ink-soft);">
+                <li><strong>看双层循环与插话（<code>agent-loop.ts:L304</code>）</strong>：观察工具回合刚结束时，内层循环如何消费 <code>getSteeringMessages()</code>，以及外层循环何时消费 <code>getFollowUpMessages()</code>。</li>
+                <li><strong>看工具异常自愈（<code>agent-loop.ts:L842</code>）</strong>：故意让 <code>edit</code> 匹配失败，观察 <code>catch</code> 分支如何封装 <code>isError: true</code> 并原样带回 <code>toolCallId</code>。</li>
+                <li><strong>看安全切分压缩（<code>compaction.ts:L446</code>）</strong>：在 <code>findCutPoint</code> 断下，观察它如何避开 <code>toolResult</code> 并提取 <code>&lt;read-files&gt;</code> 与 <code>&lt;modified-files&gt;</code>。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             PART 01: 核心状态机与运行期操控 · 双层 Agent Loop、流式拼装与三级打断
+             ==================================================================== -->
+        <div class="wb-sec-header" id="loop" style="background:var(--plop-mint);">
+          <span class="wb-sec-num">01</span>
+          <span class="wb-sec-title">核心状态机与运行期操控 · 双层 Agent Loop、流式增量拼装与三级打断队列</span>
+          <span class="plop-tag tomato">AGENT LOOP &amp; STREAMING · packages/agent</span>
+        </div>
+
+        <!-- 01.1 · 双层循环状态机 runLoop -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🔄 01.1 · 双层循环状态机（agent-loop.ts:runLoop）：内层推进工具与即时纠偏，外层消费排队续接</div>
+          <h3>💡 01.1 外层与内层双 while 循环的分工机制及 4 个宿主注入钩子</h3>
+
+          <p>
+            在最简单的教学 Demo 中，Agent Loop 往往只是一个单层 <code>while (hasToolCalls)</code> 循环。但在真实编码场景中，当 Agent 正在连续执行“读文件 ➔ 改代码 ➔ 跑测试”时，用户随时可能敲入新消息。用户的补充输入在意图上分为截然不同的两类：<br>
+            一类是<strong>紧急纠偏（Steering）</strong>，例如“停一下，别改数据库表，只改前端校验”，要求在当前正在运行的这个工具刚一结束、紧接着请求模型前<strong>立刻插队生效</strong>；另一类是<strong>延后追加（Follow-up）</strong>，例如“等你把登录 Bug 彻底修好后，顺便帮我写个单元测试”，要求<strong>绝对不能打断当前的修 Bug 思路</strong>，必须等当前任务完全收尾后再开启下一轮。<br>
+            为了在状态机层面严格区分这两种时机，Pi 在 <a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/agent-loop.ts#L172-L330" target="_blank" rel="noopener"><code>packages/agent/src/agent-loop.ts</code> ↗</a> 中设计了<strong>双层嵌套循环</strong>与 <strong>4 个宿主注入钩子</strong>：
+          </p>
+
+          <!-- SVG 图 2: 双层循环状态机与 4 个注入点 -->
+          <svg viewBox="0 0 960 360" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="runAgentLoop 双层循环与四个注入钩子状态机图">
+            <defs>
+              <marker id="loop-arr" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="var(--plop-ink)" />
+              </marker>
+              <marker id="loop-arr-blue" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="#1D4ED8" />
+              </marker>
+              <marker id="loop-arr-red" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="#D2381E" />
+              </marker>
+            </defs>
+
+            <!-- 外层循环大框 -->
+            <rect x="18" y="16" width="924" height="328" rx="12" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2" stroke-dasharray="6 4" />
+            <text x="34" y="38" fill="#1D4ED8" font-family="var(--font-mono)" font-size="11.5" font-weight="900">🔁 外层循环 while (true)：仅当内层彻底安静后，检查 getFollowUpMessages() 或 explicitContinuation</text>
+
+            <!-- 内层循环中框 -->
+            <rect x="34" y="50" width="668" height="216" rx="10" fill="#FFFDF7" stroke="#D2381E" stroke-width="2.2" />
+            <text x="50" y="72" fill="#D2381E" font-family="var(--font-mono)" font-size="11.2" font-weight="900">⚡ 内层循环 while (hasMoreToolCalls || pendingMessages.length &gt; 0)</text>
+
+            <!-- 正交连接线 (先画线后画框) -->
+            <!-- Step 1 -> Step 2 -->
+            <path d="M 232 132 L 260 132" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#loop-arr)" />
+            <!-- Step 2 -> Step 3 -->
+            <path d="M 464 132 L 492 132" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#loop-arr)" />
+            <!-- Step 3 -> Step 4 (向下再向左) -->
+            <path d="M 588 168 L 588 214" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#loop-arr)" />
+            <!-- Step 4 -> 内层回线 (回到 Step 1) -->
+            <path d="M 492 232 L 140 232 Q 132 232 132 224 L 132 168" fill="none" stroke="#D2381E" stroke-width="2.2" stroke-dasharray="5 3" marker-end="url(#loop-arr-red)" />
+            <rect x="222" y="222" width="262" height="19" rx="4" fill="#FFE8E5" />
+            <text x="353" y="235" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.8" font-weight="900">↺ 有 toolCalls 或有 Steering 插话：继续内层</text>
+
+            <!-- Step 4 -> 外层检查 (向右出内层框) -->
+            <path d="M 684 232 L 728 232" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#loop-arr)" />
+            <!-- 外层检查 -> 外层回线 (向上回到 Step 1) -->
+            <path d="M 826 196 L 826 88 Q 826 80 818 80 L 140 80 Q 132 80 132 88 L 132 96" fill="none" stroke="#1D4ED8" stroke-width="2.2" stroke-dasharray="5 3" marker-end="url(#loop-arr-blue)" />
+            <rect x="716" y="68" width="204" height="19" rx="4" fill="#DBEAFE" />
+            <text x="818" y="81" text-anchor="middle" fill="#1D4ED8" font-family="var(--font-mono)" font-size="9.8" font-weight="900">↺ 有 Follow-up 排队消息：续接外层</text>
+
+            <!-- 外层检查 -> 退出 agent_end -->
+            <path d="M 826 268 L 826 294" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#loop-arr)" />
+
+            <!-- 节点框 -->
+            <!-- Box 1: prepareNextTurn & declareToolChanges -->
+            <rect x="50" y="96" width="182" height="72" rx="8" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="141" y="116" text-anchor="middle" fill="var(--plop-ink)" font-size="11.5" font-weight="900">① 回合准备与工具差分</text>
+            <text x="141" y="134" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.2" font-weight="800">prepareNextTurn() [Hook 1]</text>
+            <text x="141" y="151" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="9.5" font-weight="700">declareToolChanges() 贴队尾</text>
+
+            <!-- Box 2: prepareRequest & streamAssistantResponse -->
+            <rect x="260" y="96" width="204" height="72" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="362" y="116" text-anchor="middle" fill="var(--plop-ink)" font-size="11.5" font-weight="900">② 请求前钩子与模型流</text>
+            <text x="362" y="134" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.8" font-weight="800">prepareRequest() [Hook 2]</text>
+            <text x="362" y="151" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="9.5" font-weight="700">streamAssistantResponse()</text>
+
+            <!-- Box 3: Tool Execution Gate -->
+            <rect x="492" y="96" width="192" height="72" rx="8" fill="#E9F9F1" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="588" y="116" text-anchor="middle" fill="var(--plop-ink)" font-size="11.5" font-weight="900">③ 截断门禁与工具批次</text>
+            <text x="588" y="134" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="9.8" font-weight="800">stopReason==="length" 拒止</text>
+            <text x="588" y="151" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="9.5" font-weight="700">executeToolCalls() [Hook 3]</text>
+
+            <!-- Box 4: finishTurn & getSteeringMessages -->
+            <rect x="492" y="200" width="192" height="54" rx="8" fill="#FFE8E5" stroke="#D2381E" stroke-width="1.8" />
+            <text x="588" y="221" text-anchor="middle" fill="#D2381E" font-size="11.2" font-weight="900">④ 收尾与读取 Steering</text>
+            <text x="588" y="239" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="9.2" font-weight="800">finishTurn() · getSteering()</text>
+
+            <!-- Box 5: Outer Follow-up Check -->
+            <rect x="728" y="196" width="196" height="72" rx="8" fill="#FFFFFF" stroke="#1D4ED8" stroke-width="2" />
+            <text x="826" y="218" text-anchor="middle" fill="#1D4ED8" font-size="11.5" font-weight="900">⑤ 外层读取 Follow-up</text>
+            <text x="826" y="236" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="9.8" font-weight="800">getFollowUpMessages()</text>
+            <text x="826" y="253" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">无排队任务且无 continue 则退出</text>
+
+            <!-- Box 6: agent_end -->
+            <rect x="728" y="294" width="196" height="38" rx="8" fill="#1E293B" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="826" y="317" text-anchor="middle" fill="#FEF08A" font-family="var(--font-mono)" font-size="10" font-weight="900">🏁 emit("agent_end") 退出</text>
+          </svg>
+
+          <!-- 源码精读：agent-loop.ts runLoop -->
+          <div class="plop-code-box" style="margin-top:14px;">
+            <div class="plop-code-head">
+              <span>📄 packages/agent/src/agent-loop.ts (L188–L329) · 双层循环与 Steering / Follow-up 调度核心源码</span>
+              <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-runloop', this)">复制源码</button>
+            </div>
+            <pre class="plop-code-pre" id="code-pi-runloop"><code><span class="c-cm">// 启动时先检查一次是否有用户在等待期间提前敲入的 Steering 消息</span>
+<span class="c-kw">let</span> pendingMessages: AgentMessage[] = (<span class="c-kw">await</span> config.<span class="c-fn">getSteeringMessages</span>?.()) || [];
+
+<span class="c-cm">// 【外层循环】：当内层循环将要停止时，检查是否有排队等待的 Follow-up 消息接续</span>
+<span class="c-kw">while</span> (<span class="c-kw">true</span>) {
+  <span class="c-kw">let</span> hasMoreToolCalls = <span class="c-kw">true</span>;
+
+  <span class="c-cm">// 【内层循环】：只要上一轮还有工具调用，或者有待注入的 Steering 消息，就持续推进</span>
+  <span class="c-kw">while</span> (hasMoreToolCalls || pendingMessages.length &gt; <span class="c-num">0</span>) {
+    <span class="c-kw">let</span> preparedMessages: AgentMessage[] = [];
+    <span class="c-kw">if</span> (lastCompletedTurn) {
+      <span class="c-cm">// [注入点 1] prepareNextTurn：宿主可在此处执行主动水位线压缩（Compaction）或动态切换模型</span>
+      <span class="c-kw">const</span> nextTurnSnapshot = <span class="c-kw">await</span> config.<span class="c-fn">prepareNextTurn</span>?.(lastCompletedTurn);
+      <span class="c-kw">if</span> (nextTurnSnapshot) {
+        currentContext = nextTurnSnapshot.context ?? currentContext;
+        preparedMessages = nextTurnSnapshot.messages ?? [];
+      }
+      <span class="c-cm">// 压缩耗时较长，若压缩前未读到 Steering，压缩完成后再补读一次（避免单条模式一次吞两条）</span>
+      <span class="c-kw">if</span> (pendingMessages.length === <span class="c-num">0</span>) {
+        pendingMessages = (<span class="c-kw">await</span> config.<span class="c-fn">getSteeringMessages</span>?.()) || [];
+      }
+      <span class="c-kw">await</span> <span class="c-fn">emit</span>({ type: <span class="c-str">"turn_start"</span> });
+    }
+
+    <span class="c-cm">// 将工具集合变更转为队尾增量声明（保护首部 KV Cache），连同 pendingMessages 推入上下文</span>
+    <span class="c-kw">for</span> (<span class="c-kw">const</span> message <span class="c-kw">of</span> <span class="c-fn">declareToolChanges</span>(currentContext, [...preparedMessages, ...pendingMessages])) {
+      currentContext.messages.<span class="c-fn">push</span>(message);
+      newMessages.<span class="c-fn">push</span>(message);
+    }
+    pendingMessages = [];
+
+    <span class="c-cm">// [注入点 2] prepareRequest：请求发出前最后一次调整上下文、模型或推理等级（如 jev-router）</span>
+    <span class="c-kw">const</span> requestUpdate = <span class="c-kw">await</span> config.<span class="c-fn">prepareRequest</span>?.({ context: currentContext, model: config.model, thinkingLevel: config.reasoning ?? <span class="c-str">"off"</span> }, signal);
+    <span class="c-kw">if</span> (requestUpdate) currentContext = requestUpdate.context ?? currentContext;
+
+    <span class="c-cm">// 发起流式模型请求，实时发出 message_update 并返回最终拼装好的 AssistantMessage</span>
+    <span class="c-kw">const</span> message = <span class="c-kw">await</span> <span class="c-fn">streamAssistantResponse</span>(currentContext, config, signal, emit, streamFunction);
+    newMessages.<span class="c-fn">push</span>(message);
+
+    <span class="c-kw">const</span> toolCalls = message.content.<span class="c-fn">filter</span>((c): c <span class="c-kw">is</span> ToolCall =&gt; c.type === <span class="c-str">"toolCall"</span>);
+    hasMoreToolCalls = <span class="c-kw">false</span>;
+    <span class="c-kw">if</span> (toolCalls.length &gt; <span class="c-num">0</span>) {
+      <span class="c-cm">// 若因 max_tokens (stopReason === "length") 截断，整批工具调用直接返错，严禁执行残缺参数</span>
+      <span class="c-kw">const</span> executedToolBatch = message.stopReason === <span class="c-str">"length"</span>
+        ? <span class="c-kw">await</span> <span class="c-fn">failToolCallsFromTruncatedMessage</span>(toolCalls, emit)
+        : <span class="c-kw">await</span> <span class="c-fn">executeToolCalls</span>(currentContext, message, config, signal, emit);
+      hasMoreToolCalls = !executedToolBatch.terminate;
+      <span class="c-kw">for</span> (<span class="c-kw">const</span> result <span class="c-kw">of</span> executedToolBatch.messages) {
+        currentContext.messages.<span class="c-fn">push</span>(result);
+        newMessages.<span class="c-fn">push</span>(result);
+      }
+    }
+
+    <span class="c-cm">// [注入点 4] finishTurn：本轮模型+工具完成后回调宿主，并立刻拉取内层 Steering 队列</span>
+    <span class="c-kw">const</span> decision = <span class="c-kw">await</span> config.<span class="c-fn">finishTurn</span>?.(lastCompletedTurn, signal);
+    <span class="c-kw">if</span> (decision?.action === <span class="c-str">"end"</span>) <span class="c-kw">return</span> <span class="c-kw">await</span> <span class="c-fn">emit</span>({ type: <span class="c-str">"agent_end"</span>, messages: newMessages });
+
+    explicitContinuation = decision?.action === <span class="c-str">"continue"</span>;
+    pendingMessages = (<span class="c-kw">await</span> config.<span class="c-fn">getSteeringMessages</span>?.()) || [];
+  }
+
+  <span class="c-cm">// 【内层循环结束】：此时模型未发起新工具调用且无 Steering，才读取外层 Follow-up 排队消息</span>
+  <span class="c-kw">const</span> followUpMessages = (<span class="c-kw">await</span> config.<span class="c-fn">getFollowUpMessages</span>?.()) || [];
+  <span class="c-kw">if</span> (followUpMessages.length &gt; <span class="c-num">0</span>) {
+    pendingMessages = followUpMessages;
+    <span class="c-kw">continue</span>; <span class="c-cm">// 续接外层循环，重新进入内层 while</span>
+  }
+  <span class="c-kw">if</span> (explicitContinuation) { explicitContinuation = <span class="c-kw">false</span>; <span class="c-kw">continue</span>; }
+  <span class="c-kw">break</span>;
+}</code></pre>
+          </div>
+        </div>
+
+        <!-- 01.2 · 流式增量拼装、双轨 JSON 修复与进程树级联终止 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">⚡ 01.2 · 流式控制与参数解析：streamAssistantResponse 占位更新、双轨 JSON 修复与 killProcessTree 进程树清理</div>
+          <h3>🔬 01.2 流式增量拼装、双轨 JSON 参数解析与进程树级联终止实现</h3>
+
+          <p>
+            当模型开始流式吐出 Token 时，工程上要同时处理三件棘手的事：① 终端 UI 需要实时看到正在生成的文字和工具参数；② 用户随时可能按 <code>Esc</code> 强行终止正在输出的流或正在跑的耗时子进程；③ 流式工具参数在半截状态和完成状态的 JSON 解析标准完全不同。Pi 在源码中通过以下三套机制协同解决：
+          </p>
+
+          <div class="wb-grid-2" style="margin:14px 0;">
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📄 packages/ai/src/utils/json-parse.ts · 流式预览 vs 终态修复双轨制</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-json', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-json"><code><span class="c-cm">// 1. 流式增量期（toolcall_delta）：允许 partial-json 猜右括号，仅供 UI 实时预览</span>
+<span class="c-kw">export function</span> <span class="c-fn">parseStreamingJson</span>&lt;T = <span class="c-kw">any</span>&gt;(partialJson: <span class="c-kw">string</span> | <span class="c-kw">undefined</span>): T {
+  <span class="c-kw">if</span> (!partialJson || partialJson.<span class="c-fn">trim</span>() === <span class="c-str">""</span>) <span class="c-kw">return</span> {} <span class="c-kw">as</span> T;
+  <span class="c-kw">try</span> { <span class="c-kw">return</span> JSON.<span class="c-fn">parse</span>(partialJson) <span class="c-kw">as</span> T; } <span class="c-kw">catch</span> {}
+  <span class="c-kw">try</span> { <span class="c-kw">return</span> JSON.<span class="c-fn">parse</span>(<span class="c-fn">repairJson</span>(partialJson)) <span class="c-kw">as</span> T; } <span class="c-kw">catch</span> {}
+  <span class="c-kw">try</span> { <span class="c-kw">return</span> <span class="c-fn">partialParse</span>(partialJson) <span class="c-kw">as</span> T; } <span class="c-kw">catch</span> { <span class="c-kw">return</span> {} <span class="c-kw">as</span> T; }
+}
+
+<span class="c-cm">// 2. 终态落盘期（toolcall_end）：严禁 partialParse 猜括号。</span>
+<span class="c-cm">// 仅调 repairJson 修复字符串内未转义换行/控制字符；若结构残缺则抛错交由内核自愈</span>
+<span class="c-kw">export function</span> <span class="c-fn">parseToolCallArguments</span>(raw: <span class="c-kw">string</span> | <span class="c-kw">undefined</span>): ParsedToolCallArguments {
+  <span class="c-kw">try</span> { <span class="c-kw">return</span> { args: JSON.<span class="c-fn">parse</span>(raw) }; } <span class="c-kw">catch</span> (firstErr) {
+    <span class="c-kw">try</span> {
+      <span class="c-kw">return</span> { args: JSON.<span class="c-fn">parse</span>(<span class="c-fn">repairJson</span>(raw)) };
+    } <span class="c-kw">catch</span> {
+      <span class="c-kw">return</span> { args: {}, error: firstErr <span class="c-kw">instanceof</span> Error ? firstErr : <span class="c-kw">new</span> <span class="c-fn">Error</span>(<span class="c-fn">String</span>(firstErr)) };
+    }
+  }
+}</code></pre>
+            </div>
+
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📄 packages/coding-agent/src/core/tools/bash.ts · AbortSignal 递归杀进程树</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-killtree', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-killtree"><code><span class="c-cm">// 为什么不能只调 child.kill()？因为 bash -c "npm test" 会派生多级孙进程，</span>
+<span class="c-cm">// 仅杀顶层 shell 会导致孙进程变成孤儿继续占满 CPU 和端口。</span>
+<span class="c-kw">const</span> onAbort = () =&gt; {
+  aborted = <span class="c-kw">true</span>;
+  <span class="c-kw">if</span> (child.pid) {
+    <span class="c-cm">// killProcessTree 在 Unix 下向负进程组 (-pid) 发送 SIGTERM/SIGKILL，</span>
+    <span class="c-cm">// 在 Windows 下调用 taskkill /F /T /PID 递归清理整棵进程树</span>
+    <span class="c-fn">killProcessTree</span>(child.pid);
+  }
+};
+<span class="c-kw">if</span> (signal) {
+  <span class="c-kw">if</span> (signal.aborted) <span class="c-fn">onAbort</span>();
+  <span class="c-kw">else</span> signal.<span class="c-fn">addEventListener</span>(<span class="c-str">"abort"</span>, onAbort, { once: <span class="c-kw">true</span> });
+}</code></pre>
+            </div>
+          </div>
+
+          <!-- 三种运行期干预机制对比表 -->
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:16%">运行期干预方式</th>
+                  <th style="width:20%">用户触发场景</th>
+                  <th style="width:28%">源码消费位置与时机</th>
+                  <th style="width:36%">对上下文与工具状态的影响</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>① 强制终止（Abort）</strong></td>
+                  <td>按 <code>Esc</code> 或 <code>Ctrl+C</code> 紧急叫停</td>
+                  <td><code>AbortController.abort()</code> 透传至 <code>streamFn</code> 与工具 <code>signal</code></td>
+                  <td>立即中断 HTTP 流并调 <code>killProcessTree(pid)</code> 杀进程树；半截消息标记为 <code>stopReason: "aborted"</code>，下轮跨模型请求前由 <code>transformMessages</code> 自动剔除。</td>
+                </tr>
+                <tr>
+                  <td><strong>② 立即插话（Steering）</strong></td>
+                  <td>运行中敲入纠偏要求（如“别删日志”）</td>
+                  <td><strong>内层循环末尾</strong> <code>getSteeringMessages()</code>（L130 / L159 / L304）</td>
+                  <td>无需中断当前正在执行的单个工具；待该工具一返回，立即将用户消息塞入 <code>pendingMessages</code>，在下一次模型请求中马上改变方向。</td>
+                </tr>
+                <tr>
+                  <td><strong>③ 排队追加（Follow-up）</strong></td>
+                  <td>提前排入下一步任务（如“修完补个测试”）</td>
+                  <td><strong>外层循环末尾</strong> <code>getFollowUpMessages()</code>（L311）</td>
+                  <td>内层循环期间完全静默；直到模型认为当前任务已完成（<code>hasMoreToolCalls === false</code> 且无 Steering），才由外层取出开启新一轮内层循环。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             PART 02: 工具执行防线、并发控制与脚本沙箱
+             ==================================================================== -->
+        <div class="wb-sec-header" id="tools" style="background:var(--plop-periwinkle);">
+          <span class="wb-sec-num">02</span>
+          <span class="wb-sec-title">工具执行防线、并发控制与脚本沙箱 · 三道防线自愈、模糊 Diff、同文件写锁与 QuickJS</span>
+          <span class="plop-tag tomato">RESILIENT TOOLING &amp; SANDBOX · agent + coding-agent + codemode</span>
+        </div>
+
+        <!-- 02.1 · 工具调用报错怎么办？内核三道防线与 1:1 配对自愈 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🛡️ 02.1 · 工具容错与自愈机制（agent-loop.ts）：截断拒止、pi-schema Schema 校验与 1:1 toolCallId 错误回填</div>
+          <h3>💡 02.1 工具执行三道防线与 1:1 toolCallId 结构化错误自愈闭环</h3>
+
+          <p>
+            大模型调用工具时存在三类高频故障：① 输出大段代码时撞上 <code>max_tokens</code> 输出上限（<code>stopReason === "length"</code>），导致工具参数在半截被截断；② 传错了参数类型或漏填必填字段，或者触发了高危命令拦截；③ 参数结构合法，但工具在运行期抛出异常（例如 <code>edit</code> 在文件中找不到 <code>oldText</code>、或者找到了多处相同的 <code>oldText</code> 无法唯一定位）。<br>
+            如果宿主直接向调用栈外层 <code>throw Error</code>，不仅会导致整个会话崩溃，更致命的是会在消息历史中留下一条<strong>没有配对 <code>toolResult</code> 的孤立 <code>toolCall</code></strong>——当用户下一轮继续发消息时，Anthropic 或 OpenAI API 会因为违反“每个 <code>tool_use</code> 必须紧跟 <code>tool_result</code>”的协议约束而直接拒绝请求（HTTP 400）。因此，Pi 在 <code>agent-loop.ts</code> 中设立了<strong>三道递进防线</strong>，确保任何报错都被转化为携带相同 <code>toolCallId</code> 且标记 <code>isError: true</code> 的结构化消息送回给模型，驱动模型在下一轮内层循环自我修正：
+          </p>
+
+          <!-- SVG 图 3: 工具执行三道防线与 1:1 配对自愈流水线 -->
+          <svg viewBox="0 0 960 280" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="工具执行三道防线与 1:1 toolCallId 自愈流程图">
+            <defs>
+              <marker id="t-arr" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="var(--plop-ink)" />
+              </marker>
+              <marker id="t-arr-red" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="#D2381E" />
+              </marker>
+            </defs>
+
+            <!-- 正交连接线 (先画线后画框) -->
+            <!-- Gate 1 -> Gate 2 -->
+            <path d="M 236 86 L 268 86" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#t-arr)" />
+            <!-- Gate 2 -> Gate 3 -->
+            <path d="M 488 86 L 520 86" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#t-arr)" />
+            <!-- Gate 3 -> Success -->
+            <path d="M 740 86 L 772 86" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#t-arr)" />
+
+            <!-- 3 条向下汇入自愈总线的报错路径 -->
+            <path d="M 130 138 L 130 202 Q 130 210 138 210 L 220 210" fill="none" stroke="#D2381E" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#t-arr-red)" />
+            <path d="M 378 138 L 378 176" fill="none" stroke="#D2381E" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#t-arr-red)" />
+            <path d="M 630 138 L 630 202 Q 630 210 622 210 L 560 210" fill="none" stroke="#D2381E" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#t-arr-red)" />
+
+            <!-- 自愈总线 -> 回到下一轮内层循环 -->
+            <path d="M 560 224 L 772 224" fill="none" stroke="#D2381E" stroke-width="2.2" marker-end="url(#t-arr-red)" />
+            <path d="M 856 138 L 856 196" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#t-arr)" />
+
+            <!-- 节点框 -->
+            <!-- Gate 1 -->
+            <rect x="24" y="34" width="212" height="104" rx="9" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="130" y="56" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">防线 ① · 截断批次拒止</text>
+            <text x="130" y="74" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="800">stopReason === "length"</text>
+            <text x="130" y="94" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">failToolCallsFromTruncated</text>
+            <text x="130" y="112" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">整批跳过执行，防残缺参数写盘</text>
+
+            <!-- Gate 2 -->
+            <rect x="268" y="34" width="220" height="104" rx="9" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="378" y="56" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">防线 ② · Schema 与前置审批</text>
+            <text x="378" y="74" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="800">prepareToolCall()</text>
+            <text x="378" y="94" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">检查 argumentsError ➔ pi-schema 校验</text>
+            <text x="378" y="112" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">➔ hookBeforeToolCall 策略拦截</text>
+
+            <!-- Gate 3 -->
+            <rect x="520" y="34" width="220" height="104" rx="9" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="630" y="56" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">防线 ③ · 运行期异常捕获</text>
+            <text x="630" y="74" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="800">executePreparedToolCall()</text>
+            <text x="630" y="94" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">try { tool.execute() } catch (err)</text>
+            <text x="630" y="112" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">排空 updateEvents 后封装错误文本</text>
+
+            <!-- Normal Success -->
+            <rect x="772" y="34" width="164" height="104" rx="9" fill="#E9F9F1" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="854" y="64" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">✓ 正常执行完成</text>
+            <text x="854" y="86" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10" font-weight="800">isError: false</text>
+            <text x="854" y="106" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">携带结构化输出与耗时</text>
+
+            <!-- Error Self-Healing Hub -->
+            <rect x="220" y="176" width="340" height="76" rx="10" fill="#FFE8E5" stroke="#D2381E" stroke-width="2.2" />
+            <text x="390" y="200" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11.5" font-weight="900">🚑 createErrorToolResult(reason)</text>
+            <text x="390" y="220" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="9.5" font-weight="800">{ role: "toolResult", toolCallId, isError: true }</text>
+            <text x="390" y="238" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">绝不抛未捕获异常，严格保持 1:1 ID 配对</text>
+
+            <!-- Next Turn Self-Healing -->
+            <rect x="772" y="196" width="164" height="56" rx="9" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="854" y="220" text-anchor="middle" fill="var(--plop-ink)" font-size="11.2" font-weight="900">↺ 回填下一轮内层循环</text>
+            <text x="854" y="238" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="700">模型读报错后先 read 再重试</text>
+          </svg>
+
+          <!-- 源码精读：三道防线 -->
+          <div class="plop-code-box" style="margin-top:14px;">
+            <div class="plop-code-head">
+              <span>📄 packages/agent/src/agent-loop.ts (L488 / L718 / L831) · 工具三道防线核心实现源码</span>
+              <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-toolgates', this)">复制源码</button>
+            </div>
+            <pre class="plop-code-pre" id="code-pi-toolgates"><code><span class="c-cm">// 【防线 ①】L488：当模型输出因 max_tokens (stopReason === "length") 被截断时，整批拒绝执行</span>
+<span class="c-kw">async function</span> <span class="c-fn">failToolCallsFromTruncatedMessage</span>(toolCalls: ToolCall[], emit: AgentEventSink): Promise&lt;ExecutedToolBatch&gt; {
+  <span class="c-kw">const</span> messages: ToolResultMessage[] = [];
+  <span class="c-kw">for</span> (<span class="c-kw">const</span> toolCall <span class="c-kw">of</span> toolCalls) {
+    <span class="c-kw">const</span> result = <span class="c-fn">createErrorToolResult</span>(
+      <span class="c-str">"Tool call skipped because the assistant response was truncated at the token limit; tool arguments may be incomplete."</span>
+    );
+    messages.<span class="c-fn">push</span>(<span class="c-kw">await</span> <span class="c-fn">emitToolResultOutput</span>(toolCall, result, <span class="c-kw">true</span>, <span class="c-num">0</span>, emit));
+  }
+  <span class="c-kw">return</span> { messages, terminate: <span class="c-kw">false</span> };
+}
+
+<span class="c-cm">// 【防线 ②】L718：工具查找 → JSON 解析错误检查 → pi-schema Schema 校验 → hookBeforeToolCall 审批</span>
+<span class="c-kw">async function</span> <span class="c-fn">prepareToolCall</span>(currentContext: AgentContext, assistantMessage: AssistantMessage, toolCall: ToolCall, config: AgentLoopConfig, signal?: AbortSignal): Promise&lt;PreparedToolCallOutcome&gt; {
+  <span class="c-kw">const</span> tool = currentContext.tools?.<span class="c-fn">find</span>((t) =&gt; t.name === toolCall.name);
+  <span class="c-kw">if</span> (!tool) <span class="c-kw">return</span> { kind: <span class="c-str">"immediate"</span>, result: <span class="c-fn">createErrorToolResult</span>(<span class="c-str">`Tool ${toolCall.name} not found`</span>), isError: <span class="c-kw">true</span> };
+  <span class="c-kw">try</span> {
+    <span class="c-kw">if</span> (toolCall.argumentsError) <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">`Invalid tool call arguments: ${toolCall.argumentsError}`</span>);
+    <span class="c-kw">const</span> validatedArgs = <span class="c-fn">validateToolArguments</span>(tool, { ...toolCall, arguments: preparedArgs });
+    <span class="c-kw">if</span> (config.beforeToolCall) {
+      <span class="c-kw">const</span> beforeResult = <span class="c-kw">await</span> config.<span class="c-fn">beforeToolCall</span>({ assistantMessage, toolCall, args: validatedArgs, context: currentContext }, signal);
+      <span class="c-kw">if</span> (beforeResult?.block) <span class="c-kw">return</span> { kind: <span class="c-str">"immediate"</span>, result: <span class="c-fn">createErrorToolResult</span>(beforeResult.reason || <span class="c-str">"Tool execution was blocked"</span>), isError: <span class="c-kw">true</span> };
+    }
+    <span class="c-kw">return</span> { kind: <span class="c-str">"prepared"</span>, toolCall, tool, args: validatedArgs };
+  } <span class="c-kw">catch</span> (error) {
+    <span class="c-kw">return</span> { kind: <span class="c-str">"immediate"</span>, result: <span class="c-fn">createErrorToolResult</span>(error <span class="c-kw">instanceof</span> Error ? error.message : <span class="c-fn">String</span>(error)), isError: <span class="c-kw">true</span> };
+  }
+}
+
+<span class="c-cm">// 【防线 ③】L831：运行期 try/catch 兜底，排空异步进度事件后将 Error 转为 isError: true</span>
+<span class="c-kw">async function</span> <span class="c-fn">executePreparedToolCall</span>(prepared: PreparedToolCall, signal: AbortSignal | <span class="c-kw">undefined</span>, onUpdate: ToolUpdateSink): Promise&lt;ExecutedToolCallOutcome&gt; {
+  <span class="c-kw">const</span> updateEvents: Promise&lt;<span class="c-kw">void</span>&gt;[] = [];
+  <span class="c-kw">let</span> acceptingUpdates = <span class="c-kw">true</span>;
+  <span class="c-kw">try</span> {
+    <span class="c-kw">const</span> result = <span class="c-kw">await</span> prepared.tool.<span class="c-fn">execute</span>(prepared.toolCall.id, prepared.args <span class="c-kw">as never</span>, signal, (partial) =&gt; {
+      <span class="c-kw">if</span> (acceptingUpdates) updateEvents.<span class="c-fn">push</span>(Promise.<span class="c-fn">resolve</span>(<span class="c-fn">onUpdate</span>(partial)));
+    });
+    acceptingUpdates = <span class="c-kw">false</span>;
+    <span class="c-kw">await</span> Promise.<span class="c-fn">all</span>(updateEvents);
+    <span class="c-kw">return</span> { result, isError: result.isError === <span class="c-kw">true</span>, durationMs: <span class="c-num">0</span> };
+  } <span class="c-kw">catch</span> (error) {
+    acceptingUpdates = <span class="c-kw">false</span>;
+    <span class="c-kw">await</span> Promise.<span class="c-fn">all</span>(updateEvents);
+    <span class="c-kw">return</span> { result: <span class="c-fn">createErrorToolResult</span>(error <span class="c-kw">instanceof</span> Error ? error.message : <span class="c-fn">String</span>(error)), isError: <span class="c-kw">true</span>, durationMs: <span class="c-num">0</span> };
+  }
+}</code></pre>
+          </div>
+        </div>
+
+        <!-- 02.2 · 编码工具的四个生产级细节：模糊 Diff、同文件写锁、保尾截断与 QuickJS 沙箱 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">🔧 02.2 · 宿主工具工程细节：edit-diff 模糊匹配、同文件写锁、bash 保尾截断与 codemode QuickJS 沙箱</div>
+          <h3>🔬 02.2 编码工具层的四项工程设计：模糊匹配、同文件写锁、保尾截断与隔离沙箱</h3>
+
+          <p>
+            很多开发者写完 Agent Loop 后发现模型改代码经常失败、并发修改同一文件会互相覆盖、或者跑一次测试就把上下文撑爆。这些问题全部解决在 <code>packages/coding-agent/src/core/tools/</code> 与 <code>packages/codemode/</code> 的四个具体源码文件中：
+          </p>
+
+          <div class="wb-grid-2" style="margin:14px 0;">
+            <!-- 细节 1: edit-diff.ts -->
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>① edit-diff.ts (L66–L175) · BOM/CRLF 保护与模糊匹配</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-editdiff', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-editdiff"><code><span class="c-cm">// 模型输出的 oldText 常带行尾空格差异或弯引号。</span>
+<span class="c-cm">// fuzzyFindText 先尝试精确 indexOf，未命中则对每行 trimEnd</span>
+<span class="c-cm">// 并将弯引号/破折号/特殊 Unicode 空格归一化后再匹配：</span>
+<span class="c-kw">export function</span> <span class="c-fn">normalizeForFuzzyMatch</span>(text: <span class="c-kw">string</span>): <span class="c-kw">string</span> {
+  <span class="c-kw">return</span> text.<span class="c-fn">normalize</span>(<span class="c-str">"NFKC"</span>)
+    .<span class="c-fn">split</span>(<span class="c-str">"\n"</span>).<span class="c-fn">map</span>((line) =&gt; line.<span class="c-fn">trimEnd</span>()).<span class="c-fn">join</span>(<span class="c-str">"\n"</span>)
+    .<span class="c-fn">replace</span>(<span class="c-str">/[\u2018\u2019\u201A\u201B]/g</span>, <span class="c-str">"'"</span>)
+    .<span class="c-fn">replace</span>(<span class="c-str">/[\u201C\u201D\u201E\u201F]/g</span>, <span class="c-str">'"'</span>)
+    .<span class="c-fn">replace</span>(<span class="c-str">/[\u2010-\u2015\u2212]/g</span>, <span class="c-str">"-"</span>)
+    .<span class="c-fn">replace</span>(<span class="c-str">/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g</span>, <span class="c-str">" "</span>);
+}
+<span class="c-cm">// 替换后再通过 restoreLineEndings 还原原文件的 CRLF 与 UTF-8 BOM。</span>
+<span class="c-cm">// 若 fuzzy 匹配出现 occurrences > 1，抛错要求模型提供更多上下文行。</span></code></pre>
+            </div>
+
+            <!-- 细节 2: file-mutation-queue.ts -->
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>② file-mutation-queue.ts (L32–L61) · 按文件绝对路径串行排队</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-filequeue', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-filequeue"><code><span class="c-cm">// 模型同一轮并发发出两个 edit("src/login.ts") 时，若同时读旧文件</span>
+<span class="c-cm">// 写回，后完成的会覆盖先完成的修改。按 realpath 维护 Promise 链：</span>
+<span class="c-kw">const</span> fileQueues = <span class="c-kw">new</span> <span class="c-fn">Map</span>&lt;<span class="c-kw">string</span>, Promise&lt;<span class="c-kw">void</span>&gt;&gt;();
+
+<span class="c-kw">export async function</span> <span class="c-fn">withFileMutationQueue</span>&lt;T&gt;(filePath: <span class="c-kw">string</span>, fn: () =&gt; Promise&lt;T&gt;): Promise&lt;T&gt; {
+  <span class="c-kw">const</span> key = <span class="c-kw">await</span> <span class="c-fn"> getCanonicalPath</span>(filePath);
+  <span class="c-kw">const</span> prev = fileQueues.<span class="c-fn">get</span>(key) ?? Promise.<span class="c-fn">resolve</span>();
+  <span class="c-kw">let</span> releaseNext!: () =&gt; <span class="c-kw">void</span>;
+  <span class="c-kw">const</span> current = <span class="c-kw">new</span> <span class="c-fn">Promise</span>&lt;<span class="c-kw">void</span>&gt;((r) =&gt; { releaseNext = r; });
+  fileQueues.<span class="c-fn">set</span>(key, prev.<span class="c-fn">then</span>(() =&gt; current));
+  <span class="c-kw">await</span> prev; <span class="c-cm">// 同文件严格等待前驱完成；不同文件 key 互不阻塞。</span>
+  <span class="c-kw">try</span> { <span class="c-kw">return await</span> <span class="c-fn">fn</span>(); } <span class="c-kw">finally</span> { <span class="c-fn">releaseNext</span>(); }
+}</code></pre>
+            </div>
+          </div>
+
+          <div class="wb-grid-2" style="margin:14px 0;">
+            <!-- 细节 3: truncate.ts (truncateHead vs truncateTail) -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span class="plop-tag mint">③ truncate.ts · 读文件保头 vs 跑命令保尾</span>
+                <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">2000行 / 50KB</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;"><code>read</code> 头部截断（<code>truncateHead</code>）与 <code>bash</code> 尾部截断（<code>truncateTail</code>）的差异</div>
+              <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.65;">
+                • <strong>读源码文件（<code>read.ts</code>）</strong>：文件的 <code>import</code> 声明、类型定义和模块主入口都在文件开头，因此超长时保留前 2000 行 / 50KB（<code>truncateHead</code>），并在尾部提示模型用 <code>offset + limit</code> 分页续读。<br>
+                • <strong>跑测试/构建命令（<code>bash.ts</code>）</strong>：编译与测试工具前面几万行全是进度日志，<strong>真正的崩溃堆栈（Stack Trace）和失败断言永远在输出最末尾</strong>。因此 <code>bash.ts</code> 调用 <code>truncateTail</code> 截取最后 2000 行 / 50KB，同时把完整的未截断输出写入系统临时文件（<code>/tmp/pi-bash-xxx.log</code>），在返回末尾附上该路径供模型按需检索。
+              </p>
+            </div>
+
+            <!-- 细节 4: codemode QuickJS Wasm VM -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span class="plop-tag periwinkle">④ packages/codemode · QuickJS Wasm 沙箱</span>
+                <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">64MB / 30s</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">把 10 轮 JSON 工具往返合并为 1 段隔离脚本（Programmatic Tool Calling）</div>
+              <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.65;">
+                当需要批量查询并过滤数据（如遍历 30 个 Issue 找出提到 <code>login.ts</code> 的条目）时，传统 JSON Tool Call 需要把 30 个 Issue 全塞进主上下文跑多轮。<br>
+                启用 <code>codemode</code> 后，<code>declarations.ts</code> 将工具转成 TS 签名，模型直接写一段 JS 代码在 <strong>QuickJS Wasm 虚拟机</strong>（<code>vm.ts</code>，限制 <code>memoryLimitBytes = 64MB</code>、执行超时 <code>30s</code>，无直接文件/网络权限）中运行，通过宿主桥接函数调用工具并在沙箱内完成过滤，最终只把筛选出的几百字节结果返回主上下文。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             PART 03: 上下文工程、会话树与缓存经济学
+             ==================================================================== -->
+        <div class="wb-sec-header" id="context" style="background:var(--plop-bubblegum);">
+          <span class="wb-sec-num">03</span>
+          <span class="wb-sec-title">上下文工程、会话树与缓存经济学 · 分支回溯、安全切分压缩、Prefix Cache 与跨模型清洗</span>
+          <span class="plop-tag tomato">CONTEXT &amp; CACHE ENGINEERING · session + compaction + transform</span>
+        </div>
+
+        <!-- 03.1 · 树状会话历史与跨分支 LCA 回溯摘要 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🌳 03.1 · 会话树持久化（session-manager.ts）与跨分支 LCA 回溯摘要（branch-summarization.ts）</div>
+          <h3>💡 03.1 基于 id / parentId 的只追加会话树与跨分支 LCA 回溯摘要</h3>
+
+          <p>
+            在排查复杂 Bug 时，开发者经常会带着 Agent 试探某个方向（比如尝试方案 A 修改认证中间件），走了五六轮后发现是个死胡同，希望<strong>退回到第 2 轮的分叉点改试方案 B</strong>。<br>
+            如果会话文件只是线性数组，回退就意味着物理删除方案 A 的历史记录，或者把死胡同里上万 Token 的错误代码留在上下文里继续干扰模型。Pi 在 <a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/session-manager.ts#L390-L416" target="_blank" rel="noopener"><code>session-manager.ts</code> ↗</a> 中将 <code>session.jsonl</code> 设计为<strong>只追加（Append-Only）的有向树</strong>：每条记录都带有 <code>id</code> 和 <code>parentId</code>，并维护当前分支指针 <code>leafId</code>。
+          </p>
+
+          <div class="wb-grid-2" style="margin:14px 0;">
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📄 session-manager.ts (L390–L415) · 沿 leafId 逆向回溯当前分支</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-sessiontree', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-sessiontree"><code><span class="c-cm">// 磁盘上的 session.jsonl 完整保留所有探索分支（e1←e2←e3 与 e2←e4），</span>
+<span class="c-cm">// 构建模型上下文时，从当前 leafId 沿 parentId 向上回溯再 reverse()：</span>
+<span class="c-kw">function</span> <span class="c-fn">buildSessionPath</span>(
+  entries: SessionEntry[],
+  leafId?: <span class="c-kw">string</span> | <span class="c-kw">null</span>,
+  byId?: Map&lt;<span class="c-kw">string</span>, SessionEntry&gt;,
+): SessionEntry[] {
+  <span class="c-kw">const</span> index = <span class="c-fn">buildEntryIndex</span>(entries, byId);
+  <span class="c-kw">let</span> current = leafId ? index.<span class="c-fn">get</span>(leafId) : entries[entries.length - <span class="c-num">1</span>];
+  <span class="c-kw">const</span> path: SessionEntry[] = [];
+  <span class="c-kw">while</span> (current) {
+    path.<span class="c-fn">push</span>(current);
+    current = current.parentId ? index.<span class="c-fn">get</span>(current.parentId) : <span class="c-kw">undefined</span>;
+  }
+  path.<span class="c-fn">reverse</span>(); <span class="c-cm">// 反转为从根到当前叶子的时间顺序</span>
+  <span class="c-kw">return</span> path;
+}</code></pre>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; display:flex; flex-direction:column; justify-content:center;">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">🌿 进阶联动：切分支时保留废弃分支探索经验的 LCA 摘要机制（<code>branch-summarization.ts</code>）</div>
+              <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.65;">
+                1. <strong>寻找最近公共祖先（LCA）</strong>：当用户用 <code>/tree</code> 从废弃分支 <code>oldLeafId</code> 切回旧节点開啟新分支时，<code>collectEntriesForBranchSummary()</code> 对比两条路径的交集，定位最近公共祖先。<br>
+                2. <strong>跨分支经验嫁接</strong>：提取从 LCA 到 <code>oldLeafId</code> 之间的探索记录，浓缩成一条 <code>&lt;summary&gt;</code> 节点挂载到新分支起点——<strong>既清除了死胡同里的冗长错误代码，又把“为什么方案 A 走不通”的结论带进了方案 B</strong>。<br>
+                3. <strong>重要边界</strong>：切换会话分支只改变发送给模型的内存上下文，<strong>不会自动回滚磁盘上已修改的代码文件</strong>（文件回滚需配合 Git）。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 03.2 · 上下文压缩怎么压、哪些信息绝不能丢？ -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">🗜️ 03.2 · 上下文压缩具体执行逻辑（compaction.ts &amp; utils.ts &amp; session-manager.ts）：从混合 Token 核算、逆向切分、剧本化脱水到重投影</div>
+          <h3>🔬 03.2 上下文压缩完整 6 步源码逻辑：安全切分、防续写剧本化脱水、腰斩回合双路合并与重投影</h3>
+
+          <p>
+            当长任务持续读写文件导致 Token 逼近模型窗口上限时，必须对旧历史做压缩（Compaction）。很多简单 Agent 直接把前一半 `messages` 原样丢给模型说“请总结上面的对话”，结果经常遇到三个严重问题：① 切分点恰好落在 `toolResult` 上，导致保留段首条 `toolResult` 失去前置 `assistant(toolCall)` 被 API 报 HTTP 400 拒绝；② 摘要模型看到多轮对话格式后，误以为轮到自己干活而直接“接话续写”甚至发出 `toolCall`；③ 单轮连续调了 30 次工具，切点落在半回合中间导致前因后果断裂。<br>
+            在 <a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/compaction/compaction.ts" target="_blank" rel="noopener"><code>compaction.ts</code> ↗</a>、<a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/compaction/utils.ts" target="_blank" rel="noopener"><code>compaction/utils.ts</code> ↗</a> 与 <a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/session-manager.ts#L476-L512" target="_blank" rel="noopener"><code>session-manager.ts</code> ↗</a> 中，Pi 用一套严密的 <strong>6 步流水线</strong>解决了全部边界问题：
+          </p>
+
+          <!-- SVG 图 4: 安全切分点与 6 段式压缩 + 文件足迹提取流水线 -->
+          <svg viewBox="0 0 960 320" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="上下文安全切分点与 6 段式压缩流水线图">
+            <defs>
+              <marker id="c-arr" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="var(--plop-ink)" />
+              </marker>
+              <marker id="c-arr-red" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="#D2381E" />
+              </marker>
+            </defs>
+
+            <!-- 上半部分：消息序列与 findCutPoint 切分示意 -->
+            <rect x="20" y="16" width="920" height="128" rx="10" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="36" y="38" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">✂️ Step 1 &amp; 2 · 逆向切分：从后往前攒够 keepRecentTokens (20,000)，且严禁切在 toolResult 消息上</text>
+
+            <!-- 消息块序列 -->
+            <rect x="36" y="68" width="120" height="58" rx="7" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6" />
+            <text x="96" y="91" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="800">msg[0..8]</text>
+            <text x="96" y="110" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">旧历史 (待压缩)</text>
+
+            <rect x="176" y="68" width="150" height="58" rx="7" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.6" />
+            <text x="251" y="91" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="800">msg[9] assistant</text>
+            <text x="251" y="110" text-anchor="middle" fill="#1F8A65" font-size="9.5" font-weight="800">含 toolCall (合法切点 ✓)</text>
+
+            <rect x="346" y="68" width="160" height="58" rx="7" fill="#FFE8E5" stroke="#D2381E" stroke-width="2" stroke-dasharray="4 2" />
+            <text x="426" y="91" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.5" font-weight="900">msg[10] toolResult</text>
+            <text x="426" y="110" text-anchor="middle" fill="#D2381E" font-size="10" font-weight="800">⛔ 严禁切分。否则成孤儿</text>
+
+            <!-- 安全切分线与独立标签行 -->
+            <line x1="526" y1="62" x2="526" y2="134" stroke="#1F8A65" stroke-width="3" stroke-dasharray="5 3" />
+            <rect x="482" y="44" width="88" height="19" rx="5" fill="#1F8A65" />
+            <text x="526" y="57" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="9.8" font-weight="900">安全切点 ✓</text>
+
+            <rect x="546" y="68" width="174" height="58" rx="7" fill="#E9F9F1" stroke="#1F8A65" stroke-width="1.8" />
+            <text x="633" y="91" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="9.6" font-weight="900">msg[11] user / assistant</text>
+            <text x="633" y="110" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="700">firstKeptEntryId 起点</text>
+
+            <rect x="740" y="68" width="180" height="58" rx="7" fill="#E9F9F1" stroke="#1F8A65" stroke-width="1.8" />
+            <text x="830" y="91" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.5" font-weight="900">msg[12..N] 近期消息</text>
+            <text x="830" y="110" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="700">原样保留 (≈ 20,000 tok)</text>
+
+            <!-- 下半部分连线 (先画线后画框) -->
+            <path d="M 164 144 L 164 176" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#c-arr)" />
+            <path d="M 320 236 L 356 236" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#c-arr)" />
+            <path d="M 628 236 L 664 236" fill="none" stroke="#D2381E" stroke-width="2.2" marker-end="url(#c-arr-red)" />
+
+            <!-- 下半部分 3 个处理框 -->
+            <rect x="20" y="176" width="300" height="124" rx="10" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="170" y="198" text-anchor="middle" fill="var(--plop-ink)" font-size="12" font-weight="900">Step 3 &amp; 4 · 剧本化脱水与 6 段式增量摘要</text>
+            <text x="170" y="217" text-anchor="middle" fill="#D2381E" font-size="10" font-weight="800">剥离 thinking + 截断 2000 字工具输出防续写</text>
+            <text x="34" y="238" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">1. Goal (目标) · 2. Constraints (约束与偏好)</text>
+            <text x="34" y="256" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">3. Progress (Done / In Progress / Blocked)</text>
+            <text x="34" y="274" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">4. Key Decisions · 5. Next Steps · 6. Context</text>
+
+            <rect x="356" y="176" width="272" height="124" rx="10" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="492" y="198" text-anchor="middle" fill="var(--plop-ink)" font-size="12" font-weight="900">Step 5 · 确定性提取读写文件足迹</text>
+            <text x="492" y="217" text-anchor="middle" fill="#1F8A65" font-size="10" font-weight="800">宿主代码直接扫描工具调用与 nestedCalls</text>
+            <text x="370" y="238" fill="var(--plop-ink-soft)" font-size="10.5" font-weight="700">• 绝不依赖大模型凭记忆默写文件路径</text>
+            <text x="370" y="256" fill="var(--plop-ink-soft)" font-size="10.5" font-weight="700">• 区分只读未改文件 vs 已写/已改文件</text>
+            <text x="370" y="274" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="10" font-weight="800">追加 &lt;read-files&gt; 与 &lt;modified-files&gt;</text>
+
+            <rect x="664" y="176" width="276" height="124" rx="10" fill="#FFE8E5" stroke="#D2381E" stroke-width="2.2" />
+            <text x="802" y="198" text-anchor="middle" fill="#D2381E" font-size="12" font-weight="900">Step 6 · 写入压缩节点并重投影上下文</text>
+            <text x="802" y="217" text-anchor="middle" fill="var(--plop-ink)" font-size="10" font-weight="800">buildContextEntries 跳过已压缩旧节点</text>
+            <text x="678" y="238" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">• 若切在单轮中途 (isSplitTurn = true)：</text>
+            <text x="678" y="256" fill="var(--plop-ink-text)" font-size="10.5" font-weight="700">  合并「历史摘要 + Turn Context 半回合摘要」</text>
+            <text x="678" y="274" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="9.2" font-weight="800">[compaction.systemMsg, Summary, ...保留段]</text>
+          </svg>
+
+          <!-- 6 步具体逻辑拆解表 -->
+          <div class="table-wrap" style="margin:14px 0;">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">压缩执行阶段</th>
+                  <th style="width:26%">对应源码函数与位置</th>
+                  <th>具体执行逻辑与边界处理细节</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>① 混合 Token 核算与双通道触发</strong></td>
+                  <td><code>estimateProjectedContextTokens()</code><br><code>shouldCompact()</code> · <code>overflow.ts</code></td>
+                  <td>• <strong>怎么算 Token？</strong>不跑慢速全量 Tokenizer：找最近一条有效 <code>assistant</code> 消息（排除 <code>aborted/error</code>，且必须晚于最近一次 <code>compaction</code> 或 <code>context_edit</code>）的真实服务端 <code>usage</code>（<code>input + output + cacheRead + cacheWrite</code>），再加上其后新增尾部消息按 <code>Math.ceil(chars / 4)</code> 的保守估算值（图片按 <code>4800 chars ≈ 1200 tokens</code> 折算）。<br>• <strong>何时触发？</strong>① <strong>主动水位线</strong>：每轮结束在 <code>prepareNextTurn</code> 判断 <code>contextTokens &gt; contextWindow - reserveTokens</code>（默认预留 <code>16,384</code> tokens）；② <strong>被动溢出兜底</strong>：单次工具读大文件击穿窗口上限时，<code>isContextOverflow()</code> 匹配 25+ 厂商错误正则（并用 <code>NON_OVERFLOW_PATTERNS</code> 排除 AWS Bedrock 日配额耗尽假阳性）立即压缩重试。</td>
+                </tr>
+                <tr>
+                  <td><strong>② 增量边界定位与逆向切分</strong></td>
+                  <td><code>prepareCompaction()</code><br><code>findProjectedCutPoint()</code><br>（<code>compaction.ts:L446 / L789</code>）</td>
+                  <td>• <strong>只压新增区间</strong>：在会话投影中定位上一次压缩点 <code>prevCompactionIndex</code>，将本次扫描起点设为 <code>boundaryStart = prevCompactionIndex + 1</code>，同时提取上次的 <code>previousSummary</code>，绝不重复扫描已压过的旧历史。<br>• <strong>倒序累加保留近期原文</strong>：从最新消息倒着累加 Token 直至达到 <code>keepRecentTokens</code>（默认 <code>20,000</code> tokens），然后向后吸附到最近的合法切点 <code>cutPoints.find(c =&gt; c &gt;= i)</code>。<br>• <strong>铁律 1（禁切 <code>toolResult</code>）</strong>：<code>isCutPointMessage</code> 规定 <code>toolResult</code> 为非法切点；若末尾全是超大 <code>toolResult</code>，宁可把前面的 <code>assistant(toolCall)</code> 一起保留，也绝不制造孤儿 <code>toolResult</code>。<br>• <strong>铁律 2（腰斩回合拆分 <code>isSplitTurn</code>）</strong>：若切点落在某轮中间的 <code>assistant</code> 消息上（<code>!isTurnStartEntry</code>），向前找到该轮起点的 <code>user</code> 消息 <code>turnStartIndex</code>，将待压缩段拆分为 <code>messagesToSummarize</code>（<code>[boundaryStart, turnStartIndex)</code> 之前整轮历史）与 <code>turnPrefixMessages</code>（<code>[turnStartIndex, cutIndex)</code> 当前半截回合前缀）。</td>
+                </tr>
+                <tr>
+                  <td><strong>③ 剧本化防续写脱水与完整性门禁</strong></td>
+                  <td><code>serializeConversation()</code><br><code>completeSummarization()</code><br>（<code>utils.ts:L120 · compaction.ts:L585</code>）</td>
+                  <td>• <strong>为什么不能直接传 <code>messages</code> 数组？</strong>若直接发多轮对话消息，大模型会本能地认为“轮到我继续干活了”而直接续写回答甚至发起工具调用。<br>• <strong>剧本化压平与两项脱水</strong>：先转为纯文本剧本（<code>[User]: ...</code>、<code>[Assistant tool calls]: read(path="...")</code>、<code>[Tool result]: ...</code>）包裹进 <code>&lt;conversation&gt;</code> 标签；同时<strong>① 彻底丢弃 <code>thinking</code> 推理块</strong>（防思考过程撑爆摘要请求），<strong>② 单条 <code>toolResult</code> 超过 <code>2000</code> 字符直接截断</strong>（<code>truncateForSummary</code>）。<br>• <strong>防缓存污染与残缺拒止</strong>：摘要请求强制设 <code>cacheRetention: "none"</code>（省去无意义的 Cache Write 成本）；若返回的摘要 <code>stopReason === "length"</code>（半截截断）或偷偷包含 <code>toolCall</code>，<code>getSummarizationFailure()</code> 立即抛错中止，严禁坏摘要落盘。</td>
+                </tr>
+                <tr>
+                  <td><strong>④ 6 段式增量演进与半回合合并</strong></td>
+                  <td><code>generateSummaryWithUsage()</code><br><code>generateTurnPrefixSummary()</code><br>（<code>compaction.ts:L696 / L980</code>）</td>
+                  <td>• <strong>首次 vs 二次增量演进</strong>：首次压缩用 <code>SUMMARIZATION_PROMPT</code> 生成固定 6 段 Markdown；第二次及以后压缩传入 <code>&lt;previous-summary&gt;</code> 与 <code>UPDATE_SUMMARIZATION_PROMPT</code>，指示模型保留既有背景、将刚完成的条目从 <code>In Progress</code> 移入 <code>Done</code>。<br>• <strong>半回合双路合并</strong>：当 <code>isSplitTurn === true</code> 时，额外调用 <code>generateTurnPrefixSummary()</code> 生成当前回合前半截的 3 段小结（<code>Original Request / Progress So Far / Context Needed to Continue</code>），最后以 <code>\n\n---\n\n**Turn Context (split turn):**\n\n</code> 拼合为一篇完整摘要。</td>
+                </tr>
+                <tr>
+                  <td><strong>⑤ 确定性提取读写文件足迹</strong></td>
+                  <td><code>extractFileOperations()</code><br><code>computeFileLists()</code><br>（<code>compaction.ts:L60 · utils.ts:L30</code>）</td>
+                  <td>• 宿主代码直接遍历上一次 <code>CompactionEntry.details</code>、本次待压缩消息中的 <code>read / write / edit</code> 参数，以及 <strong><code>codemode</code> 脚本在 <code>toolResult.nestedCalls</code> 中发起的嵌套文件调用</strong>。<br>• 将“只读未改（<code>readFiles = read - modified</code>）”与“已修改（<code>modifiedFiles = edited ∪ written</code>）”分别去重排序，硬编码追加 <code>&lt;read-files&gt;</code> 与 <code>&lt;modified-files&gt;</code> 标签。</td>
+                </tr>
+                <tr>
+                  <td><strong>⑥ 会话树落盘与上下文重投影</strong></td>
+                  <td><code>buildContextEntries()</code><br><code>sessionEntryToContextMessages()</code><br>（<code>session-manager.ts:L461 / L476</code>）</td>
+                  <td>• 将 <code>{ type: "compaction", summary, firstKeptEntryId, systemMessage }</code> 写入 <code>session.jsonl</code>（其中 <code>systemMessage</code> 快照了压缩时刻最新的系统提示词与全量可用工具）。<br>• 下一轮 <code>buildContextEntries()</code> 沿着 <code>leafId</code> 路径找到最新一条 <code>compaction</code> 节点，<strong>直接跳过 <code>firstKeptEntryId</code> 之前的所有历史节点</strong>，并过滤掉保留段里旧的 <code>system</code> 消息，最终投影出 <code>[compaction.systemMessage, compactionSummary, ...从 firstKeptEntryId 起的保留消息]</code>。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="wb-grid-2" style="margin-top:14px;">
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📄 compaction.ts (L859–L923) · prepareCompaction 增量边界、切点与半回合拆分源码</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-cutpoint', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-cutpoint"><code><span class="c-kw">export function</span> <span class="c-fn">prepareCompaction</span>(pathEntries: SessionEntry[], settings: CompactionSettings): CompactionPreparation | <span class="c-kw">undefined</span> {
+  <span class="c-kw">const</span> projection = <span class="c-fn">buildSessionProjection</span>(pathEntries);
+  <span class="c-kw">const</span> projectedEntries = projection.entries;
+  <span class="c-cm">// 1. 定位上一次压缩点：只扫描 prevCompactionIndex 之后的新增消息，取出旧摘要做增量合并</span>
+  <span class="c-kw">const</span> prevCompactionIndex = projectedEntries.<span class="c-fn">findIndex</span>(
+    (e) =&gt; e.sourceEntry.type === <span class="c-str">"compaction"</span> &amp;&amp; e.messages.length &gt; <span class="c-num">0</span>,
+  );
+  <span class="c-kw">let</span> previousSummary: <span class="c-kw">string</span> | <span class="c-kw">undefined</span>;
+  <span class="c-kw">let</span> boundaryStart = <span class="c-num">0</span>;
+  <span class="c-kw">if</span> (prevCompactionIndex &gt;= <span class="c-num">0</span>) {
+    previousSummary = (projectedEntries[prevCompactionIndex].sourceEntry <span class="c-kw">as</span> CompactionEntry).summary;
+    boundaryStart = prevCompactionIndex + <span class="c-num">1</span>;
+  }
+
+  <span class="c-cm">// 2. 逆向累加 keepRecentTokens (默认 20,000)，寻找避开 toolResult 的安全切点</span>
+  <span class="c-kw">const</span> cutPoint = <span class="c-fn">findProjectedCutPoint</span>(projectedEntries, boundaryStart, projectedEntries.length, settings.keepRecentTokens);
+  <span class="c-kw">const</span> firstKeptEntryId = projectedEntries[cutPoint.firstKeptEntryIndex]?.sourceEntry.id;
+
+  <span class="c-cm">// 3. 若切点落在单轮中途 (isSplitTurn)，拆分为「历史整轮」与「当前半回合前缀」两段</span>
+  <span class="c-kw">const</span> historyEnd = cutPoint.isSplitTurn ? cutPoint.turnStartIndex : cutPoint.firstKeptEntryIndex;
+  <span class="c-kw">const</span> messagesToSummarize = projectedEntries.<span class="c-fn">slice</span>(boundaryStart, historyEnd).<span class="c-fn">flatMap</span>(getMessagesFromProjectedEntryForCompaction);
+  <span class="c-kw">const</span> turnPrefixMessages = cutPoint.isSplitTurn
+    ? projectedEntries.<span class="c-fn">slice</span>(cutPoint.turnStartIndex, cutPoint.firstKeptEntryIndex).<span class="c-fn">flatMap</span>(getMessagesFromProjectedEntryForCompaction)
+    : [];
+
+  <span class="c-cm">// 4. 确定性提取被压缩区间及上次压缩遗留的所有 read / write / edit 文件路径</span>
+  <span class="c-kw">const</span> fileOps = <span class="c-fn">extractFileOperations</span>(messagesToSummarize, sourceEntries, prevCompactionIndex);
+  <span class="c-kw">if</span> (cutPoint.isSplitTurn) turnPrefixMessages.<span class="c-fn">forEach</span>((m) =&gt; <span class="c-fn">extractFileOpsFromMessage</span>(m, fileOps));
+  <span class="c-kw">return</span> { firstKeptEntryId, messagesToSummarize, turnPrefixMessages, isSplitTurn: cutPoint.isSplitTurn, previousSummary, fileOps, settings };
+}</code></pre>
+            </div>
+
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📄 compaction/utils.ts (L120) &amp; session-manager.ts (L494) · 剧本化脱水与重投影裁剪</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-serialize-proj', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-serialize-proj"><code><span class="c-cm">// 【A. 剧本化脱水 serializeConversation】：剥离 thinking、截断超 2000 字的 toolResult，</span>
+<span class="c-cm">// 压平为纯文本放入 &lt;conversation&gt;，防止摘要模型把历史当成未完对话继续往下接话或调工具</span>
+<span class="c-kw">export function</span> <span class="c-fn">serializeConversation</span>(messages: Message[]): <span class="c-kw">string</span> {
+  <span class="c-kw">const</span> parts: <span class="c-kw">string</span>[] = [];
+  <span class="c-kw">for</span> (<span class="c-kw">const</span> msg <span class="c-kw">of</span> messages) {
+    <span class="c-kw">if</span> (msg.role === <span class="c-str">"user"</span>) parts.<span class="c-fn">push</span>(<span class="c-str">`[User]: ${contentText(msg.content, "")}`</span>);
+    <span class="c-kw">else if</span> (msg.role === <span class="c-str">"assistant"</span>) {
+      <span class="c-cm">// 仅提取 text 与 toolCall 签名，彻底忽略 block.type === "thinking"</span>
+      <span class="c-kw">if</span> (msg.content.<span class="c-fn">some</span>((b) =&gt; b.type === <span class="c-str">"text"</span>)) parts.<span class="c-fn">push</span>(<span class="c-str">`[Assistant]: ${contentText(msg.content)}`</span>);
+      <span class="c-kw">if</span> (toolCalls.length &gt; <span class="c-num">0</span>) parts.<span class="c-fn">push</span>(<span class="c-str">`[Assistant tool calls]: ${toolCalls.join("; ")}`</span>);
+    } <span class="c-kw">else if</span> (msg.role === <span class="c-str">"toolResult"</span>) {
+      parts.<span class="c-fn">push</span>(<span class="c-str">`[Tool result]: ${truncateForSummary(contentText(msg.content, ""), 2000)}`</span>);
+    }
+  }
+  <span class="c-kw">return</span> parts.<span class="c-fn">join</span>(<span class="c-str">"\n\n"</span>);
+}
+
+<span class="c-cm">// 【B. 重投影裁剪 buildContextEntries】：跳过 firstKeptEntryId 之前的旧历史，</span>
+<span class="c-cm">// 并过滤保留段中的旧 system 消息（由 compaction.systemMessage 承载最新提示词与工具集）</span>
+<span class="c-kw">const</span> contextEntries: SessionEntry[] = [compaction];
+<span class="c-kw">let</span> foundFirstKept = <span class="c-kw">false</span>;
+<span class="c-kw">for</span> (<span class="c-kw">let</span> i = <span class="c-num">0</span>; i &lt; compactionIdx; i++) {
+  <span class="c-kw">if</span> (path[i].id === compaction.firstKeptEntryId) foundFirstKept = <span class="c-kw">true</span>;
+  <span class="c-kw">if</span> (foundFirstKept &amp;&amp; !(path[i].type === <span class="c-str">"message"</span> &amp;&amp; path[i].message.role === <span class="c-str">"system"</span>)) {
+    contextEntries.<span class="c-fn">push</span>(path[i]);
+  }
+}
+contextEntries.<span class="c-fn">push</span>(...path.<span class="c-fn">slice</span>(compactionIdx + <span class="c-num">1</span>));</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- 03.3 · 工具怎么动态追加？针对不同模型（包括不允许中途追加/删除的模型）怎么处理？ -->
+        <div class="wb-card" id="tool-appending" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mustard"></div>
+          <div class="chapter-q-pill">🔧 03.3 · 动态工具追加与多模型降级策略（agent-loop.ts &amp; transcript.ts）：队尾 Delta 记账与 4 类模型协议（changes / additions / none）自适应折叠</div>
+          <h3>🔬 03.3 工具怎么动态追加？针对不同模型（含不允许追加/删除的模型）的 4 级适配方案</h3>
+
+          <p>
+            在 Coding Agent 运行中途，可用工具集经常会动态改变——例如模型调用 <code>tool_search</code>（BM25 检索）按需挂载了 3 个隐藏的 MCP 工具、用户开启 <code>plan-mode</code> 剥夺了 <code>edit / write</code> 工具，或扩展调用了 <code>pi.setActiveTools()</code>。<br>
+            这里存在一个尖锐的工程矛盾：<strong>为了保住前序几万 Token 的 Prefix KV Cache，我们希望只在对话队尾追加一条“工具变更增量”，绝不回头修改请求头部的顶层 <code>params.tools</code>；但不同模型厂商对“对话中途能不能插 <code>system</code> 消息”和“能不能中途增删工具”的底层协议限制完全不同</strong>。<br>
+            为此，Pi 在 <a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/agent/src/agent-loop.ts#L342-L375" target="_blank" rel="noopener"><code>agent-loop.ts</code> ↗</a> 与 <a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/ai/src/utils/transcript.ts#L144-L263" target="_blank" rel="noopener"><code>packages/ai/src/utils/transcript.ts</code> ↗</a> 中设计了<strong>「内核层统一队尾 Delta 记账 ➔ 协议层按模型能力 4 级自适应折算（<code>resolveTranscriptTools</code>）」</strong>的双层架构：
+          </p>
+
+          <!-- SVG 图: 工具动态追加的双层架构与 4 类模型分流处理图 -->
+          <svg viewBox="0 0 960 350" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="动态工具追加的队尾增量记账与四类模型协议自适应折叠流程图">
+            <defs>
+              <marker id="ta-arr" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="var(--plop-ink)" />
+              </marker>
+              <marker id="ta-arr-red" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="#D2381E" />
+              </marker>
+            </defs>
+
+            <!-- 正交连接线 (先画线后画框) -->
+            <!-- Top Row: Step 1 -> Step 2 -->
+            <path d="M 452 68 L 496 68" fill="none" stroke="#D2381E" stroke-width="2.2" marker-end="url(#ta-arr-red)" />
+            <!-- Step 2向下扇出到 4 类模型协议分支 (y=120 -> y=148 总线 -> 4 个分支点 y=176) -->
+            <path d="M 560 120 L 560 146 L 128 146 Q 120 146 120 154 L 120 176" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#ta-arr)" />
+            <path d="M 660 120 L 660 154 L 360 154 Q 352 154 352 162 L 352 176" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#ta-arr)" />
+            <path d="M 760 120 L 760 154 L 592 154 Q 584 154 584 162 L 584 176" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#ta-arr)" />
+            <path d="M 848 120 L 848 176" fill="none" stroke="#D2381E" stroke-width="2.2" marker-end="url(#ta-arr-red)" />
+
+            <!-- Top Left: 第一层 内核统一记账 -->
+            <rect x="20" y="18" width="432" height="102" rx="9" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="236" y="40" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11.2" font-weight="900">① 第一层（内核统一记账）：declareToolChanges()</text>
+            <text x="236" y="61" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.8" font-weight="800">重放历史 getCurrentTools() ➔ 对比本轮 context.tools</text>
+            <text x="236" y="81" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.2" font-weight="700">算差分 { toolsAdded, toolsRemoved }，作为 role:"system" 消息</text>
+            <text x="236" y="100" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">插入本轮 pendingMessages 队尾（绝不直接篡改历史第 0 条）</text>
+
+            <!-- Top Right: 第二层 协议折算裁决器 -->
+            <rect x="496" y="18" width="444" height="102" rx="9" fill="#FFE8E5" stroke="#D2381E" stroke-width="2.2" />
+            <text x="718" y="40" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11.2" font-weight="900">② 第二层（协议折算器）：resolveTranscriptTools() ★</text>
+            <text x="718" y="61" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.8" font-weight="800">输入 TranscriptToolSupport = "changes" | "additions" | "none"</text>
+            <text x="718" y="81" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10.2" font-weight="700">裁决哪些工具放顶层 requestTools，哪些留在队尾原位发送：</text>
+            <text x="718" y="100" text-anchor="middle" fill="var(--plop-ink-soft)" font-family="var(--font-mono)" font-size="9.5" font-weight="800">输出 { requestTools: Tool[], foldedSystemMessages: number }</text>
+
+            <!-- Bottom Row: 4 类模型处理卡片 -->
+            <!-- Card 1: Anthropic Native -->
+            <rect x="20" y="176" width="216" height="154" rx="9" fill="#E9F9F1" stroke="#1F8A65" stroke-width="1.8" />
+            <text x="128" y="198" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.5" font-weight="900">类型 A · Anthropic 原生增删</text>
+            <text x="128" y="216" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.2" font-weight="800">supportsMidConvoToolChanges</text>
+            <text x="32" y="238" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">• 顶层 tools 锁定首轮 initialTools</text>
+            <text x="32" y="256" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">  + DEFERRED_TOOL_PLACEHOLDER</text>
+            <text x="32" y="274" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">• 队尾发原生 tool_addition 与</text>
+            <text x="32" y="292" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">  tool_removal 块</text>
+            <text x="32" y="314" fill="#1F8A65" font-family="var(--font-mono)" font-size="9.5" font-weight="900">✓ 增/删/改均 100% 保住前缀缓存</text>
+
+            <!-- Card 2: OpenAI Responses "changes" -->
+            <rect x="252" y="176" width="216" height="154" rx="9" fill="#E9F9F1" stroke="#1F8A65" stroke-width="1.8" />
+            <text x="360" y="198" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.5" font-weight="900">类型 B · Responses (changes)</text>
+            <text x="360" y="216" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.2" font-weight="800">supportsAdditionalTools: true</text>
+            <text x="264" y="238" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">• 顶层 requestTools 故意留空 []</text>
+            <text x="264" y="256" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">• 首轮与中途追加均发 developer</text>
+            <text x="264" y="274" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">  additional_tools 项 + 增量声明</text>
+            <text x="264" y="292" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">• 删除工具转为文本禁令通知</text>
+            <text x="264" y="314" fill="#1F8A65" font-family="var(--font-mono)" font-size="9.5" font-weight="900">✓ 增/删/改均 100% 保住前缀缓存</text>
+
+            <!-- Card 3: "additions" only -->
+            <rect x="484" y="176" width="216" height="154" rx="9" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="592" y="198" text-anchor="middle" fill="#1D4ED8" font-family="var(--font-mono)" font-size="10.5" font-weight="900">类型 C · 只增不减 (additions)</text>
+            <text x="592" y="216" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.2" font-weight="800">toolSearch / Kimi MidConvoAdd</text>
+            <text x="496" y="238" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">• 纯追加：合成 tool_search_output</text>
+            <text x="496" y="256" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">  或队尾 system.tools 原位追加</text>
+            <text x="496" y="274" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">• 遇删除/重定义：将此前变更折叠</text>
+            <text x="496" y="292" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">  进顶层 tools，后续追加仍走队尾</text>
+            <text x="496" y="314" fill="#1D4ED8" font-family="var(--font-mono)" font-size="9.5" font-weight="900">⚡ 仅删工具时刷新 1 次顶层缓存</text>
+
+            <!-- Card 4: "none" (Disallowed mid-convo tools) -->
+            <rect x="716" y="176" width="224" height="154" rx="9" fill="#FFE8E5" stroke="#D2381E" stroke-width="2" />
+            <text x="828" y="198" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.5" font-weight="900">类型 D · 不允许中途追加 (none)</text>
+            <text x="828" y="216" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.2" font-weight="800">传统 Completions / Gemini 等</text>
+            <text x="728" y="238" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">• folded = systemMessages.length</text>
+            <text x="728" y="256" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">• 调 getCurrentTools() 算出最终</text>
+            <text x="728" y="274" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">  工具集，全量覆盖顶层 params.tools</text>
+            <text x="728" y="292" fill="var(--plop-ink-text)" font-size="9.8" font-weight="700">• 若禁中途 system 则合并回第 0 条</text>
+            <text x="728" y="314" fill="#D2381E" font-family="var(--font-mono)" font-size="9.5" font-weight="900">🛡️ 牺牲单次缓存，确保100%协议兼容</text>
+          </svg>
+
+          <!-- 4 类模型处理详情对比表 -->
+          <div class="table-wrap" style="margin:14px 0;">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">模型类别与兼容标记</th>
+                  <th style="width:22%">顶层 <code>params.tools</code> 怎么发？</th>
+                  <th style="width:32%">中途追加 / 删除工具在消息流里怎么处理？</th>
+                  <th style="width:26%">不允许对应操作时的降级处理</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>① Anthropic 原生增删</strong><br><code>supportsMidConvoSystemMessages</code> + <code>supportsMidConvoToolChanges</code></td>
+                  <td>永远锁定为第一轮的 <code>[...initialTools, DEFERRED_TOOL_PLACEHOLDER]</code>，后续绝不修改。</td>
+                  <td>在后续 <code>role: "system"</code> 消息中发送原生 <code>{ type: "tool_addition", tool: { type: "tool_definition", definition } }</code> 与 <code>{ type: "tool_removal", tool: { type: "tool_reference", name } }</code>。</td>
+                  <td>• 若同名工具修改了 Schema（重定义），省去 <code>tool_removal</code> 直接发 <code>tool_addition</code> 覆盖。<br>• 用 <code>pendingSystemMessages</code> 缓冲，确保绝不插在 <code>tool_use</code> 与 <code>tool_result</code> 之间报 400。</td>
+                </tr>
+                <tr>
+                  <td><strong>② OpenAI Responses 增量模式（<code>"changes"</code>）</strong><br><code>supportsMidConvoSystemMessages</code> + <code>supportsAdditionalTools</code></td>
+                  <td><code>resolveTranscriptTools</code> 返回 <code>requestTools: []</code>（<strong>顶层 <code>params.tools</code> 故意留空</strong>）。</td>
+                  <td>因为协议规定 <code>additional_tools</code> 不能覆盖顶层工具，所以连首轮工具也作为头部 <code>{ type: "additional_tools", role: "developer", tools }</code> 发出；后续追加在队尾继续插 <code>additional_tools</code>，并在前面附上 <code>renderIncrementalToolsNotice</code> 说明。</td>
+                  <td>• <strong>协议不支持物理删工具</strong>：遇到 <code>toolsRemoved</code> 时不改前序块，而是在队尾注入一条 <code>developer</code> 文本禁令（<code>"The following tools are no longer available. Do not call them: ..."</code>），并在后续每次追加工具时复述 <code>Still unavailable: ...</code> 防止小模型误调。</td>
+                </tr>
+                <tr>
+                  <td><strong>③ 只允许中途追加、不允许中途删除（<code>"additions"</code>）</strong><br>Responses <code>supportsToolSearch</code> 或 Kimi K3 <code>supportsMidConvoToolAdditions</code></td>
+                  <td>正常情况下放首轮工具（<code>folded = 1</code>）；一旦发生删除或重定义，推进至 <code>findLastNonAdditiveToolChange + 1</code>。</td>
+                  <td>• <strong>OpenAI Responses（<code>supportsToolSearch</code>）</strong>：自动在队尾伪造一对客户端搜索项 <code>tool_search_call</code> + <code>tool_search_output</code> 把新工具注入上下文。<br>• <strong>Kimi 等 Completions</strong>：在队尾插入 <code>{ role: "system", tools: convertTools(addedTools) }</code>。</td>
+                  <td>• <strong>遇到不允许的“删除或重定义”时</strong>：<code>findLastNonAdditiveToolChange()</code> 定位最后一次发生删除或同名重定义的 <code>system</code> 消息下标 <code>folded</code>，将 <code>0..folded</code> 的结果<strong>折叠回顶层 <code>params.tools</code></strong>（刷新一次缓存），而 <code>folded</code> 之后的纯追加继续走队尾原位追加。</td>
+                </tr>
+                <tr>
+                  <td><strong>④ 完全不允许中途追加工具的模型（<code>"none"</code>）</strong><br>标准 OpenAI Chat Completions / Gemini / 多数开源模型</td>
+                  <td><code>foldedSystemMessages = systemMessages.length</code>，调 <code>getCurrentTools()</code> 算出当前最终生效工具集，<strong>全量写入顶层 <code>params.tools</code></strong>。</td>
+                  <td>消息流内部不再携带任何工具定义（因为 <code>systemIndex &lt; foldedSystemMessages</code>，中途工具追加全部被折算进了顶层 <code>params.tools</code>）。</td>
+                  <td>• <strong>若模型连中途 <code>system</code> 角色都不允许</strong>（<code>!supportsMidConvoSystemMessages</code>）：<code>resolveTranscript()</code> 调用 <code>collapseSystemMessages()</code> 把所有中途系统提示词文本与 <code>sections</code> 合并回<strong>开头第 0 条 <code>system</code> 消息</strong>并删掉中间所有 <code>system</code> 消息。<br>• <strong>工具清空兜底</strong>：若当前工具全被移除但历史含 <code>toolCall</code>，传 <code>params.tools = []</code> 防代理报错。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="wb-grid-2" style="margin-top:14px;">
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📄 packages/ai/src/utils/transcript.ts (L108–L263) · 折叠系统消息与 3 档工具折算核心源码</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-resolve-tools', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-resolve-tools"><code><span class="c-cm">// 1. 针对不允许对话中途出现 system 消息的模型：将所有 system 消息重放合并回第 0 条</span>
+<span class="c-kw">export function</span> <span class="c-fn">resolveTranscript</span>(context: TranscriptContext, supportsMidConvoSystemMessages?: <span class="c-kw">boolean</span>): TranscriptContext {
+  <span class="c-kw">if</span> (supportsMidConvoSystemMessages) <span class="c-kw">return</span> context;
+  <span class="c-kw">const</span> head = <span class="c-fn">getCurrentSystemMessage</span>(context.messages); <span class="c-cm">// 合并文本、sections 与最新 tools</span>
+  <span class="c-kw">const</span> messages = context.messages.<span class="c-fn">filter</span>((m) =&gt; m.role !== <span class="c-str">"system"</span>);
+  <span class="c-kw">return</span> { messages: head ? [head, ...messages] : messages } <span class="c-kw">as</span> TranscriptContext;
+}
+
+<span class="c-cm">// 2. 查找最后一次“非纯追加变更（删除工具或同名重定义）”的下标（供 additions 模式定界）</span>
+<span class="c-kw">function</span> <span class="c-fn">findLastNonAdditiveToolChange</span>(systemMessages: <span class="c-kw">readonly</span> SystemMessage[]): <span class="c-kw">number</span> {
+  <span class="c-kw">const</span> declared = <span class="c-kw">new</span> <span class="c-fn">Set</span>&lt;<span class="c-kw">string</span>&gt;();
+  <span class="c-kw">let</span> last = -<span class="c-num">1</span>;
+  <span class="c-kw">for</span> (<span class="c-kw">let</span> i = <span class="c-num">0</span>; i &lt; systemMessages.length; i++) {
+    <span class="c-kw">if</span> ((systemMessages[i].toolsRemoved?.length ?? <span class="c-num">0</span>) &gt; <span class="c-num">0</span>) last = i;
+    <span class="c-kw">for</span> (<span class="c-kw">const</span> tool <span class="c-kw">of</span> systemMessages[i].toolsAdded ?? []) {
+      <span class="c-kw">if</span> (declared.<span class="c-fn">has</span>(tool.name)) last = i; <span class="c-cm">// 曾声明过的工具再次声明（含删后重加）视为非纯追加</span>
+      declared.<span class="c-fn">add</span>(tool.name);
+    }
+  }
+  <span class="c-kw">return</span> last;
+}
+
+<span class="c-cm">// 3. 按模型支持度 ("none" | "additions" | "changes") 切分顶层 requestTools 与原位增量</span>
+<span class="c-kw">export function</span> <span class="c-fn">resolveTranscriptTools</span>(messages: TranscriptMessages, support: TranscriptToolSupport): TranscriptTools {
+  <span class="c-kw">const</span> systemMessages = messages.<span class="c-fn">filter</span>(isSystemMessage);
+  <span class="c-kw">if</span> (support === <span class="c-str">"none"</span>) {
+    <span class="c-cm">// 不允许中途追加：全部折叠进顶层 requestTools</span>
+    <span class="c-kw">return</span> { requestTools: <span class="c-fn">getCurrentTools</span>(systemMessages), foldedSystemMessages: systemMessages.length };
+  }
+  <span class="c-kw">if</span> (support === <span class="c-str">"changes"</span>) <span class="c-kw">return</span> { requestTools: [], foldedSystemMessages: <span class="c-num">0</span> }; <span class="c-cm">// 全部走原位块</span>
+  <span class="c-kw">const</span> folded = Math.<span class="c-fn">max</span>(<span class="c-fn">getInitialSystemMessage</span>(messages) ? <span class="c-num">1</span> : <span class="c-num">0</span>, <span class="c-fn">findLastNonAdditiveToolChange</span>(systemMessages) + <span class="c-num">1</span>);
+  <span class="c-kw">return</span> { requestTools: <span class="c-fn">getCurrentTools</span>(systemMessages.<span class="c-fn">slice</span>(<span class="c-num">0</span>, folded)), foldedSystemMessages: folded };
+}</code></pre>
+            </div>
+
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📄 anthropic-messages.ts &amp; openai-responses-shared.ts · 各厂商 API 转换实录</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-provider-tools', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-provider-tools"><code><span class="c-cm">// 【A. Anthropic 原生模式 (anthropic-messages.ts:L1262 / L1381)】</span>
+<span class="c-cm">// 顶层固定只传 initialTools + DEFERRED_TOOL_PLACEHOLDER，后续在 system 消息内发原生块：</span>
+params.tools = [...<span class="c-fn">convertToolDefinitions</span>(initialTools, toolCacheControl), DEFERRED_TOOL_PLACEHOLDER];
+<span class="c-cm">// convertMessages 内：</span>
+<span class="c-kw">for</span> (<span class="c-kw">const</span> tool <span class="c-kw">of</span> msg.toolsRemoved ?? []) {
+  <span class="c-kw">if</span> (!redefined.<span class="c-fn">has</span>(tool.name)) blocks.<span class="c-fn">push</span>({ type: <span class="c-str">"tool_removal"</span>, tool: { type: <span class="c-str">"tool_reference"</span>, name: tool.name } });
+}
+<span class="c-kw">for</span> (<span class="c-kw">const</span> definition <span class="c-kw">of</span> <span class="c-fn">convertToolDefinitions</span>(msg.toolsAdded ?? [])) {
+  blocks.<span class="c-fn">push</span>({ type: <span class="c-str">"tool_addition"</span>, tool: { type: <span class="c-str">"tool_definition"</span>, definition } });
+}
+
+<span class="c-cm">// 【B. OpenAI Responses 模式 (openai-responses-shared.ts:L236–L264)】</span>
+<span class="c-kw">if</span> (toolSupport === <span class="c-str">"changes"</span>) {
+  <span class="c-kw">if</span> (declaredAdditionalTools) messages.<span class="c-fn">push</span>({ role: instructionRole, content: <span class="c-fn">renderIncrementalToolsNotice</span>(unavailableTools) });
+  declaredAdditionalTools = <span class="c-kw">true</span>;
+  messages.<span class="c-fn">push</span>({ type: <span class="c-str">"additional_tools"</span>, role: <span class="c-str">"developer"</span>, tools: <span class="c-fn">convertResponsesTools</span>(tools, options?.toolOptions) });
+} <span class="c-kw">else if</span> (toolSupport === <span class="c-str">"additions"</span>) {
+  <span class="c-cm">// 仅支持 client tool search 的模型：合成一对搜索调用与搜索结果注入新工具</span>
+  messages.<span class="c-fn">push</span>({ type: <span class="c-str">"tool_search_call"</span>, call_id: callId, execution: <span class="c-str">"client"</span>, status: <span class="c-str">"completed"</span>, arguments: { query: names.<span class="c-fn">join</span>(<span class="c-str">" "</span>), limit: names.length } });
+  messages.<span class="c-fn">push</span>({ type: <span class="c-str">"tool_search_output"</span>, call_id: callId, execution: <span class="c-str">"client"</span>, status: <span class="c-str">"completed"</span>, tools: <span class="c-fn">convertResponsesTools</span>(tools, { toolSearchResult: <span class="c-kw">true</span> }) });
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- 03.4 · Prefix Cache 缓存经济学归因与跨模型协议清洗 transformMessages -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">💰 03.4 · 缓存失效归因与跨模型协议清洗：cache-stats.ts 美元损耗核算与 transformMessages 两遍扫描</div>
+          <h3>🔬 03.4 Prefix Cache 失效归因核算与跨模型切换的两遍扫描协议清洗</h3>
+
+          <p>
+            在长程 Coding Agent 会话中，前 10 万 Token 的历史上下文如果能命中模型厂商的 <strong>Prefix KV Cache（前缀缓存）</strong>，输入成本可降低 75%～90% 且首字延迟（TTFT）缩短数倍。任何对请求头部（System Prompt、Tools 列表或早期历史消息）的微小改写，都会导致整条前缀缓存瞬间失效。<br>
+            与此同时，用户经常会在同一个会话中途用 <code>/model</code> 切换模型（例如先用 Claude Opus 规划、再切 GPT-5 或 Gemini 写代码）。不同厂商对 <code>thinking</code> 签名、<code>toolCallId</code> 字符集和孤儿工具调用的校验极度严苛。Pi 用两套精密机制解决了这两个生产难题：
+          </p>
+
+          <div class="wb-grid-2" style="margin:14px 0;">
+            <!-- 左卡：Prefix Cache 保护与失效归因三件套 -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span class="plop-tag mustard">机制 A · 缓存保护、保活与美元损耗归因</span>
+                <span style="font-family:var(--font-mono); font-size:11px; font-weight:900;">cache-stats · anthropic · responses</span>
+              </div>
+              <ol style="margin:0; padding-left:18px; font-size:13px; line-height:1.68; color:var(--plop-ink-soft);">
+                <li><strong>推理等级切换保缓存（<code>supportsMidConvoEffort</code>）</strong>：不仅工具增删走队尾，连用户中途切换推理深度（如 <code>low ➔ high</code>）也不改顶层字段——OpenAI Responses 锁定顶层 <code>effort: "medium"</code> 并在队尾追加 <code>{ type: "configuration_update", reasoning: { effort } }</code>；Anthropic 锁定顶层 <code>output_config.effort: "low"</code> 并通过 <code>insertThinkingLevelMessages()</code> 在队尾插入推理等级标记，确保切换思考深度也不破缓存。</li>
+                <li><strong>会话亲和路由与双档 TTL（<code>cacheRetention</code>）</strong>：自动注入 <code>prompt_cache_key</code> 与 <code>x-session-affinity / x-session-id</code> 保证负载均衡落到同一副本；支持 <code>"short"</code>（默认 5m）与 <code>"long"</code>（Anthropic <code>1h</code> / OpenAI <code>24h</code> 或 <code>30m</code>）。</li>
+                <li><strong>缓存失效归因与美元损耗核算（<code>cache-stats.ts:detectMiss</code>）</strong>：自动过滤 <code>&lt; 1024 tokens</code> 的小请求噪声，当 <code>cacheRead</code> 骤降超过 10% 时，精准判定是 <code>idle timeout</code>（思考间隔超 TTL）、<code>model changed</code> 还是 <code>prefix mutated</code>，并按差价算出本次失效多花了多少美金（<code>missedCost</code>）。</li>
+              </ol>
+            </div>
+
+            <!-- 右卡：transformMessages 两遍扫描 -->
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📄 packages/ai/src/api/transform-messages.ts (L91–L256) · 跨模型两遍扫描清洗</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-transform', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-transform"><code><span class="c-cm">// 【第一遍扫描 Pass 1】：归一化单条消息内容与 ToolCall ID</span>
+<span class="c-cm">// 1. 异源 Thinking 剥离：若历史消息来自 Claude (含加密 thoughtSignature)，</span>
+<span class="c-cm">//    而当前目标是 OpenAI/Gemini，则将带名思考块转为普通 &lt;thinking&gt; 文本或剥离。</span>
+<span class="c-cm">// 2. 畸形 toolCallId 重映射：OpenAI Responses 偶发吐出 450+ 字符含 `|` 的 ID，</span>
+<span class="c-cm">//    而 Anthropic 限制 64 位字母数字；normalizeToolCallId 重映射并建立 Map 同步更新 toolResult。</span>
+<span class="c-cm">// 3. 报错图片分离 (splitErrorToolResultImages)：部分厂商禁止在 isError:true</span>
+<span class="c-cm">//    的 toolResult 中内联截图，自动剥离图片并追加为紧随其后的合成 user 消息。</span>
+
+<span class="c-cm">// 【第二遍扫描 Pass 2】：修复结构配对与孤儿调用</span>
+<span class="c-cm">// 4. 剔除 stopReason === "error" | "aborted" 的半截残缺回复。</span>
+<span class="c-cm">// 5. 孤儿 toolCall 自动补齐 (closePendingToolCalls)：若用户按 Esc 打断导致</span>
+<span class="c-cm">//    assistant 消息有 toolCall 却无对应 toolResult，自动合成兜底报错结果：</span>
+<span class="c-kw">function</span> <span class="c-fn">closePendingToolCalls</span>(result: Message[], pendingToolCalls: ToolCall[], existingToolResultIds: Set&lt;<span class="c-kw">string</span>&gt;) {
+  <span class="c-kw">for</span> (<span class="c-kw">const</span> tc <span class="c-kw">of</span> pendingToolCalls) {
+    <span class="c-kw">if</span> (!existingToolResultIds.<span class="c-fn">has</span>(tc.id)) {
+      result.<span class="c-fn">push</span>({
+        role: <span class="c-str">"toolResult"</span>, toolCallId: tc.id, toolName: tc.name,
+        content: [{ type: <span class="c-str">"text"</span>, text: <span class="c-str">"No result provided"</span> }],
+        isError: <span class="c-kw">true</span>, timestamp: Date.<span class="c-fn">now</span>(),
+      });
+    }
+  }
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             PART 04: 渐进式披露、实时代码检索、MCP 与 BM25 工具发现 + 生命周期事件总线
+             ==================================================================== -->
+        <div class="wb-sec-header" id="search-mcp" style="background:var(--plop-mustard);">
+          <span class="wb-sec-num">04</span>
+          <span class="wb-sec-title">渐进式披露、实时代码检索与扩展总线 · Skills、ripgrep、MCP、BM25 与 生命周期 Hook</span>
+          <span class="plop-tag tomato">AGENTIC SEARCH, MCP &amp; HOOK BUS · skills + grep + tool-search + runner</span>
+        </div>
+
+        <!-- 04.1 & 04.2 · Skills 渐进式披露 + 流式 ripgrep 三重截断 + 内存级 BM25 工具检索 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🔍 04.1 · 检索与发现机制：Skills 三级渐进披露、ripgrep 流式三重截断与内存级 BM25 工具按需激活</div>
+          <h3>💡 04.1 Skills 三级渐进披露、流式 ripgrep 三重截断与内存级 BM25 工具检索</h3>
+
+          <p>
+            很多初学者拿到 Agent 项目的第一反应是“有没有接入向量数据库做 RAG？”。但在源码阅读与研究后会发现，以 Pi、Claude Code 为代表的现代 Coding Agent 在代码与工具检索上做出了非常明确的工程取舍：<br>
+            <strong>第一，代码检索放弃静态向量库，改用实时流式 <code>ripgrep</code>（Agentic Search）。</strong>因为本地代码分支切换和修改极其频繁，静态 Embedding 索引不仅容易过期，而且对精确函数名、类型签名、报错字符串匹配远不如正则与符号检索准确。<br>
+            <strong>第二，技能文档（Skills）与外部 MCP 工具放弃全量塞入首轮 Prompt，改用「目录索引 / 薄入口 + 内存级 BM25 按需激活」。</strong>
+          </p>
+
+          <div class="wb-grid-3" style="margin:14px 0;">
+            <!-- 支柱 1: Skills 三级渐进披露 -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span class="plop-tag tomato">① Skills 三级渐进披露</span>
+                <span style="font-family:var(--font-mono); font-size:10.5px; font-weight:900;">skills.ts · system-prompt.ts</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">首轮仅注入 XML 目录，命中后再调 <code>read</code></div>
+              <p style="font-size:12.8px; margin:0; color:var(--plop-ink-soft); line-height:1.62;">
+                • <strong>常驻规则</strong>：沿目录向上扫描 <code>AGENTS.md</code> 注入项目全局规范。<br>
+                • <strong>第 1 级（索引）</strong>：<code>skills.ts</code> 解析 <code>SKILL.md</code> 的 YAML frontmatter，过滤掉 <code>disable-model-invocation: true</code> 的技能后，仅把 <code>&lt;skills&gt;</code>（名称 + 一句话描述 + 绝对路径）放进系统提示词。<br>
+                • <strong>第 2/3 级（正文与资源）</strong>：只有当任务匹配时，模型才主动调用 <code>read(filePath)</code> 读取对应的 <code>SKILL.md</code> 正文及同目录下的 <code>references/</code>。
+              </p>
+            </div>
+
+            <!-- 支柱 2: grep.ts 流式 ripgrep 三重截断 -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span class="plop-tag mint">② 代码检索 · 流式 rg 三重截断</span>
+                <span style="font-family:var(--font-mono); font-size:10.5px; font-weight:900;">tools/grep.ts (L205)</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">500 字符/行 · 100 条立停 · 50KB 封顶</div>
+              <p style="font-size:12.8px; margin:0; color:var(--plop-ink-soft); line-height:1.62;">
+                为了防止一次宽泛搜索命中压缩版 <code>bundle.min.js</code> 吐出几兆单行文本撑爆上下文，<code>grep.ts</code> 以 <code>rg --json</code> 流式读取并设三重防线：<br>
+                1. <strong>单行截断</strong>：单行超过 <code>500</code> 字符立即调 <code>truncateLine</code>；<br>
+                2. <strong>条数熔断</strong>：<code>matchCount &gt;= 100</code> 时当场调用 <code>stopChild(true)</code> 杀掉 <code>rg</code> 进程；<br>
+                3. <strong>总量截断</strong>：总输出超 <code>50KB</code> 执行 <code>truncateHead</code> 并提示缩小 <code>path / glob</code> 范围。
+              </p>
+            </div>
+
+            <!-- 支柱 3: MCP 薄暴露与 BM25 工具检索 -->
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px; box-shadow:2px 3px 0 var(--plop-shadow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span class="plop-tag periwinkle">③ MCP 薄暴露与内存 BM25</span>
+                <span style="font-family:var(--font-mono); font-size:10.5px; font-weight:900;">mcp-servers.ts · tool-search</span>
+              </div>
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">百级工具默认隐藏，BM25 搜出后动态挂载</div>
+              <p style="font-size:12.8px; margin:0; color:var(--plop-ink-soft); line-height:1.62;">
+                • <strong>三级暴露粒度（<code>getMcpToolExposure</code>）</strong>：按“精确工具名 ➔ 通配符 ➔ 服务器默认”决定工具是 <code>direct</code>（直接暴露）、<code>deferred</code>（延迟加载）还是默认 <code>codemode</code>。<br>
+                • <strong>内存级 BM25 排序（<code>Bm25Ranker</code>）</strong>：对未激活工具按驼峰/命名空间分词建索引（<code>K1=1.2, B=0.75</code>，名称权重×3，完整匹配 +10），模型调 <code>tool_search</code> 命中后调用 <code>setActiveTools</code> 激活，下轮经队尾增量声明生效。
+              </p>
+            </div>
+          </div>
+
+          <div class="wb-grid-2" style="margin-top:12px;">
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📄 packages/coding-agent/src/core/tools/grep.ts (L210–L240) · 流式 rg 匹配满 100 条立即杀进程</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-grep', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-grep"><code><span class="c-cm">// 监听 rg --json 标准输出流，边解析边统计匹配条数：</span>
+rl.<span class="c-fn">on</span>(<span class="c-str">"line"</span>, (line) =&gt; {
+  <span class="c-kw">if</span> (!line.<span class="c-fn">trim</span>() || matchCount &gt;= effectiveLimit) <span class="c-kw">return</span>;
+  <span class="c-kw">const</span> event = JSON.<span class="c-fn">parse</span>(line);
+  <span class="c-kw">if</span> (event.type === <span class="c-str">"match"</span>) {
+    matchCount++;
+    <span class="c-cm">// 单行超过 GREP_MAX_LINE_LENGTH (500) 立即截断，防 minified 文件打爆内存</span>
+    <span class="c-kw">const</span> { text: truncated, wasTruncated } = <span class="c-fn">truncateLine</span>(rawLine, GREP_MAX_LINE_LENGTH);
+    <span class="c-kw">if</span> (matchCount &gt;= effectiveLimit) {
+      matchLimitReached = <span class="c-kw">true</span>;
+      <span class="c-fn">stopChild</span>(<span class="c-kw">true</span>); <span class="c-cm">// 满 100 条立即终止 rg 子进程，无需等待全盘扫描结束</span>
+    }
+  }
+});</code></pre>
+            </div>
+
+            <div class="plop-code-box">
+              <div class="plop-code-head">
+                <span>📄 packages/coding-agent/src/extensions/tool-search/tool.ts (L280–L302) · BM25 工具检索激活</span>
+                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-bm25', this)">复制源码</button>
+              </div>
+              <pre class="plop-code-pre" id="code-pi-bm25"><code><span class="c-kw">function</span> <span class="c-fn">searchAndLoad</span>(pi: ExtensionAPI, query: <span class="c-kw">string</span>, limit: <span class="c-kw">number</span>) {
+  <span class="c-kw">const</span> active = <span class="c-kw">new</span> <span class="c-fn">Set</span>(pi.<span class="c-fn">getActiveTools</span>());
+  <span class="c-cm">// 仅检索 exposure 为 codemode/deferred 且尚未激活的隐藏工具</span>
+  <span class="c-kw">const</span> searchable = pi.<span class="c-fn">getAllTools</span>().<span class="c-fn">filter</span>((t) =&gt; <span class="c-fn">isSearchable</span>(t.exposure) &amp;&amp; !active.<span class="c-fn">has</span>(t.name));
+  <span class="c-kw">const</span> documents = searchable.<span class="c-fn">map</span>((t) =&gt; <span class="c-fn">createSearchDocument</span>(t));
+  <span class="c-cm">// Bm25Ranker 综合计算 nameTerms(×3) + namespaceTerms(×0.5) + description 词频得分</span>
+  <span class="c-kw">const</span> matches = <span class="c-kw">new</span> <span class="c-fn">Bm25Ranker</span>(documents).<span class="c-fn">search</span>(query, limit);
+  <span class="c-kw">if</span> (matches.length &gt; <span class="c-num">0</span>) {
+    pi.<span class="c-fn">setActiveTools</span>([...active, ...matches.<span class="c-fn">map</span>((m) =&gt; m.name)]); <span class="c-cm">// 动态挂载进活跃工具集</span>
+  }
+  <span class="c-kw">return</span> matches;
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- 04.2 · 生命周期 Hook 生命周期总线与安全边界门禁 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">🔌 04.2 · 扩展生命周期总线（extensions/runner.ts）与宿主安全防线（project-trust / output-guard / plan-mode）</div>
+          <h3>🔬 04.2 ExtensionRunner 生命周期事件总线与宿主安全边界门禁</h3>
+
+          <p>
+            之所以 Pi 的核心包能保持精简，是因为它在 <a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/coding-agent/src/core/extensions/runner.ts" target="_blank" rel="noopener"><code>packages/coding-agent/src/core/extensions/runner.ts</code> ↗</a> 中提供了一条贯穿会话全生命周期的 <strong>生命周期事件总线（<code>ExtensionRunner</code>）</strong>。扩展可以在输入、上下文、请求、工具与会话相关事件中注册处理器；项目资源信任发生在资源加载边界，项目自身扩展在获信任后才加载。下图混合展示启动动作与部分生命周期事件（编号表示讲解顺序）：
+          </p>
+
+          <!-- SVG 图 5: 生命周期 Hook 生命周期总线全景图 -->
+          <svg viewBox="0 0 960 270" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="ExtensionRunner 生命周期 Hook 生命周期总线图">
+            <defs>
+              <marker id="h-arr" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="var(--plop-ink)" />
+              </marker>
+            </defs>
+
+            <!-- 第一排连线 (01 -> 02 -> 03 -> 04 -> 05) -->
+            <path d="M 184 74 L 204 74" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#h-arr)" />
+            <path d="M 368 74 L 388 74" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#h-arr)" />
+            <path d="M 552 74 L 572 74" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#h-arr)" />
+            <path d="M 736 74 L 756 74" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#h-arr)" />
+            <!-- 05 折行至第二排 06 -->
+            <path d="M 848 118 L 848 134 Q 848 142 840 142 L 102 142 Q 94 142 94 150 L 94 162" fill="none" stroke="var(--plop-ink)" stroke-width="1.8" stroke-dasharray="4 3" marker-end="url(#h-arr)" />
+            <!-- 第二排连线 (06 -> 07 -> 08 -> 09 -> 10) -->
+            <path d="M 184 206 L 204 206" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#h-arr)" />
+            <path d="M 368 206 L 388 206" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#h-arr)" />
+            <path d="M 552 206 L 572 206" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#h-arr)" />
+            <path d="M 736 206 L 756 206" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#h-arr)" />
+
+            <!-- 第一排 5 个阶段框 (01..05) -->
+            <rect x="20" y="30" width="164" height="88" rx="8" fill="#FFE8E5" stroke="#D2381E" stroke-width="2" />
+            <text x="102" y="50" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.2" font-weight="900">01 · project_trust ★</text>
+            <text x="102" y="68" text-anchor="middle" fill="var(--plop-ink)" font-size="11" font-weight="800">陌生仓库信任门禁</text>
+            <text x="102" y="86" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">防恶意 .pi 扩展自动执行</text>
+            <text x="102" y="102" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">无 UI 模式默认 Fail-Closed</text>
+
+            <rect x="204" y="30" width="164" height="88" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="286" y="50" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.2" font-weight="900">02 · resources_discover</text>
+            <text x="286" y="68" text-anchor="middle" fill="var(--plop-ink)" font-size="11" font-weight="800">发现与注册资源</text>
+            <text x="286" y="86" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">挂载自定义 Tools / Skills</text>
+            <text x="286" y="102" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">注册 Slash 命令与快捷键</text>
+
+            <rect x="388" y="30" width="164" height="88" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="470" y="50" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.2" font-weight="900">03 · input / user_bash</text>
+            <text x="470" y="68" text-anchor="middle" fill="var(--plop-ink)" font-size="11" font-weight="800">用户输入预处理</text>
+            <text x="470" y="86" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">展开模板或拦截 !bash 命令</text>
+            <text x="470" y="102" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">进入 AgentLoop 前改写</text>
+
+            <rect x="572" y="30" width="164" height="88" rx="8" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="654" y="50" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.2" font-weight="900">04 · before_agent_start</text>
+            <text x="654" y="68" text-anchor="middle" fill="var(--plop-ink)" font-size="11" font-weight="800">动态模型路由与注入</text>
+            <text x="654" y="86" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">jev-router 按任务复杂度</text>
+            <text x="654" y="102" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">切换快/慢模型与推理等级</text>
+
+            <rect x="756" y="30" width="184" height="88" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="848" y="50" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="900">05 · context</text>
+            <text x="848" y="68" text-anchor="middle" fill="var(--plop-ink)" font-size="11" font-weight="800">每轮上下文快照变换</text>
+            <text x="848" y="86" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">plan-mode 注入只读规划说明</text>
+            <text x="848" y="102" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">不污染持久化 session.jsonl</text>
+
+            <!-- 第二排 5 个阶段框 (06..10) -->
+            <rect x="20" y="162" width="164" height="88" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="102" y="182" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.2" font-weight="900">06 · before_provider_req</text>
+            <text x="102" y="200" text-anchor="middle" fill="var(--plop-ink)" font-size="11" font-weight="800">厂商请求负载微调</text>
+            <text x="102" y="218" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">注入特定 Header 或</text>
+            <text x="102" y="234" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">记录 CacheWarmer 心跳</text>
+
+            <rect x="204" y="162" width="164" height="88" rx="8" fill="#FFE8E5" stroke="#D2381E" stroke-width="2" />
+            <text x="286" y="182" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="9.2" font-weight="900">07 · tool_call ★</text>
+            <text x="286" y="200" text-anchor="middle" fill="var(--plop-ink)" font-size="11" font-weight="800">工具执行前拦截/审批</text>
+            <text x="286" y="218" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9" font-weight="700">返回 { block: true, reason }</text>
+            <text x="286" y="234" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">plan-mode 拦截非只读 bash</text>
+
+            <rect x="388" y="162" width="164" height="88" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="470" y="182" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.2" font-weight="900">08 · tool_result</text>
+            <text x="470" y="200" text-anchor="middle" fill="var(--plop-ink)" font-size="11" font-weight="800">工具返回结果后处理</text>
+            <text x="470" y="218" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">脱敏敏感凭据、追加诊断</text>
+            <text x="470" y="234" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">或触发自动 Lint 检查</text>
+
+            <rect x="572" y="162" width="164" height="88" rx="8" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="654" y="182" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.2" font-weight="900">09 · turn_end / settle</text>
+            <text x="654" y="200" text-anchor="middle" fill="var(--plop-ink)" font-size="11" font-weight="800">回合收尾与状态追踪</text>
+            <text x="654" y="218" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">更新 Todo 勾选进度</text>
+            <text x="654" y="234" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">核算 Cache 命中率与成本</text>
+
+            <rect x="756" y="162" width="184" height="88" rx="8" fill="#E9F9F1" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="848" y="182" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.5" font-weight="900">10 · before_compact</text>
+            <text x="848" y="200" text-anchor="middle" fill="var(--plop-ink)" font-size="11" font-weight="800">上下文压缩策略接管</text>
+            <text x="848" y="218" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">允许扩展注入自定义摘要</text>
+            <text x="848" y="234" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="9.5" font-weight="700">或保留特定业务领域状态</text>
+          </svg>
+
+          <!-- 三个关键边界防御与模式卡片 -->
+          <div class="wb-grid-3" style="margin-top:12px;">
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+              <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:5px;">🔒 陌生仓库信任门禁（<code>project-trust.ts</code>）</div>
+              <p style="font-size:12.6px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+                当 <code>git clone</code> 陌生仓库并在其中启动 Agent 时，若仓库自带 <code>.pi/extensions</code> 或 <code>.pi/mcp.json</code>，盲目加载会导致任意代码执行（RCE）。<code>resolveProjectTrusted()</code> 先调用 <code>hasProjectPiResources()</code> 扫描项目级配置：若状态为 <code>untrusted</code>，在交互式终端弹出确认框，而在无头模式（<code>!hasUI</code>，如 CI/RPC）下<strong>严格执行 Fail-Closed 直接拒绝加载项目级扩展</strong>。
+              </p>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+              <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:5px;">🛡️ JSON-RPC 管道防污染（<code>output-guard.ts</code>）</div>
+              <p style="font-size:12.6px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+                在 <code>rpc / json-event</code> 模式下，宿主通过 <code>stdout</code> 与上层 IDE 传输 JSON。一旦第三方插件调了 <code>console.log()</code>，就会破坏 JSON 解析。<code>takeOverStdout()</code> 在启动第一毫秒将全局 <code>process.stdout.write</code> 重定向到 <code>stderr</code>，仅保留私有 <code>writeRawStdout()</code> 通道，并针对非阻塞管道满（<code>EAGAIN / ENOBUFS</code>）实现 <code>10ms</code> 指数退避重试，杜绝大响应丢包。
+              </p>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+              <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:5px;">🧭 Plan 模式与 Subagent（<code>examples/extensions/</code>）</div>
+              <p style="font-size:12.6px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+                • <strong><code>plan-mode</code></strong>：开启时调 <code>pi.setActiveTools(["read", "grep", "find", "ls"])</code> 物理剥夺 <code>edit/write</code> 工具，并在阶段 <code>07 tool_call</code> 用白名单正则拦截带写操作的 <code>bash</code> 命令，审批通过后切回全量工具按 <code>[DONE:n]</code> 逐项执行。<br>
+                • <strong><code>subagent</code></strong>：通过独立子进程 <code>pi --mode json -p --no-session</code> 派发广度搜集任务，限制返回 50KB，避免污染主会话窗口。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             PART 05: 容器化防作弊评测体系 · packages/evals 的 A/B 净增益与 OS 级盲测降权
+             ==================================================================== -->
+        <div class="wb-sec-header" id="evals" style="background:var(--plop-mint);">
+          <span class="wb-sec-num">05</span>
+          <span class="wb-sec-title">容器化防作弊评测体系 · packages/evals 的 A/B 净增益对照与 OS 级权限降权</span>
+          <span class="plop-tag tomato">CONTAINERIZED EVALS &amp; ANTI-CHEAT · packages/evals</span>
+        </div>
+
+        <!-- 05.1 & 05.2 · without_docs vs with_docs A/B 对照 + 0o600 & UID 65532 盲测降权 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🧪 05.1 · 评测设计（packages/evals/src/harness.ts）：without_docs vs with_docs A/B 净增益与 UID 65532 盲测沙箱</div>
+          <h3>💡 05.1 容器化 without_docs vs with_docs 对照评测与 OS 级权限剥离盲测</h3>
+
+          <p>
+            在迭代 Coding Agent 时，如果只靠开发者在本地跑一两个任务“肉眼感觉效果变好了”，会遇到两个严重的工程盲区：<br>
+            第一，<strong>无法剥离模型预训练能力与提示词/文档的真实净增益（Lift）</strong>——很多时候写了三千字的 <code>SKILL.md</code>，模型虽然跑通了任务，但其实不给这份文档它本来就能跑通，文档反而白白多烧了 Token。<br>
+            第二，<strong>具备 Shell 与文件读写权限的 Agent 在测试挂掉时会“投机作弊（Reward Hacking）”</strong>——当它发现怎么改代码都跑不通评测断言时，它会直接调用 <code>read</code> 偷看测试脚本里的硬编码期望值，甚至调用 <code>edit</code> 把测试文件里的 <code>expect(res).toBe(42)</code> 改成 <code>expect(true).toBe(true)</code>。<br>
+            为了彻底解决这两个问题，Pi 在 <a href="https://github.com/earendil-works/pi/blob/62752fd4c37a/packages/evals/src/harness.ts#L154-L188" target="_blank" rel="noopener"><code>packages/evals/src/harness.ts</code> ↗</a> 中实现了<strong>无网 Docker 容器 A/B 对照评测</strong>与<strong>操作系统级 UID/GID 权限剥离盲测</strong>：
+          </p>
+
+          <!-- SVG 图 6: packages/evals 容器化 A/B 评测与 0o600 + UID 65532 盲测流水线 -->
+          <svg viewBox="0 0 960 280" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="packages/evals 容器化防作弊盲测与 A/B 评测流水线图">
+            <defs>
+              <marker id="e-arr" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="var(--plop-ink)" />
+              </marker>
+              <marker id="e-arr-red" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8.5 5 L 1 8.5 Z" fill="#D2381E" />
+              </marker>
+            </defs>
+
+            <!-- 正交连接线 (先画线后画框) -->
+            <path d="M 228 96 L 260 96" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#e-arr)" />
+            <path d="M 480 96 L 512 96" fill="none" stroke="#D2381E" stroke-width="2.2" marker-end="url(#e-arr-red)" />
+            <path d="M 724 96 L 756 96" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#e-arr)" />
+
+            <!-- 底部三维评分汇总框连线 -->
+            <path d="M 848 158 L 848 192" fill="none" stroke="var(--plop-ink)" stroke-width="2" marker-end="url(#e-arr)" />
+
+            <!-- Step 1: Root 锁死测试文件 -->
+            <rect x="20" y="34" width="208" height="124" rx="9" fill="#FFE8E5" stroke="#D2381E" stroke-width="2" />
+            <text x="124" y="56" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="11" font-weight="900">① Root 锁死测试脚本 ★</text>
+            <text x="124" y="75" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="800">chmod(evalFile, 0o600)</text>
+            <text x="124" y="96" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">容器以 UID 0 (root) 启动，</text>
+            <text x="124" y="114" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">将验收测试模块设为仅 root</text>
+            <text x="124" y="132" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">可读写，并移交 workspace</text>
+
+            <!-- Step 2: 永久降权至 65532 -->
+            <rect x="260" y="34" width="220" height="124" rx="9" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="370" y="56" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">② 进程永久降权 + 自检</text>
+            <text x="370" y="75" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10" font-weight="800">setgid / setuid(65532)</text>
+            <text x="370" y="96" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">清空附加组 setgroups([])，</text>
+            <text x="370" y="114" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">降权为 nobody (65532) 并尝试</text>
+            <text x="370" y="132" text-anchor="middle" fill="var(--plop-ink-text)" font-family="var(--font-mono)" font-size="9.8" font-weight="800">readFile 必须抛出 EACCES ✓</text>
+
+            <!-- Step 3: A/B 双变体盲测 -->
+            <rect x="512" y="34" width="212" height="124" rx="9" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="618" y="56" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">③ A/B 双变体对照运行</text>
+            <text x="618" y="75" text-anchor="middle" fill="#1D4ED8" font-family="var(--font-mono)" font-size="10" font-weight="800">without_docs vs with_docs</text>
+            <text x="618" y="96" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">在 --network none 无网容器中</text>
+            <text x="618" y="114" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">分别运行基线组与实验组，</text>
+            <text x="618" y="132" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">Agent 无法偷看或修改测试</text>
+
+            <!-- Step 4: 三维验收与净增益报告 -->
+            <rect x="756" y="34" width="184" height="124" rx="9" fill="#E9F9F1" stroke="#1F8A65" stroke-width="1.8" />
+            <text x="848" y="56" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="11" font-weight="900">④ 宿主机三维验收</text>
+            <text x="848" y="75" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="9.2" font-weight="800">Verify + Trajectory + Judge</text>
+            <text x="848" y="96" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">1. Root 跑单元测试断言</text>
+            <text x="848" y="114" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">2. ToolCallJudge 查工具轨迹</text>
+            <text x="848" y="132" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="700">3. StructuredOutputJudge</text>
+
+            <!-- Bottom Summary Bar -->
+            <rect x="20" y="192" width="920" height="64" rx="9" fill="#1E293B" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <text x="480" y="218" text-anchor="middle" fill="#FEF08A" font-family="var(--font-mono)" font-size="11.5" font-weight="900">📊 评测产出：量化对比 passRate 净增益（Lift）、Token 消耗差值与平均耗时，证伪无效提示词与冗余文档</text>
+            <text x="480" y="240" text-anchor="middle" fill="#E2E8F0" font-size="10.8" font-weight="700">若 with_docs 的通过率未显著高于 without_docs 却多消耗 40% Token，说明该文档属于应当精简或改为按需披露的负资产</text>
+          </svg>
+
+          <div class="plop-code-box" style="margin-top:14px;">
+            <div class="plop-code-head">
+              <span>📄 packages/evals/src/harness.ts (L154–L187) · enterToolSandbox 锁死测试文件并降权至 UID 65532 源码</span>
+              <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pi-evalsandbox', this)">复制源码</button>
+            </div>
+            <pre class="plop-code-pre" id="code-pi-evalsandbox"><code><span class="c-kw">const</span> TOOL_SANDBOX_UID = <span class="c-num">65532</span>;
+<span class="c-kw">const</span> TOOL_SANDBOX_GID = <span class="c-num">65532</span>;
+
+<span class="c-kw">async function</span> <span class="c-fn">enterToolSandbox</span>(workspaceDir: <span class="c-kw">string</span>, protectedPaths: <span class="c-kw">string</span>[]): Promise&lt;<span class="c-kw">void</span>&gt; {
+  <span class="c-cm">// 1. 必须在 root (UID 0) 下启动，先把所有测试断言脚本 chmod 0o600（仅 root 可读写）</span>
+  <span class="c-kw">await</span> <span class="c-fn">protectTransformedModules</span>();
+  <span class="c-cm">// 2. 将工作区代码目录的属主移交给 65532:65532，允许 Agent 正常读写业务代码</span>
+  <span class="c-kw">await</span> <span class="c-fn">chownTree</span>(workspaceDir, TOOL_SANDBOX_UID, TOOL_SANDBOX_GID);
+  <span class="c-cm">// 3. 清空附加权限组，并将当前进程永久单向降权为 65532（不可逆，Agent 及其 bash 子进程均无法恢复 root）</span>
+  process.<span class="c-fn">setgroups</span>?.([]);
+  process.<span class="c-fn">setgid</span>(TOOL_SANDBOX_GID);
+  process.<span class="c-fn">setuid</span>(TOOL_SANDBOX_UID);
+
+  <span class="c-cm">// 4. 降权后立即自检：尝试读取受保护的测试文件，若未抛出 EACCES 则直接报错终止评测。</span>
+  <span class="c-kw">for</span> (<span class="c-kw">const</span> protectedPath <span class="c-kw">of</span> protectedPaths) {
+    <span class="c-kw">try</span> {
+      <span class="c-kw">await</span> fs.<span class="c-fn">readFile</span>(protectedPath, <span class="c-str">"utf8"</span>);
+    } <span class="c-kw">catch</span> (error) {
+      <span class="c-kw">if</span> ((error <span class="c-kw">as</span> NodeJS.ErrnoException).code === <span class="c-str">"EACCES"</span>) <span class="c-kw">continue</span>;
+      <span class="c-kw">throw</span> error;
+    }
+    <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">`Tool sandbox failed to block read access to ${protectedPath}`</span>);
+  }
+}</code></pre>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             PART 06: 行业全景对照 · 主流四层划分、6 大工程 Trade-off 横评与未来 5 大趋势
+             ==================================================================== -->
+        <div class="wb-sec-header" id="ecosystem" style="background:var(--plop-periwinkle);">
+          <span class="wb-sec-num">06</span>
+          <span class="wb-sec-title">行业全景对照 · 主流四层划分（Runtime / Framework / Harness）、6 大权衡与未来趋势</span>
+          <span class="plop-tag tomato">ECOSYSTEM TAXONOMY, TRADE-OFFS &amp; TRENDS</span>
+        </div>
+
+        <!-- 06.1 · 现在主流生态是怎么区分的？Runtime vs Framework vs Harness vs Product -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape"></div>
+          <div class="chapter-q-pill">🏗️ 06.1 · 生态分层体系：Agent Runtime、Agent Framework、Agent Harness 与 Agent Product 的边界辨析</div>
+          <h3>💡 06.1 现代 Agent 技术栈四层划分：Runtime、Framework、Harness 与 Product</h3>
+
+          <p>
+            早期大家习惯把所有与 Agent 相关的开源库统称为“Agent 框架”。但随着 AI 应用进入深水区，工程界发现：<strong>底层状态机怎么持久化和隔离（Runtime）</strong>、<strong>上层工作流怎么用声明式组件拼装（Framework）</strong>、以及<strong>怎么防住大模型在真实代码库和终端里犯错、溢出、破缓存（Harness）</strong>，解决的是完全不同维度的工程问题。<br>
+            如果把 <code>LangGraph</code>、<code>LangChain Deep Agents</code>、<code>OpenHands</code>、<code>Codex Harness</code>、<code>DeepSeek Harness (DSH)</code>、<code>OpenCode</code> 和 <code>Pi</code> 放在同一张架构栈里，它们自底向上清晰地落在以下<strong>四个抽象层</strong>中：
+          </p>
+
+          <!-- SVG 图 7: 现代 Agent 技术栈四层架构图 (遵循 diagram-design type-layers.md 规范) -->
+          <svg viewBox="0 0 960 350" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:14px 0;" role="img" aria-label="现代 Agent 技术栈四层架构图：L1 Runtime、L2 Framework、L3 Harness、L4 Product">
+            <defs>
+              <marker id="layer-arr" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 1 1.5 L 8 5 L 1 8.5 Z" fill="var(--plop-ink)" />
+              </marker>
+            </defs>
+
+            <!-- 左侧垂直方向指示轴 (drawn before boxes) -->
+            <line x1="42" y1="312" x2="42" y2="34" stroke="var(--plop-ink)" stroke-width="1.8" marker-start="url(#layer-arr)" marker-end="url(#layer-arr)" />
+            <text x="42" y="20" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="900">产品交互 ↑</text>
+            <text x="42" y="334" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10" font-weight="900">底层隔离 ↓</text>
+
+            <!-- L4: Agent Product / Application -->
+            <rect x="82" y="18" width="858" height="72" rx="9" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <line x1="728" y1="28" x2="728" y2="80" stroke="var(--plop-ink)" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.45" />
+            <rect x="94" y="30" width="126" height="48" rx="6" fill="var(--plop-mint)" stroke="var(--plop-ink)" stroke-width="1.5" />
+            <text x="157" y="50" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">L4 · PRODUCT</text>
+            <text x="157" y="67" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="800">交互与工作流应用</text>
+            <text x="234" y="45" fill="var(--plop-ink)" font-size="13" font-weight="900">Agent Product（多端交互体验与业务工单系统）</text>
+            <text x="234" y="67" fill="var(--plop-ink-soft)" font-size="10.8" font-weight="700">终端 TUI / Web / Desktop 界面、Plan/Build 切换、GitHub/飞书接入与人工评审</text>
+            <text x="834" y="45" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="800">典型代表</text>
+            <text x="834" y="66" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="10.5" font-weight="900">OpenCode · DS SuperAgent</text>
+
+            <!-- L3: Agent Harness (FOCAL LAYER — 唯一珊瑚色焦点层) -->
+            <rect x="82" y="98" width="858" height="86" rx="9" fill="#FFE8E5" stroke="#D2381E" stroke-width="2.4" />
+            <line x1="728" y1="108" x2="728" y2="174" stroke="#D2381E" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.5" />
+            <rect x="94" y="112" width="126" height="58" rx="6" fill="#D2381E" stroke="var(--plop-ink)" stroke-width="1.5" />
+            <text x="157" y="136" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11" font-weight="900">L3 · HARNESS ★</text>
+            <text x="157" y="155" text-anchor="middle" fill="#FEF08A" font-size="10" font-weight="800">工程护栏与防呆层</text>
+            <text x="234" y="123" fill="#D2381E" font-size="13.2" font-weight="900">Agent Harness（上下文手术、缓存经济学与工具防呆装甲）</text>
+            <text x="234" y="144" fill="var(--plop-ink-text)" font-size="10.6" font-weight="800">• 上下文与缓存：安全切分 + 6 段压缩 · 队尾增量声明保缓存 · 跨模型消息清洗</text>
+            <text x="234" y="164" fill="var(--plop-ink-text)" font-size="10.6" font-weight="800">• 工具与自愈：4 级模糊 Diff · 流式 rg 三重截断 · BM25 检索 · 1:1 自愈与盲测</text>
+            <text x="834" y="132" text-anchor="middle" fill="#D2381E" font-size="10" font-weight="800">典型代表</text>
+            <text x="834" y="154" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10.5" font-weight="900">Pi · Codex · Claude Code</text>
+
+            <!-- L2: Agent Framework -->
+            <rect x="82" y="192" width="858" height="70" rx="9" fill="#FFFFFF" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <line x1="728" y1="202" x2="728" y2="252" stroke="var(--plop-ink)" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.45" />
+            <rect x="94" y="203" width="126" height="48" rx="6" fill="var(--plop-periwinkle)" stroke="var(--plop-ink)" stroke-width="1.5" />
+            <text x="157" y="223" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">L2 · FRAMEWORK</text>
+            <text x="157" y="240" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="800">编排与扩展抽象</text>
+            <text x="234" y="218" fill="var(--plop-ink)" font-size="13" font-weight="900">Agent Framework（声明式编排、中间件管道与插件总线）</text>
+            <text x="234" y="240" fill="var(--plop-ink-soft)" font-size="10.8" font-weight="700">定义 Agent / Tool / Handoff / Subagent / Middleware / Hook 组装与路由范式</text>
+            <text x="834" y="218" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="800">典型代表</text>
+            <text x="834" y="239" text-anchor="middle" fill="#1D4ED8" font-family="var(--font-mono)" font-size="10.5" font-weight="900">Deep Agents · DSH Cordis</text>
+
+            <!-- L1: Agent Runtime -->
+            <rect x="82" y="270" width="858" height="68" rx="9" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="1.8" />
+            <line x1="728" y1="280" x2="728" y2="328" stroke="var(--plop-ink)" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.45" />
+            <rect x="94" y="280" width="126" height="48" rx="6" fill="var(--plop-mustard)" stroke="var(--plop-ink)" stroke-width="1.5" />
+            <text x="157" y="300" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="11" font-weight="900">L1 · RUNTIME</text>
+            <text x="157" y="317" text-anchor="middle" fill="var(--plop-ink-text)" font-size="10" font-weight="800">状态机与隔离底座</text>
+            <text x="234" y="296" fill="var(--plop-ink)" font-size="13" font-weight="900">Agent Runtime（底层状态机、Checkpoint 持久化与沙箱隔离）</text>
+            <text x="234" y="317" fill="var(--plop-ink-soft)" font-size="10.8" font-weight="700">双层循环推进、断线恢复、AbortSignal 与双队列、Wasm / Docker / SSH 隔离沙箱</text>
+            <text x="834" y="296" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10" font-weight="800">典型代表</text>
+            <text x="834" y="317" text-anchor="middle" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="10.5" font-weight="900">LangGraph · OpenHands</text>
+          </svg>
+
+          <!-- 三者核心隐喻与边界对比 -->
+          <div class="wb-grid-3" style="margin-top:12px;">
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">⚙️ L1 Agent Runtime = 发动机与底盘</div>
+              <p style="font-size:12.8px; margin:0; color:var(--plop-ink-soft); line-height:1.62;">
+                <strong>关注点：</strong>状态流转、持久化恢复与物理隔离。比如 <code>LangGraph</code> 的有向图 Checkpoint 引擎、<code>OpenHands</code> 的 Docker 容器 Workspace Server，以及 Pi 的 <code>packages/agent</code>（纯双层循环）和 <code>packages/codemode</code>（QuickJS Wasm 虚拟机）。它完全不关心上层提示词怎么写。
+              </p>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:5px;">🧩 L2 Agent Framework = 乐高组装图纸</div>
+              <p style="font-size:12.8px; margin:0; color:var(--plop-ink-soft); line-height:1.62;">
+                <strong>关注点：</strong>用声明式抽象把规划（Todo）、记忆、工具与子 Agent 拼成拓扑。比如 <code>LangChain Deep Agents</code> 的 Middleware 组合，或 <code>DSH</code> 的 <code>Cordis</code> 插件树。但<strong>只靠通用 Framework 直接进百万行代码库往往会翻车</strong>——因为缺了针对真实工具与长上下文的细节打磨。
+              </p>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+              <div style="font-weight:900; font-size:14.5px; color:#D2381E; margin-bottom:5px;">🛡️ L3 Agent Harness = 缰绳与防抱死 ABS</div>
+              <p style="font-size:12.8px; margin:0; color:var(--plop-ink-soft); line-height:1.62;">
+                <strong>关注点：</strong><em>Harness</em> 原意是马具/安全背带——大模型是动力强但易脱缰的烈马，Harness 用确定性工程代码（模糊 Diff、流式截断、1:1 错误自愈、安全切分压缩、Prefix Cache 保护）把不可靠的模型驯服成可靠的工程系统。<strong>这也是决定生产级 Agent 上限的胜负手。</strong>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 06.2 · AI 时代没有银弹：6 大核心工程机制的 Trade-off 与主流开源框架横评 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+          <div class="washi-tape pink"></div>
+          <div class="chapter-q-pill">⚖️ 06.2 · 架构设计权衡（Trade-offs）：Pi 与 Claude Code / Codex / Deep Agents / DSH / OpenHands / OpenCode 的 6 维对比</div>
+          <h3>🔬 06.2 六大核心工程机制的架构权衡（Trade-offs）与主流开源方案横评</h3>
+
+          <p>
+            读懂了 Pi 的源码实现后，最重要的收获不是背下它的函数名，而是看清<strong>每一个设计背后放弃了什么、换取了什么（Trade-off）</strong>，以及其他主流框架在同一个分岔路口选择了哪条路：
+          </p>
+
+          <div class="table-wrap" style="margin-top:12px;">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:16%">核心工程决策点</th>
+                  <th style="width:28%">Pi 的设计选择与源码落点</th>
+                  <th style="width:30%">其他主流框架的替代方案</th>
+                  <th style="width:26%">核心 Trade-off（收益 vs 代价）</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>1. 代码库检索路线</strong><br>（Agentic Search vs Vector RAG）</td>
+                  <td><strong>纯实时流式 <code>ripgrep</code> + 目录渐进披露</strong>（<code>grep.ts</code> 500字/100条/50KB 三重截断 + <code>AGENTS.md</code> 路由）</td>
+                  <td>• <strong>Claude Code / Codex</strong>：同为实时 <code>rg / glob</code> Agentic Search<br>• <strong>Cursor / 早期 IDE 插件</strong>：本地 AST 分块 + 向量库 Embedding 索引</td>
+                  <td><strong>实时 rg</strong> 零索引构建延迟、切分支永不过期、精确符号匹配强，但模糊语义搜索需模型多猜几轮关键词；<strong>向量库</strong> 首轮语义召回快，但索引易陈旧且维护重。</td>
+                </tr>
+                <tr>
+                  <td><strong>2. 多步工具调用范式</strong><br>（JSON Tool Call vs Code-as-Action）</td>
+                  <td><strong>双轨支持，MCP 默认走 <code>codemode</code></strong>（在 QuickJS Wasm 沙箱内写 JS 批量组合工具并过滤结果）</td>
+                  <td>• <strong>DeepSeek Harness (DSH)</strong>：内置 <code>ptc-runtime</code>（编程式工具调用）<br>• <strong>传统框架</strong>：每步操作均走一次 JSON <code>tool_calls</code> 模型往返</td>
+                  <td><strong>codemode / PTC</strong> 将 10 轮模型往返压缩为 1 次 Wasm 脚本执行，省下 70%+ 中间结果 Token 与延迟；代价是需要维护 Wasm 桥接与 TS 声明生成。</td>
+                </tr>
+                <tr>
+                  <td><strong>3. 长任务与多智能体拓扑</strong><br>（Single Loop vs Multi-Subagent）</td>
+                  <td><strong>默认单主循环 + 6 段式压缩</strong>；<code>subagent</code> 与 <code>plan-mode</code> 作为可选扩展按需开启</td>
+                  <td>• <strong>Deep Agents / OpenCode</strong>：默认内置主 Agent + <code>task</code> 委派独立上下文的 Subagent<br>• <strong>DS SuperAgent</strong>：Router + Engine 工单 + 多 Worker 并发</td>
+                  <td><strong>单主循环</strong> 上下文完整、零跨 Agent 传话失真，适合强耦合编码；<strong>多 Subagent</strong> 隔离广度搜索的脏输出，但存在父子交接信息损耗与额外首字延迟。</td>
+                </tr>
+                <tr>
+                  <td><strong>4. 会话状态与持久化</strong><br>（JSONL Tree vs Graph Checkpoint）</td>
+                  <td><strong>本地只追加 <code>session.jsonl</code> 有向树</strong>（<code>id / parentId / leafId</code> + 跨分支 LCA 回溯摘要）</td>
+                  <td>• <strong>LangGraph / Deep Agents</strong>：关系库/KV 存图节点 State Checkpoint<br>• <strong>DSH</strong>：<code>session.vN.jsonl[.zstd]</code> 事件流 + <code>deriveMessages()</code> 纯函数投影</td>
+                  <td><strong>JSONL 树</strong> 极简透明、一行 <code>grep/jq</code> 即可排查、天然支持 <code>/tree</code> 分叉回退；<strong>LangGraph Checkpoint</strong> 支持复杂分布式图节点恢复，但存储层偏重。</td>
+                </tr>
+                <tr>
+                  <td><strong>5. 大工具集与缓存保护</strong><br>（Full Schema vs BM25 + Tail Delta）</td>
+                  <td><strong>MCP 薄暴露 + 内存级 BM25 按需搜索 + 队尾 <code>&lt;system-reminder&gt;</code> 增量声明</strong></td>
+                  <td>• <strong>常规 MCP 客户端</strong>：启动时将全部 MCP 工具 Schema 拼入请求头部 <code>tools</code> 数组</td>
+                  <td>Pi 的做法<strong>保护了首部 10 万 Token 的 Prefix KV Cache 不因工具动态挂载而失效</strong>，且避免百级工具稀释注意力；代价是首次使用隐藏工具需多一步 <code>tool_search</code>。</td>
+                </tr>
+                <tr>
+                  <td><strong>6. 安全执行与隔离边界</strong><br>（Host Process vs Container Workspace）</td>
+                  <td><strong>日常开发跑宿主进程（配信任门禁 + Hook 拦截 + QuickJS 沙箱）</strong>；<strong>评测跑无网 Docker + UID 65532 降权</strong></td>
+                  <td>• <strong>OpenHands SDK</strong>：每个会话默认跑在独立的 Docker / 远程容器 Workspace Server 中<br>• <strong>Codex Harness</strong>：OS 级 Seatbelt / Landlock 沙箱策略 + <code>app-server</code> 审批</td>
+                  <td><strong>宿主直接执行</strong> 启动零延迟、与开发者本地环境 100% 一致；<strong>OpenHands 容器化 Workspace</strong> 隔离最彻底、适合云端无人值守批量跑工单，但镜像与环境同步较重。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 06.3 · Agent 工程化的未来 5 大演进趋势 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:10px;">
+          <div class="washi-tape mint"></div>
+          <div class="chapter-q-pill">🚀 06.3 · 演进方向预判：从 Pi 与主流开源方案看 AI Agent 工程化的 5 大未来趋势</div>
+          <h3>🔭 06.3 AI Agent 工程化架构的五大演进方向</h3>
+
+          <div class="wb-grid-2" style="margin:14px 0;">
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+              <div style="font-weight:900; font-size:14.5px; color:#D2381E; margin-bottom:6px;">趋势 ① · 「薄 Framework + 厚 Harness」成为工业界共识</div>
+              <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.65;">
+                随着基座模型自身规划与推理能力跃升，早期靠复杂的静态有向图（DAG）替模型硬编码思考步骤的“重编排框架”正在退潮。主循环本身越来越薄（如 Pi 的 <code>packages/agent</code> 仅 6 个文件），而<strong>90% 的工程壁垒集中在 L3 Harness 层</strong>：如何做到 95% 的 Prefix Cache 命中率、如何让 <code>edit</code> 在缩进漂移时依然精准落盘、如何在跨模型切换时零报错清洗历史。
+              </p>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">趋势 ② · 从 JSON Tool Calling 走向 Code-as-Action（编程式工具编排）</div>
+              <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.65;">
+                无论叫 Pi 的 <code>codemode</code>、DeepSeek Harness 的 <code>ptc-runtime</code>（Programmatic Tool Calling），还是 Anthropic 的代码工具执行，核心方向高度一致：<strong>不再让模型用笨重的 JSON 一轮一轮调工具搬运原始数据</strong>，而是把工具集暴露为 TypeScript/Python SDK，让模型写一段在毫秒级 Wasm/微沙箱内运行的脚本，一次性完成循环调用、条件分支与数据过滤。
+              </p>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">趋势 ③ · 上下文从「静态全量注入」走向「极小路由目录 + 按需拉取 + 离线整理」</div>
+              <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.65;">
+                即使模型拥有 1M 窗口，无脑塞入几十份长文档与百级工具依然会引发严重的“分心税”与高昂账单。以 Pi 的 <code>&lt;available_skills&gt;</code> 三级披露 + 内存 BM25 检索，以及 Anthropic 的 <code>&lt;1k index.md</code> + 离线 Dreaming 整理（详见本花园 <a href="../ai/memory.html">《Anthropic Agent 记忆架构》↗</a>）为代表，<strong>“常驻层只放轻量指针，正文靠工具按需拉取”</strong>已成为标准范式。
+              </p>
+            </div>
+
+            <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
+              <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">趋势 ④ · 上下游双端协议标准化 + 防作弊评测驱动开发（Eval-Driven）</div>
+              <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.65;">
+                • <strong>协议标准化</strong>：向下通过 <strong>MCP</strong> 统一接入外部工具，向上通过 <strong>JSON-RPC / App-Server 协议</strong>（如 Pi 的 <code>modes/rpc</code> 与 <code>output-guard.ts</code>、Codex 的 <code>app-server</code>）让同一个 Harness 内核无缝嵌入终端 TUI、VS Code、Web 与飞书/GitHub 后台工单系统。<br>
+                • <strong>评测驱动（Eval-Driven）</strong>：像 <code>packages/evals</code> 这样通过容器隔离、<code>0o600 + UID 65532</code> 物理防作弊、并跑 <code>without_docs vs with_docs</code> 量化净增益的评测流水线，正在取代主观体感调优，成为合并任何 Prompt 或 Skill 修改的 CI 准入门槛。
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：阅读指引便签 + 全站跨专题切换耳标 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷导航与跨专题切换">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>🧭 关联专题联读</span>
+            </span>
+            <span>AI</span>
+          </div>
+          <p style="font-size:12px; line-height:1.55; margin:6px 0 8px; color:var(--plop-ink-text); font-weight:700;">
+            读完 Pi 的会话内上下文压缩（Ch.03）与多智能体权衡（Ch.06），推荐联动阅读花园另外两篇 AI 特刊：
+          </p>
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            <a href="../ai/memory.html" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px; text-decoration:none; text-align:center;">
+              🌙 Anthropic 跨会话记忆与 Dreaming ↗
+            </a>
+            <a href="../ai/index.html" class="plop-pill-sticker mustard" style="font-size:11.5px; padding:6px 8px; text-decoration:none; text-align:center;">
+              🧠 Gemini 4 Carbon 1M 窗口与 Swarm ↗
+            </a>
+          </div>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics data-root="../"></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+
+</body>
+</html>
