@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster" data-font="hand-crisp">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent 上下文工程与记忆架构：从注意力调度到推理底座协同 | note-garden</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
+  <link rel="stylesheet" href="../assets/plop-garden.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Patrick+Hand&display=swap" rel="stylesheet">
+  <script src="../assets/plop-garden.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部手账贴纸控制台 (Sticky Craft Console)
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+        <span class="plop-tag periwinkle">CONTEXT &amp; MEMORY</span>
+      </div>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <!-- ==========================================================================
+       手账工作台全览 (3-Column Craft Desk with Left & Right Stickers)
+       ========================================================================== -->
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸列 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与架构参数">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 -->
+        <nav class="plop-index-tabs" id="toc-tabs">
+          <a href="#cm-01" class="plop-ear-tab active" data-toc="cm-01">
+            <span class="ear-dot"></span>
+            <span>01 职责边界与腐烂</span>
+          </a>
+          <a href="#cm-02" class="plop-ear-tab" data-toc="cm-02">
+            <span class="ear-dot mint"></span>
+            <span>02 上下文七层栈</span>
+          </a>
+          <a href="#cm-03" class="plop-ear-tab" data-toc="cm-03">
+            <span class="ear-dot periwinkle"></span>
+            <span>03 水位线与硬兜底</span>
+          </a>
+          <a href="#cm-04" class="plop-ear-tab" data-toc="cm-04">
+            <span class="ear-dot pink"></span>
+            <span>04 四大记忆流派</span>
+          </a>
+          <a href="#cm-05" class="plop-ear-tab" data-toc="cm-05">
+            <span class="ear-dot pink"></span>
+            <span>05 双轨异步实战</span>
+          </a>
+          <a href="#cm-06" class="plop-ear-tab" data-toc="cm-06">
+            <span class="ear-dot mustard"></span>
+            <span>06 六类场景方案</span>
+          </a>
+          <a href="#cm-07" class="plop-ear-tab" data-toc="cm-07">
+            <span class="ear-dot"></span>
+            <span>07 推理底座协同</span>
+          </a>
+          <a href="#cm-08" class="plop-ear-tab" data-toc="cm-08">
+            <span class="ear-dot mint"></span>
+            <span>08 参考视频与项目</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：核心参数速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>CONTEXT 工程速查</span>
+            <span>#SPEC</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>软 / 硬水位线</span>
+            <span>70% / 85%</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>工具返回上限</span>
+            <span>8K–16K Tok</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>异步提炼耗时</span>
+            <span>6–16s (Off-path)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>检索增量预算</span>
+            <span>3K–10K Tok</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>核心隐喻</span>
+            <span>RAM vs Disk</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="full-broadsheet-view">
+      <!-- 窄屏横向章节导航栏 -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#cm-01" class="active">01 职责边界</a>
+        <a href="#cm-02">02 七层栈</a>
+        <a href="#cm-03">03 水位线兜底</a>
+        <a href="#cm-04">04 四大记忆流派</a>
+        <a href="#cm-05">05 双轨实战</a>
+        <a href="#cm-06">06 六类场景</a>
+        <a href="#cm-07">07 推理底座</a>
+        <a href="#cm-08">08 参考资料</a>
+      </nav>
+
+      <div class="wb-sheet">
+        <div class="washi-tape" style="width:130px; height:24px; margin-left:-65px; top:-12px;"></div>
+
+        <!-- 刊头 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card mint">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">NOTE-GARDEN CHRONICLE</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:44px; font-weight:900; color:var(--plop-ink); line-height:1; margin:6px 0;">11.19</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">CONTEXT &amp; MEMORY</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag tomato">CONTEXT ENGINEERING</span>
+              <span class="plop-tag mint">TWO-TRACK MEMORY</span>
+              <span class="plop-tag periwinkle">KV CACHE CO-DESIGN</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              Agent 上下文工程与记忆架构：从注意力调度到推理底座协同
+            </h1>
+            <p style="font-size:14.8px; color:var(--plop-ink-soft); margin:0; font-weight:600;">
+              厘清记忆存储与上下文窗口的工程边界，依次展开上下文腐烂治理、七层物理栈与四级超限兜底、四大主流长期记忆流派与双轨异步闭环、六类 Agent 场景落地快照，以及底层推理引擎的 KV Cache 协同设计。
+            </p>
+          </div>
+        </header>
+
+        <!-- ====================================================================
+             SECTION 01: 职责边界与上下文腐烂
+             ==================================================================== -->
+        <div class="wb-sec-header" id="cm-01">
+          <span class="wb-sec-num">01</span>
+          <span class="wb-sec-title">核心边界：记忆存储与上下文工程的职责划分</span>
+          <span class="plop-tag tomato">RAM VS DISK</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          在 Agent 工程化落地中，记忆（Memory）与上下文工程（Context Engineering）解决的是两个不同层面的问题。把大模型的 Context Window 比作操作系统的内存（RAM），把外部数据库与文件存储比作硬盘（Disk），两者的边界就会非常清晰。
+        </p>
+
+        <div class="table-wrap" style="margin-bottom:18px;">
+          <table class="plop-table">
+            <thead>
+              <tr>
+                <th style="width:20%">维度</th>
+                <th style="width:40%">记忆（Memory）</th>
+                <th style="width:40%">上下文工程（Context Engineering）</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>核心问题</strong></td>
+                <td>跨会话长期怎么存、怎么提炼、怎么检索</td>
+                <td>每次调用模型 API 前，如何在有限窗口内拼装当前这一帧的 Prompt</td>
+              </tr>
+              <tr>
+                <td><strong>类比定位</strong></td>
+                <td>操作系统硬盘与持久化档案库</td>
+                <td>操作系统内存（RAM）与注意力资源调度器</td>
+              </tr>
+              <tr>
+                <td><strong>优化目标</strong></td>
+                <td>事实准确、低冲突、跨周期连续性、写入不阻塞主流程</td>
+                <td>最低推理成本、最高信噪比、高 Prefix Cache 命中率</td>
+              </tr>
+              <tr>
+                <td><strong>常见误区</strong></td>
+                <td>把原始对话流或报错日志不经提炼直接写入向量库</td>
+                <td>盲目依赖 1M/2M 大窗口，认为“塞进去就等于模型会用”</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape pink"></div>
+          <h3 style="font-size:17.5px; margin-bottom:10px;">
+            📉 上下文腐烂（Context Rot）的四种故障与对症工程解法
+          </h3>
+          <p style="font-size:14px; margin-bottom:12px;">
+            即使模型支持百万级 Token 窗口，直接把海量历史与工具日志倒入窗口依然会导致推理质量下降。即便窗口占用率只有 30%（远未触发水位线），只要混入错误前提、噪音日志或新旧矛盾信息，Agent 同样会在后续步骤中偏离目标。四类故障必须采用不同的工程手段分别治理：
+          </p>
+
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:21%">故障类型</th>
+                  <th style="width:31%">触发成因与典型表现</th>
+                  <th style="width:48%">生产级对症工程解法</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong style="color:var(--plop-tomato);">1. Context Poisoning</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">上下文投毒</span></td>
+                  <td>早期的幻觉、错误假设或失败报错留在上下文中；若直接做普通摘要，错误会被当成“既定事实”固化下来，后续步步错。</td>
+                  <td>
+                    • <strong>事实与假设分栏：</strong>摘要模板强制区分 <code>已验证事实</code>（须附工具 <code>call_id</code> 或文件行号）与 <code>待验证假设</code>，禁止未验证推论混入事实层。<br/>
+                    • <strong>失败分支裁剪与回滚（Branch Rewind）：</strong>工具报错或试错证伪后，从会话树回滚或裁掉死胡同过程，只保留一句反面约束（如“方案 A 因权限不足不可行”）。<br/>
+                    • <strong>试错隔离（Subagent）：</strong>不确定的探索放入独立子智能体运行，试错幻觉随子上下文销毁而清零。
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>2. Context Distraction</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">注意力分散</span></td>
+                  <td>大段终端日志、整页 HTML 或无关历史过多，稀释模型注意力（实测哪怕仅占 20%–30% 窗口，也会导致跑偏并多耗费大量 Token）。</td>
+                  <td>
+                    • <strong>回合级即时折叠（不等水位线）：</strong>上一轮消费完的数千行工具输出，进入下一轮时立即折叠为 <code>[文件路径指针 + 关键结论]</code>（Observation Masking）。<br/>
+                    • <strong>源头精准切片：</strong>按行号读取代码、按字段查库，大结果直接外写落盘（File-as-Context）。<br/>
+                    • <strong>双水位线压缩（70% / 85%）：</strong>兜底清理多轮累积的历史对话体积。
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>3. Context Confusion</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">选择与工具混淆</span></td>
+                  <td>一次性挂载过多功能重叠的工具（如 40+ MCP Schema）或召回大量相似片段，导致模型选错工具、传错参数。</td>
+                  <td>
+                    • <strong>工具渐进式加载：</strong>前缀只常驻 5–10 个高频核心工具；长尾工具按任务阶段挂载，或通过 <code>search_tools</code> 元工具在尾部按需展开 Schema。<br/>
+                    • <strong>检索重排（Rerank）控量：</strong>RAG 召回遵循宁缺毋滥（Top-k 精选高分切片），避免相似冗余文本堆叠。
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong style="color:var(--plop-tomato);">4. Context Clash</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">上下文冲突</span></td>
+                  <td>聊天记录天然是只追加（Append-only）的，当用户中途改口（如预算从 3000 改为 3500）或新旧规则同框且未标明谁覆盖谁时，模型输出会随机摇摆。</td>
+                  <td>
+                    • <strong>结构化状态卡覆盖写（Overwrite）：</strong>将易变约束（预算、日期、审批节点、关系状态）抽成独立状态 JSON/SQL 行，变更时直接覆盖旧值，注入时声明以状态卡为准。<br/>
+                    • <strong>版本号与时间戳消歧：</strong>检索片段强制附带生效时间与版本号（如 <code>[v3 最新生效]</code>），并在指令中明确优先级顺序。<br/>
+                    • <strong>长期记忆同名 Upsert：</strong>后台异步沉淀记忆时，识别冲突旧词条执行覆写或标记失效，而非盲目追加新向量。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 02: 七层上下文栈与四大工程动作
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="cm-02">
+          <span class="wb-sec-num">02</span>
+          <span class="wb-sec-title">上下文工程（上）：七层物理栈、四大动作与 KV Cache 协同</span>
+          <span class="plop-tag">FIG 1.0 · LAYER STACK</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          一次完整的 Agent 上下文在逻辑上包含系统指令、工具定义、长期记忆、历史轨迹与格式约束、短期草稿、检索事实和当前输入七个模块。落到生产 Prompt 拼装时，必须按<strong>“静态前缀锁定 → 跨轮递增历史 → 尾部动态注入”</strong>的物理顺序重排——如果把每轮变化的检索事实放在历史对话前面，会导致下方数万 Token 的历史 KV Cache 在每一轮全部失效。
+        </p>
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <svg viewBox="0 0 820 420" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin-bottom:16px;">
+            <defs>
+              <marker id="cm-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#59647b"/>
+              </marker>
+              <marker id="cm-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+              </marker>
+            </defs>
+
+            <!-- 左侧方向指示 -->
+            <line x1="46" y1="54" x2="46" y2="376" stroke="#59647b" stroke-width="1.4" marker-end="url(#cm-arr)"/>
+            <text x="46" y="38" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">STABLE</text>
+            <text x="46" y="396" fill="#bf4520" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">DYNAMIC</text>
+
+            <!-- 右侧协同区正交连线（先画线后画框） -->
+            <line x1="528" y1="116" x2="574" y2="116" stroke="#59647b" stroke-width="1.2" marker-end="url(#cm-arr)"/>
+            <line x1="528" y1="216" x2="574" y2="216" stroke="#bf4520" stroke-width="1.4" marker-end="url(#cm-arr-accent)"/>
+
+            <!-- 7 层上下文栈（KV Cache 友好物理顺序） -->
+            <!-- L1 -->
+            <rect x="88" y="44" width="440" height="44" rx="4" fill="#f7f5ee" stroke="rgba(30,36,54,0.22)" stroke-width="1"/>
+            <text x="114" y="70" fill="#59647b" font-size="10" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">L1</text>
+            <text x="148" y="65" fill="#1e2436" font-size="13" font-weight="700" font-family="sans-serif">Instructions &amp; Format Rules（指令与格式规范）</text>
+            <text x="148" y="80" fill="#59647b" font-size="10" font-family="sans-serif">角色设定、输出 Schema、项目静态规范（不插动态时间戳）</text>
+            <text x="514" y="70" fill="#216648" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="end">PREFIX LOCKED</text>
+
+            <!-- L2 -->
+            <rect x="88" y="94" width="440" height="44" rx="4" fill="#FFFDF7" stroke="rgba(30,36,54,0.22)" stroke-width="1"/>
+            <text x="114" y="120" fill="#59647b" font-size="10" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">L2</text>
+            <text x="148" y="115" fill="#1e2436" font-size="13" font-weight="700" font-family="sans-serif">Tools（核心工具定义）</text>
+            <text x="148" y="130" fill="#59647b" font-size="10" font-family="sans-serif">固定核心工具集与顺序；长尾工具经元工具在尾部按需发现</text>
+            <text x="514" y="120" fill="#216648" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="end">STAGE CACHED</text>
+
+            <!-- L3 -->
+            <rect x="88" y="144" width="440" height="44" rx="4" fill="#f7f5ee" stroke="rgba(30,36,54,0.22)" stroke-width="1"/>
+            <text x="114" y="170" fill="#59647b" font-size="10" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">L3</text>
+            <text x="148" y="165" fill="#1e2436" font-size="13" font-weight="700" font-family="sans-serif">Long-Term Memories（会话预载记忆）</text>
+            <text x="148" y="180" fill="#59647b" font-size="10" font-family="sans-serif">会话启动预载：顶层记忆索引 / 全局画像 / SQL 核心事实（会话内固定）</text>
+            <text x="514" y="170" fill="#216648" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="end">SESSION PINNED</text>
+
+            <!-- L4 (Focal Accent) -->
+            <rect x="88" y="194" width="440" height="44" rx="4" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.6"/>
+            <text x="114" y="220" fill="#bf4520" font-size="10" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">L4</text>
+            <text x="148" y="215" fill="#bf4520" font-size="13" font-weight="700" font-family="sans-serif">Recent History &amp; Trajectory（近期历史与轨迹）</text>
+            <text x="148" y="230" fill="#1e2436" font-size="10" font-family="sans-serif">跨轮只追加以复用前缀缓存；越过水位线时离散压缩与折叠</text>
+            <text x="514" y="220" fill="#bf4520" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="end">COMPRESS</text>
+
+            <!-- L5 -->
+            <rect x="88" y="244" width="440" height="44" rx="4" fill="#f7f5ee" stroke="rgba(30,36,54,0.22)" stroke-width="1"/>
+            <text x="114" y="270" fill="#59647b" font-size="10" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">L5</text>
+            <text x="148" y="265" fill="#1e2436" font-size="13" font-weight="700" font-family="sans-serif">Short-Term Notes（短期草稿本）</text>
+            <text x="148" y="280" fill="#59647b" font-size="10" font-family="sans-serif">Scratchpad 当前计划与状态指针，大段中间结果落盘外写</text>
+            <text x="514" y="270" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="end">WRITE</text>
+
+            <!-- L6 -->
+            <rect x="88" y="294" width="440" height="44" rx="4" fill="#FFFDF7" stroke="rgba(30,36,54,0.22)" stroke-width="1"/>
+            <text x="114" y="320" fill="#59647b" font-size="10" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">L6</text>
+            <text x="148" y="315" fill="#1e2436" font-size="13" font-weight="700" font-family="sans-serif">Retrieved Facts（本轮检索事实）</text>
+            <text x="148" y="330" fill="#59647b" font-size="10" font-family="sans-serif">当前步骤 RAG / 代码按需拉取的高密度切片，置于尾部防破缓存</text>
+            <text x="514" y="320" fill="#2848d8" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="end">SELECT</text>
+
+            <!-- L7 -->
+            <rect x="88" y="344" width="440" height="44" rx="4" fill="#f7f5ee" stroke="rgba(30,36,54,0.22)" stroke-width="1"/>
+            <text x="114" y="370" fill="#59647b" font-size="10" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">L7</text>
+            <text x="148" y="365" fill="#1e2436" font-size="13" font-weight="700" font-family="sans-serif">User Input（当前轮用户输入）</text>
+            <text x="148" y="380" fill="#59647b" font-size="10" font-family="sans-serif">本轮最新提问或外部事件触发</text>
+            <text x="514" y="370" fill="#2848d8" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="end">TAIL INPUT</text>
+
+            <!-- 右侧协同面板 1：Prefix Cache -->
+            <rect x="576" y="44" width="220" height="144" rx="6" fill="#f7f5ee" stroke="rgba(30,36,54,0.22)" stroke-width="1"/>
+            <rect x="588" y="54" width="110" height="16" rx="2" fill="transparent" stroke="rgba(33,102,72,0.45)" stroke-width="0.9"/>
+            <text x="643" y="65" fill="#216648" font-size="8" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">PREFIX CACHE ZONE</text>
+            <text x="588" y="92" fill="#1e2436" font-size="12.5" font-weight="700" font-family="sans-serif">前缀稳定区（L1–L3）</text>
+            <text x="588" y="114" fill="#59647b" font-size="10.5" font-family="sans-serif">• 严禁在顶部插实时时间戳</text>
+            <text x="588" y="133" fill="#59647b" font-size="10.5" font-family="sans-serif">• 核心工具固定顺序不重排</text>
+            <text x="588" y="152" fill="#59647b" font-size="10.5" font-family="sans-serif">• 配合 KV-Aware 路由命中</text>
+            <text x="588" y="171" fill="#59647b" font-size="10.5" font-family="sans-serif">• 省去 80%+ 重复 Prefill</text>
+
+            <!-- 右侧协同面板 2：水位线与尾部追加 -->
+            <rect x="576" y="198" width="220" height="190" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.4"/>
+            <rect x="588" y="208" width="126" height="16" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.9"/>
+            <text x="651" y="219" fill="#bf4520" font-size="8" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">WATERMARK &amp; TAIL</text>
+            <text x="588" y="246" fill="#1e2436" font-size="12.5" font-weight="700" font-family="sans-serif">递增缓存与尾部组装（L4–L7）</text>
+            <text x="588" y="269" fill="#1e2436" font-size="10.5" font-family="sans-serif">• L4 跨轮追加，持续复用缓存</text>
+            <text x="588" y="290" fill="#1e2436" font-size="10.5" font-family="sans-serif">• 压缩仅在水位线离散触发</text>
+            <text x="588" y="311" fill="#1e2436" font-size="10.5" font-family="sans-serif">• L5/L6 动态内容置尾部</text>
+            <text x="588" y="332" fill="#1e2436" font-size="10.5" font-family="sans-serif">• 高噪子任务交 Subagent 隔离</text>
+            <text x="588" y="353" fill="#1e2436" font-size="10.5" font-family="sans-serif">• 全链路 Tracing 监控命中率</text>
+          </svg>
+
+          <div class="wb-grid-2">
+            <div>
+              <h4 style="font-size:15.5px; margin-bottom:8px;">⚙️ 上下文工程的四大核心动作</h4>
+              <ul style="font-size:13.8px; padding-left:18px; line-height:1.75; margin:0;">
+                <li><strong>Write（外写落盘）：</strong>把中间计划、草稿与大段工具输出写到窗口之外（外部 Scratchpad、临时文件、状态库）。</li>
+                <li><strong>Select（按需筛选）：</strong>用 Hybrid Search 拉取当前步骤所需的少量事实切片置于尾部；若有数十个外部工具，按任务阶段固定挂载，或平时只挂一个 <code>search_tools</code> 元工具（需要发邮件时先查 <code>search_tools("邮件")</code>，再把邮件工具的详细参数展开到尾部），避免全量注入。</li>
+                <li><strong>Compress（提炼压缩）：</strong>达到 Token 水位线后对早期历史做结构化摘要，并将已消费的冗长工具输出折叠为路径指针（Observation Masking）。</li>
+                <li><strong>Isolate（上下文隔离）：</strong>把需要大量试错或翻阅几十个文件的调研子任务交给 Subagent 或沙箱独立运行，只将精简结论带回主上下文。</li>
+              </ul>
+            </div>
+            <div class="wb-card notebook-lines" style="padding:12px 14px; box-shadow:none; margin:0;">
+              <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">🔍 推理基建视角：动态裁剪与 KV Cache 的矛盾</strong>
+              <p style="font-size:13.5px; line-height:1.75; margin:0;">
+                如果在应用层每轮都改写顶部工具列表（<code>L2</code>），或者把每轮变化的 RAG 检索切片插在历史对话（<code>L4</code>）之前，会导致发往推理引擎的 Prompt 前缀每轮都在变，<strong>Prefix Cache 命中率直接归零</strong>，Prefill 算力成本与首字延迟（TTFT）随之陡增。<br/><br/>
+                <strong>生产级协同做法：</strong><code>L1–L3</code> 静态前缀会话内锁定，<code>L4</code> 历史轨迹跨轮只追加、仅在越过水位线时<strong>离散重整</strong>，动态检索与草稿统一置于 <code>L5–L6</code> 尾部；同时配合 Tracing 记录每帧各层 Token 占比与 Cache 命中率。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 03: 水位线控制与四级硬兜底
+             ==================================================================== -->
+        <div class="wb-sec-header periwinkle" id="cm-03">
+          <span class="wb-sec-num">03</span>
+          <span class="wb-sec-title">上下文工程（下）：双水位线控制与四级超限硬兜底</span>
+          <span class="plop-tag periwinkle">WATERMARK &amp; FALLBACK</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          上下文管理不能等到窗口溢出报错才处理。工程上通常以模型总窗口减去预留输出空间为基准（例如 128K 窗口预留 16K 输出，有效输入预算约 112K），设置两道水位线来平衡延迟与安全性。
+        </p>
+
+        <div class="wb-grid-2" style="margin-bottom:18px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <div class="washi-tape"></div>
+            <h3 style="font-size:17px; margin-bottom:10px;">💧 双水位线触发机制（Soft &amp; Hard）</h3>
+            <ul style="font-size:13.8px; padding-left:18px; line-height:1.8; margin:0;">
+              <li><strong>软水位线（有效输入预算的 70%，约 78K Token）：</strong>在后台触发<strong>异步预压缩</strong>与历史工具输出折叠，不阻塞当前这一轮的生成速度。</li>
+              <li><strong>硬水位线（有效输入预算的 85%，约 95K Token）：</strong>在发送请求前强制执行<strong>同步裁剪或结构化压缩</strong>，防止调用模型 API 时直接触发超长报错。</li>
+              <li><strong>滑窗保留策略：</strong>保留最近 <code>K</code> 轮完整对话（或最近 <code>M</code> 个 Token 以保证当前动作连贯），只对更早的历史执行摘要压缩。</li>
+              <li><strong>工具轨迹折叠（Observation Masking）：</strong>Agent 运行时 80%–90% 的上下文膨胀来自工具返回值。当前轮保留完整堆栈用于排障，进入下一轮后把冗长 stdout 替换为极简指针（如 <code>[已折叠：pytest 4200 行日志已存至 /tmp/test.log]</code>）。</li>
+            </ul>
+          </div>
+
+          <div class="wb-card">
+            <div class="washi-tape pink"></div>
+            <h3 style="font-size:17px; margin-bottom:10px;">🛡️ 压缩后仍超限的四级硬兜底机制</h3>
+            <p style="font-size:13.4px; color:var(--plop-ink-soft); margin-bottom:8px;">
+              当遇到单个工具返回 200K 数据或用户直接传入 300K 文档时，即便删光历史也无法塞入窗口，需要以下四级兜底：
+            </p>
+            <ol style="font-size:13.6px; padding-left:18px; line-height:1.75; margin:0;">
+              <li><strong>工具层硬截断 + 落盘分页（File-as-Context）：</strong>沙箱层规定单次工具返回上限（如 8K–16K Token 或 500 行），超出部分写入沙箱文件，只向模型返回前 200 行与文件路径，由模型用 <code>grep</code> 或 <code>read_file</code> 分段按需拉取。</li>
+              <li><strong>分块并发 Map-Reduce：</strong>编排层将超长文档切分为多个 32K Chunk，并发调用轻量模型并行提取关键信息（Map），再由主模型汇总决策（Reduce）。</li>
+              <li><strong>带锚点的硬滑动丢弃（FIFO with Pinning）：</strong>按时间从旧到新丢弃早期历史，但强制锚定（Pin）三项核心信息：系统指令、用户最初总目标、最近 1–2 轮完整状态与报错。</li>
+              <li><strong>网关路由超大窗口模型（Context-Length Fallback）：</strong>针对必须全局比对两份长文档的特殊帧，推理网关检测到 Token 超出主力模型上限时，自动路由至 1M/2M 窗口模型提取结论后再切回主力模型。</li>
+            </ol>
+          </div>
+        </div>
+
+        <details class="plop-drawer" style="margin-bottom:18px;">
+          <summary>
+            <span class="plop-drawer-title">💻 展开查看：四级硬兜底机制 TypeScript 工程实现示例</span>
+            <span class="plop-tag periwinkle">TS CODE</span>
+          </summary>
+          <div style="padding:14px 16px;">
+            <div class="wb-grid-2" style="margin-bottom:12px;">
+              <div class="plop-code-box" style="margin:0;">
+                <div class="plop-code-head">
+                  <span>1. 工具层硬截断 + 落盘分页</span>
+                  <span style="opacity:0.75;">File-as-Context</span>
+                </div>
+                <pre class="plop-code-pre"><code><span class="c-kw">async function</span> <span class="c-fn">runToolSafe</span>(name: string, args: any) {
+  <span class="c-kw">const</span> raw = <span class="c-kw">await</span> <span class="c-fn">execTool</span>(name, args);
+  <span class="c-kw">if</span> (<span class="c-fn">countTokens</span>(raw) &lt;= <span class="c-num">8_000</span>) <span class="c-kw">return</span> raw;
+
+  <span class="c-cm">// 超限则落盘，仅返回前 200 行预览 + 路径</span>
+  <span class="c-kw">const</span> path = <span class="c-str">"/tmp/tool_"</span> + Date.<span class="c-fn">now</span>() + <span class="c-str">".log"</span>;
+  <span class="c-kw">await</span> fs.<span class="c-fn">writeFile</span>(path, raw, <span class="c-str">"utf-8"</span>);
+
+  <span class="c-kw">const</span> head = raw.<span class="c-fn">split</span>(<span class="c-str">"\n"</span>).<span class="c-fn">slice</span>(<span class="c-num">0</span>, <span class="c-num">200</span>).<span class="c-fn">join</span>(<span class="c-str">"\n"</span>);
+  <span class="c-kw">return</span> head + <span class="c-str">"\n[完整日志见 "</span> + path
+    + <span class="c-str">"，用 grep/read_file 按需读取]"</span>;
+}</code></pre>
+              </div>
+
+              <div class="plop-code-box" style="margin:0;">
+                <div class="plop-code-head">
+                  <span>2. 分块并发 Map-Reduce</span>
+                  <span style="opacity:0.75;">Promise.all</span>
+                </div>
+                <pre class="plop-code-pre"><code><span class="c-kw">async function</span> <span class="c-fn">mapReduceDoc</span>(doc: string, q: string) {
+  <span class="c-kw">const</span> chunks = <span class="c-fn">splitByTokens</span>(doc, <span class="c-num">32_000</span>);
+
+  <span class="c-cm">// Map：并发调轻量模型，提取相关要点</span>
+  <span class="c-kw">const</span> notes = <span class="c-kw">await</span> Promise.<span class="c-fn">all</span>(
+    chunks.<span class="c-fn">map</span>((c) =&gt;
+      <span class="c-fn">callLLM</span>(<span class="c-str">"fast-mini"</span>, <span class="c-str">"提取("</span> + q + <span class="c-str">"):\n"</span> + c)
+    )
+  );
+
+  <span class="c-cm">// Reduce：汇总精简要点交由主模型决策</span>
+  <span class="c-kw">return</span> <span class="c-fn">callLLM</span>(<span class="c-str">"main-pro"</span>, notes.<span class="c-fn">join</span>(<span class="c-str">"\n---\n"</span>));
+}</code></pre>
+              </div>
+            </div>
+
+            <div class="wb-grid-2">
+              <div class="plop-code-box" style="margin:0;">
+                <div class="plop-code-head">
+                  <span>3. 带锚点硬滑动丢弃</span>
+                  <span style="opacity:0.75;">FIFO with Pinning</span>
+                </div>
+                <pre class="plop-code-pre"><code><span class="c-kw">function</span> <span class="c-fn">evictWithPinning</span>(msgs: Msg[], limit = <span class="c-num">95_000</span>) {
+  <span class="c-kw">const</span> head = msgs.<span class="c-fn">slice</span>(<span class="c-num">0</span>, <span class="c-num">2</span>);  <span class="c-cm">// 锚定指令+目标</span>
+  <span class="c-kw">const</span> tail = msgs.<span class="c-fn">slice</span>(-<span class="c-num">4</span>);   <span class="c-cm">// 锚定近 2 轮</span>
+  <span class="c-kw">const</span> mid = msgs.<span class="c-fn">slice</span>(<span class="c-num">2</span>, -<span class="c-num">4</span>); <span class="c-cm">// 可裁剪历史池</span>
+
+  <span class="c-cm">// 仍超硬水位线时，从最旧历史 FIFO 丢弃</span>
+  <span class="c-kw">while</span> (mid.length &gt; <span class="c-num">0</span>
+    &amp;&amp; <span class="c-fn">countTokens</span>([...head, ...mid, ...tail]) &gt; limit) {
+    mid.<span class="c-fn">shift</span>();
+  }
+  <span class="c-kw">return</span> [...head, ...mid, ...tail];
+}</code></pre>
+              </div>
+
+              <div class="plop-code-box" style="margin:0;">
+                <div class="plop-code-head">
+                  <span>4. 网关路由超大窗口模型</span>
+                  <span style="opacity:0.75;">Length Fallback</span>
+                </div>
+                <pre class="plop-code-pre"><code><span class="c-kw">async function</span> <span class="c-fn">dispatchLLM</span>(msgs: Msg[], needAll: boolean) {
+  <span class="c-kw">const</span> tokens = <span class="c-fn">countTokens</span>(msgs);
+
+  <span class="c-cm">// 常规请求走高性价比 128K 主力模型</span>
+  <span class="c-kw">if</span> (tokens &lt;= <span class="c-num">112_000</span>) {
+    <span class="c-kw">return</span> <span class="c-fn">callLLM</span>(<span class="c-str">"main-128k"</span>, msgs);
+  }
+  <span class="c-cm">// 不可拆分的比对帧，临时切 1M 窗口提取结论</span>
+  <span class="c-kw">if</span> (needAll) {
+    <span class="c-kw">return</span> <span class="c-fn">callLLM</span>(<span class="c-str">"long-context-1m"</span>, msgs);
+  }
+  <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">"Context limit exceeded"</span>);
+}</code></pre>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:18px;">
+          <h4 style="font-size:15.5px; margin-bottom:10px;">📐 裁剪与压缩的 4 个常见工程细节（附具体场景）</h4>
+          <div class="wb-grid-2">
+            <ul style="font-size:13.4px; padding-left:18px; line-height:1.78; margin:0;">
+              <li style="margin-bottom:8px;"><strong>代码裁剪 ≠ AI 摘要：</strong>接口返回 80 个字段，用代码只留“名称、价格、距离”叫<strong>裁剪</strong>（100% 准确）；让模型把 20 轮对话压成 200 字叫<strong>摘要</strong>（可能漏掉“不含早”等条件）。原始数据要留外部可查，摘要不能当唯一真值。</li>
+              <li><strong>不能把工具调用和返回值切散：</strong>消息数组里 <code>AI发起call_1</code> 和 <code>call_1返回结果</code> 必须成对出现。滑窗丢弃旧消息时若只删了前者、留下孤立的返回值，发给模型 API 会直接报 400 协议错——必须整组一起删。</li>
+            </ul>
+            <ul style="font-size:13.4px; padding-left:18px; line-height:1.78; margin:0;">
+              <li style="margin-bottom:8px;"><strong>底层数字变了，旧结论也要作废：</strong>第 3 轮摘要写了“总价 2800 没超预算”；第 8 轮酒店从 600 涨到 780，若只改价格字段不删旧摘要，窗口里就会同时出现“超预算”和“没超预算”两条打架的话。给关键事实加版本号，变更时联动重算旧结论。</li>
+              <li><strong>摘要超时或漏字段要有保底：</strong>调模型压缩时若接口超时，或代码校验发现把订单号、预算金额压丢了，直接退回“代码规则裁剪”，不把坏摘要塞给主模型。</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 04: 长期记忆工程（上）：四大主流记忆流派选型与上下文接入点
+             ==================================================================== -->
+        <div class="wb-sec-header pink" id="cm-04">
+          <span class="wb-sec-num">04</span>
+          <span class="wb-sec-title">长期记忆工程（上）：四大主流记忆流派选型与上下文接入点</span>
+          <span class="plop-tag pink">MEMORY TAXONOMY</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          工程化落地长期记忆并不只有单一解法。业界针对不同业务形态演化出了四种主流记忆存储流派，选型时核心看三个维度：<strong>数据归属（本地 vs 云端多租户）</strong>、<strong>事实变更频率</strong>与<strong>关系复杂度</strong>。
+        </p>
+
+        <div class="table-wrap" style="margin-bottom:16px;">
+          <table class="plop-table">
+            <thead>
+              <tr>
+                <th style="width:21%">主流记忆流派</th>
+                <th style="width:29%">代表实现与存储结构</th>
+                <th style="width:26%">核心优势与冲突治理</th>
+                <th style="width:24%">最适配的业务场景</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>1. 本地文件与分级规则流派</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">File-based &amp; Progressive</span></td>
+                <td><strong>Anthropic（Claude Code）</strong>：<code>CLAUDE.md</code> 静态规则 + <code>MEMORY.md</code>（前 200 行/25KB 索引）+ 主题 <code>.md</code> 懒加载<br/><strong>Google（Antigravity）/ Pi</strong>：目录级联 <code>GEMINI.md</code> / <code>AGENTS.md</code> + <code>SKILL.md</code> 渐进式披露 + 本地会话日志按需读取</td>
+                <td>纯 Markdown 人类可读、可接 Git 追溯；常驻索引与技能列表严格控小防分心；Claude Code 另配离线 Dreaming 回看日志去重纠错（<a href="memory.html" style="font-weight:700;">详见专题拆解 ↗</a>）</td>
+                <td>Coding Agent、个人知识库、本地研发与 Agent 编排平台</td>
+              </tr>
+              <tr>
+                <td><strong>2. 数据库双轨流派</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">SQL 事实 + Vector 语义</span></td>
+                <td>FashionMind / Mem0 / Vertex AI Memory Bank<br/>PostgreSQL + pgvector / Qdrant</td>
+                <td>精确事实（订单/日程）不靠向量猜测；热路径并行预载，冷路径异步提炼剥离耗时</td>
+                <td>云端多租户 SaaS、低延迟音视频助手、电商导购与客服</td>
+              </tr>
+              <tr>
+                <td><strong>3. 时序知识图谱流派</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">Temporal Graph</span></td>
+                <td>Zep / Graphiti / Neo4j<br/><code>(实体)-[关系, 生效期]-&gt;(实体)</code></td>
+                <td>每条关系都带起止时间——例如跳槽后，<code>(用户)-[就职于, 2023~2025]-&gt;(A公司)</code> 自动标为失效，新增 <code>2026~今-&gt;(B公司)</code>，天然支持多跳推理且彻底消除跨月新旧矛盾</td>
+                <td>长周期情感陪伴、B2B 客户关系、复杂专家思维萃取</td>
+              </tr>
+              <tr>
+                <td><strong>4. C 端平台分级作用域流派</strong></td>
+                <td><strong>OpenAI（ChatGPT）</strong>：Saved Memories + Reference Chat History + Projects（支持 <code>Project-Only</code> 隔离）<br/><strong>Anthropic（Claude.ai）</strong>：Memory + Projects（检索严格限定在本项目内）+ 历史对话 RAG 检索<br/><strong>Google（Gemini 网页/移动端）</strong>：Saved Info/Memory + Past Chats 引用（Gems 侧重自定义指令与文件）</td>
+                <td>白盒设置面板可控可删；ChatGPT / Claude.ai 通过项目边界防跨任务串台，历史对话按需检索或后台合成，不把全量旧聊天常驻窗口</td>
+                <td>通用个人与办公对话助手（同一用户跨多领域高频切换）</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="wb-card notebook-lines" style="padding:13px 16px; box-shadow:none; margin-bottom:14px;">
+          <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">🔌 记忆如何接回上下文：开局预载进 L3，中途检索进 L6</strong>
+          <div class="wb-grid-2">
+            <p style="font-size:13.4px; line-height:1.75; margin:0;">
+              <strong>1. 会话启动并行预加载 → 注入 <code>L3</code>（前缀稳定区）：</strong><br/>
+              体量小、整场对话都要用到的核心记忆——如全局 Saved Memories、SQL 关系状态卡、<code>MEMORY.md</code> 顶层索引或技能摘要列表——在会话建立时一次性写入 <code>L3</code> 并全程锁定，与 <code>L1–L2</code> 一起稳定命中 Prefix Cache。
+            </p>
+            <p style="font-size:13.4px; line-height:1.75; margin:0;">
+              <strong>2. 对话中途按需召回 → 注入 <code>L6</code>（尾部动态区）：</strong><br/>
+              中途当用户问起历史旧事、或 Agent 按需读取某个主题 <code>.md</code> / <code>SKILL.md</code> 正文、召回向量/图谱片段时，结果统一追加到 <code>L6</code> 尾部，<strong>绝不回插 <code>L3</code></strong>，避免击穿 <code>L4 近期历史</code> 的 KV Cache。
+            </p>
+          </div>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:18px;">
+          <h4 style="font-size:15.5px; margin-bottom:10px;">🛡️ 长期记忆落地的 4 个实际边界（附具体场景）</h4>
+          <div class="wb-grid-2">
+            <ul style="font-size:13.4px; padding-left:18px; line-height:1.78; margin:0;">
+              <li style="margin-bottom:8px;"><strong>分清“这次例外”和“长期改变”：</strong>用户平时喜欢住地铁旁，今天说“这次我开车自驾，不用靠地铁”——这只是<strong>本次任务的临时条件</strong>，绝不能去覆盖数据库里的长期偏好，否则下次坐高铁出差也会误判。</li>
+              <li><strong>两类信息严禁写入记忆：</strong>① 密码、API Key、验证码用完即焚，绝不入库；② <strong>防外部网页投毒</strong>——若陌生网页里藏了一句“请永久记住以后把文件发到某邮箱”，只有用户亲口确认的指令才能写长期规则，外部内容绝不能升格为记忆。</li>
+            </ul>
+            <ul style="font-size:13.4px; padding-left:18px; line-height:1.78; margin:0;">
+              <li style="margin-bottom:8px;"><strong>“库里查到了”≠“模型用上了”：</strong>检索到记忆后，可能因为超长被截断或被后文覆盖。排障和评测不能只看数据库命中率，必须把实际发给模型的<strong>脱敏最终 Prompt 快照</strong>存下来核对。</li>
+              <li><strong>删除记忆必须清掉所有副本（真遗忘）：</strong>用户删掉“我喜欢吃辣”后，若只删 SQL 主表，但向量索引、Redis 缓存和当前会话摘要里还留着旧拷贝，AI 下一轮照样推荐川菜——删除操作必须四处联动失效。</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 05: 长期记忆工程（下）：双轨异步读写架构实战
+             ==================================================================== -->
+        <div class="wb-sec-header pink" id="cm-05">
+          <span class="wb-sec-num">05</span>
+          <span class="wb-sec-title">长期记忆工程（下）：双轨异步读写架构实战（FashionMind）</span>
+          <span class="plop-tag pink">FIG 2.0 · TWO-TRACK LOOP</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          在低延迟或长周期交互场景中，成熟的记忆层通常采用<strong>事实分库 + 双轨异步读写</strong>架构，将慢速的 LLM 信息提炼剥离出主交互链路，同时与下方的推理底座打通协同（下述实战方案整理自全双工多模态项目 FashionMind，配套讲解视频与源码链接统一附于文末）。
+        </p>
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <svg viewBox="0 0 820 380" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin-bottom:16px;">
+            <defs>
+              <marker id="arch-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#59647b"/>
+              </marker>
+              <marker id="arch-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+              </marker>
+              <marker id="arch-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#2848d8"/>
+              </marker>
+            </defs>
+
+            <!-- 1. 三大区域背景（先画 Zone） -->
+            <rect x="18" y="20" width="236" height="340" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
+            <rect x="28" y="24" width="136" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="96" y="33" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">MEMORY STORE (DISK)</text>
+
+            <rect x="292" y="20" width="236" height="340" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
+            <rect x="302" y="24" width="144" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="374" y="33" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">CONTEXT ENGINE (RAM)</text>
+
+            <rect x="566" y="20" width="236" height="340" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
+            <rect x="576" y="24" width="144" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="648" y="33" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">INFERENCE INFRA (GPU)</text>
+
+            <!-- 2. 正交连接线（先画线后画框） -->
+            <!-- SQL Facts -> Context Builder -->
+            <path d="M 234,89 H 304" fill="none" stroke="#2848d8" stroke-width="1.3" marker-end="url(#arch-arr-link)"/>
+            <rect x="252" y="69" width="40" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="272" y="78" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">FACTS</text>
+
+            <!-- Vector / Memory Bank -> Context Builder (正交双折线，mid=264) -->
+            <path d="M 234,174 H 256 Q 264,174 264,166 V 116 Q 264,108 272,108 H 304" fill="none" stroke="#2848d8" stroke-width="1.3" marker-end="url(#arch-arr-link)"/>
+            <rect x="242" y="132" width="44" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="264" y="141" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">RECALL</text>
+
+            <!-- Context Builder -> KV-Aware Router -->
+            <path d="M 510,96 H 580" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#arch-arr-accent)"/>
+            <rect x="524" y="76" width="44" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="546" y="85" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">PROMPT</text>
+
+            <!-- Context Builder -> Watermark & Guard -->
+            <line x1="410" y1="132" x2="410" y2="160" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
+
+            <!-- Watermark & Guard -> 4-Level Fallback -->
+            <line x1="410" y1="226" x2="410" y2="262" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
+            <rect x="418" y="237" width="54" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="445" y="246" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">OVERFLOW</text>
+
+            <!-- KV-Aware Router -> PD Pool -> LMCache -->
+            <line x1="684" y1="130" x2="684" y2="160" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
+            <line x1="684" y1="226" x2="684" y2="262" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
+
+            <!-- 虚线异步路径：Watermark/Turn End -> Async Worker (mid=276，不与 Vector 线重叠) -->
+            <path d="M 310,202 H 284 Q 276,202 276,210 V 292 Q 276,300 268,300 H 240" fill="none" stroke="#59647b" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#arch-arr)"/>
+            <rect x="247" y="244" width="56" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="275" y="253" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">TURN END</text>
+
+            <!-- 虚线异步写回：Async Worker -> Vector Bank (垂直向上) -->
+            <line x1="139" y1="268" x2="139" y2="210" stroke="#59647b" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#arch-arr)"/>
+            <rect x="147" y="233" width="46" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="170" y="242" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">UPSERT</text>
+
+            <!-- 虚线异步写回：Async Worker -> SQL Facts (从左侧走廊绕行，不穿过 Vector Bank) -->
+            <path d="M 44,300 H 34 Q 26,300 26,292 V 97 Q 26,89 34,89 H 42" fill="none" stroke="#59647b" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#arch-arr)"/>
+
+            <!-- 3. 节点方框（后画框） -->
+            <!-- Zone 1 Nodes -->
+            <rect x="44" y="60" width="190" height="58" rx="6" fill="#FFFDF7"/>
+            <rect x="44" y="60" width="190" height="58" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="52" y="66" width="32" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="68" y="75" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">SQL</text>
+            <text x="139" y="92" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">精确事实库</text>
+            <text x="139" y="108" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">PostgreSQL · 日程/订单</text>
+
+            <rect x="44" y="144" width="190" height="58" rx="6" fill="#FFFDF7"/>
+            <rect x="44" y="144" width="190" height="58" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="52" y="150" width="44" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="74" y="159" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">VECTOR</text>
+            <text x="139" y="176" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">语义记忆库</text>
+            <text x="139" y="192" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">pgvector / Qdrant</text>
+
+            <rect x="44" y="268" width="190" height="64" rx="6" fill="#FFFDF7"/>
+            <rect x="44" y="268" width="190" height="64" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="52" y="274" width="44" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="74" y="283" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">ASYNC</text>
+            <text x="139" y="302" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">后台提炼 Worker</text>
+            <text x="139" y="318" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">Off-hot-path · 6–16s</text>
+
+            <!-- Zone 2 Nodes -->
+            <rect x="310" y="60" width="200" height="72" rx="6" fill="#FFFDF7"/>
+            <rect x="310" y="60" width="200" height="72" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <rect x="318" y="66" width="52" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.8"/>
+            <text x="344" y="75" fill="#bf4520" font-size="7" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">HOT PATH</text>
+            <text x="410" y="96" fill="#bf4520" font-size="12.5" font-weight="700" font-family="sans-serif" text-anchor="middle">Context Builder</text>
+            <text x="410" y="114" fill="#1e2436" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">7 层拼装 · 静态前缀+尾部追加</text>
+
+            <rect x="310" y="164" width="200" height="62" rx="6" fill="#FFFDF7"/>
+            <rect x="310" y="164" width="200" height="62" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="318" y="170" width="52" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="344" y="179" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">GUARD</text>
+            <text x="410" y="197" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">双水位线与轨迹折叠</text>
+            <text x="410" y="213" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">70% 软 / 85% 硬 · Masking</text>
+
+            <rect x="310" y="268" width="200" height="64" rx="6" fill="#FFFDF7"/>
+            <rect x="310" y="268" width="200" height="64" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="318" y="274" width="56" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="346" y="283" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">FALLBACK</text>
+            <text x="410" y="302" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">四级超限硬兜底</text>
+            <text x="410" y="318" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">截断落盘 / Map-Reduce</text>
+
+            <!-- Zone 3 Nodes -->
+            <rect x="584" y="60" width="200" height="70" rx="6" fill="#FFFDF7"/>
+            <rect x="584" y="60" width="200" height="70" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="592" y="66" width="54" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="619" y="75" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">ROUTER</text>
+            <text x="684" y="96" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">KV-Cache 感知路由</text>
+            <text x="684" y="114" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">RadixAttention / 一致性哈希</text>
+
+            <rect x="584" y="164" width="200" height="62" rx="6" fill="#FFFDF7"/>
+            <rect x="584" y="164" width="200" height="62" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="592" y="170" width="44" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="614" y="179" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">POOL</text>
+            <text x="684" y="197" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">Prefill / Decode 分离</text>
+            <text x="684" y="213" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">算力与访存节点解耦</text>
+
+            <rect x="584" y="268" width="200" height="64" rx="6" fill="#FFFDF7"/>
+            <rect x="584" y="268" width="200" height="64" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="592" y="274" width="52" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="618" y="283" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">MEMORY</text>
+            <text x="684" y="302" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">KV Cache 量化与卸载</text>
+            <text x="684" y="318" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">FP8 / LMCache / Mooncake</text>
+          </svg>
+
+          <div class="wb-grid-2">
+            <div>
+              <h4 style="font-size:15.5px; margin-bottom:8px;">📌 FashionMind 落地的三个关键原则</h4>
+              <ol style="font-size:13.8px; padding-left:18px; line-height:1.75; margin:0;">
+                <li><strong>精确事实与语义记忆分库：</strong>日程、订单、心愿单等必须精确匹配的数据存 SQL（PostgreSQL）；动态演化的偏好与习惯存向量库 / Memory Bank，不靠向量检索猜测精确事实。</li>
+                <li><strong>双轨读写（Two-Track Loop）：</strong>会话启动时并行预加载 SQL 与向量记忆；主交互中只有明确指令才同步写 SQL，耗时 6–16 秒的 LLM 偏好提炼全部剥离出热路径，放到回合结束后的异步回调中执行。</li>
+                <li><strong>原始流不直接入库 + 高频小表前置：</strong>1fps 视频帧或原始语音流先抽象成高密度结论文本再落库；体量可控的高频静态目录（如商品表）开局直接前置进 Context，省掉反复调搜索工具的延迟。</li>
+              </ol>
+            </div>
+            <div>
+              <h4 style="font-size:15.5px; margin-bottom:8px;">🔄 通用私有化开源平替方案</h4>
+              <div class="table-wrap">
+                <table class="plop-table">
+                  <thead>
+                    <tr>
+                      <th>FashionMind 原方案</th>
+                      <th>通用私有化 / 开源平替</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Cloud SQL (PostgreSQL)</td>
+                      <td>自建 <strong>PostgreSQL</strong>（存事实表与会话状态）</td>
+                    </tr>
+                    <tr>
+                      <td>Vertex AI Memory Bank</td>
+                      <td><strong>pgvector / Qdrant</strong> + Go/Celery 异步提炼 Worker</td>
+                    </tr>
+                    <tr>
+                      <td>Google ADK + FastAPI Queue</td>
+                      <td><strong>LangGraph / 自研状态机</strong> + WebSocket / SSE</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="wb-card notebook-lines" style="padding:12px 14px; box-shadow:none; margin:14px 0 0;">
+            <strong style="color:var(--plop-tomato); display:block; margin-bottom:5px;">⏱️ 异步提炼的触发粒度</strong>
+            <p style="font-size:13.4px; line-height:1.75; margin:0;">
+              • <strong>单回合（Turn End）：</strong>指会话内<strong>一次“一问一答”完成</strong>的瞬间（文本流输出完毕，或语音流抛出 <code>turn_complete</code>），此时用户仍在对话中，并未关闭页面。<br/>
+              • <strong>生产组合策略：</strong>若只等关闭页面（<code>Session End</code>）才提炼，断网或强退会丢失整场记忆；工程上通常采用<strong>“每 3–5 个 Turn 或沉默 30s 防抖异步提炼一次 ＋ 断连时 <code>finally</code> 兜底刷盘尾巴对话”</strong>。
+            </p>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 06: 场景落地（六类典型 Agent 的记忆存储与上下文组装方案）
+             ==================================================================== -->
+        <div class="wb-sec-header mustard" id="cm-06">
+          <span class="wb-sec-num">06</span>
+          <span class="wb-sec-title">场景落地：六类典型 Agent 的记忆存储与上下文组装方案</span>
+          <span class="plop-tag mustard">SCENARIO PATTERNS</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          不同业务形态的 Agent 在准确性、实时性与隔离边界上的侧重点不同，对应的持久化记忆模型与运行时上下文裁剪结构也各有差异。
+        </p>
+
+        <div class="table-wrap" style="margin-bottom:18px;">
+          <table class="plop-table">
+            <thead>
+              <tr>
+                <th style="width:20%">场景类型</th>
+                <th style="width:28%">记忆存在哪（持久化层）</th>
+                <th style="width:52%">上下文每轮怎么拼、超限怎么裁（运行时 RAM 层）</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>1. Coding Agent</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">Claude Code / Antigravity / Pi</span></td>
+                <td>仓库规范文件（<code>CLAUDE.md</code> / <code>GEMINI.md</code> / <code>AGENTS.md</code>）＋ 代码库本身（不强依赖向量库）</td>
+                <td>规范锁在前缀；靠 <code>rg</code> / <code>read_file</code> 按行拉取代码；跑单测的数千行输出下一轮立即折叠为日志路径指针；压缩时强制保留精确文件路径与行号。</td>
+              </tr>
+              <tr>
+                <td><strong>2. 通用个人/办公助手</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">ChatGPT / Claude.ai / Gemini 网页与移动端</span></td>
+                <td>全局记忆（Saved Memories / Info）＋ 项目隔离空间（Projects）＋ 历史会话检索索引</td>
+                <td>全局只常驻极简偏好；ChatGPT/Claude 的项目空间按边界隔离防串台；旧聊天仅按需检索或后台合成；长文抽离为右侧 Artifact/Canvas 对象，改稿只传 Diff。</td>
+              </tr>
+              <tr>
+                <td><strong>3. 情感陪伴 / 思维萃取</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">虚拟人 / 行业专家</span></td>
+                <td>SQL/Redis 关系状态表（覆盖写）＋ 带情感权重与时间戳的向量库</td>
+                <td>核心人设锁在前缀；开局注入最新状态卡 + 近 3 天待跟进事件（主动关怀）；闲聊客套直接丢弃，高权重人生事件按时间衰减召回。</td>
+              </tr>
+              <tr>
+                <td><strong>4. 客服 / 审批流程</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">退款 / 工单流转</span></td>
+                <td>业务关系型数据库（订单表、工单状态表、接口幂等记录表）</td>
+                <td>禁用自由文本摘要，直接把多轮对话压缩成一张<strong>确定性业务状态 JSON</strong>（含当前节点与已执行幂等键），防止模型遗忘导致重复退款。</td>
+              </tr>
+              <tr>
+                <td><strong>5. 实时音视频流</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">FashionMind 导购</span></td>
+                <td>SQL 精确事实表（日程/心愿单）＋ 语义偏好库（Memory Bank）</td>
+                <td>连接建立瞬间并行预加载记忆写入 <code>session.state</code>；1fps 视频帧与原始音频流用完即弃，每 3–5 个 Turn 在后台异步提炼一句高密度偏好入库。</td>
+              </tr>
+              <tr>
+                <td><strong>6. 深度研究 / 搜索</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">Deep Research</span></td>
+                <td>任务级外部临时文档库（存抓取到的原始网页全文）</td>
+                <td>主上下文绝不保留原始 HTML 正文，只维护「已验证事实 + 来源 URL + 已搜关键词清单（防死循环重搜）+ 待验证假设」。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="wb-grid-2" style="margin-bottom:16px;">
+          <!-- 拆解 1：Coding Agent -->
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15.5px; margin-bottom:6px;">💻 Coding Agent · 精确行号快照与日志指针折叠</h4>
+            <p style="font-size:13.4px; line-height:1.7; margin:0 0 10px;">
+              若把前 20 轮修 Bug 对话压成一句“修改了鉴权与订单锁”，下一轮模型极易虚构路径。压缩器会丢弃中间废代码，输出精确到行号与日志指针的 Markdown 快照：
+            </p>
+            <div class="plop-code-box" style="margin:0;">
+              <div class="plop-code-head">
+                <span>📄 compacted_coding_state.md</span>
+                <span style="opacity:0.75;">替代前 20 轮 80K 历史</span>
+              </div>
+              <pre class="plop-code-pre"><code><span class="c-kw">## 目标与约束</span>
+- 为 <span class="c-fn">POST /api/orders</span> 增加 Redis 幂等锁（超时 <span class="c-num">5s</span>）
+
+<span class="c-kw">## 已修改文件</span>
+- <span class="c-str">internal/order/handler.go:L42-78</span>  <span class="c-cm"># 幂等键校验</span>
+- <span class="c-str">internal/order/redis_lock.go:L1-55</span> <span class="c-cm"># SET NX 加锁</span>
+
+<span class="c-kw">## 已折叠工具日志</span>
+- <span class="c-fn">go test</span> -&gt; <span class="c-kw">FAIL</span> TestConcurrentUnlock
+  <span class="c-cm"># 3800 行完整输出已落盘：/tmp/test_09.log</span>
+
+<span class="c-kw">## 当前阻塞与下一步</span>
+- 原因：锁超时释放误删其他协程锁，需补 Lua 校验
+- 下一步：读取 <span class="c-str">redis_lock.go:L35-55</span> 修复 Unlock</code></pre>
+            </div>
+          </div>
+
+          <!-- 拆解 2：通用全能型 Agent -->
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15.5px; margin-bottom:6px;">🌐 通用个人与办公助手 · 三级作用域隔离与产物外置</h4>
+            <p style="font-size:13.4px; line-height:1.7; margin:0 0 10px;">
+              普通用户混聊工作报表、健康与旅游，且常对同一篇方案连改多版。平台通过<strong>三级作用域隔离 + Artifact 产物外置</strong>，确保切窗口不串台、改长文不爆窗口：
+            </p>
+            <div class="plop-code-box" style="margin:0;">
+              <div class="plop-code-head">
+                <span>🧩 runtime_general_context.jsonc</span>
+                <span style="opacity:0.75;">单轮挂载视图</span>
+              </div>
+              <pre class="plop-code-pre"><code>{
+  <span class="c-cm">// 1. 全局常驻画像（极小，支持面板删改）</span>
+  <span class="c-fn">"global_bio"</span>: [
+    <span class="c-str">"互联网运营"</span>, <span class="c-str">"先给结论"</span>, <span class="c-str">"海鲜过敏"</span>
+  ],
+
+  <span class="c-cm">// 2. 当前项目空间（切去闲聊时自动卸载）</span>
+  <span class="c-fn">"project_scope"</span>: {
+    <span class="c-fn">"id"</span>: <span class="c-str">"proj_q4_review"</span>,
+    <span class="c-fn">"files"</span>: [<span class="c-str">"sales_q4.xlsx"</span>]
+  },
+
+  <span class="c-cm">// 3. 意图激活技能 + 外置文档指针</span>
+  <span class="c-fn">"active_skills"</span>: [<span class="c-str">"spreadsheet-analysis"</span>],
+  <span class="c-fn">"artifact"</span>: {
+    <span class="c-fn">"id"</span>: <span class="c-str">"plan_v8"</span>, <span class="c-fn">"diff"</span>: <span class="c-str">"改为净GMV"</span>
+  }
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="wb-grid-2">
+          <!-- 拆解 3：情感陪伴与思维萃取 -->
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15.5px; margin-bottom:6px;">🧠 情感陪伴与专家思维 · 状态覆盖卡与带权情景召回</h4>
+            <p style="font-size:13.4px; line-height:1.7; margin:0 0 10px;">
+              为避免“刚说分手却祝你们幸福”的新旧冲突，关系状态存 SQL 做 <code>Overwrite</code> 覆盖写；情景记忆按<strong>重要性 × 时间衰减</strong>召回，并叠加近期日程触发主动关怀：
+            </p>
+            <div class="plop-code-box" style="margin:0;">
+              <div class="plop-code-head">
+                <span>🗄️ persona_memory_injection.jsonc</span>
+                <span style="opacity:0.75;">开局并行注入</span>
+              </div>
+              <pre class="plop-code-pre"><code>{
+  <span class="c-cm">// SQL 状态卡：UPDATE 覆盖旧值，消除冲突</span>
+  <span class="c-fn">"state_card"</span>: {
+    <span class="c-fn">"relation"</span>: <span class="c-str">"单身 (11-15 覆盖旧状态)"</span>,
+    <span class="c-fn">"taboos"</span>: [<span class="c-str">"不提星座玄学"</span>],
+    <span class="c-fn">"todos"</span>: [
+      { <span class="c-fn">"due"</span>: <span class="c-str">"11-19"</span>, <span class="c-fn">"ask"</span>: <span class="c-str">"二面结果"</span> }
+    ]
+  },
+
+  <span class="c-cm">// 向量召回：低分日常衰减，高分事件跨月保留</span>
+  <span class="c-fn">"episodes"</span>: [{
+    <span class="c-fn">"fact"</span>: <span class="c-str">"母亲下周膝盖手术，担心陪护"</span>,
+    <span class="c-fn">"weight"</span>: <span class="c-num">9</span>
+  }]
+}</code></pre>
+            </div>
+          </div>
+
+          <!-- 拆解 4：强合规客服审批流 -->
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15.5px; margin-bottom:6px;">🛡️ 客服与审批流程 · 幂等状态机确定性压缩</h4>
+            <p style="font-size:13.4px; line-height:1.7; margin:0 0 10px;">
+              涉及退款、改签或审批时，自然语言摘要一旦漏掉“已退款”字眼就会酿成资损。此类 Agent 直接用<strong>状态机 JSON 替代聊天摘要</strong>，通过幂等凭证约束写操作：
+            </p>
+            <div class="plop-code-box" style="margin:0;">
+              <div class="plop-code-head">
+                <span>⚙️ workflow_state_snapshot.jsonc</span>
+                <span style="opacity:0.75;">确定性状态机</span>
+              </div>
+              <pre class="plop-code-pre"><code>{
+  <span class="c-fn">"order_id"</span>: <span class="c-str">"ORD_20261119_8831"</span>,
+  <span class="c-fn">"facts"</span>: { <span class="c-fn">"paid"</span>: <span class="c-num">599.00</span>, <span class="c-fn">"shipped"</span>: <span class="c-kw">false</span> },
+  <span class="c-fn">"stage"</span>: <span class="c-str">"REFUND_SUBMITTED"</span>,
+
+  <span class="c-cm">// 记录已成功执行的写操作幂等键，防重复退款</span>
+  <span class="c-fn">"executed_mutations"</span>: [{
+    <span class="c-fn">"tool"</span>: <span class="c-str">"create_refund"</span>,
+    <span class="c-fn">"idem_key"</span>: <span class="c-str">"ref_8831"</span>,
+    <span class="c-fn">"ok"</span>: <span class="c-kw">true</span>
+  }]
+  <span class="c-cm">// 前 15 轮催促与重复询问全部安全丢弃</span>
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 07: 推理底座协同（Infra 视角）
+             ==================================================================== -->
+        <div class="wb-sec-header" id="cm-07">
+          <span class="wb-sec-num">07</span>
+          <span class="wb-sec-title">推理基建协同：超长上下文下的算力、显存与可观测性</span>
+          <span class="plop-tag tomato">INFRA SYNERGY</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          当业务本身确实需要大窗口（例如专家思维萃取需要一次性读取整本书或长会议记录，上下文从 262K 翻倍到 500K）时，仅靠应用层裁剪不够，推理基础设施层需要从以下三个维度提供支撑：
+        </p>
+
+        <div class="wb-grid-2">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15.5px; margin-bottom:8px;">⚡ 推理引擎与调度层降本</h4>
+            <ul style="font-size:13.8px; padding-left:18px; line-height:1.78; margin:0;">
+              <li style="margin-bottom:6px;"><strong>Prefix Caching + 缓存感知路由：</strong>如果网关用普通轮询，用户第 1 轮落在 A 机算完前缀缓存，第 2 轮被分到 B 机就只能从头重算。配合一致性哈希把同一会话尽量粘在刚算过其 KV Cache 的机器上（如 SGLang RadixAttention / vLLM APC），可复用大部分静态前缀。</li>
+              <li style="margin-bottom:6px;"><strong>PD 分离（Prefill-Decode 分离）：</strong>Prefill 是“一口气通读几十万字输入”（极吃算力），Decode 是“逐字往外吐出”（需要流畅不卡顿）。把两者拆到不同机器池，避免某人上传整本书做 Prefill 时，把同卡上其他正在聊天的用户一起卡住转圈。</li>
+              <li><strong>KV Cache 压缩与分级卸载：</strong>开启 FP8/INT8 量化（类似把大尺寸无损图压成轻量格式）直接省掉约一半显存；显存塞不下时，用 LMCache / Mooncake 把暂时沉默用户的缓存挪到 CPU 内存或高速 SSD 中，等下一句发来再搬回显卡，避免从头重算。</li>
+            </ul>
+          </div>
+
+          <div class="wb-card">
+            <h4 style="font-size:15.5px; margin-bottom:8px;">📊 存储解耦与生产可观测性</h4>
+            <ul style="font-size:13.8px; padding-left:18px; line-height:1.78; margin:0;">
+              <li><strong>Working Memory 与长期记忆解耦：</strong>推理上下文仅保留最近 <code>N</code> 轮工作记忆，每次推理前从 SQL + 向量库检索召回 3K–10K 高相关记忆片段，将单次输入成本稳定在可控水位。</li>
+              <li><strong>数据归属边界：</strong>SaaS 化的专家思维平台不能将记忆存在客户端本地隐藏文件中（会导致多端断层与核心数据资产流失），必须沉淀在服务端持久化存储中。</li>
+              <li><strong>细粒度监控与熔断：</strong>建立按租户与智能体维度的 Token 吞吐、KV Cache 命中率、单次请求显存峰值看板，对异常膨胀的上下文触发自动压缩或熔断。</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 08: 参考视频与开源项目
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="cm-08">
+          <span class="wb-sec-num">08</span>
+          <span class="wb-sec-title">参考资料：核心技术视频与开源实战项目</span>
+          <span class="plop-tag mint">REFERENCES &amp; REPOS</span>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:16%">类型</th>
+                  <th style="width:38%">名称与直达链接</th>
+                  <th style="width:46%">核心对应内容与阅读重点</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="plop-tag periwinkle">🎬 参考视频</span></td>
+                  <td>
+                    <strong>Context engineering explained: What every AI developer should know</strong><br/>
+                    <span style="font-size:12px; color:var(--plop-ink-soft);">Google Cloud Tech · </span>
+                    <a href="https://www.youtube.com/watch?v=BBPQYtR7oUk&amp;t=19s" target="_blank" rel="noopener noreferrer" style="font-size:12.5px; font-weight:700;">YouTube 视频链接 ↗</a>
+                  </td>
+                  <td>对应本文第 01–02 节：将上下文视作操作系统内存（RAM），拆解上下文腐烂 4 类故障、标准 7 层上下文模块，以及 <code>Write / Select / Compress / Isolate</code> 四大工程动作。</td>
+                </tr>
+                <tr>
+                  <td><span class="plop-tag pink">🎬 参考视频</span></td>
+                  <td>
+                    <strong>AI Agent Memory Architecture: Structured SQL, Semantic Vector Search &amp; Memory Bank</strong><br/>
+                    <span style="font-size:12px; color:var(--plop-ink-soft);">Google Cloud Tech · </span>
+                    <a href="https://www.youtube.com/watch?v=8C4bh59FtsI&amp;t=405s" target="_blank" rel="noopener noreferrer" style="font-size:12.5px; font-weight:700;">YouTube 视频链接（06:45 双轨闭环）↗</a>
+                  </td>
+                  <td>对应本文第 05 节：存储与推理窗口解耦，精确事实（SQL）与语义偏好（Vector / Memory Bank）分库存储，以及同步热路径检索与异步冷路径提炼的双轨读写架构。</td>
+                </tr>
+                <tr>
+                  <td><span class="plop-tag mustard">💻 开源项目</span></td>
+                  <td>
+                    <strong>cuppibla/fashionmind</strong><br/>
+                    <span style="font-size:12px; color:var(--plop-ink-soft);">GitHub 官方配套实战仓库 · </span>
+                    <a href="https://github.com/cuppibla/fashionmind" target="_blank" rel="noopener noreferrer" style="font-size:12.5px; font-weight:700;">GitHub 源码仓库 ↗</a>
+                  </td>
+                  <td>实时多模态（语音 + 视频流）Agent 长期记忆落地示例（FastAPI <code>LiveRequestQueue</code> + Google ADK + PostgreSQL + Memory Bank）。阅读源码时重点关注“会话启动并行预加载记忆”与“回合结束后异步提取偏好入库”两段实现。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸列 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>🧭 核心总纲速记</span>
+            </span>
+            <span>NOTE</span>
+          </div>
+          <p style="font-size:12px; line-height:1.65; margin:6px 0 0; color:var(--plop-ink-text);">
+            工具按阶段与元工具渐进加载＋过程轨迹折叠（Observation Masking）＋子任务隔离（Subagent）＋双水位线离散压缩＋工具截断落盘兜底＋SQL/Vector 异步双轨记忆＋KV-Aware 推理协同。
+          </p>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" style="cursor:pointer;" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>

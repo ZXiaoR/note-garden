@@ -16,6 +16,7 @@
   const NOTE_GARDEN_TOPICS = [
     { path: 'ai/index.html', title: '🧠 Gemini 4 Carbon', dot: '' },
     { path: 'ai/memory.html', title: '🌙 Agent 记忆架构', dot: 'pink' },
+    { path: 'ai/context-memory.html', title: '🧩 上下文与记忆工程', dot: 'mustard' },
     { path: 'pi-agent/index.html', title: '🤖 Coding Agent (pi)', dot: 'periwinkle' },
     { path: 'pi-agent/guide.html', title: '🧭 Pi 源码与架构权衡', dot: 'mint' },
     { path: 'mysql/index.html', aliases: ['mysql/principles.html', 'mysql/principles'], title: '🐬 MySQL 基础与原理', dot: 'mint' },
