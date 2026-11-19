@@ -244,7 +244,7 @@
                 </tr>
                 <tr>
                   <td><strong>2. Context Distraction</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">注意力分散</span></td>
-                  <td>大段终端日志、整页 HTML 或无关历史过多，稀释模型注意力（实测哪怕仅占 20%–30% 窗口，也会导致跑偏并多耗费大量 Token）。</td>
+                  <td>大段终端日志、整页 HTML 或无关历史过多，稀释模型注意力（即便仅占用 20%–30% 窗口、远未触发上限，也会导致跑偏并多耗费大量 Token）。</td>
                   <td>
                     • <strong>回合级即时折叠（不等水位线）：</strong>上一轮消费完的数千行工具输出，进入下一轮时立即折叠为 <code>[文件路径指针 + 关键结论]</code>（Observation Masking）。<br/>
                     • <strong>源头精准切片：</strong>按行号读取代码、按字段查库，大结果直接外写落盘（File-as-Context）。<br/>
@@ -325,8 +325,8 @@
             <rect x="88" y="144" width="440" height="44" rx="4" fill="#f7f5ee" stroke="rgba(30,36,54,0.22)" stroke-width="1"/>
             <text x="114" y="170" fill="#59647b" font-size="10" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">L3</text>
             <text x="148" y="165" fill="#1e2436" font-size="13" font-weight="700" font-family="sans-serif">Long-Term Memories（会话预载记忆）</text>
-            <text x="148" y="180" fill="#59647b" font-size="10" font-family="sans-serif">会话启动预载：顶层记忆索引 / 全局画像 / SQL 核心事实（会话内固定）</text>
-            <text x="514" y="170" fill="#216648" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="end">SESSION PINNED</text>
+            <text x="148" y="180" fill="#59647b" font-size="10" font-family="sans-serif">开局预载：顶层索引 / 画像 / SQL 事实（常规轮不动，压缩时重建）</text>
+            <text x="514" y="170" fill="#216648" font-size="9" font-family="ui-monospace, monospace" font-weight="700" text-anchor="end">TURN STABLE</text>
 
             <!-- L4 (Focal Accent) -->
             <rect x="88" y="194" width="440" height="44" rx="4" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.6"/>
@@ -364,7 +364,7 @@
             <text x="588" y="114" fill="#59647b" font-size="10.5" font-family="sans-serif">• 严禁在顶部插实时时间戳</text>
             <text x="588" y="133" fill="#59647b" font-size="10.5" font-family="sans-serif">• 核心工具固定顺序不重排</text>
             <text x="588" y="152" fill="#59647b" font-size="10.5" font-family="sans-serif">• 配合 KV-Aware 路由命中</text>
-            <text x="588" y="171" fill="#59647b" font-size="10.5" font-family="sans-serif">• 省去 80%+ 重复 Prefill</text>
+            <text x="588" y="171" fill="#59647b" font-size="10.5" font-family="sans-serif">• 大幅复用重复 Prefill 计算</text>
 
             <!-- 右侧协同面板 2：水位线与尾部追加 -->
             <rect x="576" y="198" width="220" height="190" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.4"/>
@@ -392,7 +392,7 @@
               <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">🔍 推理基建视角：动态裁剪与 KV Cache 的矛盾</strong>
               <p style="font-size:13.5px; line-height:1.75; margin:0;">
                 如果在应用层每轮都改写顶部工具列表（<code>L2</code>），或者把每轮变化的 RAG 检索切片插在历史对话（<code>L4</code>）之前，会导致发往推理引擎的 Prompt 前缀每轮都在变，<strong>Prefix Cache 命中率直接归零</strong>，Prefill 算力成本与首字延迟（TTFT）随之陡增。<br/><br/>
-                <strong>生产级协同做法：</strong><code>L1–L3</code> 静态前缀会话内锁定，<code>L4</code> 历史轨迹跨轮只追加、仅在越过水位线时<strong>离散重整</strong>，动态检索与草稿统一置于 <code>L5–L6</code> 尾部；同时配合 Tracing 记录每帧各层 Token 占比与 Cache 命中率。
+                <strong>生产级协同做法：</strong><code>L1–L2</code> 静态前缀锁定，<code>L3</code> 常规轮次不动（中途变更先走 <code>L6</code> 补丁覆盖，水位线压缩时再统一重建），<code>L4</code> 历史轨迹跨轮只追加、越过水位线时<strong>离散重整</strong>，动态检索与草稿统一置于 <code>L5–L6</code> 尾部；同时配合 Tracing 记录每帧各层 Token 占比与 Cache 命中率。
               </p>
             </div>
           </div>
@@ -408,7 +408,7 @@
         </div>
 
         <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
-          上下文管理不能等到窗口溢出报错才处理。工程上通常以模型总窗口减去预留输出空间为基准（例如 128K 窗口预留 16K 输出，有效输入预算约 112K），设置两道水位线来平衡延迟与安全性。
+          上下文管理不能等到窗口溢出报错才处理。工程上通常以模型总窗口减去预留输出空间为基准（例如 128K 窗口预留 16K 输出，有效输入预算约 112K），按经验值设置两道水位线（可依具体模型与任务特性调节）来平衡延迟与安全性。
         </p>
 
         <div class="wb-grid-2" style="margin-bottom:18px;">
@@ -416,10 +416,10 @@
             <div class="washi-tape"></div>
             <h3 style="font-size:17px; margin-bottom:10px;">💧 双水位线触发机制（Soft &amp; Hard）</h3>
             <ul style="font-size:13.8px; padding-left:18px; line-height:1.8; margin:0;">
-              <li><strong>软水位线（有效输入预算的 70%，约 78K Token）：</strong>在后台对当前历史快照触发<strong>异步预压缩</strong>与工具输出折叠，不阻塞本轮生成。压缩结果仅在<strong>回合边界原子替换</strong>，且压缩耗时期间新增的消息必须接在新摘要后面，避免覆盖丢消息。</li>
-              <li><strong>硬水位线（有效输入预算的 85%，约 95K Token）：</strong>在发送请求前强制执行<strong>同步裁剪或结构化压缩</strong>，防止调用模型 API 时直接触发超长报错。</li>
+              <li><strong>软水位线（常用经验值：有效输入预算的 70%，约 78K Token）：</strong>在后台对当前历史快照触发<strong>异步预压缩</strong>与工具输出折叠，不阻塞本轮生成。压缩结果仅在<strong>回合边界原子替换</strong>，且压缩耗时期间新增的消息必须接在新摘要后面，避免覆盖丢消息。</li>
+              <li><strong>硬水位线（常用经验值：有效输入预算的 85%，约 95K Token）：</strong>在发送请求前强制执行<strong>同步裁剪或结构化压缩</strong>，防止调用模型 API 时直接触发超长报错。</li>
               <li><strong>滑窗保留策略：</strong>保留最近 <code>K</code> 轮完整对话（或最近 <code>M</code> 个 Token 以保证当前动作连贯），只对更早的历史执行摘要压缩。</li>
-              <li><strong>工具轨迹折叠（Observation Masking）：</strong>Agent 运行时 80%–90% 的上下文膨胀来自工具返回值。当前轮保留完整堆栈用于排障，进入下一轮后把冗长 stdout 替换为极简指针（如 <code>[已折叠：pytest 4200 行日志已存至 /tmp/test.log]</code>）。</li>
+              <li><strong>工具轨迹折叠（Observation Masking）：</strong>在 Coding 与检索类 Agent 中，大部分上下文膨胀来自工具返回值。当前轮保留完整堆栈用于排障，进入下一轮后把冗长 stdout 替换为极简指针（如 <code>[已折叠：pytest 4200 行日志已存至 /tmp/test.log]</code>）。</li>
             </ul>
           </div>
 
@@ -776,7 +776,7 @@
               <h4 style="font-size:15.5px; margin-bottom:8px;">📌 FashionMind 落地的三个关键原则</h4>
               <ol style="font-size:13.8px; padding-left:18px; line-height:1.75; margin:0;">
                 <li><strong>精确事实与语义记忆分库：</strong>日程、订单、心愿单等必须精确匹配的数据存 SQL（PostgreSQL）；动态演化的偏好与习惯存向量库 / Memory Bank，不靠向量检索猜测精确事实。</li>
-                <li><strong>双轨读写（Two-Track Loop）：</strong>会话启动时并行预加载 SQL 与向量记忆；主交互中只有明确指令才同步写 SQL，耗时 6–16 秒的 LLM 偏好提炼全部剥离出热路径，放到回合结束后的异步回调中执行。</li>
+                <li><strong>双轨读写（Two-Track Loop）：</strong>会话启动时并行预加载 SQL 与向量记忆；主交互中只有明确指令才同步写 SQL，耗时 6–16 秒（FashionMind 视频实测耗时）的 LLM 偏好提炼全部剥离出热路径，放到回合结束后的异步回调中执行。</li>
                 <li><strong>原始流不直接入库 + 高频小表前置：</strong>1fps 视频帧或原始语音流先抽象成高密度结论文本再落库；体量可控的高频静态目录（如商品表）开局直接前置进 Context，省掉反复调搜索工具的延迟。</li>
               </ol>
             </div>
@@ -1173,6 +1173,15 @@
                     <a href="https://github.com/cuppibla/fashionmind" target="_blank" rel="noopener noreferrer" style="font-size:12.5px; font-weight:700;">GitHub 源码仓库 ↗</a>
                   </td>
                   <td>实时多模态（语音 + 视频流）Agent 长期记忆落地示例（FastAPI <code>LiveRequestQueue</code> + Google ADK + PostgreSQL + Memory Bank）。阅读源码时重点关注“会话启动并行预加载记忆”与“回合结束后异步提取偏好入库”两段实现。</td>
+                </tr>
+                <tr>
+                  <td><span class="plop-tag mint">📖 官方文档</span></td>
+                  <td>
+                    <strong>Claude Code Memory &amp; Anthropic Agent Memory</strong><br/>
+                    <span style="font-size:12px; color:var(--plop-ink-soft);">Anthropic 官方文档 · </span>
+                    <a href="https://code.claude.com/docs/en/memory" target="_blank" rel="noopener noreferrer" style="font-size:12.5px; font-weight:700;">Claude Code Memory 文档 ↗</a>
+                  </td>
+                  <td>对应本文第 04 节本地文件流派：核验 <code>CLAUDE.md</code> 分层加载、<code>MEMORY.md</code> 前 200 行 / 25KB 自动截断上限、主题文件懒加载以及离线 Dreaming 整理机制。</td>
                 </tr>
               </tbody>
             </table>
