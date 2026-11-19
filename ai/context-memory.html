@@ -65,7 +65,7 @@
         <nav class="plop-index-tabs" id="toc-tabs">
           <a href="#cm-01" class="plop-ear-tab active" data-toc="cm-01">
             <span class="ear-dot"></span>
-            <span>01 职责边界与腐烂</span>
+            <span>01 全局架构与取舍</span>
           </a>
           <a href="#cm-02" class="plop-ear-tab" data-toc="cm-02">
             <span class="ear-dot mint"></span>
@@ -131,7 +131,7 @@
     <main class="plop-workbench" id="full-broadsheet-view">
       <!-- 窄屏横向章节导航栏 -->
       <nav class="plop-mobile-toc" aria-label="章节快速跳转">
-        <a href="#cm-01" class="active">01 职责边界</a>
+        <a href="#cm-01" class="active">01 全局架构</a>
         <a href="#cm-02">02 七层栈</a>
         <a href="#cm-03">03 水位线兜底</a>
         <a href="#cm-04">04 四大记忆流派</a>
@@ -168,17 +168,155 @@
         </header>
 
         <!-- ====================================================================
-             SECTION 01: 职责边界与上下文腐烂
+             SECTION 01: 全局架构地图、核心 Trade-off 与职责边界
              ==================================================================== -->
         <div class="wb-sec-header" id="cm-01">
           <span class="wb-sec-num">01</span>
-          <span class="wb-sec-title">核心边界：记忆存储与上下文工程的职责划分</span>
-          <span class="plop-tag tomato">RAM VS DISK</span>
+          <span class="wb-sec-title">全局视角：通用架构地图、核心 Trade-off 与职责边界</span>
+          <span class="plop-tag tomato">FIG 1.0 · ARCHITECTURE MAP</span>
         </div>
 
         <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
-          在 Agent 工程化落地中，记忆（Memory）与上下文工程（Context Engineering）解决的是两个不同层面的问题。把大模型的 Context Window 比作操作系统的内存（RAM），把外部数据库与文件存储比作硬盘（Disk），两者的边界就会非常清晰。
+          无论底层选型是本地文件、关系库还是图数据库，生产级 Agent 的上下文与记忆系统大体都落在同一套三层通用骨架里：<strong>持久化记忆层（Disk）</strong>负责跨会话留存与异步提炼，<strong>上下文引擎层（RAM）</strong>负责每轮动态组装与超限保护，<strong>推理底座层（GPU）</strong>负责把前缀缓存和长输入算力扛住。下文各节正是对着这张总图，逐模块讨论具体方案与工程取舍。
         </p>
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <svg viewBox="0 0 820 380" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin-bottom:14px;">
+            <defs>
+              <marker id="arch-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#59647b"/>
+              </marker>
+              <marker id="arch-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+              </marker>
+              <marker id="arch-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#2848d8"/>
+              </marker>
+            </defs>
+
+            <!-- 1. 三大区域背景（先画 Zone，标注对应章节号） -->
+            <rect x="18" y="20" width="236" height="340" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
+            <rect x="28" y="24" width="174" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="115" y="33" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">MEMORY STORE (DISK) · §04–05</text>
+
+            <rect x="292" y="20" width="236" height="340" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
+            <rect x="302" y="24" width="182" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="393" y="33" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">CONTEXT ENGINE (RAM) · §02–03</text>
+
+            <rect x="566" y="20" width="236" height="340" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
+            <rect x="576" y="24" width="174" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="663" y="33" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">INFERENCE INFRA (GPU) · §07</text>
+
+            <!-- 2. 正交连接线（先画线后画框） -->
+            <path d="M 234,89 H 304" fill="none" stroke="#2848d8" stroke-width="1.3" marker-end="url(#arch-arr-link)"/>
+            <rect x="252" y="69" width="40" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="272" y="78" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">FACTS</text>
+
+            <path d="M 234,174 H 256 Q 264,174 264,166 V 116 Q 264,108 272,108 H 304" fill="none" stroke="#2848d8" stroke-width="1.3" marker-end="url(#arch-arr-link)"/>
+            <rect x="242" y="132" width="44" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="264" y="141" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">RECALL</text>
+
+            <path d="M 510,96 H 580" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#arch-arr-accent)"/>
+            <rect x="524" y="76" width="44" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="546" y="85" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">PROMPT</text>
+
+            <line x1="410" y1="132" x2="410" y2="160" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
+
+            <line x1="410" y1="226" x2="410" y2="262" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
+            <rect x="418" y="237" width="54" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="445" y="246" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">OVERFLOW</text>
+
+            <line x1="684" y1="130" x2="684" y2="160" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
+            <line x1="684" y1="226" x2="684" y2="262" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
+
+            <!-- 虚线异步路径 -->
+            <path d="M 310,202 H 284 Q 276,202 276,210 V 292 Q 276,300 268,300 H 240" fill="none" stroke="#59647b" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#arch-arr)"/>
+            <rect x="247" y="244" width="56" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="275" y="253" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">TURN END</text>
+
+            <line x1="139" y1="268" x2="139" y2="210" stroke="#59647b" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#arch-arr)"/>
+            <rect x="147" y="233" width="46" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="170" y="242" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">UPSERT</text>
+
+            <path d="M 44,300 H 34 Q 26,300 26,292 V 97 Q 26,89 34,89 H 42" fill="none" stroke="#59647b" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#arch-arr)"/>
+
+            <!-- 3. 节点方框（后画框） -->
+            <!-- Zone 1 Nodes -->
+            <rect x="44" y="60" width="190" height="58" rx="6" fill="#FFFDF7"/>
+            <rect x="44" y="60" width="190" height="58" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="52" y="66" width="46" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="75" y="75" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">EXACT</text>
+            <text x="139" y="92" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">精确事实 / 规则库</text>
+            <text x="139" y="108" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">SQL / MEMORY.md / 状态卡</text>
+
+            <rect x="44" y="144" width="190" height="58" rx="6" fill="#FFFDF7"/>
+            <rect x="44" y="144" width="190" height="58" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="52" y="150" width="54" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="79" y="159" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">SEMANTIC</text>
+            <text x="139" y="176" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">语义 / 图谱记忆库</text>
+            <text x="139" y="192" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">pgvector / Qdrant / Graph</text>
+
+            <rect x="44" y="268" width="190" height="64" rx="6" fill="#FFFDF7"/>
+            <rect x="44" y="268" width="190" height="64" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="52" y="274" width="44" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="74" y="283" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">ASYNC</text>
+            <text x="139" y="302" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">后台异步提炼 / 整理</text>
+            <text x="139" y="318" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">Off-hot-path · 防抖/Dreaming</text>
+
+            <!-- Zone 2 Nodes -->
+            <rect x="310" y="60" width="200" height="72" rx="6" fill="#FFFDF7"/>
+            <rect x="310" y="60" width="200" height="72" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <rect x="318" y="66" width="52" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.8"/>
+            <text x="344" y="75" fill="#bf4520" font-size="7" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">HOT PATH</text>
+            <text x="410" y="96" fill="#bf4520" font-size="12.5" font-weight="700" font-family="sans-serif" text-anchor="middle">Context Builder</text>
+            <text x="410" y="114" fill="#1e2436" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">7 层拼装 · 静态前缀+尾部追加</text>
+
+            <rect x="310" y="164" width="200" height="62" rx="6" fill="#FFFDF7"/>
+            <rect x="310" y="164" width="200" height="62" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="318" y="170" width="52" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="344" y="179" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">GUARD</text>
+            <text x="410" y="197" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">双水位线与轨迹折叠</text>
+            <text x="410" y="213" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">70% 软 / 85% 硬 · Masking</text>
+
+            <rect x="310" y="268" width="200" height="64" rx="6" fill="#FFFDF7"/>
+            <rect x="310" y="268" width="200" height="64" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="318" y="274" width="56" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="346" y="283" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">FALLBACK</text>
+            <text x="410" y="302" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">四级超限硬兜底</text>
+            <text x="410" y="318" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">截断落盘 / Map-Reduce</text>
+
+            <!-- Zone 3 Nodes -->
+            <rect x="584" y="60" width="200" height="70" rx="6" fill="#FFFDF7"/>
+            <rect x="584" y="60" width="200" height="70" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="592" y="66" width="54" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="619" y="75" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">ROUTER</text>
+            <text x="684" y="96" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">KV-Cache 感知路由</text>
+            <text x="684" y="114" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">RadixAttention / 一致性哈希</text>
+
+            <rect x="584" y="164" width="200" height="62" rx="6" fill="#FFFDF7"/>
+            <rect x="584" y="164" width="200" height="62" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="592" y="170" width="44" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="614" y="179" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">POOL</text>
+            <text x="684" y="197" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">Prefill / Decode 分离</text>
+            <text x="684" y="213" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">算力与访存节点解耦</text>
+
+            <rect x="584" y="268" width="200" height="64" rx="6" fill="#FFFDF7"/>
+            <rect x="584" y="268" width="200" height="64" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <rect x="592" y="274" width="52" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
+            <text x="618" y="283" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">MEMORY</text>
+            <text x="684" y="302" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">KV Cache 量化与卸载</text>
+            <text x="684" y="318" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">FP8 / LMCache / Mooncake</text>
+          </svg>
+
+          <div class="wb-card notebook-lines" style="padding:12px 15px; box-shadow:none; margin:0;">
+            <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">⚖️ 贯通整套架构的三个核心工程取舍（Trade-offs）</strong>
+            <ul style="font-size:13.4px; padding-left:18px; line-height:1.78; margin:0;">
+              <li><strong>动态裁剪信噪比 vs Prefix Cache 命中率：</strong>每轮激进改写顶部内容能提纯上下文，但会击穿前缀缓存、推高延迟与算力成本 → 取舍：<code>L1–L2</code> 锁定、<code>L3</code> 常规轮不动、变更走 <code>L6</code> 补丁、达水位线时再离散压缩（详见 §02–03）。</li>
+              <li><strong>记忆实时新鲜度 vs 主链路低延迟：</strong>在对话热路径里同步调大模型提炼偏好，会把当前回复卡住数秒 → 取舍：明确指令同步写精确库，语义偏好提炼剥离到后台异步执行（详见 §04–05）。</li>
+              <li><strong>确定性裁剪精度 vs LLM 摘要压缩率：</strong>代码规则裁剪 100% 精确但压缩率有限，LLM 摘要压缩率高但可能漏限定条件 → 取舍：关键数值/状态走确定性 JSON 与代码裁剪，长历史走摘要且保留外部原文可溯源（详见 §03、§06）。</li>
+            </ul>
+          </div>
+        </div>
 
         <div class="table-wrap" style="margin-bottom:18px;">
           <table class="plop-table">
@@ -279,7 +417,7 @@
         <div class="wb-sec-header mint" id="cm-02">
           <span class="wb-sec-num">02</span>
           <span class="wb-sec-title">上下文工程（上）：七层物理栈、四大动作与 KV Cache 协同</span>
-          <span class="plop-tag">FIG 1.0 · LAYER STACK</span>
+          <span class="plop-tag">FIG 2.0 · LAYER STACK</span>
         </div>
 
         <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
@@ -628,149 +766,14 @@
         <div class="wb-sec-header pink" id="cm-05">
           <span class="wb-sec-num">05</span>
           <span class="wb-sec-title">长期记忆工程（下）：双轨异步读写架构实战（FashionMind）</span>
-          <span class="plop-tag pink">FIG 2.0 · TWO-TRACK LOOP</span>
+          <span class="plop-tag pink">TWO-TRACK CASE STUDY</span>
         </div>
 
         <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
-          在低延迟或长周期交互场景中，成熟的记忆层通常采用<strong>事实分库 + 双轨异步读写</strong>架构，将慢速的 LLM 信息提炼剥离出主交互链路，同时与下方的推理底座打通协同（下述实战方案整理自全双工多模态项目 FashionMind，配套讲解视频与源码链接统一附于文末）。
+          对照第 01 节总图左侧的 <code>MEMORY STORE (DISK)</code> 区域，下面以全双工实时多模态项目 FashionMind 为具体案例，拆解<strong>事实分库 + 双轨异步读写</strong>如何把慢速 LLM 提炼剥离出热路径，并给出不绑定云厂商的通用开源平替方案（配套视频与源码见文末）。
         </p>
 
         <div class="wb-card" style="background:var(--plop-paper);">
-          <svg viewBox="0 0 820 380" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin-bottom:16px;">
-            <defs>
-              <marker id="arch-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                <polygon points="0 0, 8 3, 0 6" fill="#59647b"/>
-              </marker>
-              <marker id="arch-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
-              </marker>
-              <marker id="arch-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                <polygon points="0 0, 8 3, 0 6" fill="#2848d8"/>
-              </marker>
-            </defs>
-
-            <!-- 1. 三大区域背景（先画 Zone） -->
-            <rect x="18" y="20" width="236" height="340" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
-            <rect x="28" y="24" width="136" height="12" rx="2" fill="#FFFDF7"/>
-            <text x="96" y="33" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">MEMORY STORE (DISK)</text>
-
-            <rect x="292" y="20" width="236" height="340" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
-            <rect x="302" y="24" width="144" height="12" rx="2" fill="#FFFDF7"/>
-            <text x="374" y="33" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">CONTEXT ENGINE (RAM)</text>
-
-            <rect x="566" y="20" width="236" height="340" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
-            <rect x="576" y="24" width="144" height="12" rx="2" fill="#FFFDF7"/>
-            <text x="648" y="33" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">INFERENCE INFRA (GPU)</text>
-
-            <!-- 2. 正交连接线（先画线后画框） -->
-            <!-- SQL Facts -> Context Builder -->
-            <path d="M 234,89 H 304" fill="none" stroke="#2848d8" stroke-width="1.3" marker-end="url(#arch-arr-link)"/>
-            <rect x="252" y="69" width="40" height="12" rx="2" fill="#FFFDF7"/>
-            <text x="272" y="78" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">FACTS</text>
-
-            <!-- Vector / Memory Bank -> Context Builder (正交双折线，mid=264) -->
-            <path d="M 234,174 H 256 Q 264,174 264,166 V 116 Q 264,108 272,108 H 304" fill="none" stroke="#2848d8" stroke-width="1.3" marker-end="url(#arch-arr-link)"/>
-            <rect x="242" y="132" width="44" height="12" rx="2" fill="#FFFDF7"/>
-            <text x="264" y="141" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">RECALL</text>
-
-            <!-- Context Builder -> KV-Aware Router -->
-            <path d="M 510,96 H 580" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#arch-arr-accent)"/>
-            <rect x="524" y="76" width="44" height="12" rx="2" fill="#FFFDF7"/>
-            <text x="546" y="85" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">PROMPT</text>
-
-            <!-- Context Builder -> Watermark & Guard -->
-            <line x1="410" y1="132" x2="410" y2="160" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
-
-            <!-- Watermark & Guard -> 4-Level Fallback -->
-            <line x1="410" y1="226" x2="410" y2="262" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
-            <rect x="418" y="237" width="54" height="12" rx="2" fill="#FFFDF7"/>
-            <text x="445" y="246" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">OVERFLOW</text>
-
-            <!-- KV-Aware Router -> PD Pool -> LMCache -->
-            <line x1="684" y1="130" x2="684" y2="160" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
-            <line x1="684" y1="226" x2="684" y2="262" stroke="#59647b" stroke-width="1.2" marker-end="url(#arch-arr)"/>
-
-            <!-- 虚线异步路径：Watermark/Turn End -> Async Worker (mid=276，不与 Vector 线重叠) -->
-            <path d="M 310,202 H 284 Q 276,202 276,210 V 292 Q 276,300 268,300 H 240" fill="none" stroke="#59647b" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#arch-arr)"/>
-            <rect x="247" y="244" width="56" height="12" rx="2" fill="#FFFDF7"/>
-            <text x="275" y="253" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">TURN END</text>
-
-            <!-- 虚线异步写回：Async Worker -> Vector Bank (垂直向上) -->
-            <line x1="139" y1="268" x2="139" y2="210" stroke="#59647b" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#arch-arr)"/>
-            <rect x="147" y="233" width="46" height="12" rx="2" fill="#FFFDF7"/>
-            <text x="170" y="242" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">UPSERT</text>
-
-            <!-- 虚线异步写回：Async Worker -> SQL Facts (从左侧走廊绕行，不穿过 Vector Bank) -->
-            <path d="M 44,300 H 34 Q 26,300 26,292 V 97 Q 26,89 34,89 H 42" fill="none" stroke="#59647b" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#arch-arr)"/>
-
-            <!-- 3. 节点方框（后画框） -->
-            <!-- Zone 1 Nodes -->
-            <rect x="44" y="60" width="190" height="58" rx="6" fill="#FFFDF7"/>
-            <rect x="44" y="60" width="190" height="58" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
-            <rect x="52" y="66" width="32" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
-            <text x="68" y="75" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">SQL</text>
-            <text x="139" y="92" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">精确事实库</text>
-            <text x="139" y="108" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">PostgreSQL · 日程/订单</text>
-
-            <rect x="44" y="144" width="190" height="58" rx="6" fill="#FFFDF7"/>
-            <rect x="44" y="144" width="190" height="58" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
-            <rect x="52" y="150" width="44" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
-            <text x="74" y="159" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">VECTOR</text>
-            <text x="139" y="176" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">语义记忆库</text>
-            <text x="139" y="192" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">pgvector / Qdrant</text>
-
-            <rect x="44" y="268" width="190" height="64" rx="6" fill="#FFFDF7"/>
-            <rect x="44" y="268" width="190" height="64" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
-            <rect x="52" y="274" width="44" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
-            <text x="74" y="283" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">ASYNC</text>
-            <text x="139" y="302" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">后台提炼 Worker</text>
-            <text x="139" y="318" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">Off-hot-path · 6–16s</text>
-
-            <!-- Zone 2 Nodes -->
-            <rect x="310" y="60" width="200" height="72" rx="6" fill="#FFFDF7"/>
-            <rect x="310" y="60" width="200" height="72" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
-            <rect x="318" y="66" width="52" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.8"/>
-            <text x="344" y="75" fill="#bf4520" font-size="7" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">HOT PATH</text>
-            <text x="410" y="96" fill="#bf4520" font-size="12.5" font-weight="700" font-family="sans-serif" text-anchor="middle">Context Builder</text>
-            <text x="410" y="114" fill="#1e2436" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">7 层拼装 · 静态前缀+尾部追加</text>
-
-            <rect x="310" y="164" width="200" height="62" rx="6" fill="#FFFDF7"/>
-            <rect x="310" y="164" width="200" height="62" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
-            <rect x="318" y="170" width="52" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
-            <text x="344" y="179" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">GUARD</text>
-            <text x="410" y="197" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">双水位线与轨迹折叠</text>
-            <text x="410" y="213" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">70% 软 / 85% 硬 · Masking</text>
-
-            <rect x="310" y="268" width="200" height="64" rx="6" fill="#FFFDF7"/>
-            <rect x="310" y="268" width="200" height="64" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
-            <rect x="318" y="274" width="56" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
-            <text x="346" y="283" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">FALLBACK</text>
-            <text x="410" y="302" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">四级超限硬兜底</text>
-            <text x="410" y="318" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">截断落盘 / Map-Reduce</text>
-
-            <!-- Zone 3 Nodes -->
-            <rect x="584" y="60" width="200" height="70" rx="6" fill="#FFFDF7"/>
-            <rect x="584" y="60" width="200" height="70" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
-            <rect x="592" y="66" width="54" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
-            <text x="619" y="75" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">ROUTER</text>
-            <text x="684" y="96" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">KV-Cache 感知路由</text>
-            <text x="684" y="114" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">RadixAttention / 一致性哈希</text>
-
-            <rect x="584" y="164" width="200" height="62" rx="6" fill="#FFFDF7"/>
-            <rect x="584" y="164" width="200" height="62" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
-            <rect x="592" y="170" width="44" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
-            <text x="614" y="179" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">POOL</text>
-            <text x="684" y="197" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">Prefill / Decode 分离</text>
-            <text x="684" y="213" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">算力与访存节点解耦</text>
-
-            <rect x="584" y="268" width="200" height="64" rx="6" fill="#FFFDF7"/>
-            <rect x="584" y="268" width="200" height="64" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
-            <rect x="592" y="274" width="52" height="12" rx="2" fill="transparent" stroke="rgba(30,36,54,0.35)" stroke-width="0.8"/>
-            <text x="618" y="283" fill="#59647b" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">MEMORY</text>
-            <text x="684" y="302" fill="#1e2436" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">KV Cache 量化与卸载</text>
-            <text x="684" y="318" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">FP8 / LMCache / Mooncake</text>
-          </svg>
-
           <div class="wb-grid-2">
             <div>
               <h4 style="font-size:15.5px; margin-bottom:8px;">📌 FashionMind 落地的三个关键原则</h4>
