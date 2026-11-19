@@ -263,7 +263,7 @@
                   <td><strong style="color:var(--plop-tomato);">4. Context Clash</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">上下文冲突</span></td>
                   <td>聊天记录天然是只追加（Append-only）的，当用户中途改口（如预算从 3000 改为 3500）或新旧规则同框且未标明谁覆盖谁时，模型输出会随机摇摆。</td>
                   <td>
-                    • <strong>结构化状态卡覆盖写（Overwrite）：</strong>将易变约束（预算、日期、审批节点、关系状态）抽成独立状态 JSON/SQL 行，变更时直接覆盖旧值，注入时声明以状态卡为准。<br/>
+                    • <strong>结构化状态卡覆盖写（Overwrite）：</strong>将易变约束（预算、日期、审批节点、关系状态）存为外部状态 JSON/SQL 行，变更时在存储层直接覆盖旧值；为避免频繁击穿前缀缓存，会话中途变更先作为补丁追加到 <code>L6</code> 尾部并声明“以此为准，覆盖 <code>L3</code> 旧值”，待下次水位线压缩时再合并重建 <code>L3</code>。<br/>
                     • <strong>版本号与时间戳消歧：</strong>检索片段强制附带生效时间与版本号（如 <code>[v3 最新生效]</code>），并在指令中明确优先级顺序。<br/>
                     • <strong>长期记忆同名 Upsert：</strong>后台异步沉淀记忆时，识别冲突旧词条执行覆写或标记失效，而非盲目追加新向量。
                   </td>
@@ -416,7 +416,7 @@
             <div class="washi-tape"></div>
             <h3 style="font-size:17px; margin-bottom:10px;">💧 双水位线触发机制（Soft &amp; Hard）</h3>
             <ul style="font-size:13.8px; padding-left:18px; line-height:1.8; margin:0;">
-              <li><strong>软水位线（有效输入预算的 70%，约 78K Token）：</strong>在后台触发<strong>异步预压缩</strong>与历史工具输出折叠，不阻塞当前这一轮的生成速度。</li>
+              <li><strong>软水位线（有效输入预算的 70%，约 78K Token）：</strong>在后台对当前历史快照触发<strong>异步预压缩</strong>与工具输出折叠，不阻塞本轮生成。压缩结果仅在<strong>回合边界原子替换</strong>，且压缩耗时期间新增的消息必须接在新摘要后面，避免覆盖丢消息。</li>
               <li><strong>硬水位线（有效输入预算的 85%，约 95K Token）：</strong>在发送请求前强制执行<strong>同步裁剪或结构化压缩</strong>，防止调用模型 API 时直接触发超长报错。</li>
               <li><strong>滑窗保留策略：</strong>保留最近 <code>K</code> 轮完整对话（或最近 <code>M</code> 个 Token 以保证当前动作连贯），只对更早的历史执行摘要压缩。</li>
               <li><strong>工具轨迹折叠（Observation Masking）：</strong>Agent 运行时 80%–90% 的上下文膨胀来自工具返回值。当前轮保留完整堆栈用于排障，进入下一轮后把冗长 stdout 替换为极简指针（如 <code>[已折叠：pytest 4200 行日志已存至 /tmp/test.log]</code>）。</li>
@@ -595,15 +595,15 @@
         </div>
 
         <div class="wb-card notebook-lines" style="padding:13px 16px; box-shadow:none; margin-bottom:14px;">
-          <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">🔌 记忆如何接回上下文：开局预载进 L3，中途检索进 L6</strong>
+          <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">🔌 记忆如何接回上下文：开局预载进 L3，中途检索与变更进 L6</strong>
           <div class="wb-grid-2">
             <p style="font-size:13.4px; line-height:1.75; margin:0;">
               <strong>1. 会话启动并行预加载 → 注入 <code>L3</code>（前缀稳定区）：</strong><br/>
-              体量小、整场对话都要用到的核心记忆——如全局 Saved Memories、SQL 关系状态卡、<code>MEMORY.md</code> 顶层索引或技能摘要列表——在会话建立时一次性写入 <code>L3</code> 并全程锁定，与 <code>L1–L2</code> 一起稳定命中 Prefix Cache。
+              体量小、整场对话都要用到的核心记忆——如全局 Saved Memories、SQL 关系状态卡、<code>MEMORY.md</code> 顶层索引或技能摘要列表——在会话建立时一次性写入 <code>L3</code>，常规轮次保持不动以复用 Prefix Cache。
             </p>
             <p style="font-size:13.4px; line-height:1.75; margin:0;">
-              <strong>2. 对话中途按需召回 → 注入 <code>L6</code>（尾部动态区）：</strong><br/>
-              中途当用户问起历史旧事、或 Agent 按需读取某个主题 <code>.md</code> / <code>SKILL.md</code> 正文、召回向量/图谱片段时，结果统一追加到 <code>L6</code> 尾部，<strong>绝不回插 <code>L3</code></strong>，避免击穿 <code>L4 近期历史</code> 的 KV Cache。
+              <strong>2. 中途召回与状态变更 → 追加到 <code>L6</code>（尾部动态区）：</strong><br/>
+              中途按需读取主题 <code>.md</code> / 向量片段，或用户中途改口（如预算从 3000 改 3500）时，均追加到 <code>L6</code> 并写明“以此为准，覆盖 <code>L3</code>”，绝不直接改写 <code>L3</code> 击穿缓存；等触发水位线压缩时再顺带重建 <code>L3</code>（只失效一次缓存，换来全局一致）。
             </p>
           </div>
         </div>
@@ -875,17 +875,114 @@
           </table>
         </div>
 
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <h4 style="font-size:15.5px; margin-bottom:8px;">🗺️ 实战组装链路：多源数据如何变成发给大模型 API 的单帧 Prompt</h4>
+          <p style="font-size:13.4px; color:var(--plop-ink-soft); margin:0 0 12px;">
+            下方 4 个示例框不是手写配置文件，而是<strong>后端 Harness 代码在调模型 API 之前，分别塞进 <code>L3 / L4 / L6</code> 的真实文本内容</strong>：
+          </p>
+          <svg viewBox="0 0 820 300" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;">
+            <defs>
+              <marker id="pipe-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#59647b"/>
+              </marker>
+              <marker id="pipe-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+              </marker>
+              <marker id="pipe-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#2848d8"/>
+              </marker>
+            </defs>
+
+            <!-- 1. 三大区域（先画 Zone） -->
+            <rect x="18" y="18" width="218" height="264" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
+            <rect x="28" y="22" width="112" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="84" y="31" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">DATA SOURCES</text>
+
+            <rect x="276" y="18" width="244" height="264" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
+            <rect x="286" y="22" width="136" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="354" y="31" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">HARNESS BUILDER</text>
+
+            <rect x="562" y="18" width="240" height="264" rx="8" fill="rgba(30,36,54,0.02)" stroke="rgba(30,36,54,0.14)" stroke-width="0.9"/>
+            <rect x="572" y="22" width="150" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="647" y="31" fill="#59647b" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">LLM API MESSAGES[]</text>
+
+            <!-- 2. 正交连接线（先画线后画框） -->
+            <!-- Sources -> Harness -->
+            <line x1="218" y1="80" x2="290" y2="80" stroke="#2848d8" stroke-width="1.3" marker-end="url(#pipe-arr-link)"/>
+            <line x1="218" y1="156" x2="290" y2="156" stroke="#bf4520" stroke-width="1.4" marker-end="url(#pipe-arr-accent)"/>
+            <line x1="218" y1="232" x2="290" y2="232" stroke="#59647b" stroke-width="1.3" marker-end="url(#pipe-arr)"/>
+
+            <!-- Harness -> LLM API Slots (正交折线错开通道，零重叠) -->
+            <!-- Preloader (y=80) -> L3 (y=124), mid=546 -->
+            <path d="M 502,80 H 538 Q 546,80 546,88 V 116 Q 546,124 554,124 H 578" fill="none" stroke="#2848d8" stroke-width="1.3" marker-end="url(#pipe-arr-link)"/>
+            <!-- Compactor (y=156) -> L4 (y=180), mid=532 -->
+            <path d="M 502,156 H 524 Q 532,156 532,164 V 172 Q 532,180 540,180 H 578" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#pipe-arr-accent)"/>
+            <!-- Tail Appender (y=232) -> L5-L7 (y=236), straightish orthogonal -->
+            <line x1="502" y1="236" x2="578" y2="236" stroke="#59647b" stroke-width="1.3" marker-end="url(#pipe-arr)"/>
+
+            <!-- 3. 节点方框（后画框） -->
+            <!-- Left: Sources -->
+            <rect x="34" y="54" width="184" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="34" y="54" width="184" height="52" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <text x="126" y="77" fill="#1e2436" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">持久化记忆库</text>
+            <text x="126" y="94" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">SQL / 向量 / MEMORY.md</text>
+
+            <rect x="34" y="130" width="184" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="34" y="130" width="184" height="52" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <text x="126" y="153" fill="#1e2436" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">冗长历史与工具日志</text>
+            <text x="126" y="170" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">前 20 轮 80K / 报错堆栈</text>
+
+            <rect x="34" y="206" width="184" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="34" y="206" width="184" height="52" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <text x="126" y="229" fill="#1e2436" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">当前轮新输入与变更</text>
+            <text x="126" y="246" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">本轮提问 / 检索 / 改口</text>
+
+            <!-- Middle: Harness -->
+            <rect x="294" y="54" width="208" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="294" y="54" width="208" height="52" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <text x="398" y="77" fill="#1e2436" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">开局预载器（情感 / 通用）</text>
+            <text x="398" y="94" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">拼出状态卡与全局画像文本</text>
+
+            <rect x="294" y="130" width="208" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="294" y="130" width="208" height="52" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <text x="398" y="153" fill="#bf4520" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">场景压缩器（Coding / 客服）</text>
+            <text x="398" y="170" fill="#1e2436" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">压成行号快照或状态机 JSON</text>
+
+            <rect x="294" y="206" width="208" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="294" y="206" width="208" height="52" rx="6" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <text x="398" y="229" fill="#1e2436" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">尾部动态追加器</text>
+            <text x="398" y="246" fill="#59647b" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">Artifact Diff / L3 覆盖补丁</text>
+
+            <!-- Right: LLM API Request Slots -->
+            <rect x="582" y="48" width="204" height="44" rx="5" fill="#f7f5ee" stroke="rgba(30,36,54,0.28)" stroke-width="1"/>
+            <text x="684" y="67" fill="#1e2436" font-size="11" font-weight="700" font-family="sans-serif" text-anchor="middle">L1–L2 静态前缀</text>
+            <text x="684" y="83" fill="#59647b" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">系统指令 + 固定工具集</text>
+
+            <rect x="582" y="100" width="204" height="48" rx="5" fill="#eef2ff" stroke="#2848d8" stroke-width="1.2"/>
+            <text x="684" y="121" fill="#2848d8" font-size="11" font-weight="700" font-family="sans-serif" text-anchor="middle">L3 开局记忆区</text>
+            <text x="684" y="137" fill="#1e2436" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">对应下方「情感 / 通用」示例</text>
+
+            <rect x="582" y="156" width="204" height="48" rx="5" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <text x="684" y="177" fill="#bf4520" font-size="11" font-weight="700" font-family="sans-serif" text-anchor="middle">L4 压缩历史区</text>
+            <text x="684" y="193" fill="#1e2436" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">对应下方「Coding / 客服」示例</text>
+
+            <rect x="582" y="212" width="204" height="48" rx="5" fill="#f7f5ee" stroke="#1e2436" stroke-width="1"/>
+            <text x="684" y="233" fill="#1e2436" font-size="11" font-weight="700" font-family="sans-serif" text-anchor="middle">L5–L7 尾部动态区</text>
+            <text x="684" y="249" fill="#59647b" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">本轮检索 + 改口补丁 + 新提问</text>
+          </svg>
+        </div>
+
         <div class="wb-grid-2" style="margin-bottom:16px;">
           <!-- 拆解 1：Coding Agent -->
           <div class="wb-card" style="background:var(--plop-paper);">
             <h4 style="font-size:15.5px; margin-bottom:6px;">💻 Coding Agent · 精确行号快照与日志指针折叠</h4>
             <p style="font-size:13.4px; line-height:1.7; margin:0 0 10px;">
-              若把前 20 轮修 Bug 对话压成一句“修改了鉴权与订单锁”，下一轮模型极易虚构路径。压缩器会丢弃中间废代码，输出精确到行号与日志指针的 Markdown 快照：
+              若把前 20 轮修 Bug 对话压成一句“修改了鉴权与订单锁”，下一轮模型极易虚构路径。压缩器会丢弃中间废代码，把下面这段精确快照<strong>塞进 <code>L4</code> 替代前 20 轮 80K 历史</strong>：
             </p>
             <div class="plop-code-box" style="margin:0;">
               <div class="plop-code-head">
-                <span>📄 compacted_coding_state.md</span>
-                <span style="opacity:0.75;">替代前 20 轮 80K 历史</span>
+                <span>📥 塞进 L4 · 压缩后的历史文本</span>
+                <span style="opacity:0.75;">替代前 20 轮 80K</span>
               </div>
               <pre class="plop-code-pre"><code><span class="c-kw">## 目标与约束</span>
 - 为 <span class="c-fn">POST /api/orders</span> 增加 Redis 幂等锁（超时 <span class="c-num">5s</span>）
@@ -912,8 +1009,8 @@
             </p>
             <div class="plop-code-box" style="margin:0;">
               <div class="plop-code-head">
-                <span>🧩 runtime_general_context.jsonc</span>
-                <span style="opacity:0.75;">单轮挂载视图</span>
+                <span>📥 塞进 L3 + L6 · 单轮动态挂载结构</span>
+                <span style="opacity:0.75;">发往模型前拼装</span>
               </div>
               <pre class="plop-code-pre"><code>{
   <span class="c-cm">// 1. 全局常驻画像（极小，支持面板删改）</span>
@@ -946,8 +1043,8 @@
             </p>
             <div class="plop-code-box" style="margin:0;">
               <div class="plop-code-head">
-                <span>🗄️ persona_memory_injection.jsonc</span>
-                <span style="opacity:0.75;">开局并行注入</span>
+                <span>📥 塞进 L3 · 开局并行注入的记忆文本</span>
+                <span style="opacity:0.75;">SQL + 向量库拉取</span>
               </div>
               <pre class="plop-code-pre"><code>{
   <span class="c-cm">// SQL 状态卡：UPDATE 覆盖旧值，消除冲突</span>
@@ -976,8 +1073,8 @@
             </p>
             <div class="plop-code-box" style="margin:0;">
               <div class="plop-code-head">
-                <span>⚙️ workflow_state_snapshot.jsonc</span>
-                <span style="opacity:0.75;">确定性状态机</span>
+                <span>📥 替代 L4 · 业务状态机压缩文本</span>
+                <span style="opacity:0.75;">替代前 15 轮闲聊</span>
               </div>
               <pre class="plop-code-pre"><code>{
   <span class="c-fn">"order_id"</span>: <span class="c-str">"ORD_20261119_8831"</span>,
