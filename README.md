@@ -11,6 +11,7 @@
 | [🧠 Gemini 4 Carbon 开发者指南](ai/index.html) | ✅ 已完成 | Carbon vs Argon 选型 · 1M 统一窗口超长解码 · Interactions API 变更 · 长程基线验证闭环与 `/swarm` 多智能体 |
 | [🌙 Anthropic Agent 记忆架构](ai/memory.html) | ✅ 已完成 | 极小常驻目录 · Wiki 双链真值库 · RRF 混合检索 · 离线做梦 (Dreaming) 整理 · 91.3 万次会话分心税 |
 | [🧩 Agent 上下文工程与记忆架构](ai/context-memory.html) | ✅ 已完成 | RAM vs Disk 边界 · 上下文腐烂 4 类故障 · 7 层 KV Cache 友好上下文栈 · 双水位线与 4 级超限兜底 · SQL/Vector 双轨异步记忆与推理底座协同 |
+| [🎯 Qdrant 向量数据库与 RAG 检索实战](ai/qdrant.html) | ✅ 已完成 | Point 多命名向量与 Payload 模型 · Filterable HNSW 子图连边 · Prefetch + RRF 混合检索与量化 · 结构感知切片 · 跨语言 CJK N-gram 确定性稀疏编码 · 两阶段精排漏斗与 30 题黄金评测集 |
 | [🤖 Coding Agent (pi)](pi-agent/index.html) / [🧭 源码与架构全解](pi-agent/guide.html) | ✅ 已完成 | 12 子包与双层循环状态机 · 工具三道防线与 QuickJS 沙箱 · 6 步安全切分压缩与 4 级模型工具追加 · 流式 rg 与 BM25 · 容器化盲测 · Runtime / Framework / Harness 四层权衡 |
 | [🐬 MySQL · 基础与实战篇](mysql/index.html) / [📘 原理篇](mysql/principles.html) | ✅ 已完成 | 四平台安装与连接池 · utf8mb4/DECIMAL/JSON生成列 · 幂等写入/窗口函数/递归CTE · 防超卖与EXPLAIN调优 · 16KB页与行溢出 · 冷热LRU与Change Buffer · B+树扇出推导 · ReadView可见性 · Next-Key Lock退化 · 两阶段提交与Doublewrite |
 | [🐘 PostgreSQL · 基础与实战篇](postgres/index.html) / [📘 原理篇](postgres/principles.html) | ✅ 已完成 | 四级目录与权限 · JSONB/数组/范围 · UPSERT/LATERAL/窗口函数/递归CTE · 8KB 页与 TOAST · 23B 元组头 MVCC 与 SSI · Lehman-Yao B-tree/GIN/BRIN · HOT 与 VACUUM FREEZE |

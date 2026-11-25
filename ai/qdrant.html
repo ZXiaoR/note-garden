@@ -1,0 +1,1737 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster" data-font="hand-crisp">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Qdrant 向量数据库与 RAG 检索实战：从可过滤图索引到混合召回落地 | note-garden</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
+  <link rel="stylesheet" href="../assets/plop-garden.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Patrick+Hand&display=swap" rel="stylesheet">
+  <script src="../assets/plop-garden.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部手账贴纸控制台 (Sticky Craft Console)
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+        <span class="plop-tag tomato">QDRANT &amp; RAG</span>
+      </div>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <!-- ==========================================================================
+       手账工作台全览 (3-Column Craft Desk with Left & Right Stickers)
+       ========================================================================== -->
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸列 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与架构参数">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 -->
+        <nav class="plop-index-tabs" id="toc-tabs">
+          <a href="#qd-01" class="plop-ear-tab active" data-toc="qd-01">
+            <span class="ear-dot"></span>
+            <span>01 定位与检索痛点</span>
+          </a>
+          <a href="#qd-02" class="plop-ear-tab" data-toc="qd-02">
+            <span class="ear-dot mint"></span>
+            <span>02 核心存储模型</span>
+          </a>
+          <a href="#qd-03" class="plop-ear-tab" data-toc="qd-03">
+            <span class="ear-dot periwinkle"></span>
+            <span>03 可过滤 HNSW</span>
+          </a>
+          <a href="#qd-04" class="plop-ear-tab" data-toc="qd-04">
+            <span class="ear-dot pink"></span>
+            <span>04 混合量化与选型</span>
+          </a>
+          <a href="#qd-05" class="plop-ear-tab" data-toc="qd-05">
+            <span class="ear-dot mustard"></span>
+            <span>05 实战：选型与拓扑</span>
+          </a>
+          <a href="#qd-06" class="plop-ear-tab" data-toc="qd-06">
+            <span class="ear-dot mint"></span>
+            <span>06 实战：入库与双写</span>
+          </a>
+          <a href="#qd-07" class="plop-ear-tab" data-toc="qd-07">
+            <span class="ear-dot tomato"></span>
+            <span>07 实战：漏斗与评测</span>
+          </a>
+          <a href="#qd-08" class="plop-ear-tab" data-toc="qd-08">
+            <span class="ear-dot periwinkle"></span>
+            <span>08 行业主流 RAG 全景</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：核心参数速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>QDRANT 引擎速查</span>
+            <span>#SPEC</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>底层实现语言</span>
+            <span>Rust (No GC)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>默认端口</span>
+            <span>6333 (REST) / 6334 (gRPC)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>核心图索引</span>
+            <span>Filterable HNSW</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>混合检索融合</span>
+            <span>Prefetch + RRF / DBSF</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>量化压缩率</span>
+            <span>SQ 75% / BQ 97%</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="full-broadsheet-view">
+      <!-- 窄屏横向章节导航栏 -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#qd-01" class="active">01 定位与检索痛点</a>
+        <a href="#qd-02">02 核心存储模型</a>
+        <a href="#qd-03">03 可过滤 HNSW</a>
+        <a href="#qd-04">04 混合量化与选型</a>
+        <a href="#qd-05">05 实战选型与拓扑</a>
+        <a href="#qd-06">06 入库与蓝绿切换</a>
+        <a href="#qd-07">07 检索漏斗与评测</a>
+        <a href="#qd-08">08 主流 RAG 全景</a>
+      </nav>
+
+      <div class="wb-sheet">
+        <div class="washi-tape" style="width:130px; height:24px; margin-left:-65px; top:-12px;"></div>
+
+        <!-- 刊头 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card mint">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">NOTE-GARDEN CHRONICLE</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:44px; font-weight:900; color:var(--plop-ink); line-height:1; margin:6px 0;">11.25</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">QDRANT &amp; RAG</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag tomato">VECTOR DATABASE</span>
+              <span class="plop-tag mint">FILTERABLE HNSW</span>
+              <span class="plop-tag periwinkle">HYBRID SEARCH &amp; RAG</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              Qdrant 向量数据库与 RAG 检索实战：从可过滤图索引到混合召回落地
+            </h1>
+            <p style="font-size:14.8px; color:var(--plop-ink-soft); margin:0; font-weight:600;">
+              从 RAG 系统面临的语义鸿沟与元数据过滤困境出发，系统拆解 Qdrant 的四层存储模型、Filterable HNSW 可过滤图索引原理、稠密与稀疏多向量 RRF 混合检索管线、内存量化核算，以及真实生产项目的 RAG 架构落地。
+            </p>
+          </div>
+        </header>
+
+        <!-- ====================================================================
+             SECTION 01: 定位与核心认知 —— 为什么 RAG 检索需要专门的向量数据库
+             ==================================================================== -->
+        <div class="wb-sec-header" id="qd-01">
+          <span class="wb-sec-num">01</span>
+          <span class="wb-sec-title">定位与核心认知：RAG 系统的语义鸿沟与传统检索瓶颈</span>
+          <span class="plop-tag tomato">WHY VECTOR DB</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          在构建企业级 RAG（检索增强生成，Retrieval-Augmented Generation）系统时，最基础的诉求是：当用户用自然语言提问时，从成百上千万个文档切片（Chunks）中快速找出与问题最相关的片段，作为上下文组装进 Prompt 交给大语言模型。要理解为什么这一步需要引入 <strong>Qdrant</strong>，可以先看一个典型的运维知识库检索场景：
+        </p>
+
+        <div class="wb-grid-2" style="margin-bottom:16px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-tomato);">🔍 用户的自然语言提问（Query）</h4>
+            <p style="font-size:13.8px; line-height:1.75; margin:0 0 8px;">
+              <em>“帮我查一下去年年底，因为网卡驱动崩溃导致宿主机重启的那次事故复盘报告。”</em>
+            </p>
+            <div style="font-size:12.8px; color:var(--plop-ink-soft); background:rgba(30,36,54,0.04); padding:8px 10px; border-radius:8px;">
+              <strong>传统字面匹配困境：</strong>如果使用 MySQL 的 <code>LIKE '%网卡驱动%'</code> 或 Elasticsearch 的默认分词匹配，很难命中目标文档——因为工程师撰写报告时使用的是专业术语，字面上并没有出现“网卡驱动”或“重启”。
+            </div>
+          </div>
+
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-ink);">📄 知识库中的真实切片原文（Chunk）</h4>
+            <p style="font-size:13.8px; line-height:1.75; margin:0 0 8px;">
+              <em>“2025 年 11 月生产集群 Node-07 节点 Kernel Panic 根因分析：Intel i40e 内核模块在流量突发下触发空指针异常……”</em>
+            </p>
+            <div style="font-size:12.8px; color:var(--plop-ink-soft); background:rgba(30,36,54,0.04); padding:8px 10px; border-radius:8px;">
+              <strong>高维向量空间对齐：</strong>经过 Embedding 模型编码后，“网卡驱动崩溃导致重启”与“i40e 内核模块异常触发 Kernel Panic”会被映射为高维空间（如 1024 维）中夹角极小的两个坐标点。
+            </div>
+          </div>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          一旦将文档切片转化为高维浮点数数组（如 <code>[0.021, -0.148, 0.332, ...]</code>），工程挑战就从“字符串精确匹配”变成了<strong>“海量高维向量的近似最近邻搜索（ANN）＋结构化业务条件过滤”</strong>。如果直接在业务层用循环暴力计算 500 万条 1024 维向量的余弦相似度，单次查询需要执行 50 亿次浮点乘加运算，延迟高达数秒。
+        </p>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          <strong>Qdrant</strong>（读作 <em>"quadrant"</em>）正是一个由 <strong>Rust</strong> 语言编写的开源高性能向量数据库与向量相似度搜索引擎。它在 RAG 架构中扮演的角色，就是把高维向量与 JSON 业务元数据（Payload）紧密组织在同一个无 GC 停顿的存储引擎内，在毫秒级延迟下完成带复杂属性过滤的向量召回。
+        </p>
+
+        <div class="wb-card notebook-lines" style="padding:12px 15px; margin-bottom:18px;">
+          <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">📌 核心职责边界：Qdrant 专注“向量存储与索引检索”，文本向量化由上游完成</strong>
+          <p style="font-size:13.5px; line-height:1.76; margin:0; color:var(--plop-ink-text);">
+            初学向量数据库时容易产生一个误解，以为直接把原始中文字符串发给 Qdrant 就能自动转成向量。实际上，<strong>Qdrant 核心引擎本身不内置深度学习推理模型</strong>：在数据入库与在线查询时，需先由应用层调用外部 Embedding 模型服务（如 <code>BAAI/bge-m3</code>、<code>text-embedding-3</code>）或本地词项编码器将文本转换为数值向量，再交由 Qdrant 构建索引、持久化存储并执行高速距离计算与条件过滤。这种“模型推理与存储索引解耦”的设计，保证了数据库引擎自身的轻量与稳定。
+          </p>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 02: 核心数据模型 —— Collection / Point / Vector / Payload
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="qd-02">
+          <span class="wb-sec-num">02</span>
+          <span class="wb-sec-title">核心存储模型：稠密与稀疏双向量结构、Qdrant 四层映射与分段机制</span>
+          <span class="plop-tag mint">FIG 2.0 · DATA MODEL</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          在拆解 Qdrant 的内部存储结构之前，需要先厘清现代向量检索中最基础的两类数据形态——<strong>稠密向量（Dense Vector）</strong>与<strong>稀疏向量（Sparse Vector）</strong>，以及由此衍生的<strong>单向量检索</strong>与<strong>双向量混合检索（Hybrid Search）</strong>。以企业产品手册中的一句话<em>“Plan-A 订阅方案：首周内基础版可全额折算差价升级企业版”</em>为例，两种向量的编码形态与分工截然不同：
+        </p>
+
+        <!-- 基础概念零死角拆解卡片：稠密 vs 稀疏 & 单向量 vs 双向量 -->
+        <div class="wb-grid-2" style="margin-bottom:16px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-tomato);">🧠 1. 稠密向量（Dense Vector）：定长连续数组，捕捉宏观语义</h4>
+            <p style="font-size:13.4px; line-height:1.74; margin:0 0 8px;">
+              <strong>数据形态：</strong>由深度学习 Embedding 模型（如 <code>BAAI/bge-m3</code>）输出的<strong>固定长度（如 1024 维）、绝大多数维度均为非零浮点数</strong>的连续数组：<br/>
+              <code style="font-size:12px;">[0.021, -0.148, 0.332, 0.089, ..., -0.054] (共 1024 个连续浮点数)</code>
+            </p>
+            <ul style="font-size:13.2px; padding-left:18px; line-height:1.72; margin:0;">
+              <li><strong>“稠密”的含义：</strong>全部 1024 个维度都承载着经过神经网络压缩后的连续语义特征，没有空置槽位。</li>
+              <li><strong>检索优势：</strong>擅长跨词汇的同义理解与意图泛化。例如用户提问<em>“预算有限怎么先开通入门套餐后续再扩容”</em>，即便字面上未出现“基础版”或“折算差价”，稠密向量依然能在语义空间中靠近目标片段。</li>
+              <li><strong>固有局限：</strong>对专有代号、内部编号、精确数字与错误码区分度较弱。在纯稠密语义空间中，<code>"Plan-A"</code>、<code>"Plan-B"</code> 与 <code>"Plan-C"</code> 的向量方向高度接近，容易发生混淆。</li>
+            </ul>
+          </div>
+
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-ink);">🎯 2. 稀疏向量（Sparse Vector）：高维非零键值对，锁定精确词项</h4>
+            <p style="font-size:13.4px; line-height:1.74; margin:0 0 8px;">
+              <strong>数据形态：</strong>假设词表或哈希空间共有 <strong>100 万维（如 1,048,576 个词槽）</strong>，一段文本仅命中其中十几个词项，其余 99.99% 的维度全为 <code>0</code>。存储时仅保留<strong>非零维度的编号数组（<code>indices</code>）与对应权重数组（<code>values</code>）</strong>：<br/>
+              <code style="font-size:12px;">{"indices": [104, 8892, 52019], "values": [2.4, 5.1, 3.8]}</code><br/>
+              <span style="font-size:12px; color:var(--plop-ink-soft);">（注：如编号 <code>104</code> 对应词项“plan-a”，<code>8892</code> 对应“首周内”，<code>52019</code> 对应“差价”）</span>
+            </p>
+            <ul style="font-size:13.2px; padding-left:18px; line-height:1.72; margin:0;">
+              <li><strong>“稀疏”的含义：</strong>超大维度空间内仅有极少数坐标点非零，本质上是将传统全文搜索引擎的<strong>词频倒排打分</strong>表示为稀疏向量点积运算。</li>
+              <li><strong>检索优势：</strong>精确命中专有名词、套餐代号、条款编号与固定术语，只要词项编号重合即可获得高额点积得分。</li>
+              <li><strong>固有局限：</strong>依赖字面词项重合，单独使用时无法识别同义表达（如搜“预算不足”无法命中仅含“成本受限”的文本）。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <h4 style="font-size:15px; margin:0 0 8px; color:var(--plop-ink);">⚖️ 3. 单向量模式与双向量混合模式（Hybrid Search）的数据组织对比</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">检索模式</th>
+                  <th style="width:34%">单条知识切片（Point）存储内容</th>
+                  <th style="width:26%">在线查询执行方式</th>
+                  <th style="width:22%">能力特征与适用边界</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>单向量模式</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">(Pure Dense)</span></td>
+                  <td>仅挂载 <strong>1 路稠密向量</strong>（如 <code>dense</code>，1024 维浮点数）</td>
+                  <td>将问题编码为单个稠密向量，在图索引中执行单路语义近邻搜索</td>
+                  <td>链路最简、支持语义泛化；但面对含型号、序列号、专业术语的查询容易漏召回</td>
+                </tr>
+                <tr>
+                  <td><strong>双向量混合模式</strong><br/><span style="font-size:12px; color:var(--plop-tomato); font-weight:700;">(Dense + Sparse)</span></td>
+                  <td>同一条记录同时挂载 <strong>2 路向量</strong>：<br/>① <code>"dense"</code>：1024 维稠密语义向量<br/>② <code>"sparse"</code>：高维稀疏词项权重向量</td>
+                  <td>问题同步编码为稠密与稀疏两路向量，引擎内部<strong>双路并发召回候选集并融合重排</strong></td>
+                  <td>同时兼顾“宏观语义理解”与“字面精确锁词”，是当前企业级严肃 RAG 的标准配置</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          明确了同一条文档切片往往需要同时挂载多路向量的诉求后，再将 Qdrant 与关系型数据库（MySQL）做对照就非常直观。在 Qdrant 中，表对应 <strong>Collection（集合）</strong>，单条文档切片入库后称为一个 <strong>Point（数据点）</strong>，每个 Point 由 <strong>唯一主键（Point ID）</strong>、<strong>多命名向量字典（Named Vectors）</strong> 以及 <strong>JSON 结构化负载（Payload）</strong> 三部分组成：
+        </p>
+
+        <!-- SVG 1: Qdrant 核心数据模型与 RAG 切片映射架构图 (遵循 diagram-design 规范) -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <svg viewBox="0 0 820 340" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin-bottom:14px;">
+            <defs>
+              <marker id="qd-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+              </marker>
+              <marker id="qd-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+              </marker>
+              <marker id="qd-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+              </marker>
+            </defs>
+
+            <!-- 1. Zone Containers -->
+            <!-- Left Zone: RAG Ingestion Pipeline -->
+            <rect x="20" y="24" width="212" height="292" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="32" y="28" width="160" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="112" y="37" fill="#5a6580" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">RAG CHUNK PIPELINE</text>
+
+            <!-- Right Zone: Qdrant Collection -->
+            <rect x="284" y="24" width="516" height="292" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="296" y="28" width="236" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="414" y="37" fill="#5a6580" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.1em">COLLECTION: kb_chunks (≈ MySQL Table)</text>
+
+            <!-- Inner Point Boundary Box inside Collection -->
+            <rect x="304" y="56" width="476" height="240" rx="8" fill="rgba(191,69,32,0.03)" stroke="#bf4520" stroke-width="1.2" stroke-dasharray="5,4"/>
+            <rect x="316" y="60" width="224" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="428" y="69" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">POINT (≈ MySQL Row · 单条切片记录)</text>
+
+            <!-- 2. Orthogonal Connectors (drawn before nodes) -->
+            <!-- Chunk to Encoders -->
+            <line x1="126" y1="118" x2="126" y2="148" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#qd-arr)"/>
+            <!-- Encoders to Metadata -->
+            <line x1="126" y1="210" x2="126" y2="238" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#qd-arr)"/>
+
+            <!-- Chunk to Point ID (port 1 on right edge of node 1: y=88) -->
+            <path d="M 216,88 H 324" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#qd-arr)"/>
+            <rect x="242" y="70" width="52" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="268" y="79" fill="#4f5d75" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">UUID / ID</text>
+
+            <!-- Encoders to Vectors (port on right edge of node 2: y=179) -->
+            <path d="M 216,179 H 324" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#qd-arr-accent)"/>
+            <rect x="238" y="160" width="60" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="268" y="169" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">EMBEDDING</text>
+
+            <!-- Metadata to Payload (port on right edge of node 3: y=266) -->
+            <path d="M 216,266 H 324" fill="none" stroke="#2e5aa8" stroke-width="1.3" marker-end="url(#qd-arr-link)"/>
+            <rect x="240" y="248" width="56" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="268" y="257" fill="#2e5aa8" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">JSON META</text>
+
+            <!-- Internal links inside Point: Vectors/Payload -> Index Engines -->
+            <path d="M 528,164 H 568" fill="none" stroke="#bf4520" stroke-width="1.3" marker-end="url(#qd-arr-accent)"/>
+            <path d="M 528,256 H 568" fill="none" stroke="#2e5aa8" stroke-width="1.3" marker-end="url(#qd-arr-link)"/>
+            <!-- Filterable HNSW vertical bridge between Payload Index and HNSW Index -->
+            <line x1="664" y1="226" x2="664" y2="198" stroke="#bf4520" stroke-width="1.3" stroke-dasharray="4,3" marker-end="url(#qd-arr-accent)"/>
+            <rect x="672" y="206" width="84" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="714" y="215" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">GRAPH LINKING</text>
+
+            <!-- 3. Nodes (drawn after arrows) -->
+            <!-- Left Zone Nodes -->
+            <rect x="36" y="60" width="180" height="58" rx="6" fill="#FFFDF7"/>
+            <rect x="36" y="60" width="180" height="58" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="44" y="66" width="44" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="66" y="75" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">CHUNK</text>
+            <text x="126" y="92" fill="#2d3142" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">文档切片 (Text Chunk)</text>
+            <text x="126" y="108" fill="#4f5d75" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">语义分段 + 唯一 chunk_id</text>
+
+            <rect x="36" y="148" width="180" height="62" rx="6" fill="#FFFDF7"/>
+            <rect x="36" y="148" width="180" height="62" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="44" y="154" width="52" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="70" y="163" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">ENCODER</text>
+            <text x="126" y="182" fill="#2d3142" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">双路向量编码器</text>
+            <text x="126" y="198" fill="#4f5d75" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">Dense 模型 + Sparse BM25</text>
+
+            <rect x="36" y="238" width="180" height="58" rx="6" fill="#FFFDF7"/>
+            <rect x="36" y="238" width="180" height="58" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="44" y="244" width="44" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="66" y="253" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">ATTRS</text>
+            <text x="126" y="270" fill="#2d3142" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">业务属性与原文抽取</text>
+            <text x="126" y="286" fill="#4f5d75" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">doc_id / 租户 / 时间 / 原文</text>
+
+            <!-- Right Zone (Point Internals) -->
+            <!-- 1. Point ID Box -->
+            <rect x="324" y="76" width="204" height="44" rx="6" fill="#FFFDF7"/>
+            <rect x="324" y="76" width="204" height="44" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="332" y="82" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="350" y="91" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">KEY</text>
+            <text x="444" y="96" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">Point ID (主键)</text>
+            <text x="426" y="111" fill="#4f5d75" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">uint64 或 UUID (如 "c9a2-...")</text>
+
+            <!-- 2. Named Vectors Box (FOCAL ACCENT 1) -->
+            <rect x="324" y="132" width="204" height="78" rx="6" fill="#FFFDF7"/>
+            <rect x="324" y="132" width="204" height="78" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <rect x="332" y="138" width="56" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.8"/>
+            <text x="360" y="147" fill="#bf4520" font-size="7" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">VECTORS</text>
+            <text x="426" y="165" fill="#bf4520" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">Named Vectors (多向量字典)</text>
+            <text x="426" y="182" fill="#2d3142" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">"dense": [0.02, -0.14, ...] (1024d)</text>
+            <text x="426" y="197" fill="#4f5d75" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">"sparse": {indices:[12,89], values:[...]}</text>
+
+            <!-- 3. Payload Box -->
+            <rect x="324" y="222" width="204" height="64" rx="6" fill="#FFFDF7"/>
+            <rect x="324" y="222" width="204" height="64" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="332" y="228" width="54" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="359" y="237" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">PAYLOAD</text>
+            <text x="426" y="254" fill="#2d3142" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">Payload (无模式 JSON 负载)</text>
+            <text x="426" y="272" fill="#4f5d75" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">{"text":"...", "dept":"infra", "ts":1732}</text>
+
+            <!-- 4. Right Column: Storage & Index Engines -->
+            <rect x="568" y="132" width="192" height="66" rx="6" fill="#FFFDF7"/>
+            <rect x="568" y="132" width="192" height="66" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <rect x="576" y="138" width="46" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.8"/>
+            <text x="599" y="147" fill="#bf4520" font-size="7" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">INDEX 1</text>
+            <text x="664" y="166" fill="#bf4520" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">Filterable HNSW 图索引</text>
+            <text x="664" y="183" fill="#2d3142" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">+ Sparse Inverted Index</text>
+
+            <rect x="568" y="226" width="192" height="60" rx="6" fill="#FFFDF7"/>
+            <rect x="568" y="226" width="192" height="60" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="576" y="232" width="46" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="599" y="241" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">INDEX 2</text>
+            <text x="664" y="259" fill="#2d3142" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">Payload 字段倒排索引</text>
+            <text x="664" y="275" fill="#4f5d75" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">Keyword / Int / Geo / Full-text</text>
+          </svg>
+
+          <div class="wb-card notebook-lines" style="padding:12px 15px; box-shadow:none; margin:0;">
+            <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">📐 Qdrant 存储模型的三个核心工程设计</strong>
+            <ul style="font-size:13.4px; padding-left:18px; line-height:1.78; margin:0;">
+              <li><strong>单 Point 多命名向量（Named Vectors）：</strong>传统向量库一行记录往往只能存一列向量。Qdrant 允许在同一个 <code>Point</code> 里按名字挂载多个向量（例如 <code>"dense_bge"</code> 存 1024 维语义向量、<code>"sparse_bm25"</code> 存稀疏词频向量、<code>"colbert_token"</code> 存多向量矩阵），各自独立指定维度与距离度量公式（<code>Cosine</code> 余弦、<code>Dot</code> 点积、<code>Euclid</code> 欧氏距离）。</li>
+              <li><strong>Payload 与二级索引显式声明：</strong><code>Payload</code> 是挂载在 Point 上的任意 JSON 对象。虽然不用像 MySQL 那样预先定义表结构即可写入任意 JSON 字段，但对于经常出现在 <code>WHERE</code> 过滤条件里的字段（如 <code>tenant_id</code>、<code>doc_type</code>、<code>created_at</code>），必须显式调用 <code>create_payload_index</code> 建立字段索引，才能触发下文 §03 的子图加速。</li>
+              <li><strong>Segment 分段存储架构：</strong>每个 Collection 在底层由多个独立的 <strong>Segment（段）</strong> 组成。新写入的数据先进入可写的 Appendable Segment（支持实时增删改），后台 Optimizer 线程会自动将小段合并（Compaction）并构建不可变的高性能 HNSW 图索引段，兼顾实时写入吞吐与读取性能。</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 03: 核心引擎机制一 —— Filterable HNSW 可过滤图索引
+             ==================================================================== -->
+        <div class="wb-sec-header periwinkle" id="qd-03">
+          <span class="wb-sec-num">03</span>
+          <span class="wb-sec-title">核心引擎机制一：HNSW 分层导航图与 Filterable HNSW 可过滤子图索引</span>
+          <span class="plop-tag periwinkle">FIG 3.0 · FILTERABLE HNSW</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          为了避免对数百万条稠密向量做 <code>O(N)</code> 暴力扫描，现代向量库普遍采用 <strong>HNSW（Hierarchical Navigable Small World，分层可导航小世界图）</strong> 作为核心图索引。它的结构类似于“立体跳表”：顶层节点极少但连边跨度大，负责在搜索初期跨大步快速逼近目标大致方位；随后逐层向下进入更密集的邻接图，在底层局部邻域内精细搜索最近邻，从而在极高召回率下将搜索复杂度降至近似 <code>O(log N)</code>。
+        </p>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          然而在生产级 RAG 系统中，几乎不存在“裸搜全局向量”的请求。每一次向量检索都会携带结构化过滤条件，例如：<code>tenant_id = "org_42" AND department IN ["infra", "security"] AND created_at &gt;= 20250101</code>。当“HNSW 图索引”遇上“元数据过滤”时，常规向量方案往往陷入两难：
+        </p>
+
+        <div class="wb-grid-2" style="margin-bottom:16px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px;">⚠️ 传统方案 A：先过滤（Pre-filtering）的性能退化</h4>
+            <p style="font-size:13.6px; line-height:1.76; margin:0;">
+              先用倒排索引捞出所有满足 <code>tenant_id = "org_42"</code> 的 Point ID 列表（生成一张 Bitset 位图），再对这些点算向量距离。如果该租户下只有 200 条数据，暴力计算很快；但如果该租户有 <strong>80 万条数据</strong>（占全库 40%），HNSW 图上原本用来快速跳转的中间节点被过滤位图大量屏蔽，或者直接退化为对 80 万条向量做全量线性扫描（Brute-force Scan），延迟从 10ms 飙升到数百毫秒。
+            </p>
+          </div>
+
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px;">⚠️ 传统方案 B：后过滤（Post-filtering）的空召回与断连</h4>
+            <p style="font-size:13.6px; line-height:1.76; margin:0;">
+              先不管过滤条件，直接在全局 HNSW 图里搜出最相似的 Top-100 个候选点，最后再剔除不属于 <code>org_42</code> 的点。当 <code>org_42</code> 的数据只占全库的 <strong>0.5%</strong> 时，全局 Top-100 里大概率一条 <code>org_42</code> 的数据都没有，最终返回<strong>空结果（Zero Recall）</strong>。即使在图遍历过程中边走边剔除，由于满足条件的节点之间没有直接连边，“桥梁节点”被过滤掉后，图搜索会立刻卡死在局部死胡同里（Graph Disconnection）。
+            </p>
+          </div>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          Qdrant 的核心解决方案是 <strong>Filterable HNSW（可过滤分层小世界图）＋基于基数（Cardinality）的自适应执行计划器</strong>。它不仅在查询时动态决策走“倒排扫描”还是“图遍历”，更重要的是在<strong>建索引阶段</strong>就为每个已建索引的 Payload 分类构建了内部连通的<strong>子图跳线（Subgraph Extra Edges）</strong>：
+        </p>
+
+        <!-- SVG 2: 普通 HNSW 过滤断连 vs Qdrant Filterable HNSW 子图连边 + 自适应查询计划 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <svg viewBox="0 0 820 330" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin-bottom:14px;">
+            <defs>
+              <marker id="fh-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+              </marker>
+              <marker id="fh-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+              </marker>
+              <marker id="fh-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+              </marker>
+            </defs>
+
+            <!-- Zone 1: Standard HNSW Disconnection -->
+            <rect x="20" y="20" width="376" height="176" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="32" y="24" width="246" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="155" y="33" fill="#5a6580" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">A. 普通 HNSW 过滤后桥梁节点失效 (断连)</text>
+
+            <!-- Zone 2: Qdrant Filterable HNSW Subgraph Edges -->
+            <rect x="424" y="20" width="376" height="176" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="436" y="24" width="286" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="579" y="33" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">B. QDRANT FILTERABLE HNSW (分类子图附加连边)</text>
+
+            <!-- Zone 3: Cardinality Query Planner -->
+            <rect x="20" y="214" width="780" height="96" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="32" y="218" width="290" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="177" y="227" fill="#5a6580" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">C. 基数评估器 (CARDINALITY QUERY PLANNER)</text>
+
+            <!-- Connectors in Zone 1 (drawn before nodes) -->
+            <line x1="116" y1="90" x2="176" y2="90" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#fh-arr)"/>
+            <line x1="244" y1="90" x2="296" y2="90" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#fh-arr)"/>
+
+            <!-- Connectors in Zone 2 (drawn before nodes) -->
+            <!-- Muted blocked base links -->
+            <line x1="520" y1="106" x2="580" y2="106" stroke="#4f5d75" stroke-width="1" stroke-dasharray="3,3"/>
+            <line x1="648" y1="106" x2="700" y2="106" stroke="#4f5d75" stroke-width="1" stroke-dasharray="3,3"/>
+            <!-- Orthogonal Extra Subgraph Link bypassing filtered node -->
+            <path d="M 484,78 V 62 Q 484,54 492,54 H 732 Q 740,54 740,62 V 76" fill="none" stroke="#bf4520" stroke-width="1.6" marker-end="url(#fh-arr-accent)"/>
+            <rect x="544" y="38" width="136" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="612" y="47" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">EXTRA SUBGRAPH EDGE</text>
+
+            <!-- Connectors in Zone 3 -->
+            <line x1="234" y1="266" x2="294" y2="266" stroke="#2e5aa8" stroke-width="1.3" marker-end="url(#fh-arr-link)"/>
+            <line x1="504" y1="266" x2="564" y2="266" stroke="#bf4520" stroke-width="1.3" marker-end="url(#fh-arr-accent)"/>
+
+            <!-- Nodes in Zone 1 -->
+            <rect x="40" y="64" width="76" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="40" y="64" width="76" height="52" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1.2"/>
+            <text x="78" y="88" fill="#2d3142" font-size="11" font-weight="700" font-family="sans-serif" text-anchor="middle">起点 P1</text>
+            <text x="78" y="104" fill="#2e5aa8" font-size="8.5" font-family="ui-monospace, monospace" text-anchor="middle">dept="infra"</text>
+
+            <rect x="176" y="64" width="68" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="176" y="64" width="68" height="52" rx="6" fill="rgba(45,49,66,0.05)" stroke="rgba(45,49,66,0.3)" stroke-width="1" stroke-dasharray="3,2"/>
+            <text x="210" y="88" fill="#5a6580" font-size="11" font-weight="700" font-family="sans-serif" text-anchor="middle">桥梁 P2</text>
+            <text x="210" y="104" fill="#5a6580" font-size="8.5" font-family="ui-monospace, monospace" text-anchor="middle">dept="hr" (剔除)</text>
+
+            <rect x="296" y="64" width="80" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="296" y="64" width="80" height="52" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1.2"/>
+            <text x="336" y="88" fill="#2d3142" font-size="11" font-weight="700" font-family="sans-serif" text-anchor="middle">目标 P3</text>
+            <text x="336" y="104" fill="#2e5aa8" font-size="8.5" font-family="ui-monospace, monospace" text-anchor="middle">dept="infra"</text>
+
+            <text x="208" y="148" fill="#4f5d75" font-size="10.5" font-family="sans-serif" text-anchor="middle">P2 因不满足过滤条件被屏蔽 → P1 无法跳到最近邻 P3（搜索中断）</text>
+
+            <!-- Nodes in Zone 2 -->
+            <rect x="444" y="78" width="76" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="444" y="78" width="76" height="52" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <text x="482" y="102" fill="#bf4520" font-size="11" font-weight="700" font-family="sans-serif" text-anchor="middle">起点 P1</text>
+            <text x="482" y="118" fill="#2d3142" font-size="8.5" font-family="ui-monospace, monospace" text-anchor="middle">dept="infra"</text>
+
+            <rect x="580" y="78" width="68" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="580" y="78" width="68" height="52" rx="6" fill="rgba(45,49,66,0.05)" stroke="rgba(45,49,66,0.3)" stroke-width="1" stroke-dasharray="3,2"/>
+            <text x="614" y="102" fill="#5a6580" font-size="11" font-weight="700" font-family="sans-serif" text-anchor="middle">桥梁 P2</text>
+            <text x="614" y="118" fill="#5a6580" font-size="8.5" font-family="ui-monospace, monospace" text-anchor="middle">dept="hr" (跳过)</text>
+
+            <rect x="700" y="78" width="80" height="52" rx="6" fill="#FFFDF7"/>
+            <rect x="700" y="78" width="80" height="52" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <text x="740" y="102" fill="#bf4520" font-size="11" font-weight="700" font-family="sans-serif" text-anchor="middle">目标 P3</text>
+            <text x="740" y="118" fill="#2d3142" font-size="8.5" font-family="ui-monospace, monospace" text-anchor="middle">dept="infra"</text>
+
+            <text x="612" y="158" fill="#2d3142" font-size="10.5" font-weight="600" font-family="sans-serif" text-anchor="middle">建索引时按 Payload 分组织入同类别连边 → 过滤时沿子图直达 P3</text>
+
+            <!-- Nodes in Zone 3 -->
+            <rect x="40" y="238" width="194" height="56" rx="6" fill="#FFFDF7"/>
+            <rect x="40" y="238" width="194" height="56" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <text x="137" y="261" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">1. 估算过滤命中基数 (N)</text>
+            <text x="137" y="279" fill="#4f5d75" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">查询 Payload 倒排索引统计匹配点数</text>
+
+            <rect x="294" y="238" width="210" height="56" rx="6" fill="#FFFDF7"/>
+            <rect x="294" y="238" width="210" height="56" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <text x="399" y="261" fill="#2e5aa8" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">2A. 命中极少 (N &lt; full_scan_threshold)</text>
+            <text x="399" y="279" fill="#4f5d75" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">直接取倒排 ID 列表做 SIMD 精确距离扫描</text>
+
+            <rect x="564" y="238" width="216" height="56" rx="6" fill="#FFFDF7"/>
+            <rect x="564" y="238" width="216" height="56" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.4"/>
+            <text x="672" y="261" fill="#bf4520" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">2B. 命中较多 (N ≥ threshold)</text>
+            <text x="672" y="279" fill="#2d3142" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">在 Filterable HNSW 子图连边上高速游走</text>
+          </svg>
+
+          <p style="font-size:13.5px; line-height:1.75; margin:0; color:var(--plop-ink-text);">
+            <strong>💡 关键参数 <code>full_scan_threshold</code>（默认约 10,000 KB）：</strong>当过滤条件非常严苛（比如只查某一篇文档 <code>doc_id = "doc_99"</code> 下的 30 个切片）时，走 HNSW 图索引反而存在图遍历跳转开销；Qdrant 的 Query Planner 检测到命中点数低于阈值时，会自动切换为 SIMD 硬件加速的精确向量扫描（100% 召回率且耗时不足 1ms）；当过滤范围较大（如查整个部门 20 万条切片）时，则无缝切换到 Filterable HNSW 子图遍历。
+          </p>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 04: 核心引擎机制二 —— 混合检索 (Hybrid Search)、向量量化与横向选型
+             ==================================================================== -->
+        <div class="wb-sec-header pink" id="qd-04">
+          <span class="wb-sec-num">04</span>
+          <span class="wb-sec-title">核心引擎机制二：多路混合检索（BM25 / RRF 融合）、内存量化与向量库选型</span>
+          <span class="plop-tag pink">HYBRID, QUANT &amp; SELECTION</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          在 §02 中已经明确，为了兼顾宏观语义与专有代号匹配，生产环境通常在同一个 Point 中同时存储稠密向量与稀疏向量。对于其中的<strong>稀疏向量（Sparse Vector）</strong>，业界主要有基于经典词频统计的 <strong>BM25</strong> 与基于神经网络扩展的 <strong>SPLADE</strong> 两条生成路线：
+        </p>
+
+        <!-- 概念零死角拆解卡片：BM25 vs SPLADE -->
+        <div class="wb-grid-2" style="margin-bottom:16px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-tomato);">📏 1. BM25（经典词频统计路线 · 零模型推理开销）</h4>
+            <p style="font-size:13.4px; line-height:1.75; margin:0 0 8px;">
+              <strong>核心原理：</strong>BM25（Best Matching 25）是 Lucene 与 Elasticsearch 沿用多年的标准词项打分算法（TF-IDF 的改进版），不依赖神经网络，直接通过词频统计计算权重：
+            </p>
+            <ul style="font-size:13.2px; padding-left:18px; line-height:1.72; margin:0;">
+              <li><strong>TF（次线性词频饱和）：</strong>词项在当前切片内出现次数越多得分越高，但通过对数或非线性函数（如 <code>log(1 + tf)</code>）限制增长上限，避免高频重复词过度主导分数。</li>
+              <li><strong>IDF（逆文档频率加权）：</strong>在全库绝大多数切片中都出现的通用词（如“系统”、“方案”）区分度低、权重小；全库仅少数切片提及的专有词（如 <code>ERR_I40E_TX_TIMEOUT</code>）区分度高，配置 Qdrant 的 <code>modifier: "idf"</code> 后引擎会自动为其乘算高额逆文档频率权重。</li>
+              <li><strong>工程特征：</strong>纯数学公式计算，单次编码耗时低于 <code>0.1ms</code>，严格忠实于原文字面词项。</li>
+            </ul>
+          </div>
+
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-ink);">🧬 2. SPLADE（神经网络词项扩展路线 · 稀疏化深度学习）</h4>
+            <p style="font-size:13.4px; line-height:1.75; margin:0 0 8px;">
+              <strong>核心原理：</strong>针对纯统计方法无法跨同义词匹配（如原文写“宕机”、查询搜“服务不可用”时字面无交集）的固有局限，学术界基于预训练语言模型提出了 <strong>SPLADE</strong>，由神经网络预测词表空间中的稀疏激活权重：
+            </p>
+            <ul style="font-size:13.2px; padding-left:18px; line-height:1.72; margin:0;">
+              <li><strong>自动词项扩展（Term Expansion）：</strong>输入<em>“节点宕机告警”</em>时，SPLADE 不仅为原词 <code>"宕机"</code> 赋高权重，还会在词表维度上自动激活原文未出现的同义词（如 <code>"故障": 2.1</code>、<code>"中断": 1.8</code>）。</li>
+              <li><strong>工程取舍（为何混合检索多用 BM25 而非 SPLADE）：</strong>在双路 Hybrid 架构中，第一路稠密向量（如 <code>bge-m3</code>）已经承担了同义泛化职责，第二路稀疏向量只需专注“精确字面锁词”；此外 SPLADE 需要额外的 GPU/CPU 模型推理开销，且中文开源垂直生态不如 <code>Dense 模型 + BM25/N-gram</code> 成熟经济。</li>
+            </ul>
+          </div>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          当稠密路（余弦相似度区间 <code>[-1, 1]</code>）与稀疏路（无上限点积得分，如 <code>14.6</code>）各自召回一批候选切片后，由于两路分数的量纲与分布完全不同，不能直接相加。Qdrant 1.10+ 在统一的 <strong><code>Query API</code></strong> 中提供了 <code>Prefetch</code>（子查询预取）与 <code>Fusion</code> 机制，内置 <strong>RRF（Reciprocal Rank Fusion，倒数秩融合）</strong> 算法：只看候选文档在各路榜单中的<strong>名次（<code>rank</code>）</strong>，按公式 <code>score(d) = &Sigma; 1 / (k + rank<sub>i</sub>(d))</code>（平滑常数 <code>k</code> 默认取 60）累加得分。同时在两路榜单名列前茅的切片会自动获得叠加高分，从而在<strong>单次网络请求</strong>内免调参完成双路召回与融合重排：
+        </p>
+
+        <div class="wb-grid-2" style="margin-bottom:16px;">
+          <div class="plop-code-box" style="margin:0;">
+            <div class="plop-code-head">
+              <span>Python · 创建支持 Dense + Sparse 的知识库集合</span>
+              <span style="opacity:0.75;">qdrant-client &gt;= 1.10</span>
+            </div>
+            <pre class="plop-code-pre"><code><span class="c-kw">from</span> qdrant_client <span class="c-kw">import</span> QdrantClient, models
+
+client = QdrantClient(url=<span class="c-str">"http://localhost:6333"</span>)
+
+<span class="c-cm"># 1. 创建同时包含稠密语义向量与稀疏词频向量的 Collection</span>
+client.create_collection(
+    collection_name=<span class="c-str">"rag_knowledge_base"</span>,
+    vectors_config={
+        <span class="c-str">"dense"</span>: models.VectorParams(
+            size=<span class="c-num">1024</span>,  <span class="c-cm"># 如 BGE-M3 / text-embedding-3</span>
+            distance=models.Distance.COSINE,
+        )
+    },
+    sparse_vectors_config={
+        <span class="c-str">"sparse"</span>: models.SparseVectorParams(
+            modifier=models.Modifier.IDF  <span class="c-cm"># 引擎自动计算 IDF 权重</span>
+        )
+    },
+    <span class="c-cm"># 开启 int8 标量量化：内存降低 75%，原始向量落盘</span>
+    quantization_config=models.ScalarQuantization(
+        scalar=models.ScalarQuantizationConfig(
+            type=models.ScalarType.INT8,
+            quantile=<span class="c-num">0.99</span>,
+            always_ram=<span class="c-kw">True</span>,
+        )
+    ),
+)
+
+<span class="c-cm"># 2. 为高频过滤字段显式创建 Payload 索引（触发 Filterable HNSW）</span>
+client.create_payload_index(
+    collection_name=<span class="c-str">"rag_knowledge_base"</span>,
+    field_name=<span class="c-str">"tenant_id"</span>,
+    field_schema=models.PayloadSchemaType.KEYWORD,
+)</code></pre>
+          </div>
+
+          <div class="plop-code-box" style="margin:0;">
+            <div class="plop-code-head">
+              <span>Python · 单次 Query 请求完成双路召回 + RRF 融合</span>
+              <span style="opacity:0.75;">Prefetch + RRF Fusion</span>
+            </div>
+            <pre class="plop-code-pre"><code><span class="c-cm"># 构造共享的业务权限过滤条件</span>
+rag_filter = models.Filter(
+    must=[
+        models.FieldCondition(
+            key=<span class="c-str">"tenant_id"</span>,
+            match=models.MatchValue(value=<span class="c-str">"org_42"</span>),
+        )
+    ]
+)
+
+<span class="c-cm"># 单次 RPC 调用：并发执行稠密 + 稀疏预取，并在服务端完成 RRF 融合</span>
+results = client.query_points(
+    collection_name=<span class="c-str">"rag_knowledge_base"</span>,
+    prefetch=[
+        models.Prefetch(
+            query=dense_query_vec,      <span class="c-cm"># [0.021, -0.148, ...]</span>
+            using=<span class="c-str">"dense"</span>,
+            filter=rag_filter,
+            limit=<span class="c-num">25</span>,                   <span class="c-cm"># 语义路召回 Top-25</span>
+        ),
+        models.Prefetch(
+            query=models.SparseVector(  <span class="c-cm"># BM25 / SPLADE 稀疏向量</span>
+                indices=[<span class="c-num">104</span>, <span class="c-num">8892</span>, <span class="c-num">15420</span>],
+                values=[<span class="c-num">2.4</span>, <span class="c-num">5.1</span>, <span class="c-num">3.8</span>],
+            ),
+            using=<span class="c-str">"sparse"</span>,
+            filter=rag_filter,
+            limit=<span class="c-num">25</span>,                   <span class="c-cm"># 关键词路召回 Top-25</span>
+        ),
+    ],
+    <span class="c-cm"># 使用 RRF (Reciprocal Rank Fusion) 将两路结果融合重排取 Top-10</span>
+    query=models.FusionQuery(fusion=models.Fusion.RRF),
+    limit=<span class="c-num">10</span>,
+    with_payload=<span class="c-kw">True</span>,
+)</code></pre>
+          </div>
+        </div>
+
+        <!-- 向量量化对比表 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:18px;">
+          <h4 style="font-size:15.5px; margin:0 0 10px;">🧮 生产容量规划：Qdrant 三种内置向量量化（Quantization）对比</h4>
+          <p style="font-size:13.6px; line-height:1.75; margin:0 0 10px; color:var(--plop-ink-soft);">
+            以 <strong>1,000 万条 1024 维 <code>float32</code> 向量</strong>为例，仅原始向量就占用 <code>10,000,000 × 1024 × 4 Bytes ≈ 40.96 GB</code> 内存，加上 HNSW 图邻接表开销约需 <strong>60~65 GB RAM</strong>。开启量化并配合 <code>on_disk=True</code>（原始高精度向量存磁盘 mmap，量化后小向量驻留内存）可显著降低机器成本：
+          </p>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">量化方式</th>
+                  <th style="width:18%">单维精度转换</th>
+                  <th style="width:16%">内存压缩比</th>
+                  <th style="width:22%">召回精度与速度特征</th>
+                  <th style="width:24%">RAG 工程适用建议</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Scalar Quantization (SQ)</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">标量量化（推荐首选）</span></td>
+                  <td><code>float32</code> → <code>int8</code><br/>(4 Bytes → 1 Byte)</td>
+                  <td><strong>节省 75%</strong><br/>(40GB → 10GB)</td>
+                  <td>召回率损失通常 <strong>&lt; 1%</strong>，SIMD 整数运算加速显著</td>
+                  <td><strong>绝大多数 RAG 生产环境的默认配置</strong>，在内存成本与精度间最均衡</td>
+                </tr>
+                <tr>
+                  <td><strong>Binary Quantization (BQ)</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">二值量化（极速高维）</span></td>
+                  <td><code>float32</code> → <code>1 bit</code><br/>(正数记 1，负数记 0)</td>
+                  <td><strong>节省 96.8%</strong><br/>(32 倍压缩)</td>
+                  <td>使用 CPU <code>XOR + POPCNT</code> 指令算汉明距离，检索速度提升 10~40 倍；需配合 <code>oversampling</code> 重打分</td>
+                  <td>适合 <strong>1024~3072 高维模型</strong>（如 OpenAI <code>text-embedding-3-large</code>、Cohere v3）且数据量在千万级以上的场景</td>
+                </tr>
+                <tr>
+                  <td><strong>Product Quantization (PQ)</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">乘积量化（极限压缩）</span></td>
+                  <td>将向量切分为子空间并聚类为码本中心 ID</td>
+                  <td><strong>节省 85%~95%</strong><br/>(取决于子空间比)</td>
+                  <td>建索引耗时较长（需 K-Means 训练聚类中心），召回损失高于 SQ</td>
+                  <td>仅在内存极度受限、且模型不支持 Binary Quantization 时使用</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 主流向量数据库选型全景与决策准则（置于 §04 末尾：读完核心机制后再做横向对比） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:18px;">
+          <h4 style="font-size:15.5px; margin:0 0 8px; color:var(--plop-tomato);">🧭 横向技术选型：五大主流向量检索方案对比与工程决策准则</h4>
+          <p style="font-size:13.5px; line-height:1.76; margin:0 0 12px; color:var(--plop-ink-soft);">
+            掌握了多命名向量、Filterable HNSW、RRF 混合融合与内存量化这四项核心能力后，再回看市面上的主流向量方案（Qdrant、Milvus、pgvector、Elasticsearch、Chroma），选型依据主要取决于四项客观约束：<strong>存量数据库技术栈、运维资源预算、向量数据规模，以及是否需要原生的双向量混合检索与高频标签过滤</strong>：
+          </p>
+
+          <div class="table-wrap" style="margin-bottom:12px;">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:15%">候选方案</th>
+                  <th style="width:23%">底层架构与部署开销</th>
+                  <th style="width:25%">核心技术优势</th>
+                  <th style="width:21%">适用边界与工程短板</th>
+                  <th style="width:16%">选型定位</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>1. Qdrant</strong><br/><span style="font-size:11.5px; color:var(--plop-tomato); font-weight:700;">★ 独立向量库推荐</span></td>
+                  <td><strong>Rust 单二进制容器</strong><br/>单个 Docker 容器启动，无 GC 停顿，空载内存仅数十 MB，支持分布式横向扩展。</td>
+                  <td>① 原生 <code>Dense + Sparse</code> 双向量与服务端 RRF 融合（免额外部署 ES）；<br/>② Filterable HNSW 带复杂 JSON 标签过滤不断连；<br/>③ 内置 Alias 原子切换与 INT8/1-bit 量化。</td>
+                  <td>不存储关系型业务表，需与业务主库（MySQL / PostgreSQL）配合使用。</td>
+                  <td><strong style="color:var(--plop-tomato);">中大型严肃 RAG 首选</strong>（兼顾轻量运维、混合召回与强过滤）。</td>
+                </tr>
+                <tr>
+                  <td><strong>2. Milvus</strong><br/><span style="font-size:11.5px; color:var(--plop-ink-soft);">(Zilliz 开源)</span></td>
+                  <td><strong>Go + C++ 云原生架构</strong><br/>标准集群依赖 <code>etcd + MinIO + 消息队列</code> 等多组件协同（另有单机版）。</td>
+                  <td>存算分离设计，<strong>十亿至百亿级超大规模向量</strong>下的水平分片、GPU 索引加速与多副本吞吐能力突出。</td>
+                  <td>对于万级至千万级切片的常规企业知识库，多组件维护成本与基础内存开销偏高。</td>
+                  <td><strong>十亿级以上</strong>超大规模、配备专职 Infra 团队的场景。</td>
+                </tr>
+                <tr>
+                  <td><strong>3. pgvector</strong><br/><span style="font-size:11.5px; color:var(--plop-ink-soft);">(PostgreSQL 扩展)</span></td>
+                  <td><strong>C 语言编写的 PG 插件</strong><br/>零新增基础设施，直接在存量 PostgreSQL 中启用 <code>CREATE EXTENSION vector</code>。</td>
+                  <td><strong>向量与业务表处于同一 ACID 事务内</strong>，支持直接 SQL <code>JOIN</code>，无跨库双写一致性负担。</td>
+                  <td>① 业务主库为 MySQL 的团队无法直接复用；<br/>② 向量超 500 万条后 HNSW 内存占用高，严苛过滤下易退化并挤占主库 CPU。</td>
+                  <td><strong>业务主库已用 PG</strong>、且向量规模在<strong>百万级以内</strong>的团队首选。</td>
+                </tr>
+                <tr>
+                  <td><strong>4. Elasticsearch</strong><br/><span style="font-size:11.5px; color:var(--plop-ink-soft);">(8.x+ 向量版)</span></td>
+                  <td><strong>Java (Lucene)</strong><br/>JVM 常驻进程，单节点起步内存通常需 2GB~4GB 以上。</td>
+                  <td>传统 BM25 全文检索、复杂分词器生态与日志聚合分析高度成熟。</td>
+                  <td>JVM 内存占用较大且受 GC 影响；向量索引与量化能力演进晚于原生 Rust 引擎，部分高阶 RRF 特性受商业许可限制。</td>
+                  <td><strong>存量已有成熟 ES 集群</strong>且希望控制组件数量的团队复用。</td>
+                </tr>
+                <tr>
+                  <td><strong>5. Chroma / LanceDB</strong><br/><span style="font-size:11.5px; color:var(--plop-ink-soft);">(嵌入式轻量库)</span></td>
+                  <td><strong>Python / 本地文件级</strong><br/>类似 SQLite，直接嵌入应用进程或读写本地目录文件。</td>
+                  <td>安装即用，非常适合桌面端本地应用（如 IDE 本地代码索引）或原型验证。</td>
+                  <td>多服务高并发共享能力较弱，缺少完整的服务端多路融合、分布式分片与在线别名切换机制。</td>
+                  <td>适合<strong>本地原型实验</strong>或<strong>客户端内嵌应用</strong>。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="wb-card notebook-lines" style="padding:10px 14px; box-shadow:none; margin:0;">
+            <strong style="font-size:13.5px; color:var(--plop-ink); display:block; margin-bottom:4px;">🌲 工程选型三步收敛法则</strong>
+            <span style="font-size:13.2px; line-height:1.75; color:var(--plop-ink-text);">
+              ① 业务主库已是 <strong>PostgreSQL</strong> 且切片规模 <strong>&lt; 100 万</strong> → 优先复用 <code>pgvector</code> 降低架构复杂度；
+              ② 向量规模达 <strong>5 亿~百亿级</strong> 且具备专职容器运维团队 → 选用 <code>Milvus</code> 存算分离集群；
+              ③ 主库为 <strong>MySQL</strong> 或常规企业级规模（<strong>万级~亿级切片</strong>），同时要求低内存开销、原生 <code>Dense + Sparse</code> RRF 混合检索与高频元数据过滤 → 优先选用 <strong><code>Qdrant</code></strong>。
+            </span>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 05: 生产项目实战 (一) —— 业务背景、选型依据与解耦部署拓扑
+             ==================================================================== -->
+        <div class="wb-sec-header mustard" id="qd-05">
+          <span class="wb-sec-num">05</span>
+          <span class="wb-sec-title">工程实战（一）：企业级工单与知识检索系统的业务诉求、选型依据与部署拓扑</span>
+          <span class="plop-tag mustard">FIG 5.0 · PRODUCTION TOPOLOGY</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          下面结合一个已落地的企业级项目——<strong>多租户 SaaS 客户成功与工单智能知识库系统</strong>，完整复盘如何基于 <strong>Go + Vue 3 + Qdrant + BGE-M3 + DeepSeek</strong> 从零搭建一套可观测、高召回的生产级 RAG 引擎。
+        </p>
+
+        <div class="wb-grid-2" style="margin-bottom:16px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-tomato);">📚 业务场景与两类核心知识源</h4>
+            <ul style="font-size:13.5px; padding-left:18px; line-height:1.76; margin:0;">
+              <li style="margin-bottom:6px;"><strong>静态权威知识库（约 40 万字 / 10 卷产品与运维手册）：</strong>涵盖系统架构指南、账单计费 / 权限安全 / 私有化部署专项 SOP、高危操作合规红线、阶梯订阅方案报价（如 <code>Plan-A / B / C</code>）、标准交付巡检与续费跟进节点及常见商务异议应答模板（按三级标题树清洗切分为 <strong>560 个结构化切片</strong>）。</li>
+              <li><strong>动态运营补充词条（MySQL + Qdrant 实时双写）：</strong>运营或技术支持主管在管理后台随时新增或修订的“临时发版公告 / 专项应答口径”，要求保存即刻同步至 Qdrant 向量库生效，停用或删除时实时移除向量。</li>
+            </ul>
+          </div>
+
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-ink);">🎯 前端两大高频消费入口与安全护栏</h4>
+            <ul style="font-size:13.5px; padding-left:18px; line-height:1.76; margin:0;">
+              <li style="margin-bottom:6px;"><strong>入口 ① 工单侧边栏「智能应答推荐卡片」：</strong>工程师处理客户工单或跟进任务时，系统自动抽取该租户的 <code>所属产品模块标签 + 当前生命周期节点（如首周交付巡检 / 续费评估） + 历史阻塞问题</code>，静默检索 Top-3 标准应答模板供一键引用。</li>
+              <li style="margin-bottom:6px;"><strong>入口 ② 右侧全局「AI 智能问答助手」：</strong>支持多模型热切换与 SSE 流式问答，模型可自主调用 <code>search_knowledge</code>、租户订阅档案、待办工单、配额告警等 7 大工具，回答强制标注《知识库》章节出处。</li>
+              <li><strong>硬性安全护栏：</strong>严禁编造订阅折扣、SLA 赔付比例或越权技术承诺；遇到高危生产变更与资损风险词必须 100% 触发风险熔断预警。</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 项目拍板 Qdrant 的三条工程约束 -->
+        <div class="wb-card" style="background:rgba(191,69,32,0.04); margin-bottom:16px;">
+          <h4 style="font-size:15px; margin:0 0 8px; color:var(--plop-tomato);">🧭 本项目最终选型 Qdrant 的三条工程约束与依据</h4>
+          <ul style="font-size:13.4px; padding-left:18px; line-height:1.76; margin:0; color:var(--plop-ink-text);">
+            <li style="margin-bottom:4px;"><strong>1. 存量业务主库为 MySQL 8.0，排除 <code>pgvector</code>：</strong>SaaS 核心业务表均运行在 MySQL 上，仅为向量检索单独再维护一套 PostgreSQL 实例的收益不及直接引入专用向量引擎。</li>
+            <li style="margin-bottom:4px;"><strong>2. 推理节点内存预算受限（12 GB 级虚拟机），排除 <code>Milvus</code> 与 <code>Elasticsearch</code>：</strong>专用 RAG 节点需常驻加载 <code>BAAI/bge-m3</code> 与 <code>bge-reranker-v2-m3</code> 两个深度学习模型；Milvus（含 etcd/MinIO 组件链）与 ES（JVM 堆内存）资源开销过大，而 Rust 编写的 <strong>Qdrant 单容器运行内存不足 150 MB</strong>，单次混合检索耗时仅 <code>3~6 ms</code>。</li>
+            <li><strong>3. 单引擎收敛“语义 + 关键词 + 标签过滤 + 蓝绿切换”：</strong>Qdrant 原生支持同一 Point 挂载 <code>dense + sparse(IDF)</code> 并在服务端执行 <code>RRF</code> 融合，配合 <code>domain_tags</code> 的 Filterable HNSW 与 Alias 原子切换，单个轻量容器即可同时承担向量库与全文关键词检索职责。</li>
+          </ul>
+        </div>
+
+        <!-- SVG 3: 生产部署拓扑与双源入库 + Alias 零停机切换架构图 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <svg viewBox="0 0 820 360" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin-bottom:14px;">
+            <defs>
+              <marker id="pr-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+              </marker>
+              <marker id="pr-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+              </marker>
+              <marker id="pr-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+              </marker>
+            </defs>
+
+            <!-- 1. Three Flat Zones -->
+            <!-- Zone 1: Dual Knowledge Ingestion -->
+            <rect x="18" y="20" width="232" height="320" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="28" y="24" width="186" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="121" y="33" fill="#5a6580" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">1. 双源知识入库层 (INGESTION)</text>
+
+            <!-- Zone 2: Decoupled RAG Infra Node -->
+            <rect x="290" y="20" width="240" height="320" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="300" y="24" width="188" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="394" y="33" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">2. 独立 RAG 推理与存储节点</text>
+
+            <!-- Zone 3: Go Backend & Assistant Consumers -->
+            <rect x="570" y="20" width="232" height="320" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="580" y="24" width="196" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="678" y="33" fill="#5a6580" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.08em">3. GO 业务后端与双消费入口</text>
+
+            <!-- 2. Orthogonal Connectors (drawn before nodes) -->
+            <!-- Zone 1 internal: Manuals -> Ingest Script -->
+            <line x1="134" y1="120" x2="134" y2="152" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pr-arr)"/>
+
+            <!-- Ingest Script -> Qdrant (port 1 on left edge of Qdrant: y=104) -->
+            <path d="M 232,176 H 262 Q 270,176 270,168 V 112 Q 270,104 278,104 H 310" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#pr-arr-accent)"/>
+            <rect x="242" y="128" width="56" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="270" y="137" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">ALIAS SWAP</text>
+
+            <!-- Dynamic Entries -> Qdrant (port 2 on left edge of Qdrant: y=84) -->
+            <path d="M 232,284 H 248 Q 256,284 256,276 V 92 Q 256,84 264,84 H 310" fill="none" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#pr-arr-link)"/>
+            <rect x="236" y="218" width="44" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="258" y="227" fill="#2e5aa8" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">UPSERT</text>
+
+            <!-- Zone 2 internal: BGE Service <-> Qdrant / Backend -->
+            <!-- Go Backend -> Qdrant (horizontal at y=94) -->
+            <path d="M 588,94 H 510" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#pr-arr-accent)"/>
+            <rect x="522" y="74" width="54" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="549" y="83" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">RRF QUERY</text>
+
+            <!-- Go Backend -> BGE Service (orthogonal elbow from Go Backend left port y=114 to BGE right port y=184) -->
+            <path d="M 588,114 H 558 Q 550,114 550,122 V 176 Q 550,184 542,184 H 510" fill="none" stroke="#2e5aa8" stroke-width="1.3" marker-end="url(#pr-arr-link)"/>
+            <rect x="520" y="142" width="58" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="549" y="151" fill="#2e5aa8" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">EMB/RERANK</text>
+
+            <!-- Zone 3 internal: Go Backend -> Followup Panel & Assistant -->
+            <line x1="686" y1="132" x2="686" y2="160" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pr-arr)"/>
+            <line x1="686" y1="224" x2="686" y2="252" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#pr-arr)"/>
+
+            <!-- Go Backend -> MySQL Audit Logs -->
+            <path d="M 588,284 H 510" fill="none" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#pr-arr)"/>
+            <rect x="524" y="266" width="50" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="549" y="275" fill="#4f5d75" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">RAG LOGS</text>
+
+            <!-- 3. Nodes (drawn after arrows) -->
+            <!-- Zone 1 Nodes -->
+            <rect x="36" y="58" width="196" height="62" rx="6" fill="#FFFDF7"/>
+            <rect x="36" y="58" width="196" height="62" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="44" y="64" width="52" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="70" y="73" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">MANUALS</text>
+            <text x="134" y="92" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">10 卷产品与运维手册 (.md)</text>
+            <text x="134" y="108" fill="#4f5d75" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">约 40 万字 · 多级标题树结构</text>
+
+            <rect x="36" y="152" width="196" height="68" rx="6" fill="#FFFDF7"/>
+            <rect x="36" y="152" width="196" height="68" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="44" y="158" width="48" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="68" y="167" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">INGEST</text>
+            <text x="134" y="186" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">结构感知切片 + 蓝绿入库脚本</text>
+            <text x="134" y="204" fill="#4f5d75" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">560 Chunks · UUIDv5 · 原子切 Alias</text>
+
+            <rect x="36" y="252" width="196" height="66" rx="6" fill="#FFFDF7"/>
+            <rect x="36" y="252" width="196" height="66" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="44" y="258" width="54" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="71" y="267" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">DYNAMIC</text>
+            <text x="134" y="286" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">动态运营补充词条 (MySQL)</text>
+            <text x="134" y="304" fill="#4f5d75" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">volume_no=99 · 增删改实时同步</text>
+
+            <!-- Zone 2 Nodes -->
+            <!-- Focal Node 1: Qdrant -->
+            <rect x="310" y="58" width="200" height="74" rx="6" fill="#FFFDF7"/>
+            <rect x="310" y="58" width="200" height="74" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <rect x="318" y="64" width="50" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.8"/>
+            <text x="343" y="73" fill="#bf4520" font-size="7" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">QDRANT</text>
+            <text x="410" y="94" fill="#bf4520" font-size="12" font-weight="700" font-family="sans-serif" text-anchor="middle">Qdrant 向量检索引擎</text>
+            <text x="410" y="110" fill="#2d3142" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">Alias: kb_articles_active</text>
+            <text x="410" y="123" fill="#4f5d75" font-size="8.4" font-family="ui-monospace, monospace" text-anchor="middle">Dense(1024d) + Sparse(IDF)</text>
+
+            <!-- Node 2: BGE FastAPI Service -->
+            <rect x="310" y="152" width="200" height="72" rx="6" fill="#FFFDF7"/>
+            <rect x="310" y="152" width="200" height="72" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="318" y="158" width="60" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="348" y="167" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">BGE SERVER</text>
+            <text x="410" y="187" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">BGE 模型推理容器</text>
+            <text x="410" y="203" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">BAAI/bge-m3 (Embedding 双塔)</text>
+            <text x="410" y="216" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">bge-reranker-v2-m3 (Cross-Encoder)</text>
+
+            <!-- Node 3: RAG Observability & Eval -->
+            <rect x="310" y="252" width="200" height="66" rx="6" fill="#FFFDF7"/>
+            <rect x="310" y="252" width="200" height="66" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="318" y="258" width="54" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="345" y="267" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">OBSERVE</text>
+            <text x="410" y="286" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">检索审计与 30 题黄金评测</text>
+            <text x="410" y="304" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">kb_search_logs · RankDelta 追踪</text>
+
+            <!-- Zone 3 Nodes -->
+            <!-- Focal Node 2: Go KnowledgeService -->
+            <rect x="588" y="58" width="196" height="74" rx="6" fill="#FFFDF7"/>
+            <rect x="588" y="58" width="196" height="74" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <rect x="596" y="64" width="56" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.8"/>
+            <text x="624" y="73" fill="#bf4520" font-size="7" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">GO ENGINE</text>
+            <text x="686" y="94" fill="#bf4520" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">KnowledgeService (Go)</text>
+            <text x="686" y="110" fill="#2d3142" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">EncodeSparseText + RRF + Rerank</text>
+            <text x="686" y="123" fill="#4f5d75" font-size="8.4" font-family="ui-monospace, monospace" text-anchor="middle">窄域自动放宽 + 高危词硬拦截</text>
+
+            <rect x="588" y="160" width="196" height="64" rx="6" fill="#FFFDF7"/>
+            <rect x="588" y="160" width="196" height="64" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="596" y="166" width="46" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="619" y="175" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">ENTRY 1</text>
+            <text x="686" y="193" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">工单侧边栏 · 应答推荐卡片</text>
+            <text x="686" y="210" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">模块+阶段+阻塞项 → Top-3 模板</text>
+
+            <rect x="588" y="252" width="196" height="66" rx="6" fill="#FFFDF7"/>
+            <rect x="588" y="252" width="196" height="66" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="596" y="258" width="46" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="619" y="267" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">ENTRY 2</text>
+            <text x="686" y="286" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">AI 智能助手 (SSE + 7 Tools)</text>
+            <text x="686" y="304" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">Tool Calling / Pipeline 自动降级</text>
+          </svg>
+
+          <div class="wb-card notebook-lines" style="padding:12px 15px; box-shadow:none; margin:0;">
+            <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">🛡️ 架构解耦与生产高可用的三个关键设计</strong>
+            <ul style="font-size:13.4px; padding-left:18px; line-height:1.78; margin:0;">
+              <li><strong>RAG 推理底座与业务主栈物理隔离：</strong><code>Qdrant 向量引擎</code> 与 <code>BGE 模型推理容器</code> 独立部署在专用虚拟机节点，通过挂载宿主机模型缓存卷常驻运行两个模型——<code>BAAI/bge-m3</code>（负责文本转 1024 维稠密向量）与 <code>bge-reranker-v2-m3</code>（负责对粗排候选做交叉注意力精排，原理详见 §07）。这样 Go 后端高频发版重启时，数 GB 的深度学习模型无需重新加载。</li>
+              <li><strong>双源写入隔离与零停机更新：</strong>静态手册采用离线全量构建加 Qdrant <code>Alias</code> 蓝绿原子切换，动态运营补充词条采用在线实时 Upsert/Delete（两者的完整入库链路详见 §06）。</li>
+              <li><strong>聊天大模型双模自适应（Tool Calling + Pipeline RAG 兜底）：</strong>后端通过统一 <code>ChatProvider</code> 接口支持 DeepSeek-V3、通义千问、豆包等模型热切换。当切换到支持工具调用的模型（<code>supports_tools: true</code>）时走 Agent Tool Calling；当切换到不支持 Function Calling 的推理模型（如 <code>deepseek-reasoner</code>，<code>supports_tools: false</code>）时，后端自动降级为前置 Pipeline RAG（先检索 Top-5 知识库片段注入 System Prompt，再流式输出）。</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 06: 生产项目实战 (二) —— 知识入库全链路（切片 -> 跨语言稀疏编码 -> 蓝绿与双写同步）
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="qd-06">
+          <span class="wb-sec-num">06</span>
+          <span class="wb-sec-title">工程实战（二）：知识入库全链路——结构切片、跨语言稀疏编码与蓝绿/双写同步</span>
+          <span class="plop-tag mint">INGESTION, SPARSE HASH &amp; ALIAS</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          许多 RAG 项目检索质量不佳，根源往往不在向量数据库本身，而在于入库阶段<strong>“按固定字数硬切导致表格与应答模板断裂”</strong>、<strong>“切片脱离标题后丢失主语语境”</strong>以及<strong>“离线入库与在线检索切词不一致”</strong>。下面按照真实的数据入库生命周期（<strong>切分打标 → 双向量编码 → 落库与零停机同步</strong>）逐步拆解本项目的工程实现：
+        </p>
+
+        <!-- 阶段一：怎么切与打标 -->
+        <div class="wb-grid-2" style="margin-bottom:16px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-tomato);">✂️ 第一步（上）：章节边界保护与表格防腰斩切分</h4>
+            <p style="font-size:13.6px; line-height:1.76; margin:0 0 8px;">
+              解析器严格沿着 Markdown 的 <code># (H1 分卷)</code> → <code>## (H2 章)</code> → <code>### (H3 节)</code> 树状层级递归，<strong>绝不跨 H2/H3 标题合并文本</strong>。
+            </p>
+            <ul style="font-size:13.3px; padding-left:18px; line-height:1.72; margin:0;">
+              <li>单块目标长度控制在 <code>450 ~ 850</code> 字符；超出时优先按双换行段落（<code>\n{2,}</code>）切分，并在相邻块间保留 <code>100</code> 字符重叠（Overlap）。</li>
+              <li><strong>表格完整性保护：</strong>遇到以 <code>|</code> 开头的 Markdown 表格块（如《阶梯订阅 Plan-A/B/C 配额与报价表》）时，跳过行级硬切与尾部截断重叠，确保整张业务表格完整保留在同一个 Point 中。</li>
+            </ul>
+          </div>
+
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-ink);">🏷️ 第一步（下）：面包屑语境注入与规则标签自动打标</h4>
+            <p style="font-size:13.6px; line-height:1.76; margin:0 0 8px;">
+              手册里的某段应答模板原文可能只有一句：<em>“客户可先按基础版开通试用，首周内确认扩容需求可全额折算差价平滑升级企业版。”</em>——正文字面既未提及“第7卷 商业化订阅”，也未提及“报价异议”。
+            </p>
+            <ul style="font-size:13.3px; padding-left:18px; line-height:1.72; margin:0;">
+              <li><strong>向量化文本与展示原文分离：</strong>送入 <code>bge-m3</code> 与稀疏编码器的 <code>embed_text</code> 自动拼接完整面包屑前缀：<code>【第7卷 商业化订阅 &gt; 7.2 版本与配额方案 &gt; 7.2.1 阶梯升档规则】\n&lt;正文&gt;</code>；而写入 Qdrant Payload 的 <code>content</code> 字段仍保持纯洁原文。</li>
+              <li><strong>双维标签自动推导：</strong>基于关键词规则库在入库时自动标注业务模块标签（<code>domain_tags</code>：账单计费/权限安全/私有化部署/订阅方案/高危红线/应答模板/运维排障等）与生命周期场景标签（<code>scene_tags</code>：试用开通/首周巡检/续费评估/异议解答/差价升档等）。</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 阶段二：怎么算双向量（三方角色分工 + 中文稀疏编码对比 + Go 代码） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <h4 style="font-size:15.5px; margin:0 0 8px; color:var(--plop-tomato);">👷 第二步（上）：双向量计算与合并的三方协同分工</h4>
+          <p style="font-size:13.5px; line-height:1.75; margin:0 0 10px; color:var(--plop-ink-soft);">
+            呼应 §01 所述的引擎边界，在本项目的混合检索链路中，<strong>BGE 推理容器、Python/Go 应用代码与 Qdrant 引擎</strong>三者各司其职，离线入库与在线查询保持严格对称：
+          </p>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">链路阶段</th>
+                  <th style="width:26%">1️⃣ 稠密向量（<code>dense</code> 1024维）</th>
+                  <th style="width:28%">2️⃣ 稀疏向量（<code>sparse</code> 词频 TF）</th>
+                  <th style="width:28%">3️⃣ Qdrant 向量引擎职责</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>阶段 A：离线入库</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">(写入 560 条手册切片)</span></td>
+                  <td><strong>BGE 模型推理容器</strong><br/>Python 入库脚本调用独立推理容器中的 <code>BAAI/bge-m3</code> 模型编码生成 1024 维浮点数组。</td>
+                  <td><strong>Python 入库脚本本地计算</strong><br/>调用本地 <code>encode_sparse_text</code> 按单/双/三字滑动窗口与 <code>FNV-1a</code> 哈希计算词频（TF），单条耗时低于 0.1ms。</td>
+                  <td><strong>构建双索引 + 统计全局 IDF</strong><br/>在同一个 Point 下对 <code>dense</code> 构建 HNSW 图索引，对 <code>sparse</code> 构建倒排索引并动态维护全局逆文档频率（IDF）。</td>
+                </tr>
+                <tr>
+                  <td><strong>阶段 B：在线检索</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">(工程师发起实时查询)</span></td>
+                  <td><strong>Go 后端调用 BGE 推理容器</strong><br/><code>KnowledgeService</code> 调用 <code>EmbedQuery()</code> 获取用户提问的 1024 维稠密向量（约 80ms）。</td>
+                  <td><strong>Go 后端本地计算（内置稀疏编码器）</strong><br/>调用与 Python 端比特级一致的 <code>EncodeSparseText(query)</code> 生成查询稀疏向量（&lt; 0.1ms）。</td>
+                  <td><strong>双路并发 Prefetch + RRF 融合</strong><br/>内部并发执行稠密与稀疏两路 Top-20 召回，通过服务端 RRF 算法合并重排后返回粗排候选集（约 5ms）。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <h4 style="font-size:15.5px; margin:0 0 8px; color:var(--plop-ink);">🧩 第二步（下）：中文稀疏向量构造——词典分词（<code>jieba</code>）与多粒度 <code>N-gram 哈希</code> 对比</h4>
+          <p style="font-size:13.5px; line-height:1.76; margin:0 0 10px;">
+            常见的中文分词工具（如 Python 的 <code>jieba</code>、Elasticsearch 的 <code>IK 分词器</code>）在混合检索中均服务于<strong>构造稀疏向量</strong>。将一段中文文本转化为 Qdrant 稀疏向量格式 <code>{"indices": [...], "values": [...]}</code> 共包含<strong>切词</strong>与<strong>编号计权</strong>两个环节：
+          </p>
+
+          <div class="wb-grid-2" style="margin-bottom:12px;">
+            <div class="wb-card" style="background:rgba(45,49,66,0.03); box-shadow:none; margin:0;">
+              <strong style="font-size:13.6px; color:var(--plop-ink); display:block; margin-bottom:6px;">环节 1：切分词元（Tokenization）</strong>
+              <p style="font-size:13.1px; line-height:1.72; margin:0; color:var(--plop-ink-soft);">
+                中文词语间无天然空格分隔，需先将<em>“首周巡检幂等校验”</em>拆分为离散词元。<br/>
+                • <strong>传统词典路线：</strong>依赖 <code>jieba</code> 内置词库与概率模型切分。<br/>
+                • <strong>本项目滑动窗口路线：</strong>无需词典，按连续单字（1-gram）、双字（2-gram）、三字（3-gram）滑动提取全部局部词组与连续英文数字串。
+              </p>
+            </div>
+            <div class="wb-card" style="background:rgba(191,69,32,0.04); box-shadow:none; margin:0;">
+              <strong style="font-size:13.6px; color:var(--plop-tomato); display:block; margin-bottom:6px;">环节 2：映射整数槽位与词频平滑（Feature Hashing）</strong>
+              <p style="font-size:13.1px; line-height:1.72; margin:0; color:var(--plop-ink-text);">
+                Qdrant 稀疏向量仅接收无符号整数维度下标（<code>uint32</code>），需将每个词元映射为固定编号。<br/>
+                • 本项目直接计算 <strong><code>fnv1a32(token) % 1048576</code></strong> 将任意词元确定性地映射到百万维哈希桶，并对累计词频取对数平滑 <code>log(1 + tf)</code>。
+              </p>
+            </div>
+          </div>
+
+          <div class="table-wrap" style="margin-bottom:12px;">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:20%">评估维度</th>
+                  <th style="width:38%">传统方案：基于 <code>jieba</code> 词典分词 + 词表映射</th>
+                  <th style="width:42%">本项目方案：<code>CJK 1/2/3-gram + FNV-1a 特征哈希</code></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>垂直领域专有术语覆盖</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">如“幂等令牌”、“四步核对”、“Plan-A”</span></td>
+                  <td><strong>易切碎导致漏召回：</strong>默认词典未收录内部架构术语或套餐代号，若未人工维护自定义词典，入库与查询切词边界不一致会导致匹配得分为 0。</td>
+                  <td><strong>滑动窗口天然覆盖：</strong>只要相邻字符连续出现，Bigram 与 Trigram 必然提取出 <code>"b:幂等"</code>、<code>"b:四步"</code>、<code>"t:四步核"</code> 等组合特征，免维护自定义词典。</td>
+                </tr>
+                <tr>
+                  <td><strong>跨语言工程一致性</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">Python 入库 + Go 线上检索</span></td>
+                  <td><strong>易出现跨语言偏差：</strong>Python 端 <code>jieba</code> 与 Go 端 <code>gojieba</code> 若词库版本或隐马尔可夫参数存在细微差异，会产生切词漂移。</td>
+                  <td><strong>Python 与 Go 100% 比特级对齐：</strong>纯字符遍历与标准 32 位 <code>FNV-1a</code> 位运算无任何概率模型，两端输出结果完全一致（由跨语言基准单元测试锁死）。</td>
+                </tr>
+                <tr>
+                  <td><strong>外部依赖与运维负担</strong></td>
+                  <td>需引入分词 C/Python 依赖库，并在多服务间同步维护数十万词条的外部词表映射文件。</td>
+                  <td><strong>零外部依赖、零词表文件：</strong>哈希函数自带确定性编号映射，50 行原生代码直接编译进 Go 单二进制文件运行。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="plop-code-box" style="margin:0;">
+            <div class="plop-code-head">
+              <span>Go 检索端 · 零词表确定性稀疏向量编码器（与 Python 入库端完全对称）</span>
+              <span style="opacity:0.75;">FNV-1a 32-bit + CJK N-gram</span>
+            </div>
+            <pre class="plop-code-pre"><code><span class="c-kw">const</span> sparseVocabSize <span class="c-kw">uint32</span> = <span class="c-num">1</span> &lt;&lt; <span class="c-num">20</span> <span class="c-cm">// 1,048,576 哈希桶空间</span>
+
+<span class="c-cm">// EncodeSparseText 将中/英/数字文本编码为稀疏向量（与 Python 入库端比特级一致）</span>
+<span class="c-cm">// 配合 Qdrant sparse_vectors.sparse.modifier = "idf" 实现 BM25 级匹配</span>
+<span class="c-kw">func</span> <span class="c-fn">EncodeSparseText</span>(text <span class="c-kw">string</span>) SparseVector {
+    lower := strings.ToLower(strings.TrimSpace(text))
+    tf := <span class="c-fn">make</span>(<span class="c-kw">map</span>[<span class="c-kw">uint32</span>]<span class="c-kw">float64</span>, <span class="c-num">64</span>)
+    addToken := <span class="c-kw">func</span>(tok <span class="c-kw">string</span>, weight <span class="c-kw">float64</span>) {
+        idx := <span class="c-fn">fnv1a32</span>(tok) % sparseVocabSize
+        tf[idx] += weight
+    }
+    runes := []<span class="c-kw">rune</span>(lower)
+    <span class="c-cm">// 1. 提取连续 ASCII 字母数字串（如 "500"、"7"、"sla"、"sso"），权重 1.0</span>
+    <span class="c-cm">// 2. 提取连续有效字符段的中文 CJK 多粒度 N-gram：</span>
+    <span class="c-cm">//    - 单字 Unigram ("u:权")       -&gt; 权重 0.5（保底单字召回）</span>
+    <span class="c-cm">//    - 双字 Bigram  ("b:差价", "b:配额") -&gt; 权重 1.0（主力中文词组）</span>
+    <span class="c-cm">//    - 三字 Trigram ("t:幂等性")   -&gt; 权重 0.8（锁定专有长词）</span>
+    <span class="c-cm">// ... (遍历生成 tf 映射后按桶下标升序排列)</span>
+
+    values := <span class="c-fn">make</span>([]<span class="c-kw">float64</span>, <span class="c-fn">len</span>(indices))
+    <span class="c-kw">for</span> i, idx := <span class="c-kw">range</span> indices {
+        values[i] = math.<span class="c-fn">Log</span>(<span class="c-num">1.0</span> + tf[idx]) <span class="c-cm">// Sublinear TF 对数平滑</span>
+    }
+    <span class="c-kw">return</span> SparseVector{Indices: indices, Values: values}
+}</code></pre>
+          </div>
+        </div>
+
+        <!-- 阶段三：Schema 设计 + 静态手册 Alias 蓝绿切换 + 动态词条实时双写 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <h4 style="font-size:15.5px; margin:0 0 10px;">🗂️ 第三步（上）：Qdrant 集合 Schema 与 Payload 二级索引设计（<code>kb_articles_v2_hybrid</code>）</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">组成部分</th>
+                  <th style="width:20%">字段 / 向量名</th>
+                  <th style="width:18%">类型与索引配置</th>
+                  <th style="width:44%">在 RAG 链路中的工程职责</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Point ID</strong></td>
+                  <td><code>id</code> (UUID)</td>
+                  <td>UUIDv5 / UUIDv3</td>
+                  <td>手册切片使用 <code>uuid5(DNS, "{collection}:{chunk_id}")</code>；后台动态补充词条使用 <code>md5("kb:custom_entry:{id}")</code> 构造确定性 UUID，保证重跑入库或多次编辑时<strong>幂等覆盖、不产生重复脏点</strong>。</td>
+                </tr>
+                <tr>
+                  <td><strong>Named Vector 1</strong></td>
+                  <td><code>dense</code></td>
+                  <td><code>1024d</code> · <code>Cosine</code></td>
+                  <td>由本地 <code>BAAI/bge-m3</code> 编码生成，负责捕捉跨词汇的自然语言语义相关性。</td>
+                </tr>
+                <tr>
+                  <td><strong>Named Vector 2</strong></td>
+                  <td><code>sparse</code></td>
+                  <td><code>Sparse</code> · <code>modifier: "idf"</code></td>
+                  <td>由跨语言确定性特征哈希编码器生成 TF 权重，Qdrant 引擎自动乘算全局 IDF，精确锁定代号（如“Plan-A”、“差价升档”、“四步核对”）。</td>
+                </tr>
+                <tr>
+                  <td><strong>Indexed Payload</strong></td>
+                  <td><code>domain_tags</code></td>
+                  <td><code>keyword</code> (已建倒排索引)</td>
+                  <td>支持数组多值匹配（如一条切片同时带有 <code>["权限安全", "订阅方案"]</code>），触发 Qdrant Filterable HNSW 按产品模块/业务域加速检索。</td>
+                </tr>
+                <tr>
+                  <td><strong>Indexed Payload</strong></td>
+                  <td><code>scene_tags</code> / <code>volume_no</code></td>
+                  <td><code>keyword</code> / <code>integer</code> (已建索引)</td>
+                  <td>按客户生命周期阶段过滤，或按分卷号（<code>1~10</code> 为标准手册，<code>99</code> 为动态运营补充词条）精确筛选。</td>
+                </tr>
+                <tr>
+                  <td><strong>Unindexed Payload</strong></td>
+                  <td><code>breadcrumb</code> / <code>content</code> / <code>chunk_id</code> / <code>tenant_id</code></td>
+                  <td>普通 JSON 属性（不建索引省内存）</td>
+                  <td><code>breadcrumb</code> 与前 360 字 <code>content</code> 拼装后送给 Reranker 精排；同时作为前端问答助手的“《知识库》章节出处卡片”数据源。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 蓝绿切换与动态双写对称闭环（静态源 vs 动态源） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:18px;">
+          <h4 style="font-size:15.5px; margin:0 0 8px; color:var(--plop-tomato);">🔄 第三步（下）：双知识源上线机制——静态手册 Alias 蓝绿零停机切换与动态词条实时双写</h4>
+          <p style="font-size:13.6px; line-height:1.78; margin:0 0 12px;">
+            针对 §05 所述的两类知识源，系统分别设计了<strong>全量集合原子切换（蓝绿发布）</strong>与<strong>单条记录幂等双写</strong>两套上线路径。其中 Qdrant 的 <strong>Collection（物理集合）</strong> 相当于实际存储数据的实体仓库，而 <strong>Alias（集合别名）</strong> 则是业务层固定访问的逻辑门牌号（软链接）：
+          </p>
+          <div class="wb-grid-2" style="margin-bottom:14px;">
+            <div class="wb-card" style="background:rgba(45,49,66,0.03); box-shadow:none; margin:0;">
+              <strong style="font-size:13.6px; color:var(--plop-ink); display:block; margin-bottom:6px;">⚠️ 直接重建线上集合的停机风险</strong>
+              <p style="font-size:13.1px; line-height:1.72; margin:0; color:var(--plop-ink-soft);">
+                当调整切片粒度或将单向量升级为双向量时，重新编码并灌入 560 条切片约需数十秒。若直接删除重建线上集合（<code>DELETE + PUT</code>），灌库窗口期内工程师发起的查询会出现“集合不存在”报错或仅搜到残缺数据，且发现异常时无法快速回滚。
+              </p>
+            </div>
+            <div class="wb-card" style="background:rgba(191,69,32,0.04); box-shadow:none; margin:0;">
+              <strong style="font-size:13.6px; color:var(--plop-tomato); display:block; margin-bottom:6px;">✅ 基于 Alias 的三步蓝绿零停机发布</strong>
+              <ol style="font-size:13.1px; padding-left:18px; line-height:1.72; margin:0; color:var(--plop-ink-text);">
+                <li><strong>业务固定绑定别名：</strong>Go 后端配置固定访问别名 <code>kb_articles_active</code>（当前指向蓝环境旧集合 <code>v1_dense</code>）。</li>
+                <li><strong>旁路构建绿环境集合：</strong>入库脚本新建物理集合 <code>kb_articles_v2_hybrid</code> 并全量写入 560 条新切片，期间线上流量不受影响。</li>
+                <li><strong>单事务原子切流：</strong>校验通过后调用 Qdrant 官方别名接口在同一事务内解除旧绑定并指向新集合，切换耗时在微秒级完成。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="wb-grid-2">
+            <div class="plop-code-box" style="margin:0;">
+              <div class="plop-code-head">
+                <span>静态源 · Python 全量入库后原子切换集合别名</span>
+                <span style="opacity:0.75;">Qdrant Alias Swap</span>
+              </div>
+              <pre class="plop-code-pre"><code><span class="c-cm"># 业务后端固定配置访问别名: "kb_articles_active"</span>
+COLLECTION_NAME = <span class="c-str">"kb_articles_v2_hybrid"</span>  <span class="c-cm"># 新建物理集合（绿环境）</span>
+ALIAS_NAME      = <span class="c-str">"kb_articles_active"</span>     <span class="c-cm"># 业务层固定访问别名</span>
+
+<span class="c-kw">def</span> <span class="c-fn">switch_alias</span>():
+    <span class="c-cm"># 全量切片写入校验通过后，单次原子事务完成“解除旧别名 + 绑定新集合”</span>
+    <span class="c-fn">http_json</span>(<span class="c-str">"POST"</span>, <span class="c-str">f"{QDRANT_BASE_URL}/collections/aliases"</span>, {
+        <span class="c-str">"actions"</span>: [
+            {<span class="c-str">"delete_alias"</span>: {<span class="c-str">"alias_name"</span>: ALIAS_NAME}},
+            {<span class="c-str">"create_alias"</span>: {
+                <span class="c-str">"collection_name"</span>: COLLECTION_NAME,
+                <span class="c-str">"alias_name"</span>: ALIAS_NAME,
+            }},
+        ]
+    })</code></pre>
+            </div>
+
+            <div class="plop-code-box" style="margin:0;">
+              <div class="plop-code-head">
+                <span>动态源 · Go 后台补充词条实时同步 Qdrant (KnowledgeService)</span>
+                <span style="opacity:0.75;">MySQL + Qdrant 幂等双写</span>
+              </div>
+              <pre class="plop-code-pre"><code><span class="c-cm">// 为 MySQL 自增主键构造确定性 UUIDv3 格式 PointID，重复编辑幂等覆盖</span>
+<span class="c-kw">func</span> <span class="c-fn">customEntryPointUUID</span>(entryID <span class="c-kw">uint64</span>) <span class="c-kw">string</span> {
+    sum := md5.<span class="c-fn">Sum</span>([]<span class="c-kw">byte</span>(fmt.<span class="c-fn">Sprintf</span>(<span class="c-str">"kb:custom_entry:%d"</span>, entryID)))
+    sum[<span class="c-num">6</span>] = (sum[<span class="c-num">6</span>] &amp; <span class="c-num">0x0f</span>) | <span class="c-num">0x30</span>
+    sum[<span class="c-num">8</span>] = (sum[<span class="c-num">8</span>] &amp; <span class="c-num">0x3f</span>) | <span class="c-num">0x80</span>
+    <span class="c-kw">return</span> fmt.<span class="c-fn">Sprintf</span>(<span class="c-str">"%08x-%04x-%04x-%04x-%012x"</span>,
+        sum[<span class="c-num">0</span>:<span class="c-num">4</span>], sum[<span class="c-num">4</span>:<span class="c-num">6</span>], sum[<span class="c-num">6</span>:<span class="c-num">8</span>], sum[<span class="c-num">8</span>:<span class="c-num">10</span>], sum[<span class="c-num">10</span>:<span class="c-num">16</span>])
+}
+
+<span class="c-cm">// 运营主管在后台新增/编辑/停用补充词条时实时同步至活跃别名集合</span>
+<span class="c-kw">func</span> (s *KnowledgeService) <span class="c-fn">syncEntryToQdrant</span>(ctx context.Context, entry *model.KnowledgeEntry) {
+    <span class="c-kw">if</span> entry.Status != <span class="c-str">"active"</span> {
+        _ = s.qdrant.<span class="c-fn">DeletePoint</span>(ctx, entry.PointID) <span class="c-cm">// 停用即从向量库移除</span>
+        <span class="c-kw">return</span>
+    }
+    embedText := fmt.<span class="c-fn">Sprintf</span>(<span class="c-str">"【动态补充知识库 &gt; %s &gt; %s】\n%s"</span>,
+        entry.Category, entry.Title, entry.Content)
+    denseVec, _ := s.embedder.<span class="c-fn">EmbedQuery</span>(ctx, embedText)
+    sparseVec := ai.<span class="c-fn">EncodeSparseText</span>(embedText)
+    _ = s.qdrant.<span class="c-fn">UpsertHybridPoint</span>(ctx, entry.PointID, denseVec, sparseVec, payload)
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 07: 生产项目实战 (三) —— 两阶段检索漏斗、容错降级与 30 题黄金评测集
+             ==================================================================== -->
+        <div class="wb-sec-header tomato" id="qd-07">
+          <span class="wb-sec-num">07</span>
+          <span class="wb-sec-title">工程实战（三）：在线两阶段检索漏斗（Hybrid 粗排 + Reranker 精排）与 30 题黄金评测</span>
+          <span class="plop-tag tomato">FIG 7.0 · RERANKER &amp; FULL PIPELINE</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          在 §05 的部署拓扑中，独立的 Python 模型推理容器同时常驻加载了两个模型：<strong><code>BAAI/bge-m3</code>（Embedding 双塔向量模型）</strong>与 <strong><code>BAAI/bge-reranker-v2-m3</code>（Cross-Encoder 重排模型）</strong>。之所以在 Qdrant 完成双路 RRF 混合召回之后还要引入第二阶段的 Reranker 精排，根源在于“双塔粗排”与“交叉编码器精排”在速度与细粒度语义对齐上的互补关系：
+        </p>
+
+        <!-- 核心概念零死角拆解：Embedding (bge-m3) vs Reranker (bge-reranker-v2-m3) -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <h4 style="font-size:15.5px; margin:0 0 8px; color:var(--plop-tomato);">🧐 两阶段漏斗机制：双塔粗排（Bi-Encoder）与交叉精排（Cross-Encoder）对比</h4>
+          <p style="font-size:13.5px; line-height:1.76; margin:0 0 10px; color:var(--plop-ink-soft);">
+            要在海量知识切片中于数十毫秒内挑出最准确的 <strong>Top-5</strong> 上下文交给大语言模型，单靠一种模型难以同时兼顾“全库毫秒级检索”与“逐字深度语义核验”，因此工业界普遍拆分为<strong>“第一阶段海选粗排”</strong>与<strong>“第二阶段交叉精排”</strong>：
+          </p>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">对比维度</th>
+                  <th style="width:41%">第一阶段：<code>BAAI/bge-m3</code>（Embedding 向量模型）<br/><span style="font-size:11.5px; font-weight:normal;">架构形态：双塔独立编码器 (Bi-Encoder)</span></th>
+                  <th style="width:41%">第二阶段：<code>BAAI/bge-reranker-v2-m3</code>（Rerank 精排模型）<br/><span style="font-size:11.5px; font-weight:normal;">架构形态：交叉注意力编码器 (Cross-Encoder)</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>输入与输出结构</strong></td>
+                  <td><strong>输入：</strong>单段文本（用户问题 或 知识切片独立编码）。<br/><strong>输出：</strong>固定 <strong>1024 维浮点数数组（稠密向量）</strong>。</td>
+                  <td><strong>输入：</strong><strong><code>[用户问题, 候选切片]</code> 文本对批量输入</strong>（如一次传入 15 对）。<br/><strong>输出：</strong>不输出向量，直接输出每对文本的<strong>精确相关性得分（<code>0.0 ~ 1.0</code>）</strong>。</td>
+                </tr>
+                <tr>
+                  <td><strong>底层计算机制</strong></td>
+                  <td><strong>独立编码、向量比对：</strong>切片在离线入库时预先编码存入 Qdrant；在线提问时仅编码问题并计算向量余弦距离。<br/><strong>局限：</strong>问题与切片在编码阶段未发生 Token 级交互，主题相近但未正面回答问题的片段（如问“硬件配额报价”却排前了“部署架构原理”）容易混入前列。</td>
+                  <td><strong>拼接输入、全注意力交互：</strong>将“用户问题”与 Qdrant 召回的“前 15 名候选切片”逐对拼接后送入 Transformer，使问题的每个词与切片的每个词执行<strong>交叉注意力（Cross-Attention）深度对齐</strong>，精确判断切片是否真正回答了问题。</td>
+                </tr>
+                <tr>
+                  <td><strong>延迟与吞吐边界</strong></td>
+                  <td><strong>检索极快（Qdrant 距离检索约 3~6ms）</strong>，适合从数万至数千万条切片中快速海选出 <strong>Top-15</strong> 候选池。</td>
+                  <td><strong>精度高但计算开销大</strong>（无法全库扫描，否则单次查询耗时达数秒至数分钟）；仅针对粗排筛出的 <strong>15 条候选</strong>做精挑细选并截取 <strong>Top-5</strong>。</td>
+                </tr>
+                <tr>
+                  <td><strong>本项目实测表现</strong></td>
+                  <td>评测题 <code>Q03</code>（<em>“Plan-A/B/C 三个阶梯订阅方案的配额与报价是什么？”</em>）在单向量粗排时，包含完整配额表的目标切片排在 <strong>第 3 名（<code>#3</code>）</strong>，前两名被泛谈商业化订阅原则的切片占据。</td>
+                  <td>经 <code>bge-reranker-v2-m3</code> 对 15 条候选逐字比对后，包含完整 Plan-A/B/C 配额对照表的切片获得 <code>0.6827</code> 最高分，<strong>从第 3 名跃升至第 1 名（<code>RankDelta = +2</code>）</strong>。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          下面将本项目的五个核心环节——<strong>① <code>bge-m3</code> 稠密编码</strong>、<strong>② 本地 <code>N-gram 哈希</code> 稀疏编码</strong>、<strong>③ <code>Qdrant</code> 双路召回与 RRF 融合</strong>、<strong>④ <code>bge-reranker-v2-m3</code> 交叉精排</strong> 以及 <strong>⑤ <code>DeepSeek</code> 流式生成</strong>——串联在一张完整的数据流图中，展示在线查询的端到端闭环：
+        </p>
+
+        <!-- SVG 4: 全流程五步总图（离线入库 + 在线提问 -> 双路向量化 -> Qdrant RRF 粗排 -> Reranker 精排 -> DeepSeek 生成） -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <svg viewBox="0 0 820 420" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin-bottom:14px;">
+            <defs>
+              <marker id="fn-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+              </marker>
+              <marker id="fn-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+              </marker>
+              <marker id="fn-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+              </marker>
+            </defs>
+
+            <!-- 1. Three Flat Zones -->
+            <!-- Zone 1: Step 1 & 2 - Question & Dual Encoding -->
+            <rect x="18" y="20" width="236" height="380" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="28" y="24" width="198" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="127" y="33" fill="#5a6580" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.06em">STEP 1 · 提问与双向量转化 (编码层)</text>
+
+            <!-- Zone 2: Step 3 - Qdrant Coarse Recall -->
+            <rect x="288" y="20" width="244" height="380" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="298" y="24" width="210" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="403" y="33" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.06em">STEP 2 · QDRANT 海选粗排 (HYBRID)</text>
+
+            <!-- Zone 3: Step 4 & 5 - Reranker & LLM Generation -->
+            <rect x="566" y="20" width="236" height="380" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.14)" stroke-width="0.9"/>
+            <rect x="576" y="24" width="212" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="682" y="33" fill="#5a6580" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.06em">STEP 3 · 终审精排与大模型回答</text>
+
+            <!-- 2. Orthogonal Connectors (drawn before nodes) -->
+            <!-- User Query -> Model 1 (bge-m3) -->
+            <line x1="136" y1="120" x2="136" y2="160" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#fn-arr)"/>
+
+            <!-- User Query -> Go Sparse Hash (exit right of User Query at y=96, route down to Sparse box right port y=336) -->
+            <path d="M 36,96 H 28 Q 22,96 22,104 V 328 Q 22,336 28,336 H 36" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#fn-arr-link)"/>
+
+            <!-- Model 1 (bge-m3) -> Qdrant Dense Search -->
+            <path d="M 236,200 H 306" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#fn-arr-accent)"/>
+            <rect x="246" y="180" width="50" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="271" y="189" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">1024维向量</text>
+
+            <!-- Go Sparse Hash -> Qdrant Sparse Search -->
+            <path d="M 236,336 H 306" fill="none" stroke="#2e5aa8" stroke-width="1.3" marker-end="url(#fn-arr-link)"/>
+            <rect x="246" y="316" width="50" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="271" y="325" fill="#2e5aa8" font-size="7.5" font-family="ui-monospace, monospace" text-anchor="middle">词频编号</text>
+
+            <!-- Offline Manuals -> Qdrant (top vertical entry) -->
+            <line x1="410" y1="120" x2="410" y2="160" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#fn-arr)"/>
+            <rect x="418" y="133" width="84" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="460" y="142" fill="#4f5d75" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">560条已建索引</text>
+
+            <!-- Qdrant Dense + Sparse -> RRF Fusion -->
+            <line x1="410" y1="244" x2="410" y2="296" stroke="#bf4520" stroke-width="1.3" marker-end="url(#fn-arr-accent)"/>
+            <rect x="418" y="264" width="90" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="463" y="273" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">两路各取 TOP 20</text>
+
+            <!-- Qdrant RRF -> Model 2 (bge-reranker-v2-m3) -->
+            <path d="M 514,336 H 542 Q 550,336 550,328 V 104 Q 550,96 558,96 H 584" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#fn-arr-accent)"/>
+            <rect x="520" y="204" width="58" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="549" y="213" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">粗排 TOP 15</text>
+
+            <!-- Model 2 (Reranker) -> Top 5 Filter -->
+            <line x1="684" y1="142" x2="684" y2="188" stroke="#bf4520" stroke-width="1.4" marker-end="url(#fn-arr-accent)"/>
+            <rect x="692" y="159" width="88" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="736" y="168" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">0~1 精确相关性分</text>
+
+            <!-- Top 5 Filter -> DeepSeek LLM & UI -->
+            <line x1="684" y1="258" x2="684" y2="296" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#fn-arr-link)"/>
+            <rect x="692" y="271" width="76" height="12" rx="2" fill="#FFFDF7"/>
+            <text x="730" y="280" fill="#2e5aa8" font-size="7.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">精选 TOP 5</text>
+
+            <!-- 3. Nodes (drawn after connectors) -->
+            <!-- Zone 1 Nodes -->
+            <rect x="36" y="56" width="200" height="64" rx="6" fill="#FFFDF7"/>
+            <rect x="36" y="56" width="200" height="64" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="44" y="62" width="46" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="67" y="71" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">QUERY</text>
+            <text x="136" y="90" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">工程师提问 / 工单侧边栏唤起</text>
+            <text x="136" y="107" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">"Plan-A/B/C配额和报价是什么？"</text>
+
+            <rect x="36" y="160" width="200" height="84" rx="6" fill="#FFFDF7"/>
+            <rect x="36" y="160" width="200" height="84" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1.2"/>
+            <rect x="44" y="166" width="52" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="70" y="175" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">MODEL 1</text>
+            <text x="136" y="196" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">BAAI/bge-m3 (Embedding)</text>
+            <text x="136" y="213" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">Bi-Encoder 稠密编码 (~80ms)</text>
+            <text x="136" y="229" fill="#2e5aa8" font-size="8.4" font-family="sans-serif" text-anchor="middle">把问题浓缩成 1024 维稠密语义向量</text>
+
+            <rect x="36" y="296" width="200" height="80" rx="6" fill="#FFFDF7"/>
+            <rect x="36" y="296" width="200" height="80" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="44" y="302" width="66" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="77" y="311" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">GO CODE (本地)</text>
+            <text x="136" y="331" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">EncodeSparseText 哈希编码</text>
+            <text x="136" y="348" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">1/2/3字滑动窗口 + FNV-1a (&lt;0.1ms)</text>
+            <text x="136" y="363" fill="#2e5aa8" font-size="8.4" font-family="sans-serif" text-anchor="middle">无需 jieba，直接算出稀疏词频向量</text>
+
+            <!-- Zone 2 Nodes -->
+            <rect x="306" y="56" width="208" height="64" rx="6" fill="#FFFDF7"/>
+            <rect x="306" y="56" width="208" height="64" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="314" y="62" width="56" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="342" y="71" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">STORAGE</text>
+            <text x="410" y="90" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">10卷标准手册 + 动态补充词条</text>
+            <text x="410" y="107" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">入库时已存好 Dense+Sparse 双向量</text>
+
+            <!-- Focal Node 1: Qdrant Dual Prefetch -->
+            <rect x="306" y="160" width="208" height="84" rx="6" fill="#FFFDF7"/>
+            <rect x="306" y="160" width="208" height="84" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <rect x="314" y="166" width="66" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.8"/>
+            <text x="347" y="175" fill="#bf4520" font-size="7" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">QDRANT PREFETCH</text>
+            <text x="410" y="196" fill="#bf4520" font-size="11.8" font-weight="700" font-family="sans-serif" text-anchor="middle">双路并发召回 + 标签过滤</text>
+            <text x="410" y="213" fill="#2d3142" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">路1: HNSW 图搜语义最近 Top-20</text>
+            <text x="410" y="229" fill="#2d3142" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">路2: 倒排索引×IDF 搜精确词项 Top-20</text>
+
+            <rect x="306" y="296" width="208" height="80" rx="6" fill="#FFFDF7"/>
+            <rect x="306" y="296" width="208" height="80" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="314" y="302" width="58" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="343" y="311" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">RRF FUSION</text>
+            <text x="410" y="331" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">Qdrant 内置 RRF 融合粗排</text>
+            <text x="410" y="348" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">合并两路榜单 → 筛出粗排 Top-15</text>
+            <text x="410" y="363" fill="#bf4520" font-size="8.4" font-family="ui-monospace, monospace" text-anchor="middle">(若带 domain 命中&lt;3条则自动放宽)</text>
+
+            <!-- Zone 3 Nodes -->
+            <!-- Focal Node 2: Model 2 (bge-reranker-v2-m3) -->
+            <rect x="584" y="56" width="200" height="86" rx="6" fill="#FFFDF7"/>
+            <rect x="584" y="56" width="200" height="86" rx="6" fill="#fdf1ed" stroke="#bf4520" stroke-width="1.5"/>
+            <rect x="592" y="62" width="52" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.5)" stroke-width="0.8"/>
+            <text x="618" y="71" fill="#bf4520" font-size="7" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">MODEL 2</text>
+            <text x="684" y="92" fill="#bf4520" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">bge-reranker-v2-m3 (精排)</text>
+            <text x="684" y="109" fill="#2d3142" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">Cross-Encoder 交叉注意力重排</text>
+            <text x="684" y="125" fill="#4f5d75" font-size="8.3" font-family="sans-serif" text-anchor="middle">[问题 + 面包屑 + 360字正文] 逐字比对</text>
+
+            <rect x="584" y="188" width="200" height="70" rx="6" fill="#FFFDF7"/>
+            <rect x="584" y="188" width="200" height="70" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="592" y="194" width="52" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="618" y="203" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">TOP-5 CUT</text>
+            <text x="684" y="223" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">阈值过滤与名次跃升记录</text>
+            <text x="684" y="241" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">剔除 &lt;0.25 噪音 · 算 RankDelta</text>
+
+            <rect x="584" y="296" width="200" height="80" rx="6" fill="#FFFDF7"/>
+            <rect x="584" y="296" width="200" height="80" rx="6" fill="#f7f5ee" stroke="#2d3142" stroke-width="1"/>
+            <rect x="592" y="302" width="56" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.35)" stroke-width="0.8"/>
+            <text x="620" y="311" fill="#4f5d75" font-size="7" font-family="ui-monospace, monospace" text-anchor="middle">FINAL OUT</text>
+            <text x="684" y="331" fill="#2d3142" font-size="11.5" font-weight="700" font-family="sans-serif" text-anchor="middle">DeepSeek 生成 / 应答卡渲染</text>
+            <text x="684" y="348" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">① 工单侧栏直接展示 Top-3 模板</text>
+            <text x="684" y="363" fill="#4f5d75" font-size="8.6" font-family="ui-monospace, monospace" text-anchor="middle">② 问答助手拼入 Prompt 流式带出处回答</text>
+          </svg>
+
+          <div class="wb-card notebook-lines" style="padding:12px 15px; box-shadow:none; margin:0;">
+            <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">⚙️ 检索流水线中的四个实战避坑细节</strong>
+            <ul style="font-size:13.4px; padding-left:18px; line-height:1.78; margin:0;">
+              <li><strong>细节 ① 窄域过滤自动放宽（防止画地为牢）：</strong>智能问答助手调用 <code>search_knowledge</code> 时会尝试传入业务域过滤（如 <code>domain="权限安全"</code>）。但有时用户问的是跨分卷的通用规则（如“首周内基础版怎么折算差价升级企业版”），如果在 <code>权限安全</code> 标签下命中不足 3 条，<code>KnowledgeService</code> 会自动触发一次无 <code>domain</code> 过滤的全库 Hybrid 重搜，彻底消除因分类过窄导致的漏召回。</li>
+              <li><strong>细节 ② Rerank 输入拼装面包屑并截断 360 字：</strong>送给 Cross-Encoder（<code>bge-reranker-v2-m3</code>）重排时，不能只传裸正文，而是格式化为 <code>fmt.Sprintf("【%s】\n%s", item.Breadcrumb, truncateRunes(item.Content, 360))</code>——既把章节上下文喂给了精排模型，又将单文档 Token 长度限制在 360 字符内，显著压低 CPU/GPU 交叉推理耗时。</li>
+              <li><strong>细节 ③ 动态阈值保底（<code>minScore = 0.25</code> + 至少保留 2 条）：</strong>精排分数低于 <code>0.25</code> 的噪音切片会被剔除，但代码加上了 <code>len(finalItems) &gt;= 2</code> 的前置保护——确保极端口语化提问下至少给大模型返回最接近的 2 条参考片段，避免直接变为空上下文。</li>
+              <li><strong>细节 ④ 生产高危操作与资损词双端硬拦截（不依赖大模型自觉）：</strong>在请求进入与输出阶段，Go 后端硬编码检测高危变更与资损敏感词（<code>删库 / 清空表 / 吊销根证书 / 关闭审计 / 强制解绑 / SLA索赔 / 数据导出绕过</code> 等）。一旦命中，立即通过 SSE 下发独立 <code>event: risk_alert</code> 置顶警示横幅（要求立即中止高危操作并转交值班架构师复核），同时强制检索《生产高危操作红线与合规边界》章节注入上下文。</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 30 题黄金评测集 A/B 实测对比 -->
+        <div class="wb-card" style="background:var(--plop-paper);">
+          <div class="washi-tape mint"></div>
+          <h4 style="font-size:15.5px; margin:0 0 8px; color:var(--plop-ink);">📊 30 题黄金评测集 A/B 实测报告：纯稠密向量（Dense）vs 双路混合检索（Hybrid RRF）</h4>
+          <p style="font-size:13.6px; line-height:1.76; margin:0 0 12px; color:var(--plop-ink-soft);">
+            为了量化验证 Qdrant 双路混合检索的实际收益，我们构建了包含 <strong>30 道真实工单高频提问</strong>的黄金评测基准集（覆盖阶梯订阅配额、四步核对清单、商务异议解答、高危操作红线、私有化部署排障等 6 大类），通过自动化离线评测流水线实测对比升级前后的各项指标：
+          </p>
+
+          <!-- 评测指标计算公式零死角拆解 -->
+          <div class="wb-card notebook-lines" style="padding:12px 15px; box-shadow:none; margin:0 0 14px;">
+            <strong style="color:var(--plop-tomato); display:block; margin-bottom:6px;">🧮 核心检索评测指标的定义与推导（基于本项目 <code>N = 30</code> 道基准题）</strong>
+            <ul style="font-size:13.2px; padding-left:18px; line-height:1.76; margin:0;">
+              <li><strong>命中判定标准：</strong>每道评测题预先标注标准答案所在的<strong>分册号（<code>expected_volumes</code>）与核心验证词（<code>expected_keywords</code>）</strong>。返回切片同时满足分册匹配与核心词覆盖即记为命中，并记录首次命中的位次（<code>first_hit_rank</code>）。</li>
+              <li><strong><code>Recall@5</code>（前 5 名召回率）：</strong>衡量 Qdrant 粗排返回的<strong>前 5 条结果（Top-5）中是否包含标准答案</strong>，计算式为 <code>前 5 名命中题数 ÷ 总题数 (30)</code>。<br/>
+                • 升级前（单向量 <code>dense</code>）：30 题中有 <strong>28 题</strong>落在前 5 名内（<code>Q19</code>、<code>Q20</code> 分别落至第 7 名与第 6 名），因此 <code>Recall@5 = 28 ÷ 30 ≈ 93.3%</code>。<br/>
+                • 升级后（双向量 <code>hybrid_rrf</code>）：<strong>30 题全部</strong>在粗排前 5 名内命中，<code>Recall@5 = 30 ÷ 30 = 100.0%</code>。</li>
+              <li><strong><code>Recall@15</code> 与 <code>Hit@1</code>：</strong><code>Recall@15</code> 衡量粗排候选池前 15 名覆盖率（<code>30 ÷ 30 = 100.0%</code>）；<code>Hit@1</code> 衡量精排后<strong>首位（Top-1）</strong>即为标准答案的比例（30 题中占 27 题，<code>27 ÷ 30 = 90.0%</code>）。</li>
+              <li><strong><code>MRR@5</code>（Mean Reciprocal Rank，平均倒数排名）：</strong>衡量标准答案排位靠前程度。第 1 名命中记 <code>1/1 = 1.0</code> 分，第 2 名记 <code>1/2 = 0.5</code> 分，第 3 名记 <code>1/3 ≈ 0.33</code> 分。本项目 27 题居首（27 分）、3 题居次席（1.5 分），故 <code>MRR@5 = (27×1 + 3×0.5) ÷ 30 = 28.5 ÷ 30 = 0.9500</code>。</li>
+            </ul>
+          </div>
+
+          <div class="table-wrap" style="margin-bottom:14px;">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:28%">评测核心指标（30 题基准集）</th>
+                  <th style="width:22%">升级前：<code>baseline_dense</code><br/><span style="font-size:11.5px; font-weight:normal;">仅 BGE-M3 1024d 稠密向量</span></th>
+                  <th style="width:22%">升级后：<code>hybrid_rrf</code><br/><span style="font-size:11.5px; font-weight:normal;">Dense + Sparse CJK N-gram RRF</span></th>
+                  <th style="width:28%">变化幅度与工程解读</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>粗排 Recall@5 (%)</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">Qdrant 直接返回的前 5 名命中率</span></td>
+                  <td><code>93.3%</code></td>
+                  <td><strong style="color:var(--plop-tomato);"><code>100.0%</code></strong></td>
+                  <td><strong>+6.7%（30 题全部在粗排前 5 名内命中）</strong>，意味着即便关闭慢速 Reranker，仅靠 Qdrant 也能 100% 召回正确切片</td>
+                </tr>
+                <tr>
+                  <td><strong>粗排 Recall@15 (%)</strong></td>
+                  <td><code>100.0%</code></td>
+                  <td><code>100.0%</code></td>
+                  <td>两阶段漏斗的粗排候选池（Top-15）无一漏网</td>
+                </tr>
+                <tr>
+                  <td><strong>精排 Hit@1 (%) / Hit@5 (%)</strong></td>
+                  <td><code>90.0%</code> / <code>100.0%</code></td>
+                  <td><code>90.0%</code> / <code>100.0%</code></td>
+                  <td>90% 的问题标准答案排在<strong>第 1 位（Top-1）</strong>，100% 排在前 5 位</td>
+                </tr>
+                <tr>
+                  <td><strong>精排 MRR@5 (平均倒数排名)</strong></td>
+                  <td><code>0.9500</code></td>
+                  <td><code>0.9500</code></td>
+                  <td>接近理论满分 <code>1.0</code>，检索结果排序高度稳定</td>
+                </tr>
+                <tr>
+                  <td><strong>Qdrant 引擎平均检索耗时</strong></td>
+                  <td><code>3.0 ms</code></td>
+                  <td><strong style="color:var(--plop-tomato);"><code>5.7 ms</code></strong></td>
+                  <td>增加一路百万维桶空间的稀疏向量 Prefetch + RRF 融合，<strong>仅增加 2.7 ms 延迟</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 典型 Case 排名跃升表 -->
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:10%">题号</th>
+                  <th style="width:42%">典型评测提问示例</th>
+                  <th style="width:22%">Qdrant 粗排首中排名跃升</th>
+                  <th style="width:26%">Hybrid RRF 排名提升根因分析</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Q03</code></td>
+                  <td><em>“Plan-A、Plan-B、Plan-C 三个阶梯订阅方案的资源配额与报价分别是什么？”</em></td>
+                  <td>粗排 <code>#3</code> → <strong style="color:var(--plop-tomato);"><code>#1</code> (直达榜首)</strong></td>
+                  <td>纯稠密向量对 <code>A / B / C</code> 这种单字母版本代号区分度弱；稀疏向量的连续 ASCII 与 Bigram 特征精确命中配额对照表。</td>
+                </tr>
+                <tr>
+                  <td><code>Q19</code></td>
+                  <td><em>“客户反馈需要先走内部采购审批流程再决定续费，跟进工单该如何规范推进？”</em></td>
+                  <td>粗排 <code>#7</code> → <strong style="color:var(--plop-tomato);"><code>#1</code> (跃升 6 名)</strong></td>
+                  <td>纯 Dense 容易被其他泛泛而谈的商务沟通切片干扰（掉出 Top-5）；稀疏向量精确锁定 <code>"采购" + "审批" + "续费"</code> 关键词组合。</td>
+                </tr>
+                <tr>
+                  <td><code>Q20</code></td>
+                  <td><em>“客户担心开启 SSO 单点登录会影响存量本地管理员账号权限，标准解释口径是什么？”</em></td>
+                  <td>粗排 <code>#6</code> → <strong style="color:var(--plop-tomato);"><code>#3</code> (进入 Top-3)</strong></td>
+                  <td><code>"sso"</code> 与 <code>"单点登录"</code> 在全库出现频次低（IDF 极高），Qdrant 的 <code>modifier: "idf"</code> 自动赋予高权重将其推入前三。</td>
+                </tr>
+                <tr>
+                  <td><code>Q22</code></td>
+                  <td><em>“首周交付巡检必查的四步核对清单具体包含哪些检查项？”</em></td>
+                  <td>粗排 <code>#4</code> → <strong style="color:var(--plop-tomato);"><code>#2</code> (提升 2 名)</strong></td>
+                  <td><code>"首周"</code> 与内部专有术语 <code>"四步核对"</code> 通过 CJK Trigram 高权重精确锁定对应 SOP 章节。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 08: 行业视野 —— 当前市面主流 RAG 架构流派与开源生态选型
+             ==================================================================== -->
+        <div class="wb-sec-header periwinkle" id="qd-08">
+          <span class="wb-sec-num">08</span>
+          <span class="wb-sec-title">行业视野：五大 RAG 架构演进流派、开源平台对比与生产标准范式</span>
+          <span class="plop-tag periwinkle">RAG LANDSCAPE 2026</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          跳出单个项目审视行业演进，RAG 已从早期的“固定字数切块 + 单路向量入库 + 拼接 Prompt”分化出五类代表性技术架构。在方案设计或架构评审中，需清晰把握各流派的能力边界、资源成本以及本项目所处的技术坐标：
+        </p>
+
+        <!-- 五大 RAG 技术流派对比表 -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px;">
+          <h4 style="font-size:15.5px; margin:0 0 10px;">🧭 一、技术架构演进：五大 RAG 流派机制与工程适用边界</h4>
+          <div class="table-wrap">
+            <table class="plop-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">RAG 架构流派</th>
+                  <th style="width:28%">核心做法与工作机制</th>
+                  <th style="width:26%">核心优势与工程局限</th>
+                  <th style="width:28%">当前行业定位与适用场景</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>1. Naive RAG</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">初级单向量 RAG (2023)</span></td>
+                  <td>固定字数硬切（如 500 字）→ 单路稠密向量入库 → Top-K 余弦检索直接塞进 Prompt。</td>
+                  <td><strong>优：</strong>开发极快，适合快速搭建原型。<br/><strong>劣：</strong>表格易断裂、代号检索不准、缺失章节语境，复杂业务准确率通常仅 60%~70%。</td>
+                  <td><span class="plop-tag">仅限原型验证</span><br/>难以满足严肃企业级生产要求。</td>
+                </tr>
+                <tr>
+                  <td><strong>2. Advanced Hybrid RAG</strong><br/><span style="font-size:12px; color:var(--plop-tomato); font-weight:700;">结构化混合检索 + 精排</span></td>
+                  <td><strong>结构感知切分 + 面包屑上下文注入 + Dense/Sparse 双路召回 (RRF) + Metadata 过滤 + Cross-Encoder Rerank 精排</strong>。</td>
+                  <td><strong>优：</strong>兼顾语义理解与精确关键词，投产比高、延迟可控，具备明确章节溯源能力。<br/><strong>劣：</strong>不擅长跨数十篇文档的全局宏观归纳。</td>
+                  <td><span class="plop-tag tomato">★ 当前企业落地主流</span><br/><strong>本项目采用的检索底座</strong>，也是目前工业界综合投产比最高的标准方案。</td>
+                </tr>
+                <tr>
+                  <td><strong>3. Agentic RAG</strong><br/><span style="font-size:12px; color:var(--plop-tomato); font-weight:700;">智能体驱动的多工具 RAG</span></td>
+                  <td>不再将 RAG 固化为单一前置流水线，而是<strong>将知识库封装为 Agent 工具（如 <code>search_knowledge</code>）</strong>，由模型自主改写 Query、按需协同调用知识库与业务 SQL 工具。</td>
+                  <td><strong>优：</strong>可无缝融合“非结构化知识手册（Vector）”与“结构化实时业务数据（MySQL 租户/工单/订单）”。<br/><strong>劣：</strong>多轮工具调用会增加约 1~2 秒首字延迟。</td>
+                  <td><span class="plop-tag tomato">★ 核心演进方向</span><br/><strong>本项目智能问答模块采用的编排架构</strong>（<code>search_knowledge</code> 与 6 个业务查询工具协同）。</td>
+                </tr>
+                <tr>
+                  <td><strong>4. GraphRAG / LightRAG</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">知识图谱增强 RAG</span></td>
+                  <td>入库阶段调用大模型抽取全量文档中的“实体-关系-社区摘要”存入图数据库，检索时结合向量与图谱多跳遍历。</td>
+                  <td><strong>优：</strong>擅长跨文档全局总结与多跳关联推理。<br/><strong>劣：</strong><strong>离线构建成本高昂</strong>（全量调用大模型抽图谱导致 Token 消耗成倍增加），实时增量更新较慢。</td>
+                  <td><span class="plop-tag periwinkle">特定高阶垂直场景</span><br/>适合情报研判、金融研报、法律卷宗关联追查；常规企业 SOP 手册与客服问答无需引入。</td>
+                </tr>
+                <tr>
+                  <td><strong>5. 多模态与晚交互 RAG</strong><br/><span style="font-size:12px; color:var(--plop-ink-soft);">ColBERT / ColPali 视觉直检</span></td>
+                  <td>每个 Token 保留独立向量（Multi-vector 晚交互），或直接用视觉语言模型将整页复杂图表 PDF 截图编码为多向量矩阵。</td>
+                  <td><strong>优：</strong>保留细粒度词级对齐与复杂版面视觉特征，免去繁琐 OCR。<br/><strong>劣：</strong>单文档向量存储体积膨胀 10~50 倍，内存开销显著上升（Qdrant 已原生支持 Multi-vector）。</td>
+                  <td><span class="plop-tag mint">前沿探索方向</span><br/>适合财报扫描件、精密工程图纸等复杂富媒体 PDF 检索。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 开源平台 vs 自研对比 -->
+        <div class="wb-grid-2">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-ink);">🛠️ 二、主流开源 RAG 平台与轻量原生自研的选型对比</h4>
+            <ul style="font-size:13.4px; padding-left:18px; line-height:1.76; margin:0;">
+              <li style="margin-bottom:6px;"><strong>Dify / FastGPT（低代码 AI 编排平台）：</strong>内置可视化工作流与开箱即用的知识库（底层同样广泛采用 Qdrant / Milvus）。适合快速搭建独立内部问答助手；但当需要与自有 SaaS 的多租户权限（<code>tenant_id</code>）、工单侧边栏交互及生产高危操作熔断深度耦合时，低代码平台的定制灵活度受限。</li>
+              <li style="margin-bottom:6px;"><strong>RAGFlow（深度文档解析引擎）：</strong>强项在于复杂版面文档（PDF 扫描件、跨页合并单元格表格）的布局识别（DeepDoc）与可视化切片干预，适合异构非结构化文档占比较高的场景。</li>
+              <li><strong>LlamaIndex / LangChain（开发框架）与轻量原生自研：</strong>Python 原型验证阶段适合借助框架提效；而在 <strong>Go 生产后端</strong>中，像本项目这样<strong>直接调用 Qdrant 原生 HTTP/gRPC 接口配合确定性切片入库脚本</strong>，可避免多层框架抽象带来的黑盒开销，使降级策略、超时控制与审计日志完全透明可控。</li>
+            </ul>
+          </div>
+
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15px; margin-bottom:8px; color:var(--plop-tomato);">🎯 三、企业级生产 RAG 的四层标准架构总结</h4>
+            <p style="font-size:13.5px; line-height:1.76; margin:0 0 8px;">
+              综合行业实践与本项目的实测结果，当前企业级高可靠 RAG 系统的标准落地范式可归纳为以下四层架构组合：
+            </p>
+            <ol style="font-size:13.4px; padding-left:18px; line-height:1.76; margin:0;">
+              <li><strong>数据层（结构化切分 + 语境增强）：</strong>按文档标题树递归切分并保护表格完整性，将章节面包屑（Breadcrumb）拼接进编码文本以消除代词与主语缺失。</li>
+              <li><strong>召回层（Dense + Sparse 混合检索 + 元数据过滤）：</strong>依托 Qdrant 等支持多命名向量的引擎，一路 <code>BGE-M3</code> 捕捉语义泛化，一路 <code>Sparse BM25/N-gram</code> 锁定精确术语，经服务端 <code>RRF</code> 融合召回 Top-15~20。</li>
+              <li><strong>精排层（Cross-Encoder Reranker）：</strong>引入 <code>bge-reranker-v2-m3</code> 对粗排候选执行交叉注意力重打分，截取 Top-5 并结合分数阈值过滤低相关噪声。</li>
+              <li><strong>编排与可观测层（Agentic 工具协同 + 基准评测闭环）：</strong>将知识检索封装为 Agent Tool 与业务库查询工具协同工作，并建立黄金评测集（<code>Recall@K</code> / <code>MRR@K</code>）与线上检索审计日志持续迭代。</li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸列 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>🧭 核心总纲速记</span>
+            </span>
+            <span>NOTE</span>
+          </div>
+          <p style="font-size:12px; line-height:1.65; margin:6px 0 0; color:var(--plop-ink-text);">
+            Point = ID + 多命名向量（Dense + Sparse）+ Payload JSON；显式创建 Payload 索引触发 Filterable HNSW 子图跳线；Query API 单次完成 Prefetch + RRF 融合；首选 INT8 标量量化省 75% 内存。
+          </p>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" style="cursor:pointer;" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>
