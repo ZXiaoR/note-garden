@@ -1,0 +1,215 @@
+<!-- ====================================================================
+     PART 01: SDP 协议解剖、四类 NAT 映射模型与 ICE 连通性检查算法
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="nat">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">SDP 协议解剖、四类 NAT 映射矩阵与对称型 NAT 穿透受阻机制</span>
+  <span class="plop-tag periwinkle">SDP ANATOMY × SYMMETRIC NAT × ICE CHECKLIST</span>
+</div>
+
+<!-- 01.1 · 真实 SDP 报文逐行解剖与 Unified Plan 多轨映射 -->
+<div class="wb-card" id="sdp-anatomy" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📋 01.1 · 报文解剖：Offer / Answer 交换的 SDP 文本结构与五项核心协商契约</div>
+  <h3>📋 01.1 SDP（Session Description Protocol）真实报文逐行拆解</h3>
+
+  <p>
+    <code>SDP（RFC 8866）</code> 并不是传输协议，而是一种严格按 <code>&lt;单字母类型&gt;=&lt;值&gt;</code> 行排列的纯文本会话契约。现代浏览器统一采用 <strong>Unified Plan</strong> 格式——每一条独立的音频轨或视频轨在 SDP 中对应一个独立的 <code>m=</code>（Media Description）媒体段：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📄 Offer SDP 核心字段节选（可在 chrome://webrtc-internals 中查看）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sdp-raw', this)">复制报文</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sdp-raw"><code>v=0
+o=- 4611731400430051336 2 IN IP4 127.0.0.1
+s=-
+t=0 0
+<span class="c-cm"># 1. BUNDLE 多路复用：声明音频轨(mid=0)与视频轨(mid=1)共用同一个 UDP 端口传输</span>
+a=group:BUNDLE 0 1
+
+<span class="c-cm"># ==================== 音频媒体段 (mid=0) ====================</span>
+m=audio 9 UDP/TLS/RTP/SAVPF 111 103
+a=mid:0
+a=sendrecv
+a=rtcp-mux
+<span class="c-cm"># 2. ICE 连通探测临时账号与密码（每次 ICE Restart 都会重新生成这两行）</span>
+a=ice-ufrag:k8xP
+a=ice-pwd:9vL2mQpW7nR4tY8uI1oP3aS6
+<span class="c-cm"># 3. DTLS 自签名证书公钥指纹（防信令服务器中间人篡改音视频密钥）</span>
+a=fingerprint:sha-256 4A:8F:2C:19:...
+a=setup:actpass
+<span class="c-cm"># 4. 编解码器 Payload Type 映射与 Opus 带内前向纠错开关</span>
+a=rtpmap:111 opus/48000/2
+a=fmtp:111 minptime=10;useinbandfec=1
+
+<span class="c-cm"># ==================== 视频媒体段 (mid=1) ====================</span>
+m=video 9 UDP/TLS/RTP/SAVPF 96 102
+a=mid:1
+a=sendrecv
+a=rtpmap:96 VP8/90000
+a=rtpmap:102 H264/90000
+a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f
+<span class="c-cm"># 5. 声明该视频轨支持的弱网反馈机制：PLI 关键帧请求、NACK 丢包重传、TWCC 拥塞评估</span>
+a=rtcp-fb:102 nack
+a=rtcp-fb:102 nack pli
+a=rtcp-fb:102 transport-cc</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">🔍 SDP 报文中的 5 类关键协商字段</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
+        <li><strong><code>a=group:BUNDLE 0 1</code> + <code>a=rtcp-mux</code>：</strong>早期音轨、画轨、RTP、RTCP 要开 4 个不同端口（打 4 次洞极易失败）；开启这两项后，<strong>全连接所有音视频、控制包与 DataChannel 全部复用同一个 UDP 端口</strong>，穿透成功率大幅提升。</li>
+        <li><strong><code>m=video 9 ... 96 102</code>：</strong>末尾数字列表按优先级排列本端支持的编码编号（<code>96</code> 对应 VP8，<code>102</code> 对应 H.264）；被叫方在 Answer SDP 中把双方都支持的编号排在第一位即完成编码协商。</li>
+        <li><strong><code>profile-level-id=42e01f</code>：</strong>其中前两位 <code>42</code> 代表 H.264 的 <code>Constrained Baseline</code> 档次（不含 B 帧，所有 iOS/Android 硬件解码器 100% 兼容）。</li>
+        <li><strong><code>a=setup:actpass</code>：</strong>协商随后 DTLS 加密握手谁当客户端（<code>active</code>）、谁当服务端（<code>passive</code>）。</li>
+        <li><strong><code>a=rtcp-fb:...</code>：</strong>协商双方开启哪些抗弱网扩展能力（<code>nack</code> 重传、<code>pli</code> 关键帧恢复、<code>transport-cc</code> 带宽探测）。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 01.2 · 四类 NAT 映射过滤行为与「对称型 NAT 为什么必须走 TURN」图解 -->
+<div class="wb-card" id="symmetric-nat-turn" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🌐 01.2 · 网络穿透核心：四类 NAT 模型对比，图解对称型 NAT 端口重分配导致 STUN 失效的根因</div>
+  <h3>🌐 01.2 四类 NAT 模型与对称型 NAT 穿透受阻推导</h3>
+
+  <p>
+    由于全球 IPv4 公网地址枯竭，家庭光猫与手机 4G/5G 基站都通过 <strong>NAT（Network Address Translation）</strong>让成百上千台内网设备共享少量公网 IP。根据路由器<strong>「向外发包时如何分配外部端口」</strong>与<strong>「向内收包时拦不拦截陌生外部主机」</strong>两个维度，经典 RFC 3489 将 NAT 划分为四类：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">NAT 类型</th>
+          <th style="width:28%">出站端口映射规则</th>
+          <th style="width:28%">入站数据包过滤规则</th>
+          <th>STUN 打洞可否直连</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 全锥形 NAT</strong><br>(Full Cone)</td>
+          <td>同一内网 <code>IP:Port</code> 访问任何外部目标均复用<strong>同一个公网端口</strong></td>
+          <td>不限制来源，任何外部主机发往该公网端口的包均放行入内网</td>
+          <td><strong>极易穿透</strong>（一查即通）</td>
+        </tr>
+        <tr>
+          <td><strong>2. 地址受限锥形</strong><br>(Address-Restricted)</td>
+          <td>访问任何外部目标均复用<strong>同一个公网端口</strong></td>
+          <td>仅放行内网主机<strong>曾经主动发过包的外部公网 IP</strong>（不限对方端口）</td>
+          <td><strong>可穿透</strong>（双方同时互发探测包双向开洞）</td>
+        </tr>
+        <tr>
+          <td><strong>3. 端口受限锥形</strong><br>(Port-Restricted)</td>
+          <td>访问任何外部目标均复用<strong>同一个公网端口</strong></td>
+          <td>仅放行内网主机曾经主动发过包的<strong>精确外部 <code>IP + Port</code></strong></td>
+          <td><strong>可穿透</strong>（若对端也是锥形 NAT，双方互知端口对发即通）</td>
+        </tr>
+        <tr>
+          <td><strong>4. 对称型 NAT</strong><br>(Symmetric NAT)</td>
+          <td><span class="hl-mustard">按目标 IP:Port 重新分配新公网端口</span>（发给不同目标，出口端口完全不同）</td>
+          <td>严格校验精确外部 <code>IP + Port</code> 五元组，陌生入站包一律丢弃</td>
+          <td><strong>对端为对称或端口受限锥形时 STUN 穿透失败，必须走 TURN 中继</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg role="img" aria-labelledby="nat-cmp-title nat-cmp-desc" viewBox="0 0 880 364" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.5px solid #2848D8; border-radius:14px;">
+        <title id="nat-cmp-title">锥形 NAT 直连穿透与对称型 NAT 端口重分配对比图</title>
+        <desc id="nat-cmp-desc">左侧展示锥形 NAT 复用固定公网端口 50001 使对端可按 STUN 查询结果直连打通；右侧展示对称型 NAT 访问不同目标时改换为新端口 50002 导致 STUN 地址失效，最终通过固定公网 TURN 节点双向中继互通。</desc>
+        <defs>
+          <marker id="nat-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2848D8" />
+          </marker>
+          <marker id="nat-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#D2381E" />
+          </marker>
+          <marker id="nat-arr-leaf" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#1E7043" />
+          </marker>
+        </defs>
+
+        <!-- Left Zone: Cone NAT -->
+        <rect x="28" y="16" width="396" height="288" rx="10" fill="#E9F9F1" stroke="#1E7043" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="44" y="24" width="364" height="22" rx="6" fill="#1E7043" />
+        <text x="226" y="39" fill="#FFF8E7" font-size="9.5" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle">✅ 1. CONE NAT · 家庭路由复用 :50001，STUN 穿透直连</text>
+
+        <!-- Right Zone: Symmetric NAT -->
+        <rect x="456" y="16" width="396" height="288" rx="10" fill="#FFF5F7" stroke="#D2381E" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="472" y="24" width="364" height="22" rx="6" fill="#D2381E" />
+        <text x="654" y="39" fill="#FFF8E7" font-size="9.5" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle">⚠️ 2. SYMMETRIC NAT · 换目标即换端口，靠 TURN 保底</text>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <!-- Left Zone -->
+        <line x1="156" y1="144" x2="184" y2="144" stroke="#2848D8" stroke-width="2" marker-end="url(#nat-arr)" />
+        <path d="M 238,116 V 92 Q 238,84 246,84 H 320" fill="none" stroke="#2848D8" stroke-width="2" marker-end="url(#nat-arr)" />
+        <path d="M 320,200 H 246 Q 238,200 238,192 V 172" fill="none" stroke="#1E7043" stroke-width="2.2" marker-end="url(#nat-arr-leaf)" />
+
+        <!-- Right Zone -->
+        <line x1="580" y1="144" x2="608" y2="144" stroke="#2848D8" stroke-width="2" marker-end="url(#nat-arr)" />
+        <path d="M 664,116 V 92 Q 664,84 672,84 H 744" fill="none" stroke="#2848D8" stroke-width="1.8" stroke-dasharray="5,4" marker-end="url(#nat-arr)" />
+        <path d="M 664,172 V 194 Q 664,202 672,202 H 744" fill="none" stroke="#D2381E" stroke-width="2.4" marker-end="url(#nat-arr-accent)" />
+
+        <!-- Left Zone Nodes -->
+        <rect x="52" y="116" width="104" height="56" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2" />
+        <text x="104" y="140" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">内网手机 A</text>
+        <text x="104" y="158" fill="#3B4A92" font-size="8.4" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">192.168.1.5:4000</text>
+
+        <rect x="184" y="116" width="108" height="56" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2.2" />
+        <text x="238" y="140" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">锥形 NAT 网关</text>
+        <text x="238" y="158" fill="#1E7043" font-size="8.4" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">固定公网 :50001</text>
+
+        <rect x="320" y="60" width="88" height="48" rx="8" fill="#EEF3FF" stroke="#2848D8" stroke-width="2" />
+        <text x="364" y="81" fill="#14226B" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">STUN 服务</text>
+        <text x="364" y="97" fill="#2848D8" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">查得 :50001</text>
+
+        <rect x="320" y="176" width="88" height="48" rx="8" fill="#F6C445" stroke="#2848D8" stroke-width="2.2" />
+        <text x="364" y="197" fill="#14226B" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">对端 Peer B</text>
+        <text x="364" y="213" fill="#14226B" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">直连 :50001</text>
+
+        <text x="226" y="258" fill="#14226B" font-size="9.8" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">问 STUN 与连 Peer B 始终共用同一个出口 :50001</text>
+        <text x="226" y="278" fill="#1E7043" font-size="9.8" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">对端往 :50001 发包即可直接打通 P2P</text>
+
+        <!-- Right Zone Nodes -->
+        <rect x="476" y="116" width="104" height="56" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2" />
+        <text x="528" y="140" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">4G 基站手机 A</text>
+        <text x="528" y="158" fill="#3B4A92" font-size="8.4" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">10.8.0.12:4000</text>
+
+        <rect x="608" y="116" width="112" height="56" rx="8" fill="#F6A9B8" stroke="#D2381E" stroke-width="2.4" />
+        <text x="664" y="140" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">对称型 NAT</text>
+        <text x="664" y="158" fill="#D2381E" font-size="8.4" font-weight="900" font-family="ui-monospace, monospace" text-anchor="middle">:50001 ≠ :50002</text>
+
+        <rect x="744" y="60" width="88" height="48" rx="8" fill="#EEF3FF" stroke="#2848D8" stroke-width="2" />
+        <text x="788" y="81" fill="#14226B" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">STUN 服务</text>
+        <text x="788" y="97" fill="#3B4A92" font-size="8.2" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">旧端口 :50001</text>
+
+        <rect x="744" y="176" width="88" height="52" rx="8" fill="#F6C445" stroke="#D2381E" stroke-width="2.4" />
+        <text x="788" y="198" fill="#14226B" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">TURN 中继</text>
+        <text x="788" y="215" fill="#D2381E" font-size="8.2" font-weight="900" font-family="ui-monospace, monospace" text-anchor="middle">公网中转 :61000</text>
+
+        <text x="654" y="258" fill="#14226B" font-size="9.8" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">换目标访问对端时重分了新端口 :50002，STUN 旧地址作废</text>
+        <text x="654" y="278" fill="#D2381E" font-size="9.8" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">双方统一发往固定公网 TURN 中继节点完成保底互通</text>
+
+        <!-- Legend Strip -->
+        <line x1="28" y1="320" x2="852" y2="320" stroke="#2848D8" stroke-width="1.2" stroke-dasharray="4,3" />
+        <text x="32" y="344" fill="#14226B" font-size="9" font-family="ui-monospace, monospace" font-weight="900" letter-spacing="0.12em">LEGEND</text>
+        <line x1="108" y1="340" x2="144" y2="340" stroke="#1E7043" stroke-width="2.2" marker-end="url(#nat-arr-leaf)" />
+        <text x="154" y="344" fill="#1E7043" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif">锥形 NAT P2P 打洞直连通道</text>
+        <line x1="356" y1="340" x2="392" y2="340" stroke="#D2381E" stroke-width="2.4" marker-end="url(#nat-arr-accent)" />
+        <text x="402" y="344" fill="#D2381E" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif">对称型 NAT 启用 TURN 双向中继路径</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p style="margin-top:12px;">
+    <strong>ICE（Interactive Connectivity Establishment，RFC 8445）</strong>把上述所有路径统一收拢管理：按类型权重公式 <code>priority = 2<sup>24</sup> × type_pref + 2<sup>8</sup> × local_pref + (256 - component_id)</code> 给候选地址打分——局域网直连 <code>host (type_pref=126)</code> 分最高，公网反射 <code>srflx (100)</code> 次之，消耗服务器带宽的 <code>relay (0)</code> 排最后兜底；并在极端封禁 UDP 的酒店/校园网下支持通过 <strong><code>TURNS（TURN over TLS 443）</code></strong>伪装成普通 HTTPS 流量完成穿透。
+  </p>
+</div>

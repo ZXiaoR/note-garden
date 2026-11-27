@@ -1,0 +1,125 @@
+<!-- ====================================================================
+     PART 02: 浏览器设备采集与轨道控制 · MediaStream、权限降级、前后摄切换与屏幕共享
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="capture">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">浏览器设备采集与轨道控制 · <code>MediaStream</code>、权限降级、热切换与屏幕共享</span>
+  <span class="plop-tag mint">STAGE ① · MEDIADEVICES &amp; TRACKS</span>
+</div>
+
+<!-- 02.1 · MediaStream 与 MediaStreamTrack 的父子层级与开关控制 -->
+<div class="wb-card" id="stream-and-track" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🎥 02.1 · 轨道模型：<code>MediaStream</code>（流容器）与 <code>MediaStreamTrack</code>（独立音画轨）的控制差异</div>
+  <h3>🎥 02.1 流容器与独立轨道的控制规范</h3>
+
+  <p>
+    对应五步全景图的<strong>第 ① 步（本地采集）</strong>：调用 <code>getUserMedia({ audio: true, video: true })</code> 返回的 <code>MediaStream</code> 是一个「流容器」，它内部通常装着两条独立的轨道（<code>MediaStreamTrack</code>）：一条 <code>kind === 'audio'</code> 的音频轨（可通过 <code>stream.getAudioTracks()</code> 取出），一条 <code>kind === 'video'</code> 的视频轨（可通过 <code>stream.getVideoTracks()</code> 取出）。
+  </p>
+
+  <p>
+    在社交连麦与视频会议开发中，最容易混淆的是<strong>「通话中临时闭麦/关画面」</strong>与<strong>「挂断退房彻底释放硬件」</strong>两个操作，它们对应的轨道 API 完全不同：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">操作方式</th>
+          <th style="width:20%">硬件与指示灯状态</th>
+          <th style="width:24%">网络发送行为</th>
+          <th>适用业务时机与恢复方式</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>track.enabled = false</code></strong><br>（软静音 / 软关画面）</td>
+          <td>摄像头与麦克风硬件保持占用，浏览器标签页小红点仍在</td>
+          <td>WebRTC 连接不断开，底层自动替换为极小体积的<strong>纯静音帧 / 纯黑画面帧</strong></td>
+          <td><strong>通话中点击「闭麦 / 关闭摄像头」按钮：</strong>再次设为 <code>track.enabled = true</code> 时毫秒级恢复声音画面，无需重新走硬件权限与信令协商。</td>
+        </tr>
+        <tr>
+          <td><strong><code>track.stop()</code></strong><br>（硬停止并归还系统）</td>
+          <td><strong>立即释放摄像头与麦克风驱动</strong>，电脑摄像头绿灯与标签页红点熄灭</td>
+          <td>该轨道永久进入 <code>ended</code> 终止态，停止产生任何媒体帧</td>
+          <td><strong>挂断通话退出房间、或组件 <code>onBeforeUnmount</code> 销毁时：</strong>轨道一旦 <code>stop()</code> 无法重新开启，下次要再开必须重新调用 <code>getUserMedia()</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 02.2 · 设备枚举、约束降级、前后摄无缝热切换与屏幕共享 -->
+<div class="wb-card" id="capture-constraints-swap" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🎛️ 02.2 · 实战采集：<code>ideal</code> 弹性约束降级、<code>enumerateDevices</code> 设备列表与 <code>replaceTrack</code> 无缝切流</div>
+  <h3>🎛️ 02.2 权限降级、前后镜头热切换与屏幕共享代码</h3>
+
+  <p>
+    在真实线上环境中，用户的设备千差万别（低端安卓机不支持 1080p、台式机没插摄像头、用户只给了麦克风权限拒绝了摄像头）。编写采集模块时遵循三条工程习惯，可以避免绝大多数进房报错：
+  </p>
+
+  <ul style="margin:6px 0 14px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>分辨率与帧率用 <code>ideal</code> 不用 <code>exact</code>：</strong>写 <code>width: { ideal: 1280 }</code> 时，若旧手机最高只支持 <code>640×480</code>，浏览器会自动挑最接近的档位返回；若写成硬性要求 <code>exact: 1280</code>，不满足时会直接抛 <code>OverconstrainedError</code> 导致进房失败。</li>
+    <li><strong>先授权再枚举设备名称：</strong>调用 <code>navigator.mediaDevices.enumerateDevices()</code> 获取麦克风/摄像头下拉列表时，为了防指纹追踪，在用户尚未授权过 <code>getUserMedia</code> 之前，返回的 <code>device.label</code> 会是空字符串；应在首次授权成功后再刷新设备列表。</li>
+    <li><strong>通话中翻转前后镜头用 <code>sender.replaceTrack()</code>：</strong>拿到新摄像头的 <code>videoTrack</code>（或 Canvas 美颜滤镜通过 <code>canvas.captureStream(24)</code> 生成的轨道）后，直接调用 <code>RTCRtpSender.replaceTrack(newTrack)</code> 即可在不断连、不重发 SDP 的情况下平滑替换画面。</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🟦 TypeScript · 带无摄像头自动降级、前后摄翻转与屏幕共享的采集工具函数</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-capture-utils', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-capture-utils"><code><span class="c-cm">// 1. 弹性采集音视频流：若无摄像头或视频受限，自动降级为纯语音流保证用户能先进房说话</span>
+<span class="c-kw">export async function</span> <span class="c-fn">acquireLocalMedia</span>(facingMode: <span class="c-str">'user'</span> | <span class="c-str">'environment'</span> = <span class="c-str">'user'</span>) {
+  <span class="c-kw">if</span> (!navigator.mediaDevices?.getUserMedia) {
+    <span class="c-kw">throw new</span> Error(<span class="c-str">'请使用 HTTPS 或 localhost 安全环境访问页面以启用音视频设备'</span>);
+  }
+
+  <span class="c-kw">const</span> audioConstraints: MediaTrackConstraints = {
+    echoCancellation: <span class="c-kw">true</span>,  <span class="c-cm">// 开启 AEC 回声消除（防外放啸叫）</span>
+    noiseSuppression: <span class="c-kw">true</span>,  <span class="c-cm">// 开启 ANS 背景噪声抑制</span>
+    autoGainControl: <span class="c-kw">true</span>,   <span class="c-cm">// 开启 AGC 自动增益（平衡说话音量忽大忽小）</span>
+  };
+
+  <span class="c-kw">try</span> {
+    <span class="c-kw">return await</span> navigator.mediaDevices.<span class="c-fn">getUserMedia</span>({
+      audio: audioConstraints,
+      video: {
+        width: { ideal: <span class="c-num">1280</span> },
+        height: { ideal: <span class="c-num">720</span> },
+        frameRate: { ideal: <span class="c-num">24</span>, max: <span class="c-num">30</span> },
+        facingMode, <span class="c-cm">// 移动端 'user' 为前置自拍镜头，'environment' 为后置主摄</span>
+      },
+    });
+  } <span class="c-kw">catch</span> (err: <span class="c-kw">any</span>) {
+    <span class="c-cm">// NotFoundError: 未插摄像头；OverconstrainedError: 视频参数不满足 -> 退化为纯音频连麦</span>
+    <span class="c-kw">if</span> (err.name === <span class="c-str">'NotFoundError'</span> || err.name === <span class="c-str">'OverconstrainedError'</span>) {
+      <span class="c-kw">return await</span> navigator.mediaDevices.<span class="c-fn">getUserMedia</span>({ audio: audioConstraints, video: <span class="c-kw">false</span> });
+    }
+    <span class="c-kw">throw</span> err; <span class="c-cm">// NotAllowedError（用户主动点拒绝）向上抛出，由 UI 弹窗引导去浏览器设置开启权限</span>
+  }
+}
+
+<span class="c-cm">// 2. 通话中无缝切换为屏幕共享（或切回前后置摄像头），无需重新协商 SDP</span>
+<span class="c-kw">export async function</span> <span class="c-fn">switchToScreenShare</span>(
+  pc: RTCPeerConnection,
+  localVideoEl: HTMLVideoElement,
+  cameraTrackFallback: MediaStreamTrack
+) {
+  <span class="c-kw">const</span> screenStream = <span class="c-kw">await</span> navigator.mediaDevices.<span class="c-fn">getDisplayMedia</span>({ video: <span class="c-kw">true</span> });
+  <span class="c-kw">const</span> screenTrack = screenStream.<span class="c-fn">getVideoTracks</span>()[<span class="c-num">0</span>];
+
+  <span class="c-kw">const</span> videoSender = pc.<span class="c-fn">getSenders</span>().<span class="c-fn">find</span>(s =&gt; s.track?.kind === <span class="c-str">'video'</span>);
+  <span class="c-kw">if</span> (videoSender) {
+    <span class="c-kw">await</span> videoSender.<span class="c-fn">replaceTrack</span>(screenTrack);
+  }
+  localVideoEl.srcObject = screenStream;
+
+  <span class="c-cm">// 监听用户点击浏览器顶部的系统级「停止共享」按钮，自动切回原本的摄像头画面</span>
+  screenTrack.onended = <span class="c-kw">async</span> () =&gt; {
+    <span class="c-kw">if</span> (videoSender) <span class="c-kw">await</span> videoSender.<span class="c-fn">replaceTrack</span>(cameraTrackFallback);
+  };
+}</code></pre>
+  </div>
+</div>

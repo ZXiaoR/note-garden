@@ -12,22 +12,32 @@
   const STORAGE_SURFACE_KEY = 'note-garden-plop-surface';
   const STORAGE_SUBPAGE_MODE_KEY = 'note-garden-subpage-mode';
 
-  // 1. 全站已完成专题注册表（新增文章只需在此处加一行，所有页面右侧跨专题目录自动同步）
+  // 1. 全站已完成专题注册表（新增文章只需在此处加一行，所有页面右侧跨专题目录自动按分组同步）
   const NOTE_GARDEN_TOPICS = [
-    { path: 'ai/index.html', title: '🧠 Gemini 4 Carbon', dot: '' },
-    { path: 'ai/memory.html', title: '🌙 Agent 记忆架构', dot: 'pink' },
-    { path: 'ai/context-memory.html', title: '🧩 上下文与记忆工程', dot: 'mustard' },
-    { path: 'ai/qdrant.html', title: '🎯 Qdrant 与 RAG 检索', dot: 'tomato' },
-    { path: 'pi-agent/index.html', title: '🤖 Coding Agent (pi)', dot: 'periwinkle' },
-    { path: 'pi-agent/guide.html', title: '🧭 Pi 源码与架构权衡', dot: 'mint' },
-    { path: 'mysql/index.html', aliases: ['mysql/principles.html', 'mysql/principles'], title: '🐬 MySQL 基础与原理', dot: 'mint' },
-    { path: 'postgres/index.html', aliases: ['postgres/principles.html', 'postgres/principles'], title: '🐘 PostgreSQL 基础与原理', dot: 'periwinkle' },
-    { path: 'redis/index.html', title: '🧱 Redis 原理与集群', dot: 'pink' },
-    { path: 'go/index.html', aliases: ['go/principles.html', 'go/principles'], title: '🐹 Go 语言与原理', dot: 'mustard' },
-    { path: 'node/index.html', aliases: ['node/principles.html', 'node/principles'], title: '🟢 Node.js 基础与原理', dot: 'mint' },
-    { path: 'os/index.html', aliases: ['os/principles.html', 'os/principles'], title: '🖥️ Linux 操作系统', dot: 'mint' },
-    { path: 'mq/index.html', title: '📨 消息队列对比', dot: '' },
-    { path: 'browser/index.html', aliases: ['browser/principles.html', 'browser/principles'], title: '🌐 浏览器工作原理', dot: 'periwinkle' }
+    { path: 'ai/index.html', title: '🧠 Gemini 4 Carbon', dot: '', group: 'ai' },
+    { path: 'ai/memory.html', title: '🌙 Agent 记忆架构', dot: 'pink', group: 'ai' },
+    { path: 'ai/context-memory.html', title: '🧩 上下文与记忆工程', dot: 'mustard', group: 'ai' },
+    { path: 'ai/qdrant.html', title: '🎯 Qdrant 与 RAG 检索', dot: 'tomato', group: 'ai', recent: true },
+    { path: 'ai/sse-idempotency.html', title: '📡 SSE · 幂等 · 上下文压缩', dot: 'mustard', group: 'ai', recent: true },
+    { path: 'ai/agent-production.html', title: '🛡️ Agent 生产工程化全景', dot: 'pink', group: 'ai', recent: true },
+    { path: 'pi-agent/index.html', title: '🤖 Coding Agent (pi)', dot: 'periwinkle', group: 'ai' },
+    { path: 'pi-agent/guide.html', title: '🧭 Pi 源码与架构权衡', dot: 'mint', group: 'ai' },
+    { path: 'mysql/index.html', aliases: ['mysql/principles.html', 'mysql/principles'], title: '🐬 MySQL 基础与原理', dot: 'mint', group: 'db' },
+    { path: 'postgres/index.html', aliases: ['postgres/principles.html', 'postgres/principles'], title: '🐘 PostgreSQL 基础与原理', dot: 'periwinkle', group: 'db' },
+    { path: 'redis/index.html', aliases: ['redis/principles.html', 'redis/principles'], title: '🧱 Redis 基础与原理', dot: 'pink', group: 'db' },
+    { path: 'go/index.html', aliases: ['go/principles.html', 'go/principles'], title: '🐹 Go 语言与原理', dot: 'mustard', group: 'sys' },
+    { path: 'node/index.html', aliases: ['node/principles.html', 'node/principles'], title: '🟢 Node.js 基础与原理', dot: 'mint', group: 'sys' },
+    { path: 'os/index.html', aliases: ['os/principles.html', 'os/principles'], title: '🖥️ Linux 操作系统', dot: 'mint', group: 'sys' },
+    { path: 'mq/index.html', title: '📨 消息队列对比', dot: '', group: 'sys' },
+    { path: 'backend/reliability.html', title: '🛡️ 稳定性七件套与防线', dot: 'tomato', group: 'sys', recent: true },
+    { path: 'browser/index.html', aliases: ['browser/principles.html', 'browser/principles'], title: '🌐 浏览器工作原理', dot: 'periwinkle', group: 'sys' },
+    { path: 'webrtc/index.html', aliases: ['webrtc/principles.html', 'webrtc/principles'], title: '📹 音视频与 WebRTC', dot: 'mint', group: 'sys', recent: true }
+  ];
+
+  const TOPIC_GROUPS = [
+    { key: 'ai', label: '🤖 AI 与 Agent', theme: '' },
+    { key: 'db', label: '🐬 数据库缓存', theme: 'mint' },
+    { key: 'sys', label: '⚙️ 后端与系统', theme: 'periwinkle' }
   ];
   window.NOTE_GARDEN_TOPICS = NOTE_GARDEN_TOPICS;
 
@@ -165,7 +175,26 @@
     document.body.insertBefore(wrap, document.body.firstChild);
   }
 
-  // 7. 自动渲染右侧跨专题书签目录 ([data-plop-topics])
+  // 7. 自动渲染右侧跨专题书签目录 ([data-plop-topics]) —— 按领域分组折叠，避免超出屏幕视口
+  function isTopicActive(item, pathname) {
+    return (
+      pathname.endsWith('/' + item.path) ||
+      (item.path.endsWith('/index.html') &&
+        pathname.endsWith('/' + item.path.replace('/index.html', '/'))) ||
+      (Array.isArray(item.aliases) &&
+        item.aliases.some(alias => pathname.endsWith('/' + alias)))
+    );
+  }
+
+  function renderEarTabLink(item, prefix, isCurrent) {
+    const dotClass = item.dot ? `ear-dot ${item.dot}` : 'ear-dot';
+    const activeClass = isCurrent ? ' active' : '';
+    return `<a href="${prefix}${item.path}" class="plop-ear-tab${activeClass}">
+      <span class="${dotClass}"></span>
+      <span>${item.title}</span>
+    </a>`;
+  }
+
   function renderTopicTabs() {
     const containers = document.querySelectorAll('[data-plop-topics]');
     if (!containers.length) return;
@@ -179,20 +208,47 @@
         document.body.classList.contains('plop-garden-body');
       const prefix = explicitRoot !== null ? explicitRoot : isRootPage ? '' : '../';
 
-      container.innerHTML = NOTE_GARDEN_TOPICS.map(item => {
-        const isCurrent =
-          !isRootPage &&
-          (pathname.endsWith('/' + item.path) ||
-            (item.path.endsWith('/index.html') &&
-              pathname.endsWith('/' + item.path.replace('/index.html', '/'))) ||
-            (Array.isArray(item.aliases) &&
-              item.aliases.some(alias => pathname.endsWith('/' + alias))));
-        const dotClass = item.dot ? `ear-dot ${item.dot}` : 'ear-dot';
-        const activeClass = isCurrent ? ' active' : '';
-        return `<a href="${prefix}${item.path}" class="plop-ear-tab${activeClass}">
-          <span class="${dotClass}"></span>
-          <span>${item.title}</span>
-        </a>`;
+      if (isRootPage) {
+        // 首页中间已有全量卡片：右侧仅展示「最近新增速达」+ 默认收起的三组分类抽屉，消除冗余超长列表
+        const recents = NOTE_GARDEN_TOPICS.filter(t => t.recent).reverse();
+        const recentHtml = `
+          <div class="plop-recent-head">🔥 RECENT · 近期新增</div>
+          ${recents.map(item => renderEarTabLink(item, prefix, false)).join('')}
+        `;
+        const groupsHtml = TOPIC_GROUPS.map(g => {
+          const items = NOTE_GARDEN_TOPICS.filter(t => t.group === g.key);
+          const themeClass = g.theme ? ` ${g.theme}` : '';
+          return `<details class="plop-topic-group${themeClass}">
+            <summary>
+              <span>${g.label} (${items.length})</span>
+              <span class="plop-topic-group-caret">▾</span>
+            </summary>
+            <div class="plop-topic-group-list">
+              ${items.map(item => renderEarTabLink(item, prefix, false)).join('')}
+            </div>
+          </details>`;
+        }).join('');
+        container.innerHTML = recentHtml + '<div style="height:4px;"></div>' + groupsHtml;
+        return;
+      }
+
+      // 文章内页：自动只展开当前所属分组并高亮当前文章，其余两组默认折叠
+      const activeTopic = NOTE_GARDEN_TOPICS.find(t => isTopicActive(t, pathname));
+      const openGroupKey = activeTopic ? activeTopic.group : 'ai';
+
+      container.innerHTML = TOPIC_GROUPS.map(g => {
+        const items = NOTE_GARDEN_TOPICS.filter(t => t.group === g.key);
+        const themeClass = g.theme ? ` ${g.theme}` : '';
+        const openAttr = g.key === openGroupKey ? ' open' : '';
+        return `<details class="plop-topic-group${themeClass}"${openAttr}>
+          <summary>
+            <span>${g.label} (${items.length})</span>
+            <span class="plop-topic-group-caret">▾</span>
+          </summary>
+          <div class="plop-topic-group-list">
+            ${items.map(item => renderEarTabLink(item, prefix, !isRootPage && isTopicActive(item, pathname))).join('')}
+          </div>
+        </details>`;
       }).join('');
     });
   }

@@ -1,211 +1,298 @@
 <!-- ====================================================================
-             PART 06: 分布式锁、消息队列 Stream、事务/Lua/Pipeline 与高频面试自测
-             ==================================================================== -->
-        <div class="wb-sec-header mint" id="lock">
-          <span class="wb-sec-num">06</span>
-          <span class="wb-sec-title">实战扩展与自测 · 分布式锁 4 步演进、Stream 消息队列、Lua/Pipeline 与高频自测</span>
-          <span class="plop-tag">DISTRIBUTED LOCK · STREAM · LUA</span>
-        </div>
+     PART 06: 分布式协调与工程扩展 · 分布式锁、Lua 原子脚本、Stream 消息队列与实战自测
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="lock">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">分布式协调与实战扩展：分布式锁、Lua 脚本、Stream 消费组与自测</span>
+  <span class="plop-tag">DISTRIBUTED LOCK · LUA · STREAM · SELF-CHECK</span>
+</div>
 
-        <!-- 14：分布式锁 4 步演进 + RedLock 争议（由上到下顺序排列） -->
-        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
-            <div class="washi-tape"></div>
-            <div class="chapter-q-pill">❓ 06.1 · 用 Redis 实现生产级分布式锁，必须一步步堵上哪 4 个漏洞？</div>
-            <h3>🔒 06.1 分布式锁：从朴素写法到 Redisson 生产级闭环</h3>
+<!-- 06.1 · 生产级分布式锁四步演进与 Go 完整实现 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔒 06.1 · 分布式互斥锁：原子加锁、唯一归属标识、Lua 原子释放与看门狗自动续期</div>
+  <h3>🔒 06.1 基于 Redis 实现生产级分布式互斥锁的 4 项规范</h3>
 
-            <div class="table-wrap">
-              <table class="plop-table">
-                <thead>
-                  <tr>
-                    <th style="width:24%">演进阶段</th>
-                    <th>堵住什么致命漏洞？怎么写？</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><strong>① 原子占锁+过期</strong></td>
-                    <td>不能拆成 <code>SETNX</code> + <code>EXPIRE</code> 两条命令（中间宕机就永久死锁），必须合二为一：<br><code>SET lock_key uuid_threadId NX EX 30</code></td>
-                  </tr>
-                  <tr>
-                    <td><strong>② 防误删别人锁</strong></td>
-                    <td>若线程 A 业务卡顿超过 30s 锁自动释放，线程 B 抢到锁；此时 A 跑完直接 <code>DEL</code> 就会把 B 的锁删掉！<br>👉 <strong>解法：</strong>Value 存唯一标识（<code>UUID:threadId</code>），释放时用 <strong>Lua 脚本原子执行“比对 Value 相等才 DEL”</strong>。</td>
-                  </tr>
-                  <tr>
-                    <td><strong>③ 锁自动续期</strong><br><span style="font-size:11px; color:var(--plop-leaf);">(Watchdog 看门狗)</span></td>
-                    <td>TTL 设短了业务没跑完锁就丢了。<strong>Redisson 看门狗</strong>：加锁默认 30s，后台每 <code>10s</code>（TTL/3）检查当前线程是否仍持有锁，若是则自动把 TTL 重置回 30s；若客户端宕机则不再续期，到期自然释放。</td>
-                  </tr>
-                  <tr>
-                    <td><strong>④ 可重入锁</strong></td>
-                    <td>同一线程内方法嵌套再次拿同一把锁时，用 <strong><code>Hash</code> 结构</strong> 存储：<code>key=锁名, field=UUID:threadId, value=重入次数</code>，重入时 <code>+1</code>，释放时 <code>-1</code>，减到 <code>0</code> 才真正 <code>DEL</code>。</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+  <p>
+    单机应用内可以使用语言自带的 <code>sync.Mutex</code> 控制并发互斥，但在多实例集群部署下（如定时任务防多节点重复执行、同一用户订单防并发扣款），需要借助外部共享存储协调互斥。使用单实例/哨兵 Redis 实现安全可靠的分布式锁，必须完整满足以下 4 个工程步骤：
+  </p>
 
-            <div class="plop-code-box">
-              <div class="plop-code-head">
-                <span>📜 unlock_atomic.lua · 原子校验并释放分布式锁</span>
-                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('redis-lua-unlock', this)">复制 Lua</button>
-              </div>
-              <pre class="plop-code-pre" id="redis-lua-unlock"><code><span class="c-cm">-- KEYS[1]: 锁名称 | ARGV[1]: 当前线程唯一标识 (UUID:threadId)</span>
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">设计要素</th>
+          <th>解决的并发边界问题与实现规范</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 加锁与设过期时间原子合并</strong></td>
+          <td>绝不能先调 <code>SETNX</code> 再单独调 <code>EXPIRE</code>（若两步之间客户端进程崩溃，该锁将永不过期）。统一使用单条复合指令：<code>SET lock:resource &lt;token&gt; NX PX 30000</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>② Value 写入全局唯一持有者令牌</strong></td>
+          <td>不能将 Value 随便写为固定常数 <code>"1"</code>。若协程 A 因下游接口慢耗时 35 秒，第 30 秒锁自动过期后被协程 B 合法拿到，第 35 秒协程 A 执行完毕若盲目调用 <code>DEL</code>，会<strong>误删协程 B 正在持有的锁</strong>。因此每次加锁必须生成唯一随机串（如 <code>UUID</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong>③ 使用 Lua 脚本原子校验并释放</strong></td>
+          <td>释放锁时，若在客户端分两步先 <code>GET</code> 比对相等、再发 <code>DEL</code>，在 <code>GET</code> 返回后到 <code>DEL</code> 到达前的间隙锁仍可能恰好过期易主。因此必须通过 <strong>Lua 脚本在服务端单次原子完成「读取比对 + 删除」</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>④ 后台看门狗（Watchdog）续期</strong></td>
+          <td>当业务执行耗时存在波动难以预估固定 TTL 时，加锁成功后在客户端启动一个后台定时协程，每隔 <code>TTL / 3</code>（如每 10 秒）通过 Lua 校验自己仍持有该锁后将剩余过期时间重置回 30 秒；一旦业务结束主动解锁或客户端宕机，续期协程自动停止。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>📜 unlock_atomic.lua · 原子校验持有者令牌并释放锁</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('redis-lua-unlock', this)">复制 Lua</button>
+      </div>
+      <pre class="plop-code-pre" id="redis-lua-unlock"><code><span class="c-cm">-- KEYS[1]: 锁键名 | ARGV[1]: 当前持有者唯一随机 Token</span>
 <span class="c-kw">if</span> redis.call(<span class="c-str">'GET'</span>, KEYS[1]) == ARGV[1] <span class="c-kw">then</span>
     <span class="c-kw">return</span> redis.call(<span class="c-str">'DEL'</span>, KEYS[1])
 <span class="c-kw">else</span>
     <span class="c-kw">return</span> 0
 <span class="c-kw">end</span></code></pre>
-            </div>
+    </div>
 
-            <div class="plop-callout warn">
-              <strong>⚖️ 主从切换丢锁问题与 RedLock 争议（Martin Kleppmann vs antirez）：</strong><br>
-              主库刚加上锁还没异步复制给从库就宕机，哨兵把从库升为新主，新主上没有这把锁，导致第二个客户端也加锁成功。<br>
-              • <strong>RedLock：</strong>部署 5 台独立 Master，向全部节点加锁，超半数（≥3 台）成功且耗时极短才算拿锁。<br>
-              • <strong>争议与选型结论：</strong>若客户端拿锁后发生长时间 Full GC 停顿，锁过期被别人拿走，仍无法保证绝对互斥（除非资源层校验单调递增的 <code>fencing token</code>）。因此：<strong>高并发提效防重用 Redis 锁（Redisson）；要求 100% 强一致零差错的账务核心，用数据库唯一约束/悲观锁或 etcd / ZooKeeper。</strong>
-            </div>
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 dist_lock.go · 带自动续期的 Go 分布式锁封装</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-go-lock', this)">复制 Go 代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-redis-go-lock"><code><span class="c-kw">var</span> (
+    unlockLua = redis.NewScript(<span class="c-str">`if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end`</span>)
+    renewLua  = redis.NewScript(<span class="c-str">`if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('PEXPIRE',KEYS[1],ARGV[2]) else return 0 end`</span>)
+)
+
+<span class="c-kw">func</span> WithDistLock(ctx context.Context, rdb *redis.Client, key <span class="c-kw">string</span>, ttl time.Duration, fn <span class="c-kw">func</span>() <span class="c-kw">error</span>) <span class="c-kw">error</span> {
+    token := uuid.NewString()
+    ok, err := rdb.SetNX(ctx, key, token, ttl).Result()
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> || !ok {
+        <span class="c-kw">return</span> errors.New(<span class="c-str">"资源正被其他节点处理中"</span>)
+    }
+
+    stopWatchdog := make(<span class="c-kw">chan struct</span>{})
+    <span class="c-kw">go func</span>() {
+        ticker := time.NewTicker(ttl / 3)
+        <span class="c-kw">defer</span> ticker.Stop()
+        <span class="c-kw">for</span> {
+            <span class="c-kw">select</span> {
+            <span class="c-kw">case</span> &lt;-ticker.C:
+                _, _ = renewLua.Run(context.Background(), rdb, []<span class="c-kw">string</span>{key}, token, ttl.Milliseconds()).Result()
+            <span class="c-kw">case</span> &lt;-stopWatchdog:
+                <span class="c-kw">return</span>
+            }
+        }
+    }()
+
+    <span class="c-kw">defer func</span>() {
+        close(stopWatchdog)
+        _, _ = unlockLua.Run(context.Background(), rdb, []<span class="c-kw">string</span>{key}, token).Result()
+    }()
+    <span class="c-kw">return</span> fn()
+}</code></pre>
+    </div>
+  </div>
+
+  <p style="margin-top:10px; font-size:13.3px;">
+    <strong>补充说明（可重入锁）：</strong>若同一业务调用链存在外层方法与内层方法嵌套获取同一把锁的需求（如 Java <code>Redisson</code> 的 <code>RLock</code>），可将底层存储由 <code>String</code> 改为 <code>Hash</code>（<code>key=锁名</code>，<code>field=UUID:线程ID</code>，<code>value=重入计数</code>），通过 Lua 脚本在重入时将计数 <code>HINCRBY +1</code>，解锁时 <code>-1</code> 直至归零才删除整个 Key。
+  </p>
+</div>
+
+<!-- 06.2 · 事务 MULTI/EXEC、Lua 原子脚本与 Stream 消息队列实战 -->
+<div class="wb-card" id="mq" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill" id="misc">📨 06.2 · 批量原子与轻量队列：MULTI 事务、Lua 防超卖脚本与 Stream 消费者组闭环</div>
+  <h3>📨 06.2 事务 / Lua / Pipeline 边界辨析与 <code>Stream</code> 消费者组实战</h3>
+
+  <h4>1. <code>MULTI/EXEC</code> 事务、<code>Lua</code> 脚本与 <code>Pipeline</code> 的核心差异</h4>
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">执行方式</th>
+          <th style="width:20%">网络 RTT 次数</th>
+          <th style="width:20%">是否防止其他客户端插队</th>
+          <th>条件分支与错误处理行为</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>Pipeline</code> 管道</strong></td>
+          <td><strong>1 次</strong>（批量打包）</td>
+          <td><strong>否</strong>（中间可穿插其他连接命令）</td>
+          <td>纯客户端网络优化，不支持读取前一条结果做条件判断，单条失败不影响其余命令。</td>
+        </tr>
+        <tr>
+          <td><strong><code>MULTI / EXEC</code> 事务</strong><br><span style="font-size:11.5px; color:var(--plop-ink-soft);">(可配 <code>WATCH</code> 乐观锁)</span></td>
+          <td>多条入队（常结合 Pipeline 发）</td>
+          <td><strong>是</strong>（<code>EXEC</code> 一次性串行执行）</td>
+          <td><strong>不支持传统数据库回滚（Rollback）</strong>：入队期命令拼写错误会整批取消；但运行期类型错误（如对 Hash 调 <code>INCR</code>）仅该条报错，其余命令照常生效且不回滚。不支持在事务内部写 <code>if/else</code>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Lua</code> 脚本</strong><br><code>EVAL / EVALSHA</code></td>
+          <td><strong>1 次</strong>（传 <code>SHA1</code> 摘要更省带宽）</td>
+          <td><strong>是（严格单命令级原子性）</strong></td>
+          <td><strong>生产条件原子操作首选</strong>：可在服务端直接读取上一步结果做 <code>if/else</code> 判断（例如“先校验库存足够且用户未买过，再扣库存并记购买集合”）。注意脚本须简短无阻塞。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="margin-top:16px;">2. 使用 Redis 5.0+ <code>Stream</code> 构建带 ACK 确认的轻量消息队列</h4>
+  <p>
+    在中小规模项目中若不想引入整套 Kafka / RocketMQ 运维组件，可以使用 Redis 5.0 引入的 <strong><code>Stream</code></strong>（替代无 ACK 易丢消息的 <code>List</code> 与不存历史消息的 <code>Pub/Sub</code>）。<code>Stream</code> 原生支持<strong>多消费者组独立广播、同一组内多消费者负载均衡分摊、以及未确认消息暂存池（PEL，Pending Entries List）故障认领</strong>：
+  </p>
+
+  <!-- Editorial SVG: Redis Stream Consumer Group & PEL ACK Lifecycle -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 880 232" style="width:100%; min-width:740px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rd-stm-title rd-stm-desc">
+        <title id="rd-stm-title">Redis Stream 消费者组消息分发、PEL 待确认池与 XACK 闭环架构</title>
+        <desc id="rd-stm-desc">生产者通过 XADD MAXLEN 向 Stream 追加有序消息；消费者组通过 XREADGROUP 将消息投递给消费者并同步登记到 PEL 待确认列表；消费成功后发送 XACK 将记录从 PEL 移除，若消费者崩溃超时则由存活节点通过 XAUTOCLAIM 接管重试。</desc>
+        <defs>
+          <marker id="rd-stm-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rd-stm-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Zone: Consumer Group g1 -->
+        <rect x="444" y="20" width="412" height="192" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="460" y="24" width="184" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="552" y="36" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">消费者组 Consumer Group (g1)</text>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <!-- Producer (156,116) -> Stream (224,116) -->
+        <line x1="156" y1="116" x2="224" y2="116" stroke="#1F1F23" stroke-width="1.4" marker-end="url(#rd-stm-arr-muted)"/>
+        <rect x="164" y="96" width="52" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="190" y="105" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#1F1F23">XADD</text>
+
+        <!-- Stream right top port (392,96) -> Consumer c1 (476,80) -->
+        <path d="M 392,96 H 424 Q 432,96 432,88 V 88 Q 432,80 440,80 H 476" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#rd-stm-arr-accent)"/>
+        <!-- Stream right bottom port (392,136) -> PEL (476,164) -->
+        <path d="M 392,136 H 424 Q 432,136 432,144 V 156 Q 432,164 440,164 H 476" fill="none" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#rd-stm-arr-muted)"/>
+
+        <!-- Consumer c1 right (640,80) -> ACK Action -> PEL right (700,164) -->
+        <path d="M 640,80 H 748 Q 756,80 756,88 V 156 Q 756,164 748,164 H 700" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#rd-stm-arr-accent)"/>
+        <rect x="764" y="112" width="84" height="28" rx="2" fill="#FFFDF7"/>
+        <text x="806" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#bf4520">XACK 确认移除</text>
+        <text x="806" y="136" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8" fill="#5a6580">超时则 XAUTOCLAIM</text>
+
+        <!-- Nodes -->
+        <rect x="28" y="88" width="128" height="56" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="92" y="113" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">业务生产者</text>
+        <text x="92" y="131" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">MAXLEN ~ 10000</text>
+
+        <rect x="224" y="76" width="168" height="80" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="308" y="104" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#bf4520">Stream 消息流</text>
+        <text x="308" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">1732676001-0</text>
+        <text x="308" y="140" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">1732676002-0 ...</text>
+
+        <rect x="476" y="52" width="164" height="56" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="558" y="77" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">消费者节点 c1 / c2</text>
+        <text x="558" y="95" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">XREADGROUP &gt;</text>
+
+        <rect x="476" y="136" width="224" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="588" y="161" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">PEL 已投递待确认列表</text>
+        <text x="588" y="179" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">记录 msgID + 消费者 + 投递时刻</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>⚡ stream_mq_demo.redis · Stream 限长生产、消费者组拉取、XACK 与超时故障转移认领</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('redis-stream-cmd', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="redis-stream-cmd"><code><span class="c-cm"># 1. 生产消息：MAXLEN ~ 10000 采用近似裁剪（按整块 listpack 节点高效回收旧消息，防止无限增长占满内存），* 表示由服务端生成时间戳-序号 ID</span>
+XADD mq:orders MAXLEN ~ 10000 * order_id 9001 user_id 1001 amount 199.00
+
+<span class="c-cm"># 2. 创建消费者组 g1（0 表示从第一条消息起消费，$ 表示只消费后续新消息；MKSTREAM 在流不存在时自动创建空流）</span>
+XGROUP CREATE mq:orders g1 0 MKSTREAM
+
+<span class="c-cm"># 3. 消费者 c1 阻塞式拉取最多 5 条尚未分配给组内任何人的新消息（特殊符号 &gt; 代表未投递过的新消息）</span>
+XREADGROUP GROUP g1 c1 COUNT 5 BLOCK 2000 STREAMS mq:orders &gt;
+
+<span class="c-cm"># 4. 业务落库处理成功后（消费端需做好 order_id 幂等去重），发送 XACK 将该消息从 PEL 待确认池移除</span>
+XACK mq:orders g1 1732676001000-0
+
+<span class="c-cm"># 5. 故障恢复巡检（Redis 6.2+）：若 c1 崩溃导致某消息在 PEL 中停留超过 60000ms 未 ACK，由存活消费者 c2 自动接管重试</span>
+XAUTOCLAIM mq:orders g1 c2 60000 0-0 COUNT 10</code></pre>
+  </div>
+
+  <div class="plop-callout tip" style="margin-top:12px;">
+    <strong>📘 深度原理直达：</strong>如果持有锁的客户端发生长时间 Full GC 停顿，连 Redlock 都无法避免并发写入冲突时该如何用单调递增 <code>Fencing Token</code> 彻底兜底？Stream 内部又是如何用前缀压缩基数树 <code>rax + listpack</code> 实现极低内存占用的？请切换阅读 <a href="principles.html#lock">《📘 核心原理篇 · 06 Redlock 争议、Fencing Token 与 Stream rax 基数树内核》</a>。
+  </div>
+</div>
+
+<!-- 06.3 · 基础与实战篇场景检验自测 -->
+<div class="wb-card" id="cheat" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🎯 06.3 · 实战巩固自测：8 道日常开发与运维场景检验题（点击展开参考解析）</div>
+  <h3>☑️ 06.3 基础与实战篇核心场景自测</h3>
+
+  <div class="wb-grid-2">
+    <div>
+      <details class="plop-drawer">
+        <summary>01. 执行 TTL key 返回 -1 和 -2 分别代表什么含义？</summary>
+        <div class="drawer-body">
+          <p>返回 <code>-1</code> 表示该 Key 当前<strong>存在，但没有设置过期时间</strong>（长期驻留内存，除非手动删除或被 <code>allkeys-*</code> 淘汰策略驱逐）；返回 <code>-2</code> 表示该 Key <strong>不存在</strong>（从未创建、已被删除或已到期自动清理）。此外要注意：对已带过期时间的 Key 重新执行不带 <code>EX / PX / KEEPTTL</code> 选项的 <code>SET</code> 覆写，会清除原有的过期时间使其变为 <code>-1</code>。</p>
         </div>
-
-        <!-- 15：消息队列 Stream + 事务 / Lua / Pipeline（由上到下顺序排列） -->
-        <div class="wb-card" id="mq" style="background:var(--plop-paper); margin-bottom:20px;">
-            <div class="washi-tape periwinkle"></div>
-            <div class="chapter-q-pill">❓ 06.2 · Redis 做消息队列有哪 3 种方式？为什么 Redis 事务不支持回滚？</div>
-            <h3>📨 06.2 消息队列对比：List vs Pub/Sub vs Stream (5.0+)</h3>
-
-            <div class="table-wrap">
-              <table class="plop-table">
-                <thead>
-                  <tr>
-                    <th style="width:18%">方案</th>
-                    <th style="width:32%">核心命令</th>
-                    <th>优缺点与适用边界</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><strong>List</strong></td>
-                    <td><code>LPUSH + BRPOP</code></td>
-                    <td>拉出即删，<strong>无 ACK 确认机制</strong>（消费者崩溃消息就丢），不支持多消费者组广播。</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Pub/Sub</strong></td>
-                    <td><code>PUBLISH / SUBSCRIBE</code></td>
-                    <td>纯内存广播，<strong>不持久化历史消息</strong>，客户端断线期间的消息直接丢失（Fire-and-Forget）。</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Stream</strong><br><span style="font-size:11px; color:var(--plop-leaf);">(5.0+ 推荐)</span></td>
-                    <td><code>XADD / XREADGROUP / XACK</code></td>
-                    <td>借鉴 Kafka：自增消息 ID（<code>时间戳-序号</code>）、<strong>组间广播 + 组内负载均衡</strong>、未确认消息进入 <strong>PEL 待确认列表</strong>，支持 <code>XACK</code> 与 <code>XAUTOCLAIM</code> 故障认领（需用 <code>MAXLEN ~ 10000</code> 限长防撑爆内存）。</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="plop-code-box">
-              <div class="plop-code-head">
-                <span>⚡ stream_mq_demo.redis · Stream 消费者组与 ACK 闭环命令</span>
-                <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('redis-stream-cmd', this)">复制命令</button>
-              </div>
-              <pre class="plop-code-pre" id="redis-stream-cmd"><code><span class="c-cm"># 1. 生产消息并限制队列近似长度 10000</span>
-XADD orders MAXLEN ~ 10000 * user 1001 amount 99.00
-<span class="c-cm"># 2. 创建消费者组 g1 并由消费者 c1 拉取未消费消息 (&gt;)</span>
-XGROUP CREATE orders g1 0 MKSTREAM
-XREADGROUP GROUP g1 c1 COUNT 5 STREAMS orders &gt;
-<span class="c-cm"># 3. 消费成功后发送 XACK 从 PEL 待确认列表中移除</span>
-XACK orders g1 1699000000000-0</code></pre>
-            </div>
-
-            <hr style="border:none; border-top:2px dashed rgba(40,72,216,0.3); margin:14px 0;" />
-
-            <h3 id="misc">🧰 事务（MULTI/EXEC）、Lua 脚本与 Pipeline 管道辨析</h3>
-            <div class="table-wrap">
-              <table class="plop-table">
-                <thead>
-                  <tr>
-                    <th style="width:24%">机制</th>
-                    <th>核心特性与高频考点</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><strong>MULTI / EXEC 事务</strong></td>
-                    <td><strong>不支持回滚！</strong>入队时语法错误会整个拒绝执行；但执行期运行错误（如对 String 调 <code>LPUSH</code>）<strong>只有报错那条失败，其余照常执行且不回滚</strong>。如需条件原子操作，请用 <strong>Lua 脚本</strong>。</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Lua 脚本 (EVAL)</strong></td>
-                    <td>整个脚本在主线程里<strong>作为单条命令原子执行，绝不被其他客户端插队</strong>，且支持写 <code>if/else</code> 分支读取中间结果（不可写死循环或慢逻辑）。</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Pipeline 管道</strong></td>
-                    <td><strong>纯网络层优化（≠ 事务）：</strong>客户端把多条命令打包一次发过去，把 <code>N</code> 次网络 RTT 压缩成 1 次；但服务端执行时<strong>不保证原子性</strong>，中间可能穿插其他客户端命令。</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>02. 使用 SCAN 遍历键空间时，能根据返回列表为空判断遍历结束吗？</summary>
+        <div class="drawer-body">
+          <p>不能。因为 <code>SCAN</code> 每次按槽位抽查一小批哈希桶后再用 <code>MATCH</code> 过滤，如果当前这批桶恰好为空或没有匹配指定前缀的键，返回的 Key 数组就是空的，但底层尚未扫完。唯一正确的终止条件是<strong>返回的下一次游标值（<code>nextCursor</code>）重新回到 <code>0</code></strong>。</p>
         </div>
-
-        <!-- 底部：高频面试自测抽屉 -->
-        <div class="wb-card" id="cheat" style="background:var(--plop-paper);">
-          <div class="washi-tape mint"></div>
-          <div class="chapter-q-pill">🎯 06.3 · 闭卷自测：9 道 Redis 核心追问（先口述回答，再点开抽屉核对）</div>
-          <h3>☑️ 06.3 高频面试速记自检表</h3>
-
-          <div class="wb-grid-2">
-            <div>
-              <details class="plop-drawer">
-                <summary>01. Redis 为什么快？6.0 多线程改了哪里？</summary>
-                <div class="drawer-body">
-                  <p>纯内存寻址（~100ns）+ 单线程免锁免上下文切换 + epoll 多路复用 Reactor 模型 + 高度优化的数据结构（SDS/跳表/listpack）。4.0 引入 bio 后台线程异步删大 Key（<code>UNLINK</code>）；6.0 多线程 IO <strong>只并行读写 Socket 与协议解析，命令执行阶段始终单线程串行</strong>。</p>
-                </div>
-              </details>
-              <details class="plop-drawer">
-                <summary>02. String 的 embstr 为什么以 44 字节为界？7.0 为什么用 listpack 替代 ziplist？</summary>
-                <div class="drawer-body">
-                  <p>jemalloc 分配 64B 内存块，减去 <code>redisObject</code> 头(16B) + <code>sdshdr8</code> 头(3B) + <code>\0</code>(1B) = <strong>44B</strong>。旧 <code>ziplist</code> 每项存前一项长度 <code>prevlen</code>，修改会触发级联扩容的“连锁更新”；<code>listpack</code> 只存自身长度，彻底根除连锁更新。</p>
-                </div>
-              </details>
-              <details class="plop-drawer">
-                <summary>03. ZSet 为什么用跳表 (skiplist + dict) 而不是红黑树或 B+ 树？</summary>
-                <div class="drawer-body">
-                  <p><code>dict</code> 支持 <code>O(1)</code> 按成员查分值，<code>skiplist</code> 支持 <code>O(log N)</code> 排序与范围查。相比红黑树，跳表 L0 层就是双向有序链表，范围遍历（<code>ZRANGE</code>）极简单且靠随机层数免去旋转平衡；B+ 树则是为降低磁盘页随机 IO 设计的，纯内存无需 B+ 树。</p>
-                </div>
-              </details>
-              <details class="plop-drawer">
-                <summary>04. 渐进式 rehash 是怎么运作的？为什么 fork 期间扩容阈值从 1 提到 5？</summary>
-                <div class="drawer-body">
-                  <p>同时维护 <code>ht[0]</code> 和 <code>ht[1]</code>，每次增删改查顺带按 <code>rehashidx</code> 搬迁 1 个桶（新增只写 <code>ht[1]</code>，查询先 <code>ht[0]</code> 后 <code>ht[1]</code>）。RDB/AOF 子进程存在时，为避免大面积内存修改触发写时复制（COW）撑爆内存，把扩容负载因子阈值从 1 抬高到 5。</p>
-                </div>
-              </details>
-              <details class="plop-drawer">
-                <summary>05. 缓存穿透、击穿、雪崩分别怎么解决？</summary>
-                <div class="drawer-body">
-                  <p><strong>穿透（查不存在）：</strong>布隆过滤器前置拦截 + 缓存空对象（短 TTL）；<strong>击穿（单热点 Key 过期）：</strong>互斥锁回源重建 或 逻辑过期异步刷新；<strong>雪崩（大批过期或宕机）：</strong>TTL 加随机偏移值 + 高可用集群 + 本地多级缓存。</p>
-                </div>
-              </details>
-            </div>
-
-            <div>
-              <details class="plop-drawer">
-                <summary>06. MySQL 与 Redis 如何保持数据一致？</summary>
-                <div class="drawer-body">
-                  <p>采用 Cache-Aside 最终一致：<strong>先更新 MySQL，再删除 Redis 缓存</strong>（不更新缓存以防并发写覆盖与无效计算；不先删缓存以防并发读把旧值重新灌回缓存）。进阶可叠加<strong>延迟双删</strong>或用 <strong>Canal 订阅 MySQL binlog + MQ 重试</strong>异步删缓存。</p>
-                </div>
-              </details>
-              <details class="plop-drawer">
-                <summary>07. RDB 和 AOF 各有什么优缺点？4.0 混合持久化怎么做？</summary>
-                <div class="drawer-body">
-                  <p>RDB 是二进制快照（<code>bgsave</code> fork + COW），恢复极快但丢数据多；AOF 记录写命令（<code>everysec</code> 最多丢 1 秒），但体积大恢复慢。4.0 混合持久化在 AOF 重写时将<strong>前半段存为 RDB 快照、后半段追加增量 AOF 命令</strong>，兼顾恢复速度与数据安全。</p>
-                </div>
-              </details>
-              <details class="plop-drawer">
-                <summary>08. 过期删除和内存淘汰有什么区别？从库会自己删过期 Key 吗？</summary>
-                <div class="drawer-body">
-                  <p>过期删除采用<strong>惰性删除 + 定期抽样删除</strong>；内存达到 <code>maxmemory</code> 时触发 8 种淘汰策略（常用 <code>allkeys-lru</code> 或 <code>allkeys-lfu</code>，复用 <code>redisObject</code> 的 24-bit <code>lru</code> 字段抽样淘汰）。<strong>从库绝不主动物理删除过期 Key</strong>，统一等主库发来 <code>DEL/UNLINK</code> 才删。</p>
-                </div>
-              </details>
-              <details class="plop-drawer">
-                <summary>09. 主从、哨兵、Cluster 各自解决什么问题？分布式锁怎么防误删和过期？</summary>
-                <div class="drawer-body">
-                  <p><strong>主从：</strong>读分流与备份（靠 RDB + <code>repl_backlog</code> 环形缓冲同步）；<strong>哨兵：</strong>SDOWN→ODOWN + Raft 选主自动故障转移；<strong>Cluster：</strong>16384 槽水平分片。<strong>分布式锁：</strong><code>SET key uuid NX EX 30</code> + Lua 比对 UUID 原子释放 + Watchdog 看门狗每 10s 自动续期。</p>
-                </div>
-              </details>
-            </div>
-          </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>03. 存储用户购物车商品与数量，选 JSON String 还是 Hash 更合适？</summary>
+        <div class="drawer-body">
+          <p>选 <code>Hash</code>（如 <code>key = cart:user:1001</code>，<code>field = sku_id</code>，<code>value = count</code>）。加购、修改单品数量（<code>HINCRBY</code>）、移除单品（<code>HDEL</code>）均可在服务端直接按单个字段完成，避免每次加减一件商品都把整个购物车 JSON 拉回客户端反序列化再全量覆写。</p>
         </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>04. 抽奖业务中，Set 的 SRANDMEMBER 与 SPOP 有何区别？</summary>
+        <div class="drawer-body">
+          <p><code>SRANDMEMBER key [count]</code> 仅随机抽取返回元素，<strong>不修改原集合</strong>，适合“首页随机推荐一批用户/商品”或允许重复中奖的场景；<code>SPOP key [count]</code> 会随机抽取并<strong>将中奖元素从集合中永久移除</strong>，天然保证同一个人不会重复抽中多个奖项。</p>
+        </div>
+      </details>
+    </div>
+
+    <div>
+      <details class="plop-drawer">
+        <summary>05. 如何用一段简洁代码同时防住缓存穿透、缓存击穿与缓存雪崩？</summary>
+        <div class="drawer-body">
+          <p>① <strong>防穿透</strong>：数据库查不到记录时写入短 TTL（如 45 秒）的空值标记（或前置布隆过滤器）；② <strong>防击穿</strong>：缓存未命中回源处包裹进程内 <code>singleflight</code> 或分布式互斥锁，确保高并发下同一热点 Key 只有 1 个协程回源查库；③ <strong>防雪崩</strong>：回填缓存的过期时间统一加上随机偏移量（如 <code>30m + rand(0, 5m)</code>）避免集中失效。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>06. 16 GiB 内存机器独立部署 Redis，maxmemory 为什么不能直接设成 16gb？</summary>
+        <div class="drawer-body">
+          <p><code>maxmemory</code> 只统计键值数据本身的开销，而不包含主从复制缓冲区、客户端输入输出缓冲区、<code>jemalloc</code> 内存碎片以及 <code>BGSAVE / BGREWRITEAOF</code> <code>fork</code> 子进程期间写时复制产生的额外内存页副本。一般将 <code>maxmemory</code> 设为物理内存的 <strong>70% 左右（约 11~12 GiB）</strong>，预留 25%~30% 安全水位防止触发操作系统 OOM Killer。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>07. Redis Cluster 中执行 MSET 报 CROSSSLOT 错误该如何规范解决？</summary>
+        <div class="drawer-body">
+          <p>Cluster 要求单条多 Key 命令或 Lua 脚本访问的所有 Key 必须位于同一个哈希槽。应在键名中引入花括号 <strong><code>{Hash Tag}</code></strong>（如 <code>user:{10086}:info</code> 与 <code>user:{10086}:ext</code>），使 Redis 仅对离散度高的 <code>10086</code> 计算 <code>CRC16</code>，切忌使用固定常量做 Hash Tag 以免引发单分片倾斜。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>08. 需要“先判断库存 ≥ N 再扣减并记录购买人”，用 MULTI 事务还是 Lua 脚本？</summary>
+        <div class="drawer-body">
+          <p>必须使用 <strong>Lua 脚本（<code>EVAL / EVALSHA</code>）</strong>。因为 <code>MULTI/EXEC</code> 事务的所有命令在入队阶段只是暂存不执行，客户端无法在事务中途拿到查询结果去做 <code>if stock &gt;= N</code> 分支判断，且运行期报错不回滚；而 Lua 脚本在服务端主线程内一次性原子完成查询、分支校验与扣减更新。</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>

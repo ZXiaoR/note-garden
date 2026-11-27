@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="音视频与 WebRTC 基础与实战篇：从认识 RTC 与 WebRTC 全景五步流程、第一个本地摄像头网页与调试面板出发，依次梳理网页媒体标签与协议选型、设备采集与轨道热切换、WebSocket 信令与双人视频建连，以及 Vue 3 组合式封装、AI 实时语音接入与日常排障。" />
+  <title>音视频与 WebRTC · 基础与实战篇 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+      </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" class="active" aria-current="page" title="循序渐进：从认识 WebRTC 五步流程、第一个摄像头页面、设备轨道控制到 Vue 3 视频通话封装">🌱 基础与实战篇</a>
+        <a href="principles.html" data-edition-target="principles.html" title="切换到编码帧结构、SDP 报文与对称 NAT 穿透、DTLS-SRTP 弱网抗抖动与 SFU 大小流原理">📘 核心原理篇 ↗</a>
+      </nav>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + 日常开发速查 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与日常开发速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="音视频基础与实战章节书签">
+          <a href="#why" class="plop-ear-tab active" data-toc="why">
+            <span class="ear-dot"></span>
+            <span>00 全景导读与初体验</span>
+          </a>
+          <a href="#media" class="plop-ear-tab" data-toc="media">
+            <span class="ear-dot mint"></span>
+            <span>01 媒体标签与协议选型</span>
+          </a>
+          <a href="#capture" class="plop-ear-tab" data-toc="capture">
+            <span class="ear-dot periwinkle"></span>
+            <span>02 设备采集与轨道控制</span>
+          </a>
+          <a href="#signaling" class="plop-ear-tab" data-toc="signaling">
+            <span class="ear-dot pink"></span>
+            <span>03 信令牵线与双人建连</span>
+          </a>
+          <a href="#engineering" class="plop-ear-tab" data-toc="engineering">
+            <span class="ear-dot mustard"></span>
+            <span>04 Vue3实战与AI语音</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：WebRTC 日常开发速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>WEBRTC 开发速查</span>
+            <span>#WEB</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>安全上下文</span>
+            <span>HTTPS / localhost</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>iOS 内联播放</span>
+            <span>playsinline</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>通话中闭麦</span>
+            <span>track.enabled=false</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>退房关指示灯</span>
+            <span>track.stop()</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>底层深挖</span>
+            <span>顶部 📘原理篇</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#why" class="active">00 全景导读</a>
+        <a href="#media">01 标签与协议</a>
+        <a href="#capture">02 采集与轨道</a>
+        <a href="#signaling">03 信令与建连</a>
+        <a href="#engineering">04 Vue3实战</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape"></div>
+
+        <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三阶段阅读车票 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card" style="background:var(--plop-mint);">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">RTC / MEDIA</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:32px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">WebRTC</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">基础与实战篇</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag mint">🌱 基础与实战篇</span>
+              <span class="plop-tag periwinkle">五步通话全景 · 媒体标签 · 设备与轨道</span>
+              <span class="plop-tag tomato">WebSocket 信令 · Vue 3 封装 · AI 实时语音</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              音视频与 WebRTC · 基础与实战篇
+            </h1>
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0 0 14px; font-weight:600;">
+              从认识实时音视频与 WebRTC 的五步通话全局地图、手写第一个摄像头预览网页出发，依次梳理网页媒体播放属性与流媒体协议适用场景、浏览器音视频采集约束与轨道控制、基于 WebSocket 的双人视频通话建连步骤，最后落地海外视频社交场景的 Vue 3 组合式封装、AI 实时语音对接与日常联调排障清单。若需深入编码帧结构、对称型 NAT 穿透、弱网抗丢包算法与多人 SFU 架构原理，可随时切换至 <a href="principles.html">📘 核心原理篇 ↗</a>。
+            </p>
+
+            <!-- 三阶段手账小票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#why" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 全景地图与播放基础</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—01：WebRTC 定位、五步通话主线、第一个摄像头页面与流媒体选型</div>
+              </a>
+              <a href="#capture" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 设备采集与双人连线</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 02—03：开关麦与切镜头、35 行信令后端、Offer/Answer 与候选交换</div>
+              </a>
+              <a href="#engineering" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ Vue 3 封装与 AI 落地</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 04：useWebRTCCall 生产封装、LiveKit/声网模型、AI 实时对话与排障表</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 5 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="sections/00-why.html">
+          <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 认识音视频与 WebRTC：全局定位、五步通话主线、第一个摄像头网页与调试面板</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">理清 RTC 与 WebRTC 的关系、与 WebSocket 的差异，建立一次视频通话的五步全景地图与缩写白话表，并运行第一个本地预览页面。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/01-media.html">
+          <section class="wb-card" id="media" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-media.html">01 · 媒体标签、编解码器与封装容器、九大流媒体协议及四种播放路线</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解 H.264/H.265/VP8/AV1 与 Opus/AAC/G.711 编解码器、MP4(moov)/fMP4/FLV/TS/WebM 五大容器结构，横向对比 9 类流媒体协议、服务端转封装 vs 转码及前端 4 种播放路线。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/02-capture.html">
+          <section class="wb-card" id="capture" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-capture.html">02 · 浏览器设备采集与轨道控制：<code>MediaStream</code>、权限降级、前后摄切换与屏幕共享</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">理解流与轨道的父子关系，掌握 getUserMedia 约束回退、软静音 enabled 与硬件释放 stop() 的区别，以及 replaceTrack 零重连切流。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/03-signaling.html">
+          <section class="wb-card" id="signaling" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-signaling.html">03 · 双人视频通话建连流程：最小 WebSocket 信令服务、SDP 交换与 <code>RTCDataChannel</code></a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">手写 35 行 Node.js 房间信令服务，按标准四步跑通 RTCPeerConnection 双人音视频连线，并顺带使用 DataChannel 收发实时字幕与指令。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/04-engineering.html">
+          <section class="wb-card" id="engineering" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-engineering.html">04 · Vue 3 项目实战与 AI 语音接入：<code>useWebRTCCall</code> 封装、多人 SDK 模型与排障清单</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">封装带候选暂存队列、断网重连与弱网检测的 Vue 3 组合式函数，梳理多人语聊 SDK 与 AI 实时语音对接模式及 6 类常见故障排查表。</p>
+          </section>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：学习路线便签 + 全站主题跳转 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷导航与跨专题切换">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>🌱 按现在的需要读</span>
+            </span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:7px; margin-top:8px;">
+            <a class="plop-pill-sticker" href="#why">零基础入门：从 00 五步图读起</a>
+            <a class="plop-pill-sticker periwinkle" href="#engineering">写 Vue 组件与排障：看 04 实战</a>
+            <a class="plop-pill-sticker mustard" href="principles.html">想看底层穿透与弱网算法：去 📘 原理篇 ↗</a>
+          </div>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,239 @@
+<!-- ====================================================================
+     PART 03: 双人视频通话建连流程 · 最小 WebSocket 信令服务、SDP 交换与 RTCDataChannel
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="signaling">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">双人视频通话建连流程 · WebSocket 信令牵线、SDP 交换与 <code>RTCDataChannel</code></span>
+  <span class="plop-tag tomato">STAGES ② &amp; ③ · SIGNALING &amp; PEER CONNECTION</span>
+</div>
+
+<!-- 03.1 · 为什么需要信令服 + 35 行 Node.js 最小房间信令后端 -->
+<div class="wb-card" id="minimal-signaling-server" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🤝 03.1 · 信令牵线：WebRTC 信令与媒体传输解耦设计及 35 行最小房间转发服务实现</div>
+  <h3>🤝 03.1 认识信令服务器：一个只管转交 JSON 名片的「传话人」</h3>
+
+  <p>
+    进入五步全景图的<strong>第 ② 步（信令互换名片）与第 ③ 步（候选地址传递）</strong>：WebRTC 规范之所以故意不内置信令协议，是因为不同业务有截然不同的进房前逻辑——1v1 社交有「左滑右滑随机匹配池」、企业会议有「密码入会与主持人准入」、付费咨询有「余额校验」。WebRTC 把这部分完全交由业务自己的后端（通常用 <code>WebSocket</code>）控制。
+  </p>
+
+  <p>
+    从代码层面看，一个双人 WebRTC 信令服务器做的事情非常单纯：<strong>维护房间里的两个 WebSocket 连接，把 A 发来的 JSON 原封不动转发给同房间的 B</strong>，完全不触碰任何音视频字节：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🟢 signaling-server.mjs · 35 行最小房间转发信令服务（npm i ws）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ws-server', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-ws-server"><code><span class="c-kw">import</span> { WebSocketServer } <span class="c-kw">from</span> <span class="c-str">'ws'</span>;
+
+<span class="c-kw">const</span> wss = <span class="c-kw">new</span> <span class="c-fn">WebSocketServer</span>({ port: <span class="c-num">8080</span> });
+<span class="c-cm">// roomId -> Set&lt;WebSocket&gt; 保存每个房间内的在线客户端</span>
+<span class="c-kw">const</span> rooms = <span class="c-kw">new</span> <span class="c-fn">Map</span>();
+
+wss.<span class="c-fn">on</span>(<span class="c-str">'connection'</span>, ws =&gt; {
+  ws.<span class="c-fn">on</span>(<span class="c-str">'message'</span>, raw =&gt; {
+    <span class="c-kw">const</span> msg = JSON.<span class="c-fn">parse</span>(raw.<span class="c-fn">toString</span>());
+    <span class="c-kw">const</span> { roomId, type, payload } = msg;
+
+    <span class="c-kw">if</span> (type === <span class="c-str">'join'</span>) {
+      <span class="c-kw">if</span> (!rooms.<span class="c-fn">has</span>(roomId)) rooms.<span class="c-fn">set</span>(roomId, <span class="c-kw">new</span> <span class="c-fn">Set</span>());
+      <span class="c-kw">const</span> peers = rooms.<span class="c-fn">get</span>(roomId);
+      peers.<span class="c-fn">add</span>(ws);
+      ws.roomId = roomId;
+      <span class="c-cm">// 当第二个用户进房时，通知先在房里的用户担任 Caller 发起呼叫</span>
+      <span class="c-kw">if</span> (peers.size === <span class="c-num">2</span>) {
+        <span class="c-kw">const</span> [caller] = peers;
+        caller.<span class="c-fn">send</span>(JSON.<span class="c-fn">stringify</span>({ type: <span class="c-str">'peer-ready'</span> }));
+      }
+      <span class="c-kw">return</span>;
+    }
+
+    <span class="c-cm">// 其余消息（offer / answer / ice-candidate）直接转发给同房间对端</span>
+    <span class="c-kw">const</span> peers = rooms.<span class="c-fn">get</span>(roomId) || [];
+    <span class="c-kw">for</span> (<span class="c-kw">const</span> client <span class="c-kw">of</span> peers) {
+      <span class="c-kw">if</span> (client !== ws &amp;&amp; client.readyState === <span class="c-num">1</span>) {
+        client.<span class="c-fn">send</span>(JSON.<span class="c-fn">stringify</span>({ type, payload }));
+      }
+    }
+  });
+
+  ws.<span class="c-fn">on</span>(<span class="c-str">'close'</span>, () =&gt; rooms.<span class="c-fn">get</span>(ws.roomId)?.<span class="c-fn">delete</span>(ws));
+});</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📋 信令信道里实际只传递这 4 类轻量消息</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.9px; line-height:1.7; color:var(--plop-ink-text);">
+        <li><strong><code>join / peer-ready</code>（房间匹配控制）：</strong>决定谁和谁配成一对，并指定其中一方担任主叫方（Caller）主动发起 <code>createOffer()</code>，避免两人同时发 Offer 撞车。</li>
+        <li><strong><code>offer</code>（主叫方的 SDP 能力名片）：</strong>主叫方生成自己的编解码与加密描述，设为本地描述（<code>setLocalDescription</code>）后发给被叫方。</li>
+        <li><strong><code>answer</code>（被叫方的 SDP 应答名片）：</strong>被叫方收下主叫方名片（<code>setRemoteDescription</code>），生成兼容的交集名片设为本地描述并回传给主叫方。</li>
+        <li><strong><code>ice-candidate</code>（增量网络候选路线）：</strong>双方浏览器在后台一边向 STUN/TURN 探测可用 IP:Port，一边触发 <code>onicecandidate</code> 通过信令发给对方，对方收到后调用 <code>addIceCandidate</code> 尝试打洞连通。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 03.2 · 双人建连标准时序图与 RTCDataChannel 附带数据通道 -->
+<div class="wb-card" id="peer-connection-flow" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📡 03.2 · 建连全流程：<code>RTCPeerConnection</code> 四步握手时序与 <code>RTCDataChannel</code> 实时文本/指令通道</div>
+  <h3>📡 03.2 双人建连完整交互时序与数据通道用法</h3>
+
+  <p>
+    把主叫方（Peer A）、WebSocket 信令服、STUN/TURN 节点与被叫方（Peer B）放在同一张时间轴上，就能看清整个呼叫建立的标准顺序：
+  </p>
+
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg role="img" aria-labelledby="webrtc-seq-title webrtc-seq-desc" viewBox="0 0 880 512" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.5px solid #2848D8; border-radius:14px;">
+        <title id="webrtc-seq-title">WebRTC 信令协商与 NAT 穿透建连时序图</title>
+        <desc id="webrtc-seq-desc">展示呼叫方与被叫方通过 WebSocket 信令服务器交换 Offer 与 Answer SDP，同时向 STUN/TURN 节点探测候选地址并增量发送 Trickle ICE，最终按连通性结果进入 P2P 直连或 TURN 中继加密传输。</desc>
+        <defs>
+          <marker id="seq-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#1E7043" />
+          </marker>
+          <marker id="seq-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#D2381E" />
+          </marker>
+          <marker id="seq-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2848D8" />
+          </marker>
+        </defs>
+
+        <!-- Combined Fragment Frame: ALT (widened to x=48..832 so ALT tab sits cleanly left of x=112 activation bar) -->
+        <rect x="48" y="316" width="784" height="140" rx="8" fill="#FFF6E5" stroke="#2848D8" stroke-width="2" />
+        <rect x="48" y="316" width="52" height="22" rx="6" fill="#2848D8" />
+        <text x="74" y="331" fill="#FFF8E7" font-size="9.5" font-family="ui-monospace, monospace" font-weight="900" text-anchor="middle" letter-spacing="0.1em">ALT</text>
+        <line x1="56" y1="388" x2="824" y2="388" stroke="#2848D8" stroke-width="1.6" stroke-dasharray="5,4" />
+
+        <!-- Lifelines -->
+        <line x1="116" y1="72" x2="116" y2="464" stroke="#2848D8" stroke-width="1.5" stroke-dasharray="5,4" opacity="0.55" />
+        <line x1="332" y1="72" x2="332" y2="464" stroke="#2848D8" stroke-width="1.5" stroke-dasharray="5,4" opacity="0.55" />
+        <line x1="548" y1="72" x2="548" y2="464" stroke="#1E7043" stroke-width="1.5" stroke-dasharray="5,4" opacity="0.65" />
+        <line x1="764" y1="72" x2="764" y2="464" stroke="#2848D8" stroke-width="1.5" stroke-dasharray="5,4" opacity="0.55" />
+
+        <!-- Guard Label Masks & Texts (drawn AFTER lifelines, starting at x=132 well right of x=112..120 bar) -->
+        <rect x="128" y="320" width="336" height="18" rx="4" fill="#FFF6E5" />
+        <text x="134" y="333" fill="#14226B" font-size="9.2" font-weight="800" font-family="ui-monospace, monospace">[分支 A · ICE 探测打洞成功：P2P 直连（约占 80%+ 流量）]</text>
+
+        <rect x="128" y="394" width="356" height="18" rx="4" fill="#FFF6E5" />
+        <text x="134" y="407" fill="#D2381E" font-size="9.2" font-weight="800" font-family="ui-monospace, monospace">[分支 B · 防火墙或对称型 NAT 拦截：自动切换 TURN 中继保底]</text>
+
+        <!-- Activation Bars -->
+        <rect x="112" y="96" width="8" height="352" fill="#F6C445" stroke="#2848D8" stroke-width="1.4" />
+        <rect x="328" y="100" width="8" height="204" fill="#A9B6EE" stroke="#2848D8" stroke-width="1.4" />
+        <rect x="544" y="224" width="8" height="48" fill="#9FD8B8" stroke="#1E7043" stroke-width="1.4" />
+        <rect x="544" y="432" width="8" height="16" fill="#9FD8B8" stroke="#1E7043" stroke-width="1.4" />
+        <rect x="760" y="132" width="8" height="316" fill="#F6A9B8" stroke="#2848D8" stroke-width="1.4" />
+
+        <!-- Sequence Connectors -->
+        <line x1="120" y1="104" x2="328" y2="104" stroke="#2848D8" stroke-width="2" marker-end="url(#seq-arr-link)" />
+        <line x1="336" y1="136" x2="760" y2="136" stroke="#2848D8" stroke-width="2" marker-end="url(#seq-arr-link)" />
+        <line x1="760" y1="168" x2="336" y2="168" stroke="#2848D8" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#seq-arr-link)" />
+        <line x1="328" y1="200" x2="120" y2="200" stroke="#2848D8" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#seq-arr-link)" />
+        <line x1="120" y1="232" x2="544" y2="232" stroke="#1E7043" stroke-width="2" marker-end="url(#seq-arr)" />
+        <line x1="544" y1="264" x2="120" y2="264" stroke="#1E7043" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#seq-arr)" />
+        <line x1="120" y1="296" x2="328" y2="296" stroke="#2848D8" stroke-width="1.8" marker-end="url(#seq-arr-link)" />
+        <line x1="336" y1="296" x2="760" y2="296" stroke="#2848D8" stroke-width="1.8" marker-end="url(#seq-arr-link)" />
+        <line x1="120" y1="368" x2="760" y2="368" stroke="#D2381E" stroke-width="2.4" marker-end="url(#seq-arr-accent)" />
+        <line x1="120" y1="440" x2="544" y2="440" stroke="#1E7043" stroke-width="2" marker-end="url(#seq-arr)" />
+        <line x1="552" y1="440" x2="760" y2="440" stroke="#1E7043" stroke-width="2" marker-end="url(#seq-arr)" />
+
+        <!-- Arrow Label Masks (8px gap above each stroke) -->
+        <rect x="160" y="84" width="128" height="12" rx="3" fill="#FFFDF7" />
+        <text x="224" y="93" fill="#2848D8" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">1. OFFER SDP</text>
+
+        <rect x="376" y="116" width="128" height="12" rx="3" fill="#FFFDF7" />
+        <text x="440" y="125" fill="#2848D8" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">2. RELAY OFFER</text>
+
+        <rect x="376" y="148" width="128" height="12" rx="3" fill="#FFFDF7" />
+        <text x="440" y="157" fill="#2848D8" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">3. ANSWER SDP</text>
+
+        <rect x="160" y="180" width="128" height="12" rx="3" fill="#FFFDF7" />
+        <text x="224" y="189" fill="#2848D8" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">4. RELAY ANSWER</text>
+
+        <rect x="160" y="212" width="128" height="12" rx="3" fill="#FFFDF7" />
+        <text x="224" y="221" fill="#1E7043" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">5. STUN BINDING</text>
+
+        <rect x="376" y="244" width="128" height="12" rx="3" fill="#FFFDF7" />
+        <text x="440" y="253" fill="#1E7043" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">PUBLIC IP:PORT</text>
+
+        <rect x="160" y="276" width="128" height="12" rx="3" fill="#FFFDF7" />
+        <text x="224" y="285" fill="#2848D8" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">6. TRICKLE ICE</text>
+
+        <rect x="376" y="276" width="128" height="12" rx="3" fill="#FFFDF7" />
+        <text x="440" y="285" fill="#2848D8" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">ADD CANDIDATE</text>
+
+        <rect x="364" y="348" width="152" height="12" rx="3" fill="#FFF6E5" />
+        <text x="440" y="357" fill="#D2381E" font-size="8.5" font-weight="900" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">7A. SRTP P2P MEDIA</text>
+
+        <rect x="164" y="420" width="120" height="12" rx="3" fill="#FFF6E5" />
+        <text x="224" y="429" fill="#1E7043" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">7B. TURN RELAY</text>
+
+        <rect x="596" y="420" width="120" height="12" rx="3" fill="#FFF6E5" />
+        <text x="656" y="429" fill="#1E7043" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">FORWARD SRTP</text>
+
+        <!-- Actor Boxes (drawn AFTER lifelines, connectors, and masks) -->
+        <rect x="40" y="20" width="152" height="52" rx="8" fill="#F6C445" stroke="#2848D8" stroke-width="2.2" />
+        <text x="116" y="42" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">Peer A (主叫方)</text>
+        <text x="116" y="59" fill="#D2381E" font-size="8.8" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">createOffer()</text>
+
+        <rect x="256" y="20" width="152" height="52" rx="8" fill="#A9B6EE" stroke="#2848D8" stroke-width="2.2" />
+        <text x="332" y="42" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">WebSocket 信令服</text>
+        <text x="332" y="59" fill="#14226B" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">房间匹配与 JSON 转发</text>
+
+        <rect x="472" y="20" width="152" height="52" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2.2" />
+        <text x="548" y="42" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">STUN / TURN 节点</text>
+        <text x="548" y="59" fill="#1E7043" font-size="8.8" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">UDP 3478 / TLS 443</text>
+
+        <rect x="688" y="20" width="152" height="52" rx="8" fill="#F6A9B8" stroke="#2848D8" stroke-width="2.2" />
+        <text x="764" y="42" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">Peer B (被叫方)</text>
+        <text x="764" y="59" fill="#14226B" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">createAnswer()</text>
+
+        <!-- Legend Strip -->
+        <line x1="40" y1="476" x2="840" y2="476" stroke="#2848D8" stroke-width="1.2" stroke-dasharray="4,3" />
+        <text x="40" y="498" fill="#14226B" font-size="9" font-family="ui-monospace, monospace" font-weight="900" letter-spacing="0.12em">LEGEND</text>
+        <line x1="116" y1="494" x2="152" y2="494" stroke="#2848D8" stroke-width="2" marker-end="url(#seq-arr-link)" />
+        <text x="162" y="498" fill="#14226B" font-size="10.5" font-weight="700" font-family="system-ui, sans-serif">信令协商消息（WebSocket 转发）</text>
+        <line x1="368" y1="494" x2="404" y2="494" stroke="#D2381E" stroke-width="2.4" marker-end="url(#seq-arr-accent)" />
+        <text x="414" y="498" fill="#D2381E" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif">P2P 加密音视频直连（优先路径）</text>
+        <line x1="628" y1="494" x2="664" y2="494" stroke="#1E7043" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#seq-arr)" />
+        <text x="674" y="498" fill="#1E7043" font-size="10.5" font-weight="700" font-family="system-ui, sans-serif">STUN 探测与 TURN 中继兜底</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p style="margin-top:14px;">
+    除了音视频轨道之外，<code>RTCPeerConnection</code> 还附带了一个非常实用的能力——<strong><code>RTCDataChannel</code>（端到端数据通道）</strong>。它复用已经打通的同一条 P2P 连接，让你像写 <code>WebSocket</code> 一样直接在两个浏览器之间收发任意 JSON 文本或二进制 <code>ArrayBuffer</code>（例如视频聊天时发送点赞爱心动效坐标、实时翻译双语字幕、点对点传文件）：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🟦 TypeScript · 在同一条连接上开启 RTCDataChannel 收发低延迟互动指令或字幕</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-datachannel', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-datachannel"><code><span class="c-cm">// 【主叫方 Caller】在调用 createOffer() 之前主动创建一条数据通道（这样通道描述会自动写进 Offer SDP）</span>
+<span class="c-kw">const</span> chatChannel = pc.<span class="c-fn">createDataChannel</span>(<span class="c-str">'social-events'</span>, {
+  ordered: <span class="c-kw">true</span>, <span class="c-cm">// true: 像 TCP 一样保序可靠（适合文字聊天/工具指令）；false + maxRetransmits:0 适合极低延迟高频坐标同步</span>
+});
+chatChannel.onopen = () =&gt; {
+  chatChannel.<span class="c-fn">send</span>(JSON.<span class="c-fn">stringify</span>({ type: <span class="c-str">'gift-effect'</span>, giftId: <span class="c-str">'rose'</span> }));
+};
+
+<span class="c-cm">// 【被叫方 Callee】通过 pc.ondatachannel 接收对端建立的数据通道</span>
+pc.ondatachannel = event =&gt; {
+  <span class="c-kw">const</span> recvChannel = event.channel;
+  recvChannel.onmessage = e =&gt; {
+    <span class="c-kw">const</span> data = JSON.<span class="c-fn">parse</span>(e.data);
+    console.<span class="c-fn">log</span>(<span class="c-str">'收到对端实时互动事件:'</span>, data);
+  };
+};</code></pre>
+  </div>
+
+  <div class="plop-bridge">
+    📘 <strong>SDP 报文结构与 NAT 穿透底层延伸阅读：</strong>关于 SDP 报文逐行拆解、家庭锥形 NAT 与运营商<strong>对称型 NAT（Symmetric NAT）</strong>端口分配差异、以及 Trickle ICE 候选优先级计算，详见 <a href="principles.html#nat">《📘 核心原理篇 · 01 SDP 协议解剖与四类 NAT 穿透机制》↗</a>。
+  </div>
+</div>

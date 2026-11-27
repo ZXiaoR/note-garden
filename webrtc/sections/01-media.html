@@ -1,0 +1,807 @@
+<!-- ====================================================================
+     PART 01: 网页媒体标签、编解码与封装容器详解、九大协议与四种播放路线
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="media">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">媒体标签、编解码器与封装容器、九大流媒体协议及四种播放路线</span>
+  <span class="plop-tag periwinkle">CODECS × CONTAINERS × 9 PROTOCOLS × 4 ROUTES</span>
+</div>
+
+<!-- 01.1 · <video> / <audio> 核心属性、事件与移动端自动播放限制 -->
+<div class="wb-card" id="video-element-spec" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🎬 01.1 · 播放载体：网页 <code>&lt;video&gt;</code> / <code>&lt;audio&gt;</code> 核心属性、常用事件与移动端自动播放处理</div>
+  <h3>🎬 01.1 网页媒体标签属性与移动端自动播放规范</h3>
+
+  <p>
+    无论是播放一个普通 <code>.mp4</code> 点播视频，还是渲染 WebRTC 对端传过来的实时通话画面，绝大多数场景在 DOM 层都承载于 HTML5 原生的 <code>&lt;video&gt;</code> 与 <code>&lt;audio&gt;</code> 元素上。在移动端 H5 与混合 WebView 开发中，以下几个属性与状态事件最为关键：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">属性 / 方法 / 事件</th>
+          <th style="width:20%">分类</th>
+          <th>行为机制与移动端兼容规范</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>autoplay</code> + <code>playsinline</code></strong></td>
+          <td>HTML 属性</td>
+          <td>实时通话的 <code>&lt;video&gt;</code> 标配组合。<code>autoplay</code> 让媒体流挂载后自动开播；<code>playsinline</code>（旧版 iOS 兼容可同写 <code>webkit-playsinline</code>）强制画面嵌在页面 DOM 盒子里渲染，防止 iPhone 自动接管并弹出全屏播放器。</td>
+        </tr>
+        <tr>
+          <td><strong><code>muted</code> 与自动播放策略</strong></td>
+          <td>浏览器安全策略</td>
+          <td>现代浏览器为防止网页突然发出噪音惊吓用户，规定<strong>「未经用户点击/触摸交互前，严禁有声视频自动播放」</strong>。静音视频（带 <code>muted</code>）任何时候都允许自动播放；而带声音的远端画面若在无手势上下文中调用 <code>videoEl.play()</code>，返回的 Promise 会 reject <code>NotAllowedError</code>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>srcObject</code> vs <code>src</code></strong></td>
+          <td>DOM 属性</td>
+          <td>播放静态文件或原生 HLS 地址时赋值给 <code>videoEl.src = 'https://.../a.mp4'</code>；播放 <code>getUserMedia</code> 或 <code>RTCPeerConnection</code> 产出的内存实时流对象 <code>MediaStream</code> 时，直接赋值 <code>videoEl.srcObject = stream</code>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>loadedmetadata / playing / waiting</code></strong></td>
+          <td>生命周期事件</td>
+          <td><code>loadedmetadata</code> 触发时可读出真实分辨率（<code>videoEl.videoWidth / videoHeight</code>）用于自适应横竖屏容器比例；<code>playing</code> 代表首帧正式绘出（常用于统计<strong>首帧秒开耗时</strong>并隐藏骨架屏）；<code>waiting</code> 代表缓冲缺帧卡顿。</td>
+        </tr>
+        <tr>
+          <td><strong><code>setSinkId(deviceId)</code></strong></td>
+          <td>音频输出路由</td>
+          <td>桌面端 Chrome/Edge 支持通过 <code>await videoEl.setSinkId(speakerDeviceId)</code> 在外放扬声器与蓝牙耳机之间切换声音输出设备。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🟦 TypeScript · 安全挂载远端视频流并优雅处理自动播放拦截</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-safe-play', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-safe-play"><code><span class="c-kw">export async function</span> <span class="c-fn">attachAndPlayRemoteStream</span>(
+  videoEl: HTMLVideoElement,
+  remoteStream: MediaStream,
+  onNeedUserTapToUnmute: () =&gt; <span class="c-kw">void</span>
+) {
+  videoEl.srcObject = remoteStream;
+  videoEl.playsInline = <span class="c-kw">true</span>;
+  videoEl.muted = <span class="c-kw">false</span>; <span class="c-cm">// 优先尝试直接有声播放（若用户在进房前刚点过「开始匹配」按钮通常会直接成功）</span>
+
+  <span class="c-kw">try</span> {
+    <span class="c-kw">await</span> videoEl.<span class="c-fn">play</span>();
+  } <span class="c-kw">catch</span> (err: <span class="c-kw">any</span>) {
+    <span class="c-kw">if</span> (err.name === <span class="c-str">'NotAllowedError'</span>) {
+      <span class="c-cm">// 兜底策略：若浏览器拦截了有声自动播放，先降级为静音自动播让画面先出来（不黑屏），同时提示用户轻触开启声音</span>
+      videoEl.muted = <span class="c-kw">true</span>;
+      <span class="c-kw">await</span> videoEl.<span class="c-fn">play</span>();
+      <span class="c-fn">onNeedUserTapToUnmute</span>(); <span class="c-cm">// 用户点击提示条时在 click 回调内设置 videoEl.muted = false 即可立即出声</span>
+    }
+  }
+}</code></pre>
+  </div>
+</div>
+
+<!-- 01.2 · 编解码器（Codec）与封装容器（Container）具体拆解 -->
+<div class="wb-card" id="codecs-and-containers" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">📦 01.2 · 编码与封装详解：三层打包关系、主流音视频编解码器选型与五大封装容器内部结构</div>
+  <h3>📦 01.2 编解码器（Codec）与封装容器（Container）具体拆解</h3>
+
+  <p>
+    接触流媒体传输协议之前，需要先区分<strong>「编解码器」</strong>与<strong>「封装容器」</strong>两个不同层级的概念：例如常见的 <code>.mp4</code> 后缀只是最外层的<strong>封装容器（纸箱）</strong>，部分 MP4 视频在网页中黑屏或无声，通常是因为容器内部封装了当前浏览器不支持的<strong>压缩编码（如 <code>H.265</code> 视频编码或 <code>G.711</code> 音频编码）</strong>。
+  </p>
+
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg role="img" aria-labelledby="codec-mux-title codec-mux-desc" viewBox="0 0 880 336" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.5px solid #2848D8; border-radius:14px;">
+        <title id="codec-mux-title">音视频编解码器、封装容器与传输协议三层关系及 MP4 分片结构图</title>
+        <desc id="codec-mux-desc">上半部分展示原始音视频依次经过编解码器压缩为裸流、封装容器合轨加索引、传输协议网络派送的三层流水线；下半部分对比普通整块 MP4 的末尾 moov 索引限制与分片 fMP4 逐段 moof+mdat 流式结构。</desc>
+        <defs>
+          <marker id="cm-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2848D8" />
+          </marker>
+          <marker id="cm-arr-hot" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#D2381E" />
+          </marker>
+        </defs>
+
+        <!-- Zone 1: 3-Layer Packaging Pipeline -->
+        <rect x="28" y="16" width="824" height="132" rx="10" fill="#FBF8F0" stroke="#2848D8" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="44" y="24" width="460" height="22" rx="6" fill="#2848D8" />
+        <text x="274" y="39" fill="#FFF8E7" font-size="9.5" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle">📦 THREE-LAYER PACKAGING · 从原始信号到网络派送的三层职责边界</text>
+
+        <!-- Zone 2: MP4 vs fMP4 Structure -->
+        <rect x="28" y="164" width="824" height="116" rx="10" fill="#FFF5F7" stroke="#2848D8" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="44" y="172" width="488" height="22" rx="6" fill="#D2381E" />
+        <text x="288" y="187" fill="#FFF8E7" font-size="9.5" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle">🧩 CONTAINER ANATOMY · 普通整块 MP4 与流式分片 fMP4 的内部 Box 差异</text>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <line x1="208" y1="96" x2="244" y2="96" stroke="#2848D8" stroke-width="2.2" marker-end="url(#cm-arr)" />
+        <line x1="428" y1="96" x2="464" y2="96" stroke="#2848D8" stroke-width="2.2" marker-end="url(#cm-arr)" />
+        <line x1="648" y1="96" x2="684" y2="96" stroke="#D2381E" stroke-width="2.2" marker-end="url(#cm-arr-hot)" />
+        <line x1="424" y1="236" x2="456" y2="236" stroke="#D2381E" stroke-width="2.2" marker-end="url(#cm-arr-hot)" />
+
+        <!-- Zone 1 Boxes -->
+        <rect x="44" y="60" width="164" height="72" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2" />
+        <text x="126" y="86" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">0. 原始物理采样</text>
+        <text x="126" y="104" fill="#3B4A92" font-size="8.5" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">YUV 图像 + PCM 声波</text>
+        <text x="126" y="120" fill="#3B4A92" font-size="8.2" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">每秒上百 MB 无法直传</text>
+
+        <rect x="244" y="60" width="184" height="72" rx="8" fill="#F6C445" stroke="#2848D8" stroke-width="2.2" />
+        <text x="336" y="86" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">① 编解码器 (Codec)</text>
+        <text x="336" y="104" fill="#14226B" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">H.264/H.265 · Opus/AAC</text>
+        <text x="336" y="120" fill="#D2381E" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">抽真空压成压缩裸流帧</text>
+
+        <rect x="464" y="60" width="184" height="72" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2.2" />
+        <text x="556" y="86" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">② 容器封装 / 网络打包</text>
+        <text x="556" y="104" fill="#14226B" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">FLV·MP4·TS 或 RTP 封包</text>
+        <text x="556" y="120" fill="#1E7043" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">组织帧边界、序号与时间戳</text>
+
+        <rect x="684" y="60" width="152" height="72" rx="8" fill="#F6A9B8" stroke="#D2381E" stroke-width="2.2" />
+        <text x="760" y="86" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">③ 传输协议 (Protocol)</text>
+        <text x="760" y="104" fill="#14226B" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">HLS / FLV / WebRTC</text>
+        <text x="760" y="120" fill="#D2381E" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">按切片或 UDP 包派送</text>
+
+        <!-- Zone 2 Boxes -->
+        <rect x="44" y="206" width="380" height="58" rx="8" fill="#EEF3FF" stroke="#2848D8" stroke-width="2" />
+        <text x="234" y="229" fill="#14226B" font-size="10.6" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">普通 MP4：[ftyp] + [mdat 全片数据] + [moov 全局索引]</text>
+        <text x="234" y="250" fill="#3B4A92" font-size="8.8" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">moov 若在末尾须整片下完才起播（需 faststart 前移），不支持直播流</text>
+
+        <rect x="456" y="206" width="380" height="58" rx="8" fill="#F6C445" stroke="#D2381E" stroke-width="2.4" />
+        <text x="646" y="229" fill="#14226B" font-size="10.6" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">分片 fMP4：[moov 头] + [moof+mdat 片1] + [moof+mdat 片2]...</text>
+        <text x="646" y="250" fill="#D2381E" font-size="8.8" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">每小段自带迷你索引 moof，是浏览器 MSE 唯一通用的流式投喂格式</text>
+
+        <!-- Legend Strip -->
+        <line x1="28" y1="296" x2="852" y2="296" stroke="#2848D8" stroke-width="1.2" stroke-dasharray="4,3" />
+        <text x="32" y="320" fill="#14226B" font-size="9" font-family="ui-monospace, monospace" font-weight="900" letter-spacing="0.12em">LEGEND</text>
+        <line x1="108" y1="316" x2="144" y2="316" stroke="#2848D8" stroke-width="2.2" marker-end="url(#cm-arr)" />
+        <text x="154" y="320" fill="#14226B" font-size="10.5" font-weight="700" font-family="system-ui, sans-serif">编码与封装流转（决定体积与格式兼容）</text>
+        <line x1="408" y1="316" x2="444" y2="316" stroke="#D2381E" stroke-width="2.2" marker-end="url(#cm-arr-hot)" />
+        <text x="454" y="320" fill="#D2381E" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif">流式分片改造与网络分发（决定首帧与实时延迟）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4 style="margin-top:16px; margin-bottom:8px; font-size:15px;">① 第一层：主流音视频编解码器（Codec）特性与浏览器硬解支持</h4>
+  <p style="font-size:13.4px; margin-bottom:8px;">
+    编解码器直接决定了<strong>压缩率、发热量（能否走芯片 GPU/NPU 硬件解码）以及浏览器能不能播</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:16px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">编码格式</th>
+          <th style="width:12%">类型</th>
+          <th style="width:24%">浏览器原生硬解支持度</th>
+          <th>核心技术特点与前端避坑要点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>H.264</code></strong><br><small>(AVC)</small></td>
+          <td>视频</td>
+          <td><span class="hl-mint">全平台接近 100%</span><br><small>(含所有低端手机硬解)</small></td>
+          <td><strong>兼容性绝对主力：</strong>所有移动端芯片均内置硬件编解码电路，省电不发烫。点播常用高压缩比的 <code>High Profile</code>；WebRTC 实时通话常用无 B 帧的 <code>Constrained Baseline (42e01f)</code>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>H.265</code></strong><br><small>(HEVC)</small></td>
+          <td>视频</td>
+          <td>Safari 原生支持；<strong>Chrome 107+ 需宿主显卡支持硬解</strong></td>
+          <td>同等画质比 H.264 <strong>省流约 35% ~ 50%</strong>，安防监控摄像头（海康/大华）与 4K 视频最常用。因专利费问题旧版浏览器不支持，遇到不支持的客户端需由网关转码为 H.264 或走前端 WASM 软解。</td>
+        </tr>
+        <tr>
+          <td><strong><code>VP8 / VP9</code></strong></td>
+          <td>视频</td>
+          <td>桌面与 Android 原生支持；iOS Safari 近代版本已补齐</td>
+          <td>Google 开源免版税编码。<strong><code>VP8</code> 与 H.264 并列为 WebRTC 规范强制必选编码</strong>（软解开销极小，硬件不兼容时做保底）；<code>VP9</code> 对标 H.265，原生支持 <code>SVC</code> 分层编码，是 YouTube 主力。</td>
+        </tr>
+        <tr>
+          <td><strong><code>AV1</code></strong></td>
+          <td>视频</td>
+          <td>现代 Chrome / Edge / Firefox 及新款 iPhone (15 Pro+) 支持</td>
+          <td>AOMedia 联盟推出的新一代免版税编码，比 H.265/VP9 再省流约 <code>25% ~ 30%</code>。目前实时软编码较吃 CPU，逐步用于高端机型弱网通话与超高清点播。</td>
+        </tr>
+        <tr>
+          <td><strong><code>MPEG-1</code></strong><br><small>(mpeg1video)</small></td>
+          <td>视频</td>
+          <td><strong><code>&lt;video&gt;</code> 不支持</strong><br><small>(靠几十 KB 的 JS/WASM 软解)</small></td>
+          <td><strong><code>JSMpeg</code> 经典 Canvas 方案：</strong>早期 VCD 视频标准（<code>MP3</code> 即源于其音频第 3 层），专利已过期且解码逻辑极简，通过 <code>FFmpeg 转 TS → WebSocket → JSMpeg</code> 可直接画到 <code>&lt;canvas&gt;</code> 上，常用于绕开旧版 WebView 劫持 <code>&lt;video&gt;</code> 弹全屏或做异形贴图视频；缺点是<strong>压缩率低（同画质码率约为 H.264 的 3 ~ 5 倍）且服务端须实时 CPU 转码</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Opus</code></strong></td>
+          <td>音频</td>
+          <td>全现代浏览器原生支持</td>
+          <td><strong>WebRTC 强制首选音频编码：</strong>算法帧延迟低至 <code>5 ~ 20ms</code>，支持 <code>6 ~ 510kbps</code> 动态无感调速与带内 FEC 抗丢包，同时兼顾人声对话与立体声音乐。</td>
+        </tr>
+        <tr>
+          <td><strong><code>AAC</code></strong></td>
+          <td>音频</td>
+          <td><span class="hl-mint">全平台 100% 原生支持</span></td>
+          <td><strong>点播（MP4）与单向直播（RTMP / HLS / FLV）标配音频：</strong>听感好、压缩比高，但编码帧延迟（<code>40 ~ 100ms+</code>）高于 Opus，且传统 RTMP 协议默认只认 AAC 不认 Opus。</td>
+        </tr>
+        <tr>
+          <td><strong><code>G.711a / u</code></strong><br><small>(PCMA / PCMU)</small></td>
+          <td>音频</td>
+          <td><strong><code>&lt;video&gt;</code> / MSE 不支持</strong></td>
+          <td><strong>安防 IoT 监控最常见坑点：</strong>摄像头 RTSP 流默认常配 <code>8kHz</code> 窄带 G.711 语音；前端直接转封装喂给 MSE 会出现<strong>「有监控画面但没声音」或直接报错</strong>，须在媒体网关将音频轻量转码为 AAC / Opus。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="margin-top:16px; margin-bottom:8px; font-size:15px;">② 第二层：封装容器（Container）的三项职责与五大常见容器对比</h4>
+  <p style="font-size:13.4px; margin-bottom:8px;">
+    如果只有编码器吐出的 H.264 视频裸流和 AAC 音频裸流，播放器是没法正常工作的——因为不知道一秒播多少帧、音画怎么对齐、拖进度条该跳去哪。<strong>封装容器（打包器 Muxer）核心干了三件事</strong>：① 把视频轨、多语言音频轨、字幕轨交织装进同一个文件或字节流；② 存放解码初始化字典（如 H.264 的 <code>SPS / PPS</code> 分辨率参数）；③ 给每一帧打上<strong>解码时间戳（<code>DTS</code>）与显示时间戳（<code>PTS</code>）</strong>并生成随机拖动索引表（Seek Table）：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">封装容器</th>
+          <th style="width:20%">常见后缀 / 场景</th>
+          <th style="width:22%">内部常见编码搭配</th>
+          <th>内部结构特点与前端实战注意点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>标准 MP4</strong><br><small>(ISO BMFF)</small></td>
+          <td><code>.mp4</code><br>点播文件下载与播放</td>
+          <td>H.264 / H.265 / AV1<br>+ AAC / Opus</td>
+          <td>由嵌套的 <code>Box</code> 组成：<code>ftyp</code>（文件类型）、<code>moov</code>（全局时长与每帧字节偏移索引表）、<code>mdat</code>（海量音视频裸数据）。<br><strong>前端高频坑点：</strong>录像机边录边写时默认把 <code>moov</code> 写在文件最末尾，网页打开 500MB 视频会卡住直到全部下载完才出画面；服务端上传转存时需加 <code>ffmpeg -movflags +faststart</code> 把 <code>moov</code> 挪到文件头部实现秒开。</td>
+        </tr>
+        <tr>
+          <td><strong>分片 fMP4</strong><br><small>(Fragmented MP4)</small></td>
+          <td><code>.m4s / .mp4</code><br>MSE 投喂、现代 HLS 与 DASH</td>
+          <td>H.264 / H.265 / AV1<br>+ AAC / Opus</td>
+          <td><strong>前端流媒体核心容器：</strong>不再依赖单一全局 <code>moov</code>，而是切成无数个独立的 <code>[moof 片段迷你索引 + mdat 片段数据]</code>。不知道总时长也能无限追加，是 <code>flv.js / hls.js / dash.js</code> 在 JS 层重封装后喂给浏览器 <code>MSE</code> 的唯一通用格式。</td>
+        </tr>
+        <tr>
+          <td><strong>FLV</strong><br><small>(Flash Video)</small></td>
+          <td><code>.flv</code><br>RTMP 推流、HTTP/WS-FLV</td>
+          <td>H.264 + AAC<br><small>(Enhanced FLV 支持 H.265)</small></td>
+          <td>结构极度轻量紧凑：仅 <code>9 字节</code> 文件头，后面直接紧跟一串无限延长的 <code>Video Tag / Audio Tag</code> 数据块。没有全局索引头包袱，拿到第一个关键帧就能立刻解封播放，天然适合 1~3 秒低延迟长连接直播。</td>
+        </tr>
+        <tr>
+          <td><strong>MPEG-TS</strong><br><small>(Transport Stream)</small></td>
+          <td><code>.ts</code><br>传统 HLS 切片、广电传输</td>
+          <td>H.264 / H.265<br>+ AAC / MP3</td>
+          <td>把所有音视频流硬切成固定 <strong><code>188 字节</code></strong> 的微小包，且每隔几百毫秒重复广播一次节目配置表（<code>PAT/PMT</code>）。哪怕中途丢包或从任意中间切片切入都能瞬间同步起播，容错极强，但包头冗余比 fMP4 大约 <code>5% ~ 10%</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>WebM / MKV</strong><br><small>(Matroska)</small></td>
+          <td><code>.webm / .mkv</code><br>网页端本地录屏导出</td>
+          <td>VP8 / VP9 / AV1<br>+ Opus / Vorbis</td>
+          <td><code>MKV</code> 能塞进几乎所有格式但浏览器支持不全；Google 裁剪出专供 Web 的开源子集 <strong><code>WebM</code></strong>，无需全局尾部索引即可流式写入，是浏览器原生录屏接口 <strong><code>new MediaRecorder(stream)</code></strong> 默认导出的标准容器。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="margin-top:16px; margin-bottom:8px; font-size:15px;">③ 关键概念辨析：「容器封装」vs「网络打包（RTP）」，以及「流式传输 ≠ 没有容器」</h4>
+  <p style="font-size:13.4px; margin-bottom:10px;">
+    理解实时音视频时极易产生两个混淆：一是以为“不用 MP4/FLV 就是把 H.264 裸字节直接往网线里塞”，二是以为“只要用了容器就不算流式传输”。<strong>准确的技术边界是：实时音视频可以不使用文件级封装容器，但不能没有数据打包与组织规则</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">组织方式</th>
+          <th style="width:22%">典型代表</th>
+          <th>数据组织职责与实时传输机制</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>容器封装</strong><br><small>(Container Muxing)</small></td>
+          <td><code>MP4 / fMP4</code><br><code>FLV / MPEG-TS / WebM</code></td>
+          <td>面向<strong>文件存储或字节流复用</strong>：用 <code>Box / Tag / 188B TS 包</code> 把音视频轨交织在一起，记录采样参数、时间戳与跳转索引。<strong>注意「是不是流式传输」与「有没有容器」是两回事</strong>——<code>HTTP-FLV</code>、<code>WebSocket + MPEG-TS</code>、<code>fMP4</code> 分片全都使用了封装容器，但依然支持边产生、边发送、边解码的流式传输（仅末尾带 <code>moov</code> 的整块普通 MP4 不支持流式）。</td>
+        </tr>
+        <tr>
+          <td><strong>网络打包</strong><br><small>(Packetization)</small></td>
+          <td><strong><code>RTP</code></strong>（实时传输协议，包头仅 <code>12 字节</code>）</td>
+          <td>面向<strong>超低延迟数据包直传</strong>（如 <code>WebRTC</code> 与摄像头 <code>RTSP</code>）：摄像头的 <code>H.264</code> 裸流或浏览器的 <code>Opus</code> 帧<strong>不必先装进 FLV 或 MP4 容器</strong>，而是按负载规范（如 H.264 的 <code>RFC 6184</code> 分片打包规则）直接切分装入 RTP 包发出，由 RTP 包头提供<strong>包序号（排乱序与检测丢包）</strong>和<strong>时间戳（重组完整帧与音画同步）</strong>，接收端按规则重组数据后再送入解码器播放。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip" style="margin-top:0; margin-bottom:0;">
+    <strong>💡 一句话总结底层本质：</strong>不论是靠流式容器（如 <code>FLV Tag / TS 包</code>）还是靠网络封包（如 <code>WebRTC / RTSP</code> 里的 <code>RTP</code>），抑或自研 <code>WebSocket / WebTransport + WebCodecs</code> 时自定义私有帧头，<strong>实时视频可以省去文件容器，但始终需要一套明确的帧边界切分、序号重排与时间戳同步规则</strong>。
+  </div>
+</div>
+
+<!-- 01.3 · 九大流媒体协议全景对比（推流 / 点播 / 直播 / 监控 IoT / 实时互动 / 下一代 QUIC） -->
+<div class="wb-card" id="containers-codecs-protocols" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📡 01.3 · 传输协议全景：从点播、秀场直播、安防 IoT 监控到实时连麦的 9 类主流媒体协议横向对比</div>
+  <h3>📡 01.3 九大流媒体传输协议全景对比</h3>
+
+  <p>
+    搞清楚底层的编解码器与中间层的封装纸箱之后，再看第三层「网络传输协议」就会非常清晰——下面将工业界从点播、单向直播、安防摄像头到超低延迟互动的 <strong>9 类常见媒体传输协议</strong>一次列全：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:14%">协议名称</th>
+          <th style="width:15%">底层传输与封装</th>
+          <th style="width:13%">典型延迟</th>
+          <th style="width:15%">浏览器原生直播</th>
+          <th style="width:24%">前端对接与转换方案</th>
+          <th>典型业务场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>RTMP</strong></td>
+          <td>TCP (默认 1935)<br>FLV 封装</td>
+          <td><code>1 ~ 3 s</code></td>
+          <td>不支持<br><small>(Flash 已退役)</small></td>
+          <td>前端不直接拉它；仅用于<strong>主播端推流</strong>（如 OBS → 媒体服务器），由服务端转成 HTTP-FLV / HLS / WebRTC 分发给前端。</td>
+          <td>传统直播上行推流</td>
+        </tr>
+        <tr>
+          <td><strong>HTTP-FLV</strong></td>
+          <td>HTTP 长连接 (TCP)</td>
+          <td><code>1 ~ 3 s</code></td>
+          <td>不支持原生直播</td>
+          <td>使用 <code>flv.js</code> / <code>mpegts.js</code>：通过 <code>fetch</code> 流式拉取 → JS 解封装 FLV → 重封装为 <code>fMP4</code> → 喂给 MSE 驱动 <code>&lt;video&gt;</code>。</td>
+          <td>国内低延迟单向秀场/游戏直播</td>
+        </tr>
+        <tr>
+          <td><strong>WebSocket-FLV</strong></td>
+          <td>WebSocket (TCP)</td>
+          <td><code>1 ~ 3 s</code></td>
+          <td>不支持原生直播</td>
+          <td>与 HTTP-FLV 相同，<code>mpegts.js</code> 原生支持传入 <code>ws://</code> 或 <code>wss://</code> 地址拉流转喂 MSE。</td>
+          <td>需穿透严格代理网关、或监控分屏规避 HTTP/1.1 同域名 6 连接上限</td>
+        </tr>
+        <tr>
+          <td><strong>HLS</strong></td>
+          <td>HTTP 短请求<br><code>.m3u8 + TS/fMP4</code></td>
+          <td><code>6 ~ 30 s</code><br><small>(LL-HLS 约 2~5s)</small></td>
+          <td><strong>Safari / iOS 原生支持</strong>；Chrome 不原生支持</td>
+          <td>Safari 直接赋 <code>video.src = 'xx.m3u8'</code>；其他浏览器用 <code>hls.js</code> 拉分片喂给 MSE。</td>
+          <td>长短视频点播、百万人赛事大直播（静态切片天然友好适配全球 CDN）</td>
+        </tr>
+        <tr>
+          <td><strong>DASH</strong></td>
+          <td>HTTP 短请求<br><code>.mpd + fMP4</code> 切片</td>
+          <td>与 HLS 类似<br><small>(LL-DASH 约 2~4s)</small></td>
+          <td>不支持原生直播</td>
+          <td>使用 <code>dash.js</code> 或 Google <code>shaka-player</code>（基于 MSE，原生完善支持多码率自适应 ABR 与 Widevine <code>DRM</code> 加密）。</td>
+          <td>海外流媒体点播与版权视频平台（YouTube / Netflix 类）</td>
+        </tr>
+        <tr>
+          <td><strong>RTSP</strong></td>
+          <td>TCP/UDP 控制<br>+ RTP 媒体流</td>
+          <td><code>&lt; 1 s</code></td>
+          <td>不支持</td>
+          <td><strong>方案 A（主流推荐）：</strong>在边缘服务端用 <code>ZLMediaKit / go2rtc / SRS</code> 转成 WebRTC 或 WS-FLV 给网页播；<br><strong>方案 B：</strong>WebSocket 透传裸流 + 前端 WASM 软解。</td>
+          <td>安防海康/大华摄像头、工厂监控、IoT 物联网视觉终端</td>
+        </tr>
+        <tr>
+          <td><strong>WebRTC</strong></td>
+          <td><strong>UDP (SRTP)</strong> 为主<br><small>(失败可退 TCP/TURN)</small></td>
+          <td><span class="hl-mustard">&lt; 500 ms</span><br><small>(通常 80~300ms)</small></td>
+          <td><strong>现代浏览器免插件原生内置</strong></td>
+          <td>双向互动用 <code>RTCPeerConnection</code>；单向超低延迟直播推拉流可用标准化的 <code>WHIP</code>（推）/ <code>WHEP</code>（拉）HTTP 信令。</td>
+          <td>1v1 视频匹配、多人语聊连麦、视频会议、AI 实时语音陪伴、超低延迟直播</td>
+        </tr>
+        <tr>
+          <td><strong>SRT</strong></td>
+          <td>UDP + ARQ 选择性重传</td>
+          <td><code>&lt; 1 s</code></td>
+          <td>不支持</td>
+          <td>前端不直接接触；用于替代 RTMP 做跨洲弱网高可靠上行推流，到达云端媒体服后再转成 WebRTC / HLS。</td>
+          <td>跨国远距离专业广电推流、户外移动弱网采编回传</td>
+        </tr>
+        <tr>
+          <td><strong>WebTransport / MoQ</strong></td>
+          <td>HTTP/3 (QUIC / UDP)</td>
+          <td>亚秒级<br><small>(200ms ~ 1s)</small></td>
+          <td>Chrome 支持 <code>WebTransport</code>；<code>MoQ</code> 标准化中</td>
+          <td>通过 <code>new WebTransport(url)</code> 接收无队头阻塞的 QUIC 流/数据报，配合前端 <code>WebCodecs</code> 硬解画到 Canvas。</td>
+          <td>新一代融合「CDN 可缓存扩展性 + WebRTC 级低延迟」的演进方案（了解即可）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 01.4 · 协议互转与转码机制：转封装 (-c copy) vs 真转码，以及 FFmpeg 与媒体网关的分工 -->
+<div class="wb-card" id="remux-vs-transcode" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🔄 01.4 · 服务端流转换：万物互转底层的「转封装（Remux）」与「重编码转码（Transcode）」差异及网关分工</div>
+  <h3>🔄 01.4 协议互转原理：转封装 vs 真转码，以及 FFmpeg 与媒体网关的分工</h3>
+
+  <p>
+    上表中的各类流媒体协议（如监控摄像头吐出的 <code>RTSP</code>、主播推上来的 <code>RTMP / SRT</code>）在服务端几乎都可以互相转换为 <code>HTTP-FLV</code>、<code>HLS</code> 或 <code>WebRTC</code>。但在工程落地时，口头常说的“转流”必须严格区分为<strong>算力开销相差百倍的两种操作</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">转换级别</th>
+          <th style="width:28%">底层实际处理过程</th>
+          <th style="width:26%">生效前提条件</th>
+          <th>服务器 CPU 与延迟代价</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 转协议 / 转封装</strong><br>(Remuxing · <code>-c copy</code>)</td>
+          <td><strong>只换运输车和外层纸箱，内部压缩帧原封不动直接拷贝</strong>（例如从 RTSP 包里取出已有的 H.264 裸流直接装入 FLV / TS / RTP 发送）。</td>
+          <td>源流的音视频编码本身就是目标播放端原生支持的格式（如视频已是 <code>H.264</code>）。</td>
+          <td><span class="hl-mint">开销极低</span>：CPU 占用不足 <code>1%</code>，画质 100% 无损，几乎零额外延迟，单台普通服务器可并发转发上千路。</td>
+        </tr>
+        <tr>
+          <td><strong>② 重编码转码</strong><br>(Transcoding)</td>
+          <td><strong>拆开原压缩帧 → 解码还原为原始 YUV 像素 / PCM 音频 → 按新格式或新分辨率重新压缩编码</strong>。</td>
+          <td>① 目标端不认识原编码（如安防摄像头默认吐 <code>H.265 + G.711a</code>，而 WebRTC 要求 <code>H.264/VP8 + Opus</code>）；<br>② 需将 <code>1080p</code> 原画压出 <code>720p / 360p</code> 多档清晰度。</td>
+          <td><span class="hl-mustard">开销较高</span>：纯 CPU 软编 1080p 视频在 8 核机器上跑数路即满载（生产需配显卡 <code>NVENC</code> 硬件转码），且额外增加 <code>100 ~ 300ms</code> 编码延迟（注：若仅转音频如 <code>G.711a → Opus/AAC</code> 则非常轻量）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>💻 Terminal · FFmpeg 将 RTSP 转为其他流的两种典型写法</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ffmpeg-remux', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-ffmpeg-remux"><code><span class="c-cm"># 【场景 A · 零转码极速转封装】摄像头本身已设为 H.264，视频直接 -c:v copy 零损耗转推</span>
+$ ffmpeg -rtsp_transport tcp -i <span class="c-str">"rtsp://admin:pwd@192.168.1.64:554/h264"</span> \
+  -c:v copy -c:a aac -f flv <span class="c-str">"rtmp://127.0.0.1/live/cam01"</span>
+
+<span class="c-cm"># 【场景 B · 重编码转码】摄像头为 H.265，需转为低延迟无 B 帧的 H.264 + Opus 供 WebRTC 网关分发</span>
+$ ffmpeg -rtsp_transport tcp -i <span class="c-str">"rtsp://admin:pwd@192.168.1.64:554/h265"</span> \
+  -c:v libx264 -preset ultrafast -tune zerolatency -bf <span class="c-num">0</span> \
+  -c:a libopus -f rtsp <span class="c-str">"rtsp://127.0.0.1:8554/webrtc/cam01"</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">🏢 工程选型：流媒体网关（<code>ZLMediaKit / SRS / go2rtc</code>）与 <code>FFmpeg</code> 的生产分工</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong>角色定位不同：</strong><code>FFmpeg</code> 是单次「拉流 → 处理 → 推流」命令行工具，自身不具备高并发 HTTP 分发与完整的 WebRTC 信令/ICE/DTLS 服务能力，推出来的流仍需交给流媒体服务器承接。</li>
+        <li><strong>内存级一转多：</strong>只要把摄像头后台编码设为 <code>H.264</code>，<code>ZLMediaKit / SRS / go2rtc</code> 可直接在进程内存里把同一路源流同时映射成 <code>WebRTC + HTTP-FLV + WS-FLV + HLS</code>，无需拉起外部 FFmpeg 子进程。</li>
+        <li><strong>按需拉流休眠（On-Demand）：</strong>面对数百个 IoT 摄像头，媒体网关支持「前端有人点开画面时才去摄像头拉取 RTSP，页面关闭无人观看自动断流释放带宽」，仅在遇到 <code>H.265</code> 必须转 <code>H.264</code> 时才由网关按需唤起 FFmpeg 或显卡硬编。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 01.5 · 前端浏览器的四种「解析 / 播放」底层技术路线 -->
+<div class="wb-card" id="four-playback-routes" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🛠️ 01.5 · 播放路线串讲：听懂 <code>MSE</code> / <code>WebCodecs</code> / <code>WASM</code> 是什么，以及前端逐步接管播放的 4 个档位</div>
+  <h3>🛠️ 01.5 串起整条播放链路：听懂 MSE、WebCodecs、WASM 与四种播放路线</h3>
+
+  <p>
+    前面协议表里多次出现了 <code>原生 &lt;video&gt;</code>、<code>MSE</code>、<code>WebCodecs</code> 与 <code>WASM</code>。要把这四个概念串成一条完整的线，可以先回到所有网页视频播放共用的底层主轴——<strong>不管采用什么传输协议，一段视频在网页屏幕上渲染都必须依次走完固定的 3 步</strong>：
+  </p>
+  <p style="font-size:13.6px; background:#FFF6E5; border:1.8px dashed var(--plop-ink); border-radius:10px; padding:10px 14px; margin:8px 0 14px;">
+    <strong>🎬 网页播视频必经三步：</strong>
+    <code>阶段 1：从网络拉数据并拆掉外层纸箱（拉流 + 解封装）</code> ➔
+    <code>阶段 2：把压缩帧还原成颜色像素（解码，最耗算力）</code> ➔
+    <code>阶段 3：对准声音节奏画到屏幕上（缓冲同步 + 渲染）</code>。<br>
+    所谓<strong>「4 种播放路线」</strong>，本质就是：<strong>当 <code>&lt;video&gt;</code> 原生认不出某种格式时，这 3 步里哪几步还能交给浏览器自动干，哪几步需要由前端代码接手完成</strong>。
+  </p>
+
+  <h4 style="margin-top:12px; margin-bottom:8px; font-size:15px;">① 先把三个核心技术名词翻译成大白话</h4>
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">技术名词</th>
+          <th style="width:20%">它到底是什么东西</th>
+          <th>核心机制与解决的工程问题</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>MSE</code></strong><br><small>Media Source Extensions<br>（媒体源扩展）</small></td>
+          <td><strong>浏览器自带的原生 JS 接口</strong><br>（<code>new MediaSource()</code>）</td>
+          <td>以前 <code>&lt;video src="..."&gt;</code> 只能填死一个网址让浏览器自己下载，遇到 Chrome 不认识的 <code>.flv</code> 或 <code>.m3u8</code> 就罢工。<strong>MSE 相当于给 <code>&lt;video&gt;</code> 开了个「JS 投喂后门」</strong>：允许 JS 自己用 <code>fetch/WS</code> 拉流，用 <code>flv.js / hls.js</code> 把外层 FLV/TS 纸箱拆掉、换上浏览器认识的 <code>fMP4</code> 纸箱，再通过 <code>appendBuffer()</code> 塞进 <code>&lt;video&gt;</code> 里——这样<strong>后面的显卡硬解和音画同步依然全由浏览器免费包办</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>WebCodecs</code></strong></td>
+          <td><strong>浏览器新开放的底层硬件编解码 JS 接口</strong><br>（<code>new VideoDecoder()</code>）</td>
+          <td><code>MSE + &lt;video&gt;</code> 虽然省事，但 <code>&lt;video&gt;</code> 内部为了防卡顿会偷偷攒几百毫秒缓冲，黑盒不可控。<strong>WebCodecs 把原本藏在 <code>&lt;video&gt;</code> 肚子里的「显卡硬件解码芯片」单独拎出来给 JS 直接调用</strong>：不用套 fMP4 纸箱，JS 收到一帧 H.264 压缩块立刻调显卡解出画面帧，自己直接画到 <code>&lt;canvas&gt;</code> 上，实现极致低延迟。</td>
+        </tr>
+        <tr>
+          <td><strong><code>WASM</code></strong><br><small>WebAssembly</small></td>
+          <td><strong>能让 C/C++ 代码在网页里高速运行的二进制格式</strong>（<code>.wasm</code> 文件）</td>
+          <td>如果安防摄像头传过来的是老浏览器<strong>连显卡芯片都不认识的 <code>H.265</code> 编码</strong>，上面两条路全断了。这时只能把 C 语言写的万能解码器 <code>FFmpeg</code> 编译成一个几 MB 的 <code>.wasm</code> 文件加载进网页，开后台线程<strong>硬靠电脑/手机 CPU 把像素算出来</strong>再画到 <code>&lt;canvas&gt;</code> 上（俗称“软解”）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="margin-top:14px; margin-bottom:8px; font-size:15px;">② 一张图串起 4 条播放路线：从「全自动托管」到「全手动硬扛」的阶梯</h4>
+  <p style="font-size:13.3px; margin-bottom:10px;">
+    顺着下图从上往下看色块变化（<span class="hl-mint">绿色 = 浏览器自动完成</span>、<span class="hl-mustard">黄色 = 前端 JS 接管</span>、<span style="background:#F6A9B8; padding:1px 5px; border-radius:4px; font-weight:700;">粉红 = 前端借 CPU 硬算</span>），四条路线的分工关系一目了然：
+  </p>
+
+  <figure style="margin:12px 0 14px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg role="img" aria-labelledby="playback-routes-title playback-routes-desc" viewBox="0 0 880 388" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.5px solid #2848D8; border-radius:14px;">
+        <title id="playback-routes-title">前端浏览器四种音视频播放路线三阶段接管分工对比图</title>
+        <desc id="playback-routes-desc">以拉流拆壳、解码还原像素、缓冲同步上屏三个必经阶段为列，对比原生 video 全绿托管、MSE 仅接管拉流换壳、WebCodecs 仅借用硬件解码芯片、以及 WASM 全链路前端软解的四级阶梯关系。</desc>
+        <defs>
+          <marker id="pb-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2848D8" />
+          </marker>
+          <marker id="pb-arr-leaf" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#1E7043" />
+          </marker>
+          <marker id="pb-arr-hot" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#D2381E" />
+          </marker>
+        </defs>
+
+        <!-- Column Headers -->
+        <rect x="28" y="16" width="168" height="26" rx="6" fill="#2848D8" />
+        <text x="112" y="33" fill="#FFF8E7" font-size="9.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">播放路线（由省心到兜底）</text>
+
+        <rect x="220" y="16" width="196" height="26" rx="6" fill="#2848D8" />
+        <text x="318" y="33" fill="#FFF8E7" font-size="9.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">阶段 1 · 拉流与拆包装</text>
+
+        <rect x="440" y="16" width="204" height="26" rx="6" fill="#2848D8" />
+        <text x="542" y="33" fill="#FFF8E7" font-size="9.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">阶段 2 · 解码成像素（最耗算力）</text>
+
+        <rect x="668" y="16" width="184" height="26" rx="6" fill="#2848D8" />
+        <text x="760" y="33" fill="#FFF8E7" font-size="9.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">阶段 3 · 缓冲同步与上屏</text>
+
+        <!-- Row Connectors (all horizontal, drawn BEFORE boxes) -->
+        <!-- Row 1 -->
+        <line x1="196" y1="82" x2="220" y2="82" stroke="#1E7043" stroke-width="2" marker-end="url(#pb-arr-leaf)" />
+        <line x1="416" y1="82" x2="440" y2="82" stroke="#1E7043" stroke-width="2" marker-end="url(#pb-arr-leaf)" />
+        <line x1="644" y1="82" x2="668" y2="82" stroke="#1E7043" stroke-width="2" marker-end="url(#pb-arr-leaf)" />
+        <!-- Row 2 -->
+        <line x1="196" y1="152" x2="220" y2="152" stroke="#2848D8" stroke-width="2" marker-end="url(#pb-arr)" />
+        <line x1="416" y1="152" x2="440" y2="152" stroke="#1E7043" stroke-width="2" marker-end="url(#pb-arr-leaf)" />
+        <line x1="644" y1="152" x2="668" y2="152" stroke="#1E7043" stroke-width="2" marker-end="url(#pb-arr-leaf)" />
+        <!-- Row 3 -->
+        <line x1="196" y1="222" x2="220" y2="222" stroke="#2848D8" stroke-width="2" marker-end="url(#pb-arr)" />
+        <line x1="416" y1="222" x2="440" y2="222" stroke="#1E7043" stroke-width="2" marker-end="url(#pb-arr-leaf)" />
+        <line x1="644" y1="222" x2="668" y2="222" stroke="#2848D8" stroke-width="2" marker-end="url(#pb-arr)" />
+        <!-- Row 4 -->
+        <line x1="196" y1="292" x2="220" y2="292" stroke="#2848D8" stroke-width="2" marker-end="url(#pb-arr)" />
+        <line x1="416" y1="292" x2="440" y2="292" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pb-arr-hot)" />
+        <line x1="644" y1="292" x2="668" y2="292" stroke="#D2381E" stroke-width="2.2" marker-end="url(#pb-arr-hot)" />
+
+        <!-- Row 1: Native <video> (Green - Green - Green) -->
+        <rect x="28" y="54" width="168" height="56" rx="8" fill="#FFFDF7" stroke="#1E7043" stroke-width="2.2" />
+        <text x="112" y="78" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">① 原生 &lt;video&gt; 托管</text>
+        <text x="112" y="96" fill="#1E7043" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">MP4 · Safari HLS · WebRTC</text>
+
+        <rect x="220" y="54" width="196" height="56" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2" />
+        <text x="318" y="78" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">浏览器自动拉流拆壳</text>
+        <text x="318" y="96" fill="#1E7043" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">内置 HTTP / WebRTC 引擎</text>
+
+        <rect x="440" y="54" width="204" height="56" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2" />
+        <text x="542" y="78" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">浏览器调 GPU 硬件解码</text>
+        <text x="542" y="96" fill="#1E7043" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">芯片专用电路 · 最省电</text>
+
+        <rect x="668" y="54" width="184" height="56" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2" />
+        <text x="760" y="78" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">&lt;video&gt; 自动同步上屏</text>
+        <text x="760" y="96" fill="#1E7043" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">赋给 src / srcObject 即可</text>
+
+        <!-- Row 2: MSE (Yellow - Green - Green) -->
+        <rect x="28" y="124" width="168" height="56" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2.2" />
+        <text x="112" y="148" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">② MSE 换壳投喂</text>
+        <text x="112" y="166" fill="#2848D8" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">hls.js · flv.js · dash.js</text>
+
+        <rect x="220" y="124" width="196" height="56" rx="8" fill="#F6C445" stroke="#2848D8" stroke-width="2" />
+        <text x="318" y="148" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">JS 拉流并「换壳不转码」</text>
+        <text x="318" y="166" fill="#14226B" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">拆 FLV/TS 壳 → 换 fMP4 壳</text>
+
+        <rect x="440" y="124" width="204" height="56" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2" />
+        <text x="542" y="148" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">塞进 MSE 仍走 GPU 硬解</text>
+        <text x="542" y="166" fill="#1E7043" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">sourceBuffer.appendBuffer</text>
+
+        <rect x="668" y="124" width="184" height="56" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2" />
+        <text x="760" y="148" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">&lt;video&gt; 自动同步上屏</text>
+        <text x="760" y="166" fill="#1E7043" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">前提：内部须是 H.264 等</text>
+
+        <!-- Row 3: WebCodecs (Yellow - Green - Yellow) -->
+        <rect x="28" y="194" width="168" height="56" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2.2" />
+        <text x="112" y="218" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">③ WebCodecs 裸帧</text>
+        <text x="112" y="236" fill="#2848D8" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">云游戏 · WebTransport</text>
+
+        <rect x="220" y="194" width="196" height="56" rx="8" fill="#F6C445" stroke="#2848D8" stroke-width="2" />
+        <text x="318" y="218" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">JS 收取裸压缩帧块</text>
+        <text x="318" y="236" fill="#14226B" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">无需拼装 fMP4 容器</text>
+
+        <rect x="440" y="194" width="204" height="56" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2" />
+        <text x="542" y="218" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">JS 调 VideoDecoder 硬解</text>
+        <text x="542" y="236" fill="#1E7043" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">只借浏览器显卡硬解芯片</text>
+
+        <rect x="668" y="194" width="184" height="56" rx="8" fill="#F6C445" stroke="#2848D8" stroke-width="2" />
+        <text x="760" y="218" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">JS 画入 Canvas + 自写同步</text>
+        <text x="760" y="236" fill="#D2381E" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">绕开黑盒缓冲 · 逐帧极低延迟</text>
+
+        <!-- Row 4: WASM Soft Decode (Yellow - Pink/Red - Yellow) -->
+        <rect x="28" y="264" width="168" height="56" rx="8" fill="#FFFDF7" stroke="#D2381E" stroke-width="2.4" />
+        <text x="112" y="288" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">④ WASM 软解兜底</text>
+        <text x="112" y="306" fill="#D2381E" font-size="8.2" font-weight="900" font-family="ui-monospace, monospace" text-anchor="middle">jessibuca · JSMpeg</text>
+
+        <rect x="220" y="264" width="196" height="56" rx="8" fill="#F6C445" stroke="#2848D8" stroke-width="2" />
+        <text x="318" y="288" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">JS 拉取非标编码流</text>
+        <text x="318" y="306" fill="#14226B" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">如旧浏览器播 H.265 / G.711</text>
+
+        <rect x="440" y="264" width="204" height="56" rx="8" fill="#F6A9B8" stroke="#D2381E" stroke-width="2.4" />
+        <text x="542" y="288" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">Worker 跑 FFmpeg.wasm</text>
+        <text x="542" y="306" fill="#D2381E" font-size="8.2" font-weight="900" font-family="ui-monospace, monospace" text-anchor="middle">纯靠 CPU 硬算像素（最费电）</text>
+
+        <rect x="668" y="264" width="184" height="56" rx="8" fill="#F6C445" stroke="#2848D8" stroke-width="2" />
+        <text x="760" y="288" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">JS 用 WebGL 画入 Canvas</text>
+        <text x="760" y="306" fill="#D2381E" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">不挑格式 · 多路分屏易发烫</text>
+
+        <!-- Legend Strip -->
+        <line x1="28" y1="338" x2="852" y2="338" stroke="#2848D8" stroke-width="1.2" stroke-dasharray="4,3" />
+        <text x="32" y="366" fill="#14226B" font-size="9" font-family="ui-monospace, monospace" font-weight="900" letter-spacing="0.12em">LEGEND</text>
+        <rect x="104" y="354" width="18" height="14" rx="3" fill="#9FD8B8" stroke="#1E7043" stroke-width="1.8" />
+        <text x="128" y="365" fill="#1E7043" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif">绿色：浏览器内核/显卡自动完成（省电省心）</text>
+        <rect x="382" y="354" width="18" height="14" rx="3" fill="#F6C445" stroke="#2848D8" stroke-width="1.8" />
+        <text x="406" y="365" fill="#14226B" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif">黄色：前端 JS 代码手动接管</text>
+        <rect x="582" y="354" width="18" height="14" rx="3" fill="#F6A9B8" stroke="#D2381E" stroke-width="1.8" />
+        <text x="606" y="365" fill="#D2381E" font-size="10.4" font-weight="800" font-family="system-ui, sans-serif">粉红：前端借 CPU 软解硬算（高功耗保底）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4 style="margin-top:14px; margin-bottom:8px; font-size:15px;">③ 工程选型速查与 WebRTC 在其中的位置</h4>
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">播放路线</th>
+          <th style="width:28%">什么时候选这条路</th>
+          <th style="width:20%">代表开源库 / 原生接口</th>
+          <th>一句话优缺点总结</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 原生 <code>&lt;video&gt;</code></strong></td>
+          <td>播普通 <code>.mp4</code> 点播、Safari 播 HLS、或<strong>标准 WebRTC 实时通话</strong>。</td>
+          <td><code>video.src</code>、WebRTC 的 <code>video.srcObject</code></td>
+          <td><strong>全自动最省电</strong>；但除 WebRTC 外，Chrome 原生既不认识 <code>.flv</code> 也不认识 <code>.m3u8</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>② MSE 换壳</strong></td>
+          <td>外层容器浏览器不认识（如 <code>HTTP-FLV / HLS / DASH</code>），但<strong>里面的视频编码是浏览器认识的 <code>H.264</code></strong>。</td>
+          <td><code>flv.js</code>、<code>mpegts.js</code>、<code>hls.js</code>、<code>dash.js</code></td>
+          <td><strong>单向直播主力方案</strong>：JS 只花极小算力换一层 <code>fMP4</code> 纸箱，解码仍走显卡硬解；旧版 iOS Safari 不支持传统 MSE（iOS 17.1+ 起支持 <code>ManagedMediaSource</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong>③ WebCodecs</strong></td>
+          <td>连 <code>&lt;video&gt;</code> 内部几百毫秒缓冲都嫌慢，需逐帧微操超低延迟渲染。</td>
+          <td><code>VideoDecoder</code> + <code>&lt;canvas&gt;</code>（云游戏、<code>WebTransport</code>）</td>
+          <td><strong>硬解且延迟极低</strong>；代价是缓冲排队、丢帧追帧和音画同步全得自己写。</td>
+        </tr>
+        <tr>
+          <td><strong>④ WASM 软解</strong></td>
+          <td>连里面的视频编码浏览器显卡都不认识（如老环境播监控 <code>H.265 + G.711</code>），或需避开 WebView 劫持 <code>&lt;video&gt;</code>。</td>
+          <td><code>jessibuca</code>、<code>EasyPlayer</code>、<code>h265web.js</code>、<code>JSMpeg</code> (MPEG-1)</td>
+          <td><strong>兼容各类非标格式兜底</strong>；代价是纯烧 CPU，同屏开 4~9 路易发烫卡顿（须配 <code>Web Worker + SIMD</code>）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="margin-top:16px; margin-bottom:8px; font-size:15px;">④ 代码对照：四条播放路线在项目里实际怎么写</h4>
+  <p style="font-size:13.3px; margin-bottom:10px;">
+    把下面四段最小代码放在一起对比，就能直观看到<strong>「喂给 <code>&lt;video&gt;</code>」</strong>与<strong>「自己画到 <code>&lt;canvas&gt;</code>」</strong>在写法上的根本区别：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <!-- 代码 ① 原生 <video> -->
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🟢 路线 ① · 原生 &lt;video&gt;（点播与 WebRTC）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-route-1', this)">复制</button>
+      </div>
+      <pre class="plop-code-pre" id="code-route-1"><code><span class="c-cm">// DOM 载体：&lt;video id="v" autoplay playsinline&gt;&lt;/video&gt;</span>
+<span class="c-kw">const</span> videoEl = document.<span class="c-fn">getElementById</span>(<span class="c-str">'v'</span>) <span class="c-kw">as</span> HTMLVideoElement;
+
+<span class="c-cm">// 写法 A：播普通 MP4（或 Safari 播 .m3u8），填网址即可</span>
+videoEl.src = <span class="c-str">'https://cdn.example.com/intro.mp4'</span>;
+
+<span class="c-cm">// 写法 B：WebRTC 实时通话，直接挂内存流对象，零第三方库</span>
+pc.ontrack = (e) =&gt; {
+  videoEl.srcObject = e.streams[<span class="c-num">0</span>];
+};</code></pre>
+    </div>
+
+    <!-- 代码 ② MSE 换壳投喂 -->
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🟡 路线 ② · MSE 换壳投喂（业务库写法 + 底层原理）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-route-2', this)">复制</button>
+      </div>
+      <pre class="plop-code-pre" id="code-route-2"><code><span class="c-cm">// 【日常业务写法】引入几十 KB 的 mpegts.js 播 HTTP-FLV 直播</span>
+<span class="c-kw">const</span> player = mpegts.<span class="c-fn">createPlayer</span>({
+  type: <span class="c-str">'flv'</span>, isLive: <span class="c-kw">true</span>, url: <span class="c-str">'https://live.example.com/room1.flv'</span>
+});
+player.<span class="c-fn">attachMediaElement</span>(videoEl); <span class="c-cm">// 底层依然挂在 &lt;video&gt; 上</span>
+player.<span class="c-fn">load</span>(); player.<span class="c-fn">play</span>();
+
+<span class="c-cm">// 【库在背后干的 MSE 原生原理】给 &lt;video&gt; 开投喂口塞 fMP4 块：</span>
+<span class="c-kw">const</span> ms = <span class="c-kw">new</span> <span class="c-fn">MediaSource</span>();
+videoEl.src = URL.<span class="c-fn">createObjectURL</span>(ms); <span class="c-cm">// src 指向虚拟媒体源而非真实网址</span>
+ms.<span class="c-fn">addEventListener</span>(<span class="c-str">'sourceopen'</span>, () =&gt; {
+  <span class="c-kw">const</span> sb = ms.<span class="c-fn">addSourceBuffer</span>(<span class="c-str">'video/mp4; codecs="avc1.42E01F"'</span>);
+  sb.<span class="c-fn">appendBuffer</span>(fmp4Chunk); <span class="c-cm">// 把拆掉 FLV 壳换好 fMP4 壳的片段塞进去硬解</span>
+});</code></pre>
+    </div>
+  </div>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <!-- 代码 ③ WebCodecs -->
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🟣 路线 ③ · WebCodecs（裸帧调显卡硬解画入 Canvas）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-route-3', this)">复制</button>
+      </div>
+      <pre class="plop-code-pre" id="code-route-3"><code><span class="c-cm">// DOM 载体变成画布：&lt;canvas id="c" width="1280" height="720"&gt;&lt;/canvas&gt;</span>
+<span class="c-kw">const</span> ctx = (document.<span class="c-fn">getElementById</span>(<span class="c-str">'c'</span>) <span class="c-kw">as</span> HTMLCanvasElement).<span class="c-fn">getContext</span>(<span class="c-str">'2d'</span>)!;
+
+<span class="c-cm">// 1. 直接实例化浏览器底层硬件解码器，解出一帧立刻画到 Canvas</span>
+<span class="c-kw">const</span> decoder = <span class="c-kw">new</span> <span class="c-fn">VideoDecoder</span>({
+  <span class="c-fn">output</span>(frame: VideoFrame) {
+    ctx.<span class="c-fn">drawImage</span>(frame, <span class="c-num">0</span>, <span class="c-num">0</span>);
+    frame.<span class="c-fn">close</span>(); <span class="c-cm">// 关键：显存帧画完须立即手动释放，防止显存泄漏</span>
+  },
+  error: console.error,
+});
+decoder.<span class="c-fn">configure</span>({ codec: <span class="c-str">'avc1.42E01F'</span> }); <span class="c-cm">// 指定 H.264 硬解</span>
+
+<span class="c-cm">// 2. WebSocket 收到一帧裸 H.264 数据，无需套 fMP4 壳直接喂给解码器</span>
+ws.onmessage = ({ data }) =&gt; {
+  decoder.<span class="c-fn">decode</span>(<span class="c-kw">new</span> <span class="c-fn">EncodedVideoChunk</span>({
+    type: <span class="c-str">'key'</span>, timestamp: performance.<span class="c-fn">now</span>() * <span class="c-num">1000</span>, data
+  }));
+};</code></pre>
+    </div>
+
+    <!-- 代码 ④ WASM 软解 -->
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>🔴 路线 ④ · WASM 软解（加载 .wasm 硬算非标 H.265）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-route-4', this)">复制</button>
+      </div>
+      <pre class="plop-code-pre" id="code-route-4"><code><span class="c-cm">// DOM 载体只是一个空容器：&lt;div id="cam-box"&gt;&lt;/div&gt;（库内部自建 WebGL Canvas）</span>
+<span class="c-kw">const</span> player = <span class="c-kw">new</span> <span class="c-fn">Jessibuca</span>({
+  container: document.<span class="c-fn">getElementById</span>(<span class="c-str">'cam-box'</span>)!,
+  decoder: <span class="c-str">'/static/decoder.wasm'</span>, <span class="c-cm">// 加载几 MB 的 FFmpeg 编译产物跑在 Worker 里</span>
+  useMSE: <span class="c-kw">false</span>, <span class="c-cm">// 若开启，支持硬解时优先退回路线 ② MSE 省电</span>
+  useWCS: <span class="c-kw">false</span>, <span class="c-cm">// 若开启，支持硬解时优先退回路线 ③ WebCodecs 低延迟</span>
+});
+
+<span class="c-cm">// 哪怕老浏览器显卡完全不认识 H.265 + G.711a，也能靠 CPU 软解播出来</span>
+player.<span class="c-fn">play</span>(<span class="c-str">'wss://iot.example.com/live/cam01-h265.flv'</span>);</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:12px;">
+    <strong>🎯 WebRTC 在四条播放路线中的定位：直接走「路线 ① 原生托管」</strong><br>
+    在后续章节建立好 <code>RTCPeerConnection</code> 拿到远端 <code>MediaStream</code> 后，只需一行 <code>videoEl.srcObject = remoteStream</code>，拉包、抗丢包、GPU 硬件解码和音画同步全由浏览器内置的 C++ WebRTC 引擎自动完成，<strong>不需要额外引入 MSE 或 WASM</strong>。本章将四条路线并列拆解，是为了在实际项目遇到“监控摄像头 RTSP / 秀场直播 HLS·FLV 与 WebRTC 混合选型”时，能清晰判断不同播放器方案背后的原理与性能开销。
+  </div>
+
+  <div class="plop-bridge">
+    📘 <strong>底层采样与压缩机制延伸阅读：</strong>关于一秒钟原始 PCM 音频与 1080p RGB 画面占用的字节规模、视频 <code>YUV 4:2:0</code> 色度抽样数学依据、以及实时通话禁用 <code>B 帧</code> 仅保留 <code>I + P 帧</code> 的机制，详见 <a href="principles.html#codec">《📘 核心原理篇 · 00 数字音视频采样与压缩原理》↗</a>。
+  </div>
+</div>

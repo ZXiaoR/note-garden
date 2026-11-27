@@ -1,0 +1,185 @@
+<!-- ====================================================================
+     PART 05 (PRINCIPLES): PSYNC2 双复制 ID、Sentinel Raft 选主与 Cluster Gossip / 槽迁移协议
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="replication">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">PSYNC2 双复制 ID、Sentinel Raft 选举与 Cluster Gossip 槽迁移内核</span>
+  <span class="plop-tag tomato">PSYNC2 REPLID2 · SENTINEL RAFT · 16384 BITMAP · MOVED vs ASK</span>
+</div>
+
+<!-- 05.1 · PSYNC 2.0 双复制 ID 与两个复制缓冲区的本质辨析 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">📡 05.1 · 复制协议内核：PSYNC2 双 replid 解决切主重同步问题与两类复制缓冲区内存边界</div>
+  <h3>📡 05.1 <code>PSYNC 2.0</code> 双复制流标识与环形积压缓冲区机制</h3>
+
+  <p>
+    在早期 Redis 2.8 的 <code>PSYNC 1.0</code> 中，一旦主节点宕机、哨兵将某个从节点晋升为新主节点（生成全新的 <code>runid</code>），其余存活从节点改挂新主时因 <code>runid</code> 不匹配，会全部退化为昂贵的 <code>FULLRESYNC</code> 全量 RDB 同步。为此，<strong>Redis 4.0 引入了 <code>PSYNC 2.0</code></strong>，用代表“数据集历史血统”的 40 位随机串 <strong><code>replid</code></strong> 取代实例 <code>runid</code>，并在每个节点内同时维护<strong>主副两组复制标识</strong>：
+  </p>
+
+  <!-- Editorial SVG: PSYNC2 Dual replid + Continuous repl_backlog_buffer Offset Strip -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 900 256" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rdp-psync-title rdp-psync-desc">
+        <title id="rdp-psync-title">PSYNC2 环形积压缓冲区偏移量水位连续数轴与增量/全量判定边界</title>
+        <desc id="rdp-psync-desc">展示全局共享的 repl_backlog_buffer 连续偏移量区间：左侧灰色区（offset 小于 20000）已被新写入环形覆盖，若断线过久的从库汇报 offset=12000 落在此区则触发 +FULLRESYNC 全量同步；右侧有效驻留区（offset 20000 至 85000）内，从库汇报 offset=68000 或在切主后匹配 replid2 且 ≤ second_replid_offset，均返回 +CONTINUE 仅补发差量字节流。</desc>
+
+        <text x="32" y="36" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">主节点全局复制积压流偏移量连续数轴（PSYNC &lt;replid&gt; &lt;offset&gt; 判定区间）</text>
+
+        <!-- Offset Ruler -->
+        <text x="32" y="58" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">offset = 0</text>
+        <text x="296" y="58" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#1F1F23">20,000 (积压起点)</text>
+        <text x="616" y="58" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="700" fill="#bf4520">68,000 (从库重连点)</text>
+        <text x="868" y="58" text-anchor="end" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="700" fill="#2e5aa8">85,000 (master_repl_offset)</text>
+
+        <!-- Continuous Offset Strip (x=32..868, total=836) -->
+        <!-- Segment 1: Overwritten History [0..19999] (x=32, w=264) -->
+        <rect x="32" y="66" width="264" height="64" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4"/>
+        <text x="164" y="92" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#5a6580">已被环形覆盖的历史区 (&lt; 20,000)</text>
+        <text x="164" y="112" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#bf4520">落入此区 -&gt; 返回 +FULLRESYNC 全量重传</text>
+
+        <!-- Segment 2: Retained Backlog synced [20000..68000] (x=296, w=320) -->
+        <rect x="296" y="66" width="320" height="64" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="456" y="92" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#1F1F23">repl_backlog_buffer 有效保留区（已同步段）</text>
+        <text x="456" y="112" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">Redis 7.0 升级为按需增长的共享分块链表</text>
+
+        <!-- Segment 3: Delta to Replay [68001..85000] (x=616, w=252) (Focal) -->
+        <rect x="616" y="66" width="252" height="64" fill="rgba(191,69,32,0.09)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="742" y="92" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">待补发增量差集 [68001..85000]</text>
+        <text x="742" y="112" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" font-weight="700" fill="#bf4520">返回 +CONTINUE 仅发送此 17KB</text>
+
+        <!-- Bottom PSYNC2 Dual-ID Explanation Box -->
+        <rect x="32" y="152" width="836" height="84" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.16)" stroke-width="1"/>
+        <text x="48" y="176" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">• PSYNC2 切主免全量同步秘诀（replid2 + second_replid_offset）：</text>
+        <text x="48" y="198" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#1F1F23">当从库 A 晋升为新主时，会把旧主的 replid 归档进自己的 replid2，并记录切主那一刻的偏移量 second_replid_offset，再生成新 replid。</text>
+        <text x="48" y="218" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">其余兄弟从库 B 改挂新主 A 时，汇报的旧主 replid 能够与 A 的 replid2 匹配且 offset ≤ second_replid_offset，从而直接走增量同步。</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4>极易混淆的两个内核缓冲区：<code>replication buffer</code> vs <code>repl_backlog_buffer</code></h4>
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">内核缓冲区名称</th>
+          <th style="width:22%">实例分配粒度</th>
+          <th>生命周期与溢出后果</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 复制客户端输出缓冲<br><code>replication buffer</code></strong></td>
+          <td><strong>每个从节点独占 1 个</strong><br><span style="font-size:11px;">(7.0 共享底层数据块引用)</span></td>
+          <td>用于全量同步加载 RDB 期间以及日常命令传播阶段，向某个特定从库发送字节流的 TCP 客户端输出队列。若某从库消费过慢触发 <code>client-output-buffer-limit replica 256mb 64mb 60</code> 硬上限，主库会主动断开该从库连接，若设置不当甚至可能引发“断连→重做全量同步→再次撑爆缓冲”的循环复制风暴。</td>
+        </tr>
+        <tr>
+          <td><strong>② 复制积压环形缓冲<br><code>repl_backlog_buffer</code></strong></td>
+          <td><strong>整个主节点全局仅 1 个</strong><br>（所有从库共享）</td>
+          <td>由 <code>repl-backlog-size</code> 控制大小。专门供<strong>网络闪断后重连</strong>或<strong>哨兵切主后改挂</strong>的从库定位历史偏移量。写满后直接按环形队列覆盖最老字节，不会断开连接，但被覆盖后重连的从库将退化为全量同步。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 05.2 · Sentinel Raft 选主协议细节与脑裂边界 -->
+<div class="wb-card" id="sentinel" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🚨 05.2 · 哨兵共识协议：quorum 与 majority 双门槛辨析、Raft Leader 纪元投票与从库三轮筛选</div>
+  <h3>🚨 05.2 Sentinel 故障转移中的两级人数门槛与选主算法</h3>
+
+  <p>
+    Sentinel 自动故障转移包含<strong>“判定主库客观下线”→“哨兵内部选出唯一执行者 Leader”→“从存活从库中挑出新 Master”</strong>三个严格阶段，其中 <code>quorum</code>（配置项）与 <code>majority</code>（集群哨兵半数以上）的分工是理解高可用容错边界的关键：
+  </p>
+
+  <ol>
+    <li><strong><code>SDOWN</code> 到 <code>ODOWN</code> 仅看 <code>quorum</code></strong>：单个哨兵连续 <code>down-after-milliseconds</code> 未收到主库有效 PING 回复时标记为主观下线（<code>SDOWN</code>），随即向其他哨兵发送 <code>SENTINEL is-master-down-by-addr</code> 询问；只要赞成下线的票数达到配置的 <code>quorum</code>（例如 5 台哨兵配了 <code>quorum = 2</code>），即升级为客观下线（<code>ODOWN</code>）。</li>
+    <li><strong>真正执行切换的 Sentinel Leader 选举必须同时满足 <code>max(quorum, N/2 + 1)</code></strong>：进入 Raft 变体选举后，每个哨兵把配置纪元 <code>current_epoch</code> 自增 1，遵循<strong>同一纪元内先到先得（每台哨兵在同一 <code>epoch</code> 只能投出一张赞成票）</strong>原则拉票。候选哨兵必须同时拿到<strong>严格过半数（<code>majority = ⌊N/2⌋ + 1</code>，如 5 台需 ≥ 3 票）且 <code>≥ quorum</code></strong> 的选票才能当选 Leader——这保证了即便网络分区，同一纪元绝不可能同时选出两个哨兵 Leader 并发乱切主。</li>
+    <li><strong>Leader 从存活 Replica 中挑选新 Master 的三轮比较顺序</strong>：先剔除断连超过 <code>(down-after-milliseconds × 10)</code> 的慢从库，随后依次比较：① <code>replica-priority</code> 配置值更小者胜出（配为 <code>0</code> 表示永不参选主库）；② 若优先级相同，比较 <code>slave_repl_offset</code> <strong>复制偏移量更大者胜出</strong>（数据离原主库最近，丢数据最少）；③ 若偏移量也完全相等，按实例 <code>runid</code> 字典序最小者兜底决出唯一新主。</li>
+  </ol>
+</div>
+
+<!-- 05.3 · Cluster 为什么定为 16384 槽，以及在线迁移 MOVED vs ASK 协议 -->
+<div class="wb-card" id="cluster" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🧩 05.3 · 分片集群内核：16384 槽与 Gossip 2KB 位图定量权衡、在线槽迁移状态机与 MOVED / ASK</div>
+  <h3>🧩 05.3 Cluster Gossip 心跳位图定量分析与在线重分片协议</h3>
+
+  <p>
+    <code>CRC16(key)</code> 校验和本身产生的是 16 位整数（范围 <code>0 ~ 65535</code> 共 <code>2<sup>16</sup> = 65536</code> 个值），但作者 antirez 在设计 Redis Cluster 时特意对 <code>16384</code>（<code>2<sup>14</sup></code>）取模，核心原因来自去中心化 <strong>Gossip 协议心跳包的网络带宽账</strong>：
+  </p>
+
+  <ul>
+    <li><strong>心跳包 <code>myslots</code> 位图体积相差 4 倍</strong>：Cluster 没有中心元数据节点，每个节点每秒随机挑几个节点通过集群总线互发 <code>PING / PONG</code> 心跳包，包头结构体 <code>clusterMsg</code> 中必须携带一张定长二进制位图 <code>unsigned char myslots[CLUSTER_SLOTS/8]</code> 来声明自己当前负责哪些槽。当槽数为 <code>16384</code> 时，该位图占 <code>16384 / 8 = 2048 Bytes = 2 KiB</code>；若设为 <code>65536</code>，单次心跳仅这一个字段就暴涨至 <strong><code>8 KiB</code></strong>，在百节点集群高频对等广播下会消耗大量内网带宽。</li>
+    <li><strong>集群推荐规模上限与位图压缩率</strong>：由于 Gossip 协议节点数过多会导致故障收敛变慢，官方建议主节点规模不超过 <strong><code>1000</code> 个</strong>。对于 ≤ 1000 个主节点，<code>16384</code> 个槽平均每节点仍可分到十余个槽，负载均衡颗粒度完全充裕；且槽数越少、同一主节点的连续槽区间越集中，RDB/网络传输对稀疏位图的压缩率也越高。</li>
+  </ul>
+
+  <!-- Editorial SVG: Online Slot Migration (MIGRATING / IMPORTING) & MOVED vs ASK -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 900 280" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rdp-ask-title rdp-ask-desc">
+        <title id="rdp-ask-title">Redis Cluster 在线迁移哈希槽 #4096 期间的 ASK 临时重定向与 MOVED 永久重定向机制</title>
+        <desc id="rdp-ask-desc">展示槽 #4096 正从源节点 Node A（标记 migrating_slots_to[4096]=B）向目标节点 Node B（标记 importing_slots_from[4096]=A）逐键迁移：客户端访问仍在 A 的旧键直接由 A 响应；访问已迁往 B 的键时，A 返回 -ASK 4096 B，客户端先向 B 发送 ASKING 临时开门指令再重发原命令，且不修改本地槽缓存；直到全槽迁完广播 SETSLOT NODE B 后才转为永久 -MOVED 并更新本地路由表。</desc>
+        <defs>
+          <marker id="rdp-ask-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rdp-ask-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="rdp-ask-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (ALL drawn BEFORE boxes, strictly orthogonal r=8, ZERO crossings) -->
+        <!-- 1. Smart Client right-top (220, 84) -> Node A left-top (348, 84) -->
+        <line x1="220" y1="84" x2="348" y2="84" stroke="#1F1F23" stroke-width="1.3" marker-end="url(#rdp-ask-arr-muted)"/>
+        <rect x="236" y="64" width="96" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="284" y="73" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8" fill="#1F1F23">1. GET k_migrated</text>
+
+        <!-- 2. Node A left-bottom (348, 112) -> Smart Client right-bottom (220, 112) -->
+        <line x1="348" y1="112" x2="220" y2="112" stroke="#bf4520" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#rdp-ask-arr-accent)"/>
+        <rect x="232" y="120" width="104" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="284" y="129" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8" font-weight="700" fill="#bf4520">2. -ASK 4096 NodeB</text>
+
+        <!-- 3. Node A right (588, 96) -> Node B left (652, 96): MIGRATE atomic key transfer -->
+        <line x1="588" y1="96" x2="652" y2="96" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="4,3" marker-end="url(#rdp-ask-arr-muted)"/>
+        <rect x="592" y="74" width="56" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="620" y="83" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8" fill="#4f5d75">MIGRATE</text>
+
+        <!-- 4. Smart Client bottom (128, 148) -> Node B bottom (760, 148) via bottom open corridor y=196 -->
+        <path d="M 128,148 V 188 Q 128,196 136,196 H 752 Q 760,196 760,188 V 148" fill="none" stroke="#2e5aa8" stroke-width="1.6" marker-end="url(#rdp-ask-arr-link)"/>
+        <rect x="292" y="176" width="304" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="444" y="186" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="700" fill="#2e5aa8">3. 发送 ASKING + GET k_migrated（不更新本地槽路由缓存）</text>
+
+        <!-- Nodes -->
+        <!-- Smart Client -->
+        <rect x="36" y="52" width="184" height="96" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="128" y="78" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">Cluster 智能客户端</text>
+        <text x="128" y="98" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">本地缓存: Slot 4096 -&gt; A</text>
+        <text x="128" y="118" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#5a6580">仅收到 -MOVED 才改缓存</text>
+
+        <!-- Source Node A (Focal) -->
+        <rect x="348" y="48" width="240" height="100" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="468" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">源主节点 Node A (MIGRATING)</text>
+        <text x="468" y="94" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#1F1F23">• 键仍在本地：直接正常处理</text>
+        <text x="468" y="114" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#bf4520">• 键已迁走或不存在：回 -ASK B</text>
+        <text x="468" y="134" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">migrating_slots_to[4096] = B</text>
+
+        <!-- Target Node B -->
+        <rect x="652" y="48" width="216" height="100" rx="6" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1.4"/>
+        <text x="760" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2e5aa8">目标节点 Node B (IMPORTING)</text>
+        <text x="760" y="94" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#1F1F23">• 携带前置 ASKING：放行读写</text>
+        <text x="760" y="114" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#4f5d75">• 未带 ASKING 直连：回 -MOVED A</text>
+        <text x="760" y="134" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">importing_slots_from[4096] = A</text>
+
+        <!-- Bottom Summary Strip -->
+        <line x1="36" y1="220" x2="868" y2="220" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <text x="36" y="242" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#1F1F23">• 为什么客户端去 B 前必须先发 ASKING：在槽尚未完全移交前，B 并不拥有槽 4096 的正式主权，直接访问会被 B 退回 A 造成死循环；</text>
+        <text x="36" y="262" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">  ASKING 会在客户端结构体置上一次性标志位 CLIENT_ASKING，允许紧随其后的那一条命令在 IMPORTING 槽上合法执行（包括新建 Key 直接写在 B）。</text>
+      </svg>
+    </div>
+  </figure>
+</div>

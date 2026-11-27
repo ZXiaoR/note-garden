@@ -1,0 +1,372 @@
+<!-- ====================================================================
+     PART 02 (PRINCIPLES): redisObject、SDS、listpack、跳表 zskiplist 与渐进式 Rehash
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="datatype">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">对象头位宽布局、SDS、listpack、跳表 zskiplist 与渐进式 Rehash</span>
+  <span class="plop-tag mint">REDISOBJECT 16B · EMBSTR 44B · LISTPACK · ZSKIPLIST · REHASH</span>
+</div>
+
+<!-- 02.1 · redisObject 16B 连续位带与 SDS / embstr 44 字节定量推导 -->
+<div class="wb-card" id="encoding" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧬 02.1 · 对象头与字符串内存布局：16B redisObject 连续位带、sdshdr 紧凑头与 embstr 44B 边界推导</div>
+  <h3>🧬 02.1 <code>redisObject</code>（16 Bytes）与 <code>SDS</code> / <code>embstr</code> 44 字节边界推导</h3>
+
+  <p>
+    在 Redis 内核中，每次写入键值对都会创建两个对象：Key 固定是底层动态字符串 <code>SDS</code>，而 Value 则统一封装在 <strong>16 字节（128 bits）的元数据头 <code>struct redisObject</code>（源码名 <code>robj</code>）</strong>中，通过 <code>type</code> 标识对外逻辑类型，通过 <code>encoding</code> 标识底层挂载的物理数据结构：
+  </p>
+
+  <!-- Editorial SVG: 128-bit Continuous Bit-Band of redisObject + 64B embstr Memory Strip -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 900 296" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rdp-obj-title rdp-obj-desc">
+        <title id="rdp-obj-title">redisObject 128-bit 连续位宽布局与 jemalloc 64B embstr 连续内存条推导</title>
+        <desc id="rdp-obj-desc">上半部分展示 struct redisObject 共 128 bits（16 Bytes）的首尾相连连续位带：type(4 bits) + encoding(4 bits) + lru(24 bits) + refcount(32 bits) + ptr(64 bits)；下半部分展示 embstr 在单块 64 Bytes jemalloc 缓存行内的连续内存布局：16B redisObject + 3B sdshdr8 + 最多 44B 字符串内容 + 1B 结尾空字符。</desc>
+
+        <!-- Part 1: 128-bit Continuous Bit-Band of struct redisObject -->
+        <text x="32" y="34" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">1. struct redisObject 完整连续位带（总计 128 bits = 16 Bytes）</text>
+
+        <!-- Bit offsets ruler above bar (x=32 to x=868, total width=836) -->
+        <text x="32" y="52" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">bit 0</text>
+        <text x="108" y="52" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">4</text>
+        <text x="184" y="52" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">8</text>
+        <text x="356" y="52" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">32</text>
+        <text x="564" y="52" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">64</text>
+        <text x="868" y="52" text-anchor="end" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">127 (16B)</text>
+
+        <!-- Continuous Bit Strip Row 1 (no gaps between adjacent bit fields!) -->
+        <!-- [0..3] type: 4 bits (x=32, w=76) -->
+        <rect x="32" y="58" width="76" height="56" fill="rgba(45,49,66,0.05)" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="70" y="80" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#1F1F23">type</text>
+        <text x="70" y="98" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">4 bits</text>
+
+        <!-- [4..7] encoding: 4 bits (x=108, w=76) -->
+        <rect x="108" y="58" width="76" height="56" fill="rgba(45,49,66,0.05)" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="146" y="80" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#1F1F23">encoding</text>
+        <text x="146" y="98" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">4 bits</text>
+
+        <!-- [8..31] lru: 24 bits (x=184, w=172) -->
+        <rect x="184" y="58" width="172" height="56" fill="rgba(46,90,168,0.07)" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="270" y="80" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#2e5aa8">lru (LRU时钟 / LFU频次)</text>
+        <text x="270" y="98" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">24 bits (3 Bytes)</text>
+
+        <!-- [32..63] refcount: 32 bits (x=356, w=208) -->
+        <rect x="356" y="58" width="208" height="56" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="460" y="80" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#1F1F23">int refcount (引用计数)</text>
+        <text x="460" y="98" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">32 bits (4 Bytes)</text>
+
+        <!-- [64..127] *ptr: 64 bits (x=564, w=304) -->
+        <rect x="564" y="58" width="304" height="56" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="716" y="80" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10.5" font-weight="700" fill="#bf4520">void *ptr (64位虚拟内存地址或内联整数)</text>
+        <text x="716" y="98" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#bf4520">64 bits (8 Bytes)</text>
+
+        <!-- Part 2: 64-Byte jemalloc Arena Block for embstr -->
+        <text x="32" y="156" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">2. embstr 编码单次 malloc 分配的 64 Bytes 连续内存块（刚好填满 1 个 CPU Cache Line）</text>
+
+        <!-- Byte offsets ruler -->
+        <text x="32" y="174" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">Byte 0</text>
+        <text x="240" y="174" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">16</text>
+        <text x="412" y="174" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">19</text>
+        <text x="792" y="174" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">63</text>
+        <text x="868" y="174" text-anchor="end" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">64B</text>
+
+        <!-- Continuous 64-Byte Strip -->
+        <!-- [0..15] redisObject 16B (x=32, w=208) -->
+        <rect x="32" y="180" width="208" height="60" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="136" y="204" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#1F1F23">redisObject 头</text>
+        <text x="136" y="224" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">16 Bytes (ptr 紧邻后方)</text>
+
+        <!-- [16..18] sdshdr8 3B (x=240, w=172) -->
+        <rect x="240" y="180" width="172" height="60" fill="rgba(45,49,66,0.05)" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="326" y="204" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#1F1F23">struct sdshdr8</text>
+        <text x="326" y="224" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">len(1B)+alloc(1B)+flags(1B)=3B</text>
+
+        <!-- [19..62] char buf[] max 44B (x=412, w=380) (Focal) -->
+        <rect x="412" y="180" width="380" height="60" fill="rgba(191,69,32,0.09)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="602" y="204" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#bf4520">有效载荷 buf[] 上限 = 44 Bytes</text>
+        <text x="602" y="224" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" font-weight="600" fill="#bf4520">64B - 16B - 3B - 1B = 44 Bytes</text>
+
+        <!-- [63] '\0' 1B (x=792, w=76) -->
+        <rect x="792" y="180" width="76" height="60" fill="rgba(45,49,66,0.05)" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="830" y="204" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#1F1F23">'\0'</text>
+        <text x="830" y="224" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">1 Byte</text>
+
+        <!-- Footnote -->
+        <text x="32" y="270" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">• 注：embstr 分配的是只读紧凑块，一旦对其执行 APPEND / SETRANGE 修改，无论修改后是否仍 ≤ 44B，都会自动单向升级为 2 次独立分配的 raw 编码。</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4>为什么 <code>SDS</code>（Simple Dynamic String）能同时省内存并消除 C 原生字符串缺陷</h4>
+  <ol>
+    <li><strong><code>__attribute__((__packed__))</code> 取消结构体对齐填充</strong>：从 Redis 3.2 起，<code>SDS</code> 按字符串长度细分出 <code>sdshdr5</code>（已弃用）、<strong><code>sdshdr8</code>（长 ≤ 255B）</strong>、<code>sdshdr16</code>、<code>sdshdr32</code>、<code>sdshdr64</code> 五档头部，并加上编译器紧凑修饰符禁止按 4/8 字节补齐空洞。因此 <code>sdshdr8</code> 精确只占 <code>uint8_t len (1B) + uint8_t alloc (1B) + unsigned char flags (1B) = 3 Bytes</code>；再配合默认内存分配器 <code>jemalloc</code> 按 <code>8B, 16B, 32B, 64B...</code> 阶梯切分内存单元的机制，为了不突破 <code>64 Bytes</code> 这一档分配规格，留给字符串有效字节的最大长度恰好是 <code>64 - 16 - 3 - 1 = 44 Bytes</code>（在 Redis 3.0 时代因统一使用未压缩的 8B <code>sdshdr</code>，该分界线曾是 <code>39 Bytes</code>）。</li>
+    <li><strong>常数级长度查询、二进制安全与空间预分配</strong>：直接读取 <code>len</code> 字段使 <code>STRLEN</code> 从 <code>O(N)</code> 降为 <code>O(1)</code>，且以 <code>len</code> 而非空字符 <code>'\0'</code> 判定边界，中间包含任意二进制 <code>0x00</code> 字节均不会被截断（末尾额外保留的 1 字节 <code>'\0'</code> 仅为了直接兼容少量 C 标准库打印函数）。当执行 <code>APPEND</code> 扩容时，若新长度 <code>&lt; 1 MiB</code> 则<strong>成倍预分配</strong>（<code>alloc = 2 × newlen</code>），若 <code>≥ 1 MiB</code> 则每次额外多分配 <code>1 MiB</code>，将连续 <code>N</code> 次拼接的 <code>realloc</code> 次数从 <code>N</code> 次均摊降至对数级。</li>
+    <li><strong><code>int</code> 内联整数编码</strong>：若写入的字符串能解析为 64 位有符号长整型（<code>long</code>），Redis 直接把上面的 8 字节指针字段 <code>void *ptr</code> 强转为数值本身存储，连 <code>SDS</code> 都不必分配。</li>
+  </ol>
+</div>
+
+<!-- 02.2 · listpack 消除 ziplist 连锁更新与 quicklist / intset -->
+<div class="wb-card" id="listpack-kernel" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📦 02.2 · 紧凑连续内存结构演进：ziplist 连锁更新成因、7.0 listpack 反向遍历原理与 intset 单向升级</div>
+  <h3>📦 02.2 从 <code>ziplist</code> 到 <code>listpack</code>：根除连锁更新（Cascade Update）</h3>
+
+  <p>
+    为了在小规模 <code>Hash / List / ZSet</code> 中省去双向链表与哈希桶昂贵的前后驱指针（64 位机器上每多两个指针就要多花 <code>16 Bytes</code>，甚至比几字节的整数数据本身还大），Redis 设计了整块连续内存紧凑列表。早期版本采用 <code>ziplist</code>，而在 <strong>Redis 7.0 中已全面由 <code>listpack</code> 接管</strong>（<code>Hash / ZSet</code> 小数据直接存单个 <code>listpack</code>，<code>List</code> 底层 <code>quicklist</code> 的每个双向链表节点内部也由 <code>ziplist</code> 换成了 <code>listpack</code>）：
+  </p>
+
+  <!-- Editorial SVG: ziplist Cascade Update vs listpack Self-Length Layout -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 900 260" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rdp-lp-title rdp-lp-desc">
+        <title id="rdp-lp-title">旧版 ziplist 跨项依赖引发连锁更新与 Redis 7.0 listpack 独立自描述内存布局对比</title>
+        <desc id="rdp-lp-desc">上排展示 ziplist 每个节点头部存储前驱节点长度 prevlen（小于 254B 占 1B，大于等于 254B 膨胀为 5B），当在连续长度为 250~253B 的节点前插入大节点时会触发多米诺骨牌式连续 realloc；下排展示 listpack 每个节点改为在自身末尾存储当前节点字节长度 element-tot-len，既支持从右向左反向计算起点遍历，又彻底切断了节点间的长度耦合。</desc>
+        <defs>
+          <marker id="rdp-lp-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="rdp-lp-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Row 1: Legacy ziplist -->
+        <text x="32" y="34" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#bf4520">1. 旧版 ziplist 节点结构：头部存「前一项长度 prevlen」，跨 254B 阈值触发级联扩容</text>
+
+        <!-- Cascade curved/orthogonal propagation arrows above Row 1 (drawn BEFORE boxes) -->
+        <path d="M 220,66 V 52 Q 220,46 226,46 H 334 Q 340,46 340,52 V 66" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#rdp-lp-arr-accent)"/>
+        <path d="M 484,66 V 52 Q 484,46 490,46 H 598 Q 604,46 604,52 V 66" fill="none" stroke="#bf4520" stroke-width="1.4" marker-end="url(#rdp-lp-arr-accent)"/>
+
+        <!-- ziplist continuous memory strip -->
+        <rect x="32" y="66" width="264" height="52" fill="rgba(191,69,32,0.09)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="164" y="88" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#bf4520">新插入 Entry_0 (长度 = 300 Bytes)</text>
+        <text x="164" y="106" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#bf4520">≥ 254B，迫使后继 prevlen 1B-&gt;5B</text>
+
+        <rect x="296" y="66" width="264" height="52" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="428" y="88" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#1F1F23">Entry_1 [prevlen: 1B-&gt;5B | data]</text>
+        <text x="428" y="106" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">原长 252B 膨胀至 256B（再次 ≥254B）</text>
+
+        <rect x="560" y="66" width="308" height="52" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="714" y="88" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#1F1F23">Entry_2 [prevlen: 1B-&gt;5B | data] ...</text>
+        <text x="714" y="106" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">继续传导后续节点重分配内存 O(N^2)</text>
+
+        <!-- Row 2: Redis 7.0 listpack -->
+        <text x="32" y="156" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">2. Redis 7.0+ listpack 节点结构：尾部只存「自身长度 tot-len」，零跨节点耦合且支持双向遍历</text>
+
+        <!-- Backward jump arrow below Row 2 (from x=740 near Entry_B tail back to x=396 inside Entry_B head, >=16px from corners) -->
+        <path d="M 740,224 V 238 Q 740,244 734,244 H 402 Q 396,244 396,238 V 224" fill="none" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#rdp-lp-arr-link)"/>
+        <rect x="488" y="232" width="160" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="568" y="244" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2e5aa8">反向遍历：读末尾 tot-len 回跳</text>
+
+        <!-- listpack continuous strip -->
+        <rect x="32" y="172" width="104" height="52" fill="rgba(45,49,66,0.05)" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="84" y="194" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#1F1F23">Header (6B)</text>
+        <text x="84" y="212" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">totBytes+num</text>
+
+        <rect x="136" y="172" width="240" height="52" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="256" y="194" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#1F1F23">Entry_A [enc | data | tot-len]</text>
+        <text x="256" y="212" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">修改 A 完全不影响右侧 Entry_B</text>
+
+        <rect x="376" y="172" width="396" height="52" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1.5"/>
+        <text x="574" y="194" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#2e5aa8">Entry_B [encoding-type | element-data | element-tot-len]</text>
+        <text x="574" y="212" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#1F1F23">tot-len 每字节最高位为结束标志位，支持从右向左逐字节读取</text>
+
+        <rect x="772" y="172" width="96" height="52" fill="rgba(45,49,66,0.05)" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="820" y="194" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#1F1F23">LP_EOF (1B)</text>
+        <text x="820" y="212" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">0xFF</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:14%">逻辑类型</th>
+          <th style="width:30%">紧凑编码（小规模数据）</th>
+          <th style="width:32%">标准编码（大规模数据）</th>
+          <th>单向升级配置阈值（Redis 7.2 默认）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>String</strong></td>
+          <td><code>int</code>（8B 长整型内联）<br><code>embstr</code>（单次 <code>malloc ≤ 64B</code>）</td>
+          <td><code>raw</code>（<code>robj</code> 与 <code>SDS</code> 分两次独立分配）</td>
+          <td>字节长度 <code>&gt; 44 Bytes</code>，或对 <code>int / embstr</code> 执行任意修改指令后单向转为 <code>raw</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>Hash</strong></td>
+          <td><code>listpack</code>（<code>field</code> 与 <code>value</code> 相邻紧挨排列）</td>
+          <td><code>hashtable</code>（即双表 <code>dict</code>）</td>
+          <td>键值对数 <code>&gt; hash-max-listpack-entries (512)</code> 或任一字段字节长 <code>&gt; hash-max-listpack-value (64B)</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>List</strong></td>
+          <td><code>listpack</code>（7.0+ 单节点少元素时直接用单块 <code>listpack</code>）</td>
+          <td><code>quicklist</code>（宏观双向链表 + 每个节点挂载一块容量可控且支持 LZF 压缩的 <code>listpack</code>）</td>
+          <td>单块超过 <code>list-max-listpack-size (-2 即 8 KiB)</code> 时分裂为包含多个节点的 <code>quicklist</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>Set</strong></td>
+          <td><code>intset</code>（全整数等宽升序数组，支持 <code>O(log N)</code> 二分查找）<br><code>listpack</code>（7.2+ 新增短字符串紧凑集）</td>
+          <td><code>hashtable</code>（Value 固定为 <code>NULL</code> 的字典）</td>
+          <td>全整数且个数 <code>≤ set-max-intset-entries (512)</code> 用 <code>intset</code>；含非整数但个数 <code>≤ set-max-listpack-entries (128)</code> 且单值 <code>≤ 64B</code> 用 <code>listpack</code>；超限转 <code>hashtable</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>ZSet</strong></td>
+          <td><code>listpack</code>（按 <code>score</code> 升序依次紧挨存放 <code>member, score</code>）</td>
+          <td><code>skiplist + dict</code>（复合结构 `zset`）</td>
+          <td>元素数 <code>&gt; zset-max-listpack-entries (128)</code> 或任一成员长 <code>&gt; zset-max-listpack-value (64B)</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin-top:10px; font-size:13.3px;">
+    <strong>为什么 <code>intset</code>（整数集合）升级位宽时必须重分配整块数组且只升不降</strong>：<code>intset</code> 通过 <code>encoding</code>（<code>INTSET_ENC_INT16 / INT32 / INT64</code>）保证数组内所有整数严格等宽，从而直接按 <code>contents + idx × width</code> 执行 <code>O(log N)</code> 二分查找。一旦插入一个超出当前位宽的大整数（如向 <code>int16_t</code> 数组中插入 <code>65535</code>），若不把已有元素全部扩宽为 <code>int32_t</code>，等宽寻址公式即告失效；而删除该大数后若要判断是否可降级，每次删除都需 <code>O(N)</code> 遍历全表求最大值，得不偿失，因此 Redis 所有紧凑编码升级均为<strong>单向不可逆</strong>。
+  </p>
+</div>
+
+<!-- 02.3 · ZSet 跳表 zskiplist（含 span 跨度计算排名）与 dict 渐进式 Rehash -->
+<div class="wb-card" id="rehash" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill" id="history">🪜 02.3 · 高效索引双核心：zskiplist 跨度指针（O(log N) 算 ZRANK）与 dict 渐进式 Rehash</div>
+  <h3>🪜 02.3 跳表 <code>zskiplist</code> 源码结构与哈希表渐进式 Rehash</h3>
+
+  <h4>1. <code>ZSet</code> 复合结构与跳表节点 <code>span</code> 跨度字段的关键作用</h4>
+  <p>
+    当元素突破阈值后，<code>ZSet</code> 在底层结构体 <code>struct zset</code> 中同时持有一个哈希字典 <code>dict *dict</code> 和一张跳跃表 <code>zskiplist *zsl</code>（两者通过指针共享同一份成员 <code>SDS</code> 对象，不重复拷贝字符串内存）：<strong><code>dict</code> 负责以 <code>O(1)</code> 实现 <code>ZSCORE key member</code> 单点查分，<code>zskiplist</code> 负责以平均 <code>O(log N)</code> 维护有序性与区间扫描</strong>。
+  </p>
+  <p>
+    许多资料只提到跳表每层有前进指针 <code>forward</code>，却忽略了 <code>zskiplistLevel</code> 中另一个至关重要的无符号整数字段 <strong><code>unsigned long span</code>（跨度，记录沿着当前层这一跳跨越了多少个底层节点）</strong>：正因为维护了 <code>span</code>，执行 <code>ZRANK</code> 查询某成员是第几名时，无需从表头逐个遍历数节点 <code>O(N)</code>，只需在从高层向底层折线下探的查找路径上，<strong>把沿途经过的所有前进指针的 <code>span</code> 累加起来，即可在 <code>O(log N)</code> 时间内直接算出精确排名</strong>。
+  </p>
+
+  <!-- Editorial SVG: zskiplist Multi-level Span Indexing + dict Incremental Rehash -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 900 328" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rdp-sl-title rdp-sl-desc">
+        <title id="rdp-sl-title">zskiplist 跨度指针计算 ZRANK 路径与 dict 双哈希表渐进式 Rehash 机制</title>
+        <desc id="rdp-sl-desc">上半区展示跳表查找 score=45 的节点时，从 L2 层跨越 span=2 到达 score=24，再降到 L1 层跨越 span=2 到达 score=45，累加沿途 span=2+2=4 即可在 O(log N) 内得出其 1-based 排名为第 4 名；下半区展示 dict 同时持有 ht[0] 与 ht[1]，每次增删改查推进 rehashidx 顺带迁移 1 个桶，避免一次性搬迁数百万键阻塞主线程。</desc>
+        <defs>
+          <marker id="rdp-sl-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rdp-sl-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="rdp-sl-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Part 1: zskiplist with span accumulation -->
+        <text x="32" y="32" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">1. zskiplist（p=0.25，maxlevel=32）：累加搜索路径上的 span 即可 O(log N) 算出排名</text>
+
+        <!-- Skiplist Horizontal Forward Connectors (drawn BEFORE tower boxes!) -->
+        <!-- Tower X positions: HEAD(40..136), N1:10(196..292), N2:24(352..448), N3:33(508..604), N4:45(664..760), NULL(816) -->
+        <!-- Level L2 (y=62): HEAD -> N2:24 (highlight path #1, span=2), N2:24 -> NULL -->
+        <line x1="136" y1="62" x2="352" y2="62" stroke="#bf4520" stroke-width="1.8" marker-end="url(#rdp-sl-arr-accent)"/>
+        <rect x="206" y="42" width="76" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="244" y="51" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="700" fill="#bf4520">span = 2</text>
+
+        <line x1="448" y1="62" x2="812" y2="62" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#rdp-sl-arr-muted)"/>
+
+        <!-- Level L1 (y=98): HEAD -> N2:24 (muted), N2:24 -> N4:45 (highlight path #2, span=2), N4:45 -> NULL -->
+        <line x1="136" y1="98" x2="352" y2="98" stroke="#4f5d75" stroke-width="1.1" marker-end="url(#rdp-sl-arr-muted)"/>
+        <line x1="448" y1="98" x2="664" y2="98" stroke="#bf4520" stroke-width="1.8" marker-end="url(#rdp-sl-arr-accent)"/>
+        <rect x="518" y="78" width="76" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="556" y="87" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="700" fill="#bf4520">span = 2</text>
+        <line x1="760" y1="98" x2="812" y2="98" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#rdp-sl-arr-muted)"/>
+
+        <!-- Level L0 (y=134): Full sorted doubly linked nodes (span=1 each) -->
+        <line x1="136" y1="134" x2="196" y2="134" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#rdp-sl-arr-muted)"/>
+        <line x1="292" y1="134" x2="352" y2="134" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#rdp-sl-arr-muted)"/>
+        <line x1="448" y1="134" x2="508" y2="134" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#rdp-sl-arr-muted)"/>
+        <line x1="604" y1="134" x2="664" y2="134" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#rdp-sl-arr-muted)"/>
+        <line x1="760" y1="134" x2="812" y2="134" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="4,3" marker-end="url(#rdp-sl-arr-muted)"/>
+
+        <!-- Skiplist Node Towers -->
+        <!-- HEAD (L0..L2: y=48..156, h=108) -->
+        <rect x="40" y="48" width="96" height="108" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="88" y="66" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" font-weight="700" fill="#1F1F23">HEAD L2</text>
+        <text x="88" y="102" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">L1</text>
+        <text x="88" y="138" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">L0</text>
+
+        <!-- N1: score=10 (L0 only: y=116..156, h=40) -->
+        <rect x="196" y="116" width="96" height="40" rx="6" fill="rgba(45,49,66,0.04)" stroke="#4f5d75" stroke-width="1.1"/>
+        <text x="244" y="135" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#1F1F23">score: 10</text>
+        <text x="244" y="149" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8" fill="#5a6580">rank #1</text>
+
+        <!-- N2: score=24 (L0..L2: y=48..156, h=108) -->
+        <rect x="352" y="48" width="96" height="108" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="400" y="66" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" font-weight="700" fill="#bf4520">L2 (下探↓)</text>
+        <text x="400" y="102" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" font-weight="700" fill="#bf4520">L1 (右跳→)</text>
+        <text x="400" y="138" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#1F1F23">score: 24</text>
+
+        <!-- N3: score=33 (L0 only: y=116..156, h=40) -->
+        <rect x="508" y="116" width="96" height="40" rx="6" fill="rgba(45,49,66,0.04)" stroke="#4f5d75" stroke-width="1.1"/>
+        <text x="556" y="135" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#1F1F23">score: 33</text>
+        <text x="556" y="149" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8" fill="#5a6580">rank #3</text>
+
+        <!-- N4: score=45 Target (L0..L1: y=84..156, h=72) (Focal) -->
+        <rect x="664" y="84" width="96" height="72" rx="6" fill="#FFFDF7"/>
+        <rect x="664" y="84" width="96" height="72" rx="6" fill="rgba(191,69,32,0.09)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="712" y="104" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" font-weight="700" fill="#bf4520">命中目标</text>
+        <text x="712" y="128" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#bf4520">score: 45</text>
+        <text x="712" y="146" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#1F1F23">span和=4 (#4)</text>
+
+        <!-- NULL Marker -->
+        <rect x="812" y="52" width="56" height="100" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <text x="840" y="106" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#5a6580">NULL</text>
+
+        <!-- Divider -->
+        <line x1="32" y1="176" x2="868" y2="176" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+
+        <!-- Part 2: dict Incremental Rehash -->
+        <text x="32" y="200" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">2. dict 渐进式 Rehash：双表 ht[0] -&gt; ht[1] 与 rehashidx 分摊搬迁（化整为零防阻塞）</text>
+
+        <!-- Rehash Migration Connector (drawn BEFORE boxes) -->
+        <line x1="348" y1="256" x2="544" y2="256" stroke="#bf4520" stroke-width="1.8" marker-end="url(#rdp-sl-arr-accent)"/>
+        <rect x="372" y="232" width="148" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="446" y="244" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#bf4520">每次 CRUD 搬迁 1 个桶</text>
+        <text x="446" y="276" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">rehashidx++ (空闲时 serverCron 搬 1ms)</text>
+
+        <!-- Old Table ht[0] -->
+        <rect x="32" y="216" width="316" height="92" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="190" y="238" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10.5" font-weight="700" fill="#1F1F23">旧哈希表 ht[0] (size = 2^k)</text>
+        <text x="190" y="260" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">桶 0..1 已清空 · 当前指针 rehashidx = 2</text>
+        <text x="190" y="282" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#bf4520">禁止再向 ht[0] 插入新键，存量桶只减不增</text>
+
+        <!-- New Table ht[1] -->
+        <rect x="544" y="216" width="324" height="92" rx="6" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1.5"/>
+        <text x="706" y="238" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10.5" font-weight="700" fill="#2e5aa8">新哈希表 ht[1] (首个 ≥ used×2 的 2^n)</text>
+        <text x="706" y="260" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#1F1F23">新插入键一律直写 ht[1]；查/改/删依次扫双表</text>
+        <text x="706" y="282" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">全迁完后释放 ht[0]，ht[1] 转正，rehashidx = -1</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="wb-grid-2">
+    <div>
+      <h4>为什么 <code>ZSet</code> 选用跳表而非红黑树或 B+ 树</h4>
+      <ul>
+        <li><strong>对比红黑树 / AVL 平衡树</strong>：两者单点增删查同为 <code>O(log N)</code>，但当执行高频的 <code>ZRANGE</code> 范围读取时，跳表在 <code>O(log N)</code> 定位到区间起点后，直接沿最底层 <code>L0</code> 双向链表（带 <code>backward</code> 逆向指针支持 <code>REV</code> 倒序）顺序向右走 <code>M</code> 步即可；而平衡二叉树做中序区间遍历需要在父子指针间反复回溯，且插入删除引发的左旋/右旋变色实现远比跳表以 <code>ZSKIPLIST_P = 0.25</code> 概率随机生成层高复杂。</li>
+        <li><strong>对比 B+ 树</strong>：B+ 树将扇出（Fan-out）做大到上百阶是为了让每个节点对齐 <code>16 KiB</code> 磁盘页以减少随机磁盘寻道次数；而纯内存没有机械寻道代价，维护大页节点分裂合并的 CPU 搬移成本反而高于跳表的轻量指针链接。</li>
+      </ul>
+    </div>
+
+    <div>
+      <h4>哈希表负载因子双阈值（<code>1</code> vs <code>5</code>）与 COW 协同设计</h4>
+      <p>
+        <code>dict</code> 的负载因子定义为 <code>load_factor = ht[0].used / ht[0].size</code>：
+      </p>
+      <ul>
+        <li><strong>常规状态（无后台 RDB / AOF 重写子进程）：<code>load_factor ≥ 1</code></strong> 即启动扩容；</li>
+        <li><strong>持久化子进程存活期间：阈值自动抬升至 <code>load_factor ≥ 5</code></strong>。原因在于子进程正利用内核<strong>写时复制（Copy-On-Write）</strong>与父进程共享内存物理页，若此时触发哈希表扩容搬迁，大量哈希桶指针修改会把成千上万个原本共享的 <code>4 KiB</code> 内存页瞬间“写脏”，迫使操作系统复制整页副本，造成物理内存占用短时间内翻倍；</li>
+        <li><strong>自动缩容条件</strong>：当 <code>load_factor &lt; 0.1</code>（Redis 7.x 优化为更平滑的阈值）时，同样以渐进式 Rehash 缩减为首个 <code>≥ used</code> 的 <code>2<sup>n</sup></code> 大小以归还空闲桶内存。</li>
+      </ul>
+    </div>
+  </div>
+</div>

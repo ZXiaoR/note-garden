@@ -1,304 +1,247 @@
 <!-- ====================================================================
-             PART 02: 数据类型与底层数据结构 (5基础+4扩展、redisObject、SDS、listpack、skiplist、渐进式rehash)
-             ==================================================================== -->
-        <div class="wb-sec-header periwinkle" id="datatype">
-          <span class="wb-sec-num">02</span>
-          <span class="wb-sec-title">数据类型与底层结构 · 5+4 类型、redisObject、SDS、跳表与渐进式 rehash</span>
-          <span class="plop-tag mint">TYPE → ENCODING 演进</span>
-        </div>
+     PART 02: 五大基础数据类型与四大扩展类型实战选型
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="datatype">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">五大基础数据类型与四大扩展类型实战指南</span>
+  <span class="plop-tag mint">STRING · HASH · LIST · SET · ZSET · BITMAP · HLL · GEO</span>
+</div>
 
-        <!-- 顶部：5大基础类型 + 4大扩展类型速查 -->
-        <div class="wb-card" style="background:var(--plop-paper);">
-          <div class="washi-tape"></div>
-          <div class="chapter-q-pill">❓ 02.1 · 为什么同一种数据类型，元素少和元素多时底层结构不一样？</div>
-          <h3>🗂️ 02.1 5 种基础类型 + 4 种扩展类型 &amp; 底层编码转换全景表</h3>
-          <p>
-            Redis 里每个 Value 都由一个统一的 <strong>16 字节外壳 <code>redisObject</code></strong> 包裹：对外暴露的是 <code>type</code>（<code>TYPE key</code> 看到的 5 大类型），底层真正挂载在 <code>*ptr</code> 指针上的则是 <code>encoding</code>（<code>OBJECT ENCODING key</code> 看到的物理数据结构）。<strong>核心设计哲学：小数据用紧凑连续内存省空间（<code>embstr / intset / listpack</code>），大数据超阈值后自动单向升级为高效索引结构（<code>raw / hashtable / skiplist</code>）保性能！</strong>
-          </p>
+<!-- 02.1 · String 与 Hash：单值缓存、原子计数与结构化对象存储 -->
+<div class="wb-card" id="encoding" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🗂️ 02.1 · String 与 Hash：字符串条件写入、原子计数与结构化对象局部更新</div>
+  <h3>🗂️ 02.1 <code>String</code>（字符串）与 <code>Hash</code>（哈希字典）</h3>
 
-          <div class="table-wrap">
-            <table class="plop-table">
-              <thead>
-                <tr>
-                  <th style="width:13%">对外类型</th>
-                  <th style="width:20%">典型命令</th>
-                  <th style="width:25%">真实业务场景</th>
-                  <th style="width:18%">小数据编码 (省内存)</th>
-                  <th>大数据编码 &amp; 转换阈值 (7.0+)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><strong>String</strong><br>字符串</td>
-                  <td><code>SET/GET</code> <code>INCR</code> <code>SETNX</code></td>
-                  <td>缓存 JSON 对象、计数器(点赞/库存)、分布式锁、限流</td>
-                  <td><code>int</code>（8字节整数）<br><code>embstr</code>（≤44 字节）</td>
-                  <td><code>raw</code>（&gt;44 字节，或对 embstr/int 做 <code>APPEND</code> 修改后单向转 raw）</td>
-                </tr>
-                <tr>
-                  <td><strong>Hash</strong><br>哈希字典</td>
-                  <td><code>HSET/HGET</code> <code>HINCRBY</code></td>
-                  <td>存结构化对象(用户信息各字段)、购物车(field=商品, val=数量)</td>
-                  <td><code>listpack</code><br><span style="font-size:11.5px; color:var(--plop-ink-soft);">(7.0前为 ziplist)</span></td>
-                  <td><code>hashtable</code>（即 <code>dict</code>）<br>阈值：元素数 &gt; <strong>128</strong> 或单值 &gt; <strong>64B</strong></td>
-                </tr>
-                <tr>
-                  <td><strong>List</strong><br>双向列表</td>
-                  <td><code>LPUSH/RPOP</code> <code>LRANGE</code></td>
-                  <td>信息流时间线、栈/阻塞队列（<code>BRPOP</code>）</td>
-                  <td><code>listpack</code>（7.0+ 单节点）</td>
-                  <td><code>quicklist</code>（双向链表 + 每个节点内嵌一个 <code>listpack</code>，默认单节点 128 项）</td>
-                </tr>
-                <tr>
-                  <td><strong>Set</strong><br>无序集合</td>
-                  <td><code>SADD</code> <code>SINTER</code> <code>SISMEMBER</code></td>
-                  <td>独立访客去重、共同好友(交集)、抽奖池、用户标签</td>
-                  <td><code>intset</code>（全整数≤512）<br><code>listpack</code>（7.2+ 少量非整数）</td>
-                  <td><code>hashtable</code><br>阈值：含非整数或元素数 &gt; <strong>512</strong>（7.2+ 先用 listpack ≤128）</td>
-                </tr>
-                <tr>
-                  <td><strong>ZSet</strong><br>有序集合</td>
-                  <td><code>ZADD</code> <code>ZRANGE</code> <code>ZRANK</code></td>
-                  <td><strong>实时排行榜</strong>、延迟队列(score=到期时间戳)、权重范围查</td>
-                  <td><code>listpack</code></td>
-                  <td><code>skiplist + dict</code><br>阈值：成员数 &gt; <strong>128</strong> 或单值 &gt; <strong>64B</strong></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+  <p>
+    Redis 的 Value 并非只有简单的文本字符串，而是原生提供了丰富的内存数据结构，使开发者可以直接在服务端完成字段修改、链表排队、集合交并集与权重排序，无需每次将整份数据拉回应用层反序列化后再写回。最常用于存储实体对象与计数状态的是 <code>String</code> 与 <code>Hash</code>：
+  </p>
 
-          <!-- 由上到下依次展示 4 个核心底层结构图解（全宽大尺寸，不挤在半栏） -->
-          <div style="display:grid; gap:16px; margin-top:16px;">
-            <!-- 1：redisObject + SDS + embstr 44字节边界 SVG -->
-            <div class="wb-card" id="encoding" style="background:var(--plop-sheet); margin-top:0;">
-              <h4>🧬 1. <code>redisObject</code> (16B) 与 <code>SDS</code> / <code>embstr</code> 44字节之谜</h4>
-              <!-- 1：redisObject + SDS + embstr 44字节边界 HTML/CSS 手绘卡片图 -->
-              <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:8px 0; display:grid; gap:12px;">
-                <!-- ① redisObject 16B -->
-                <div>
-                  <div style="font-size:13px; font-weight:900; color:var(--plop-ink); margin-bottom:6px;">① 统一外壳 <code>redisObject</code>（固定 16 字节）：</div>
-                  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(115px, 1fr)); gap:8px;">
-                    <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; text-align:center;">
-                      <div style="font-size:13px; font-weight:900; color:var(--plop-ink-text);"><code>type</code> (4 bit)</div>
-                      <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">对外类型 (5大类)</div>
-                    </div>
-                    <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; text-align:center;">
-                      <div style="font-size:13px; font-weight:900; color:var(--plop-ink-text);"><code>encoding</code> (4 bit)</div>
-                      <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">底层物理编码</div>
-                    </div>
-                    <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; text-align:center;">
-                      <div style="font-size:13px; font-weight:900; color:var(--plop-ink-text);"><code>lru</code> (24 bit)</div>
-                      <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">LRU时戳 / LFU频次</div>
-                    </div>
-                    <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; text-align:center;">
-                      <div style="font-size:13px; font-weight:900; color:var(--plop-ink-text);"><code>refcount</code> (4 B)</div>
-                      <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">引用计数内存回收</div>
-                    </div>
-                    <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:8px; padding:8px 10px; text-align:center;">
-                      <div style="font-size:13px; font-weight:900; color:var(--plop-ink-text);"><code>*ptr</code> (8 B)</div>
-                      <div style="font-size:12px; font-weight:800; color:var(--plop-ink-text); margin-top:2px;">指向真实数据 ▸</div>
-                    </div>
-                  </div>
-                </div>
+  <h4>1. <code>String</code>：二进制安全字节流、条件写入与原子计数</h4>
+  <p>
+    <code>String</code> 是二进制安全的（单个 Value 上限为 <code>512 MB</code>，日常建议控制在 <code>10 KB</code> 以内），既可以存普通文本与序列化后的 JSON / Protobuf 字节流，也可以在内容为十进制整数或浮点数时直接执行服务端原子加减：
+  </p>
 
-                <!-- ② SDS 结构 -->
-                <div>
-                  <div style="font-size:13px; font-weight:900; color:var(--plop-ink); margin-bottom:6px;">② SDS 动态字符串（比 C 原生 <code>char*</code> 好在哪？）：</div>
-                  <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:8px; padding:10px 14px; text-align:center;">
-                    <div style="font-size:13.5px; font-weight:900; color:var(--plop-ink-text);">
-                      <code>[ len (已用长度) | alloc (分配总容量) | flags (1B 类型头) | buf[] 字节数组 + '\0' ]</code>
-                    </div>
-                    <div style="font-size:12.5px; font-weight:800; color:var(--plop-tomato); margin-top:5px;">
-                      ✅ <code>O(1)</code> 获取长度（不扫 <code>\0</code>） · 二进制安全（中间有 <code>\0</code> 也不截断，可存图片/序列化字节） · 空间预分配杜绝缓冲区溢出
-                    </div>
-                  </div>
-                </div>
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>⌨️ string_ops.redis · String 高频命令与参数组合</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-str', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-redis-str"><code><span class="c-cm"># 1. SET 完整复合语法：SET key value [NX | XX] [GET] [EX sec | PX ms | KEEPTTL]</span>
+<span class="c-cm">#    NX = 仅当键不存在时写入（常用于防重幂等与互斥锁）；XX = 仅当键已存在时更新；KEEPTTL = 更新值但保留原剩余过期时间</span>
+SET idempotent:order:9001 "1" NX EX 600
 
-                <!-- ③ embstr 44B 计算公式 -->
-                <div>
-                  <div style="font-size:13px; font-weight:900; color:var(--plop-ink); margin-bottom:6px;">③ 为什么 <code>embstr</code> 与 <code>raw</code> 的分界线恰好是 <strong>44 字节</strong>？</div>
-                  <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:8px; padding:10px 14px; text-align:center;">
-                    <div style="font-size:13.5px; font-weight:900; color:var(--plop-ink-text);">
-                      <code>64 B (jemalloc 内存分配单元) − 16 B (redisObject) − 3 B (sdshdr8 头) − 1 B ('\0') = 44 B</code>
-                    </div>
-                    <div style="font-size:12.5px; font-weight:800; color:var(--plop-ink-text); margin-top:4px;">
-                      ≤ 44B 用 <code>embstr</code>：只需 <strong>1 次 <code>malloc</code></strong> 分配连续内存（CPU Cache 友好）；&gt; 44B 用 <code>raw</code>：分 2 次独立 <code>malloc</code>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+<span class="c-cm"># 2. 批量读写：一次网络往返获取多个商品价格（时间复杂度 O(K)，K 为键个数）</span>
+MSET sku:price:101 "9900" sku:price:102 "15900"
+MGET sku:price:101 sku:price:102
 
-            <!-- 右：4 大扩展类型与 listpack 消除 ziplist 连锁更新 -->
-            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
-              <h4>🚀 2. 四大扩展类型 &amp; 为什么 7.0 用 <code>listpack</code> 取代 <code>ziplist</code>？</h4>
-              <div class="table-wrap" style="margin-top:6px;">
-                <table class="plop-table">
-                  <thead>
-                    <tr>
-                      <th style="width:24%">扩展类型</th>
-                      <th>底层本质</th>
-                      <th>核心实战场景</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td><strong>Bitmap</strong></td>
-                      <td>就是 <code>String</code> 按位操作 (<code>SETBIT</code>)</td>
-                      <td>用户每日签到、月活统计（1个月仅需 4 字节）、布隆过滤器</td>
-                    </tr>
-                    <tr>
-                      <td><strong>HyperLogLog</strong></td>
-                      <td>概率基数估算（固定 <strong>12KB</strong>，误差 0.81%）</td>
-                      <td>亿级页面 UV / 独立 IP 去重计数（<code>PFADD / PFCOUNT</code>）</td>
-                    </tr>
-                    <tr>
-                      <td><strong>GEO</strong></td>
-                      <td>底层就是 <strong>ZSet</strong>（经纬度转 GeoHash 当 score）</td>
-                      <td>附近的人、2km 内门店搜索（<code>GEOSEARCH</code>）</td>
-                    </tr>
-                    <tr>
-                      <td><strong>Stream</strong></td>
-                      <td><code>rax</code> 基数树 + <code>listpack</code></td>
-                      <td>5.0+ 支持消费者组与 ACK 的可靠轻量消息队列</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+<span class="c-cm"># 3. 原子计数：键不存在时自动按 0 初始化后再加减，单线程串行执行天然无并发丢失更新问题</span>
+INCR article:views:5001          <span class="c-cm"># +1，返回递增后的新整数值</span>
+INCRBY sku:stock:101 -2          <span class="c-cm"># 原子扣减 2 件库存（或用 DECRBY sku:stock:101 2）</span></code></pre>
+  </div>
 
-              <!-- ziplist vs listpack 对比图 (HTML/CSS 手绘卡片) -->
-              <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; margin-top:10px; display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px;">
-                <div style="background:var(--plop-sheet); border:2px solid var(--plop-tomato); border-radius:10px; padding:10px 12px; text-align:center;">
-                  <div style="font-size:13.5px; font-weight:900; color:var(--plop-tomato);">❌ 旧 <code>ziplist</code>：记「前一项长度 <code>prevlen</code>」</div>
-                  <div style="font-size:12.5px; font-weight:800; color:var(--plop-ink-text); margin-top:6px;">
-                    <code>[ prevlen (1B / 5B) | encoding | data ]</code>
-                  </div>
-                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:6px; line-height:1.5;">
-                    前项从 &lt; 254B 变 ≥ 254B → 后项 <code>prevlen</code> <strong style="color:var(--plop-tomato);">被迫从 1B 扩为 5B → 多米诺骨牌「连锁更新」</strong>
-                  </div>
-                </div>
+  <h4 style="margin-top:16px;">2. <code>Hash</code>：在单个 Key 内维护多个 <code>field -&gt; value</code> 键值对</h4>
+  <p>
+    当我们需要缓存一个包含十几个属性的对象（如用户资料 <code>{nickname, avatar, vip_level, points}</code>）或用户购物车（<code>field = sku_id</code>，<code>value = 购买数量</code>）时，如果用单个 JSON <code>String</code> 存储，每次只修改积分 <code>points</code> 都需要把整个 JSON 读出、反序列化、改完再整体覆盖写回；而使用 <code>Hash</code> 可以直接按字段（<code>field</code>）局部读写：
+  </p>
 
-                <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px; text-align:center;">
-                  <div style="font-size:13.5px; font-weight:900; color:var(--plop-ink-text);">✅ 7.0 <code>listpack</code>：只记「自己长度 <code>mylen</code>」</div>
-                  <div style="font-size:12.5px; font-weight:800; color:var(--plop-ink-text); margin-top:6px;">
-                    <code>[ encoding | data | element-tot-len ]</code>
-                  </div>
-                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin-top:6px; line-height:1.5;">
-                    每项末尾存自己的总长度（同样支持从后往前遍历），<strong style="color:var(--plop-leaf);">改任何一项绝不牵连邻居，彻底消灭连锁更新！</strong>
-                  </div>
-                </div>
-              </div>
-            </div>
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🛒 hash_cart.redis · 用 Hash 实现电商购物车</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-hash', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-redis-hash"><code><span class="c-cm"># 1. 添加商品到用户 1001 的购物车 (HSET 支持一次写多个字段)</span>
+HSET cart:user:1001 sku_801 1 sku_805 2
 
-            <!-- 3：skiplist 跳表 -->
-            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
-              <div class="chapter-q-pill">❓ 02.2 · ZSet 为什么用「跳表 skiplist + dict」而不是红黑树或 B+ 树？</div>
-              <h4>🪜 跳表（Skiplist）：多层稀疏索引的有序链表（<code>O(log N)</code>）</h4>
-              <p>
-                ZSet 大数据量时同时组合了 <strong><code>dict</code> + <code>skiplist</code></strong>：<code>dict</code> 存 <code>member → score</code>，保证 <code>ZSCORE</code> 按成员查分值 <strong><code>O(1)</code></strong>；<code>skiplist</code> 按 <code>score</code> 从小到大排列，支持 <code>ZRANGE</code> 范围查询 <strong><code>O(log N + M)</code></strong>。
-              </p>
+<span class="c-cm"># 2. 点击「+」号将 sku_801 数量原子 +1</span>
+HINCRBY cart:user:1001 sku_801 1
 
-              <!-- Skiplist 跳表 HTML/CSS 手绘卡片图 -->
-              <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:8px 0;">
-                <div style="font-size:13px; font-weight:900; color:var(--plop-ink); margin-bottom:10px;">
-                  🔍 查 <code>score = 27</code> 的多层跳跃路径（每层以 <code>p = 1/4</code> 概率向上生长，下密上疏）：
-                </div>
+<span class="c-cm"># 3. 查看购物车商品种类数与指定商品数量</span>
+HLEN cart:user:1001
+HMGET cart:user:1001 sku_801 sku_805
 
-                <div style="overflow-x:auto;">
-                  <div style="min-width:520px; display:grid; gap:6px; font-size:12.5px; font-weight:800;">
-                    <!-- L3 -->
-                    <div style="display:grid; grid-template-columns:42px repeat(6, 1fr); gap:8px; align-items:center;">
-                      <span style="color:var(--plop-tomato); font-weight:900;">L3</span>
-                      <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:6px; padding:4px 6px; text-align:center; font-weight:900;">HEAD</div>
-                      <div style="grid-column:span 3; text-align:center; color:var(--plop-tomato); font-weight:900; border-bottom:2.5px solid var(--plop-tomato); line-height:1.2;">━━ 一步跨越 6 / 12 / 19 ━━▸</div>
-                      <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:6px; padding:4px 6px; text-align:center; font-weight:900;">27 🎯</div>
-                      <div style="text-align:center; color:var(--plop-ink-soft);">NULL</div>
-                    </div>
-                    <!-- L2 -->
-                    <div style="display:grid; grid-template-columns:42px repeat(6, 1fr); gap:8px; align-items:center;">
-                      <span style="color:var(--plop-ink); font-weight:900;">L2</span>
-                      <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:6px; padding:4px 6px; text-align:center; font-weight:900;">HEAD</div>
-                      <div style="text-align:center; color:var(--plop-ink-soft); border-bottom:2px dashed var(--plop-ink);">┄┄▸</div>
-                      <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:6px; padding:4px 6px; text-align:center; font-weight:900;">12</div>
-                      <div style="text-align:center; color:var(--plop-ink-soft); border-bottom:2px dashed var(--plop-ink);">┄┄▸</div>
-                      <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:6px; padding:4px 6px; text-align:center; font-weight:900;">27 🎯</div>
-                      <div style="text-align:center; color:var(--plop-ink-soft);">NULL</div>
-                    </div>
-                    <!-- L0 (底层完整双向有序链表) -->
-                    <div style="display:grid; grid-template-columns:42px repeat(6, 1fr); gap:8px; align-items:center; margin-top:2px;">
-                      <span style="color:var(--plop-ink); font-weight:900;">L0</span>
-                      <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:6px; padding:6px; text-align:center; font-weight:900;">HEAD</div>
-                      <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:6px; padding:6px; text-align:center;">⇄ 6 ⇄</div>
-                      <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:6px; padding:6px; text-align:center; font-weight:900;">⇄ 12 ⇄</div>
-                      <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:6px; padding:6px; text-align:center;">⇄ 19 ⇄</div>
-                      <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:6px; padding:6px; text-align:center; font-weight:900;">⇄ 27 🎯 ⇄</div>
-                      <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:6px; padding:6px; text-align:center;">⇄ 35</div>
-                    </div>
-                  </div>
-                </div>
+<span class="c-cm"># 4. 移除某件商品；字段较多时用 HSCAN 替代 HGETALL</span>
+HDEL cart:user:1001 sku_805
+<span class="c-cm"># Redis 7.4+ 原生支持为单个 Hash 字段独立设置过期时间：</span>
+HEXPIRE cart:user:1001 86400 FIELDS 1 sku_801</code></pre>
+    </div>
 
-                <div style="font-size:12.5px; font-weight:800; color:var(--plop-ink-text); text-align:center; margin-top:10px; padding-top:8px; border-top:1.5px dashed var(--plop-ink);">
-                  💡 <strong>对比红黑树：</strong>跳表在 <code>L0</code> 本身就是双向有序链表，<code>ZRANGE</code> 定位起点后顺序遍历极其丝滑，且靠随机层高免去了红黑树复杂的节点旋转平衡！
-                </div>
-              </div>
-            </div>
+    <div>
+      <h4>工程选型对比：存对象用 JSON <code>String</code> 还是 <code>Hash</code></h4>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">选型方案</th>
+              <th>适用场景与权衡</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>JSON <code>String</code></strong></td>
+              <td>适合<strong>整读整写、极少局部修改</strong>或包含多层嵌套数组的对象（如商品详情页聚合快照），代码序列化直接直观。</td>
+            </tr>
+            <tr>
+              <td><strong><code>Hash</code> 字典</strong></td>
+              <td>适合<strong>高频读写单字段、单字段原子增减</strong>的扁平结构（如购物车、用户多维计数状态）。在字段数量适中（如 <code>≤ 128</code> 项）时内存紧凑度极高。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
 
-            <!-- 右：dict 渐进式 rehash -->
-            <div class="wb-card" id="rehash" style="background:var(--plop-sheet); margin-top:0;">
-              <div class="chapter-q-pill">❓ 02.3 · 哈希表有几百万个 Key，扩容时怎么避免卡死单线程？</div>
-              <h4>🔄 渐进式 Rehash：双表 <code>ht[0] / ht[1]</code> + <code>rehashidx</code> 化整为零</h4>
-              <p>
-                当负载因子 <code>used / size ≥ 1</code>（无 RDB/AOF 子进程时）或 <code>≥ 5</code>（有子进程写时复制期间，避免大面积触发内存页复制）触发扩容。不能一次性搬完几百万 Key，而是<strong>把搬迁分摊到后续每一次增删改查和定时任务里</strong>：
-              </p>
+<!-- 02.2 · List、Set 与 ZSet：序列、唯一集与实时权重排序 -->
+<div class="wb-card" id="collection-types" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📊 02.2 · 集合与排序容器：List 双端列表、Set 唯一集合运算与 ZSet 实时排行榜</div>
+  <h3>📊 02.2 <code>List</code>、<code>Set</code> 与 <code>ZSet</code> 的核心操作与场景边界</h3>
 
-              <!-- 渐进式 rehash HTML/CSS 手绘卡片图 -->
-              <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:8px 0;">
-                <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:12px; align-items:center;">
-                  <!-- 旧表 ht[0] -->
-                  <div style="background:var(--plop-sheet); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
-                    <div style="font-size:13.5px; font-weight:900; color:var(--plop-ink); text-align:center; margin-bottom:6px;">旧表 <code>ht[0]</code> (size=4)</div>
-                    <div style="font-size:12.5px; color:var(--plop-ink-soft); line-height:1.6;">
-                      <div>桶 0：(已迁空)</div>
-                      <div>桶 1：(已迁空)</div>
-                      <div style="background:var(--plop-mustard); border:1.6px solid var(--plop-ink); border-radius:6px; padding:2px 8px; margin:3px 0; color:var(--plop-tomato); font-weight:900;">
-                        桶 2：k3 → k5 (<code>rehashidx=2</code>)
-                      </div>
-                      <div style="color:var(--plop-ink-text); font-weight:800;">桶 3：k4 (待搬迁)</div>
-                    </div>
-                  </div>
+  <h4>1. <code>List</code>（按插入顺序排列的双向列表，允许重复元素）</h4>
+  <p>
+    <code>List</code> 支持从左端（表头 <code>L*</code>）或右端（表尾 <code>R*</code>）以 <code>O(1)</code> 推入和弹出元素，因此通过不同的方向组合即可构造栈（同端进出 <code>LPUSH + LPOP</code>）或先进先出队列（左进右出 <code>LPUSH + RPOP / BRPOP</code>）。需要注意 <strong><code>LRANGE key start stop</code> 的区间规则与 Go 切片不同，它是「双闭区间」——同时包含 <code>start</code> 和 <code>stop</code> 下标本身</strong>，且支持负数下标（<code>-1</code> 表示最后一个元素，<code>-2</code> 表示倒数第二个元素）：
+  </p>
 
-                  <!-- 中间搬迁箭头 -->
-                  <div style="text-align:center; padding:0 4px;">
-                    <div style="font-size:12px; font-weight:900; color:var(--plop-tomato);">每次 CRUD</div>
-                    <div style="font-size:12px; font-weight:900; color:var(--plop-tomato);">顺带搬 1 个桶</div>
-                    <div style="font-size:20px; font-weight:900; color:var(--plop-tomato); line-height:1.1;">━━▸</div>
-                    <div style="font-size:11.5px; font-weight:800; color:var(--plop-ink-soft);"><code>rehashidx++</code></div>
-                  </div>
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>📋 list_timeline.redis · 定长最新动态列表与阻塞弹出</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-list', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-redis-list"><code><span class="c-cm"># 1. 最新消息推入表头，并用 LTRIM 只保留最新的前 100 条（下标 0 到 99 双闭区间，自动淘汰第 100 条之后的旧动态）</span>
+LPUSH feed:latest:user_1001 "post_903"
+LTRIM feed:latest:user_1001 0 99
 
-                  <!-- 新表 ht[1] -->
-                  <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px;">
-                    <div style="font-size:13.5px; font-weight:900; color:var(--plop-ink-text); text-align:center; margin-bottom:6px;">新表 <code>ht[1]</code> (size=8)</div>
-                    <div style="font-size:12.5px; color:var(--plop-ink-text); font-weight:800; line-height:1.6;">
-                      <div>桶 0：k1 (已迁入)</div>
-                      <div>桶 1：k2 (已迁入)</div>
-                      <div style="color:var(--plop-tomato); font-weight:900;">✨ 新增 Key 只写 <code>ht[1]</code>！</div>
-                      <div>🔍 查询：先查 <code>ht[0]</code> 再查 <code>ht[1]</code></div>
-                    </div>
-                  </div>
-                </div>
+<span class="c-cm"># 2. 分页读取第 1 页（前 10 条：下标 0 ~ 9，共 10 个元素；LRANGE key 0 -1 表示取全部元素，大列表慎用）</span>
+LRANGE feed:latest:user_1001 0 9
 
-                <div style="font-size:12.5px; font-weight:800; color:var(--plop-ink-text); text-align:center; margin-top:10px; padding-top:8px; border-top:1.5px dashed var(--plop-ink);">
-                  ✅ 搬完最后一个桶后：释放旧 <code>ht[0]</code>，让 <code>ht[1]</code> 转正成为新 <code>ht[0]</code>，并将 <code>rehashidx</code> 置回 <code>-1</code>
-                </div>
-              </div>
-            </div>
-          </div>
+<span class="c-cm"># 3. 阻塞式右端弹出：若队列为空，连接挂起最多等待 5 秒，一旦有新元素推入立即唤醒返回</span>
+BRPOP task:light_queue 5</code></pre>
+  </div>
 
-          <details class="plop-drawer" id="history">
-            <summary>🔍 进阶 · intset 为什么“只升级不降级”？为什么必须整体升级？</summary>
-            <div class="drawer-body">
-              <p><strong>为什么必须整体升级：</strong><code>intset</code> 是一整块<strong>等宽的连续整数数组</strong>（<code>int16 / int32 / int64</code>）。正因为每个元素占相同字节，才能用 <code>base + i × width</code> 在 <code>O(1)</code> 算位置并做<strong>二分查找（<code>O(log N)</code>）</strong>。如果存入一个超过 <code>int16</code>（32767）的数 <code>40000</code>，只把这一个元素存成 4 字节，数组就变成宽窄不一，二分查找立刻作废！所以必须把整个数组重新分配升级到 <code>int32</code>。</p>
-              <p><strong>为什么不降级：</strong>如果删掉大数后想判断是否能降级，每次删除都要遍历全数组找新的最大值（<code>O(N)</code>），代价太高且收益极低，因此编码升级一律单向不可逆。</p>
-            </div>
-          </details>
-        </div>
+  <h4 style="margin-top:16px;">2. <code>Set</code>（无序、自动去重的唯一元素集合）</h4>
+  <p>
+    <code>Set</code> 不仅能在 <code>O(1)</code> 时间内判断某个成员是否已存在（<code>SISMEMBER</code>），还原生支持跨集合的交集（<code>SINTER</code>）、并集（<code>SUNION</code>）、差集（<code>SDIFF</code>）与随机抽取。抽奖业务中需区分两个随机命令的行为差异：<strong><code>SRANDMEMBER key count</code> 仅随机读取不删除原元素（适合可重复中奖或随机推荐池），而 <code>SPOP key count</code> 会随机弹出并从集合中移除该元素（适合一二三等奖不重复抽取）</strong>。
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🎯 set_social.redis · 独立去重、抽奖池与共同关注交集</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-set', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-redis-set"><code><span class="c-cm"># 1. 添加关注集合（重复写入同一元素会自动忽略并返回 0）</span>
+SADD follow:user:A "u_10" "u_20" "u_30"
+SADD follow:user:B "u_20" "u_30" "u_40"
+
+<span class="c-cm"># 2. 判断 A 是否关注了 u_20 (O(1))，并计算集合元素总数</span>
+SISMEMBER follow:user:A "u_20"
+SCARD follow:user:A
+
+<span class="c-cm"># 3. 求 A 与 B 的共同关注交集 -> 返回 ["u_20", "u_30"]（注意大集合交集建议在从库执行或限制规模）</span>
+SINTER follow:user:A follow:user:B</code></pre>
+  </div>
+
+  <h4 style="margin-top:16px;">3. <code>ZSet</code>（Sorted Set，每个唯一成员关联一个 64 位浮点权重 <code>score</code>）</h4>
+  <p>
+    <code>ZSet</code> 在保持成员唯一性的同时，自动按 <code>score</code> 从小到大维护顺序（当两个成员 <code>score</code> 相同时按成员名字典序排列），单点查分值为 <code>O(1)</code>，插入更新与按名次/分值区间查询均为 <code>O(log N + M)</code>（<code>M</code> 为返回条数）。从 <strong>Redis 6.2 起，官方将早期的 <code>ZREVRANGE / ZRANGEBYSCORE</code> 统一收敛到了增强版 <code>ZRANGE</code> 命令</strong>中：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🏆 zset_leaderboard.go · 使用 ZSet 实现实时热力排行榜与滑动窗口限流</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-zset', this)">复制 Go 代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-redis-zset"><code><span class="c-cm">// 1. 玩家得分原子累加 50 分（成员不存在时自动创建，等价于 ZINCRBY rank:daily:20261127 50 "player_42"）</span>
+newScore, err := rdb.ZIncrBy(ctx, <span class="c-str">"rank:daily:20261127"</span>, 50, <span class="c-str">"player_42"</span>).Result()
+
+<span class="c-cm">// 2. 查询某玩家的降序实时名次（ZRevRank 从 0 开始计，0 代表第一名）</span>
+rankZeroBased, err := rdb.ZRevRank(ctx, <span class="c-str">"rank:daily:20261127"</span>, <span class="c-str">"player_42"</span>).Result()
+
+<span class="c-cm">// 3. 获取榜单前 10 名及分数（等价于 Redis 6.2+ 命令：ZRANGE rank:daily:20261127 0 9 REV WITHSCORES）</span>
+top10, err := rdb.ZRangeArgsWithScores(ctx, redis.ZRangeArgs{
+    Key:   <span class="c-str">"rank:daily:20261127"</span>,
+    Start: 0,
+    Stop:  9,
+    Rev:   <span class="c-kw">true</span>,
+}).Result()
+<span class="c-kw">for</span> idx, item := <span class="c-kw">range</span> top10 {
+    fmt.Printf(<span class="c-str">"第 %d 名: %v (分数: %.0f)\n"</span>, idx+1, item.Member, item.Score)
+}</code></pre>
+  </div>
+</div>
+
+<!-- 02.3 · 四大高阶扩展类型与总体选型速查表 -->
+<div class="wb-card" id="rehash" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🚀 02.3 · 高阶扩展类型：Bitmap 位图、HyperLogLog 基数估算、GEO 地理空间与选型全景表</div>
+  <h3 id="history">🚀 02.3 四种扩展数据类型实战与选型决策矩阵</h3>
+
+  <p>
+    面对海量用户签到、亿级页面独立访客（UV）统计或“附近 3 公里门店”检索时，若直接使用 <code>Set</code> 存原始用户 ID，内存占用会随用户规模线性膨胀。Redis 基于既有结构封装了四种空间效率极高的专用扩展类型：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">扩展类型</th>
+          <th style="width:28%">核心操作指令</th>
+          <th style="width:24%">空间效率对比</th>
+          <th>典型业务场景与使用注意点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Bitmap</strong><br>按位操作</td>
+          <td><code>SETBIT key offset 0|1</code><br><code>GETBIT / BITCOUNT</code><br><code>BITOP AND|OR dest k1 k2</code></td>
+          <td>1 亿连续整数 ID 的二值状态仅占 <code>10<sup>8</sup> / 8 ≈ 11.9 MiB</code></td>
+          <td><strong>用户月度签到、连续活跃统计</strong>（如 <code>BITOP AND</code> 求连续 3 天都登录的用户位图）。注意：仅适合<strong>稠密连续整数偏移量</strong>，若拿稀疏雪花 ID（如 <code>10<sup>15</sup></code>）直接当 <code>offset</code> 会瞬间分配数百 MB 空白零字节。</td>
+        </tr>
+        <tr>
+          <td><strong>HyperLogLog</strong><br>基数估算</td>
+          <td><code>PFADD key elem ...</code><br><code>PFCOUNT key [key ...]</code><br><code>PFMERGE dest k1 k2</code></td>
+          <td>无论写入百万还是上亿不重复元素，单键最多固定占 <strong><code>12 KiB</code></strong></td>
+          <td><strong>全站/单文章 UV 去重计数</strong>（<code>PFMERGE</code> 可将 7 天的日 UV 合并计算出周 UV）。注意点：属于概率统计结构（标准误差 <code>0.81%</code>），<strong>不支持反查具体包含哪些元素</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>GEO</strong><br>地理坐标</td>
+          <td><code>GEOADD key lon lat name</code><br><code>GEODIST key m1 m2 km</code><br><code>GEOSEARCH key FROMLONLAT ... BYRADIUS 3 km ASC</code></td>
+          <td>底层复用 <code>ZSet</code>（将二维经纬度编码为 52 位 GeoHash 整数作为 <code>score</code>）</td>
+          <td><strong>附近骑手、周边门店按距离排序检索</strong>。删除某个坐标点直接使用 <code>ZSet</code> 的 <code>ZREM key name</code>；若全国点位达百万级，应按城市或省级行政区拆分 Key，避免单键过大。</td>
+        </tr>
+        <tr>
+          <td><strong>Stream</strong><br>持久化消息流</td>
+          <td><code>XADD / XREADGROUP / XACK</code></td>
+          <td>内部采用前缀树 + 紧凑列表块压缩同结构消息字段</td>
+          <td><strong>轻量可靠异步消息队列</strong>，支持多消费者组广播、组内负载均衡与未确认消息列表（PEL），详见第 06 章完整演练。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>⚡ ext_types_demo.redis · Bitmap 月度签到、HyperLogLog UV 合并与 GEO 搜索</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-ext', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-redis-ext"><code><span class="c-cm"># 1. Bitmap：记录用户 10086 在 2026 年 11 月第 1 天(offset=0)和第 27 天(offset=26)签到，并统计当月总签到天数</span>
+SETBIT sign:u10086:202611 0 1
+SETBIT sign:u10086:202611 26 1
+BITCOUNT sign:u10086:202611
+
+<span class="c-cm"># 2. HyperLogLog：统计两天的文章 UV 并合并计算两日总独立访客数</span>
+PFADD uv:article:99:20261126 "u1" "u2" "u3"
+PFADD uv:article:99:20261127 "u2" "u3" "u4"
+PFMERGE uv:article:99:2days uv:article:99:20261126 uv:article:99:20261127
+PFCOUNT uv:article:99:2days
+
+<span class="c-cm"># 3. GEO：录入门店经纬度，查询距离指定坐标半径 3 公里内最近的 5 家门店（Redis 6.2+ GEOSEARCH）</span>
+GEOADD shops:shanghai 121.4737 31.2304 "人民广场店" 121.4997 31.2397 "陆家嘴店"
+GEOSEARCH shops:shanghai FROMLONLAT 121.4800 31.2350 BYRADIUS 3 km ASC COUNT 5 WITHDIST</code></pre>
+  </div>
+
+  <div class="plop-callout tip" style="margin-top:12px;">
+    <strong>📘 底层内存实现直达：</strong>同一种对外类型在小规模数据与大规模数据时，Redis 内部会自动选用不同的物理编码（例如 <code>String</code> 的 <code>embstr</code> 44 字节边界、Redis 7.0 用 <code>listpack</code> 替代 <code>ziplist</code> 消除连锁更新、<code>ZSet</code> 的跳表跨度指针与哈希表渐进式 <code>rehash</code>）。想深入内存字节级布局可前往 <a href="principles.html#datatype">《📘 核心原理篇 · 02 对象头、SDS、listpack、跳表与渐进式 Rehash》</a>。
+  </div>
+</div>

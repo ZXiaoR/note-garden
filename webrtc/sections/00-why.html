@@ -1,0 +1,312 @@
+<!-- ====================================================================
+     PART 00: 认识音视频与 WebRTC · 全局定位、五步通话主线、第一个摄像头网页与调试面板
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">认识音视频与 WebRTC · 全局定位、五步通话主线与第一个摄像头网页</span>
+  <span class="plop-tag mint">OVERVIEW × 5-STEP MAP × HELLO CAMERA</span>
+</div>
+
+<!-- 00.1 · RTC 与 WebRTC 的核心定位及与 WebSocket 的差异 -->
+<div class="wb-card" id="webrtc-intro" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧭 00.1 · 整体定位：RTC 与 WebRTC 的关系，以及它和日常 HTTP / WebSocket 开发的区别</div>
+  <h3>🧭 00.1 RTC 与 WebRTC 的核心定位</h3>
+
+  <p>
+    平时我们在网页里刷长视频（点播）或看赛事大直播时，画面比现场晚 3 到 10 秒传到手机上并不会影响观看体验，因为观众只是单向接收画面。但在<strong>微信视频聊天、海外 1v1 随机视频匹配、多人语聊房、以及和 AI 语音伴侣实时对话</strong>这类场景下，双方需要「边说边听、随时插话」。心理学与通信工程测试表明，当双向对话的端到端延迟超过 <code>400ms</code> 时，人就会明显感觉到抢话与冷场；这种将端到端延迟控制在 <span class="hl-mustard">80 ~ 300ms 以内</span> 的双向实时互动技术，统称为 <strong>RTC（Real-Time Communication，实时通信）</strong>。
+  </p>
+
+  <p>
+    <strong>WebRTC（Web Real-Time Communication，网页实时通信）</strong>并不是某个第三方 npm 前端框架，而是 Google 在 2011 年开源、随后由 W3C 与 IETF 共同制定的<strong>浏览器原生标准与内置音视频引擎</strong>。现代浏览器（Chrome、Safari、Edge、Firefox 及移动端 WebView）出厂时就已经在底层 C++ 引擎中内置了一整套音视频通话系统，并向前端暴露出原生 JavaScript 接口。与前端日常最熟悉的 <code>WebSocket</code> 相比，WebRTC 有三点核心差异：
+  </p>
+
+  <div class="wb-grid-3" style="margin:14px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag mint">差异 ① · 传输路径</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">P2P Direct</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">支持浏览器对浏览器直接连线</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        <code>WebSocket</code> 所有数据都必须去中心服务器绕一圈；而 <code>WebRTC</code> 在两人连上线后，音视频流可直接在两台手机/电脑之间点对点对传（P2P），减少中转延迟并节省服务器带宽。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag periwinkle">差异 ② · 底层协议</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">UDP First</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">优先保证当下画面声音的实时性</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        <code>WebSocket</code> 基于 TCP，丢 1 个旧包就会卡住后面已到的 20 个新语音包排队等待重传；<code>WebRTC</code> 默认基于 UDP，允许跳过过期的旧帧，优先播放最新到达的声音与画面。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span class="plop-tag tomato">差异 ③ · 内置引擎</span>
+        <span style="font-family:var(--font-mono); font-size:11px; font-weight:900; color:var(--plop-ink);">Media Engine</span>
+      </div>
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:5px;">自带采集降噪、压缩与弱网调节</div>
+      <p style="font-size:13px; margin:0; color:var(--plop-ink-soft); line-height:1.6;">
+        <code>WebSocket</code> 只是一条裸字节管道；而 <code>WebRTC</code> 在浏览器内部自带了回声消除、背景降噪、硬件视频编码压缩以及网速变差时自动调低画质的全套处理流水线。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 00.2 · 一次完整 RTC 通话的五步全景地图与核心缩写白话对照 -->
+<div class="wb-card" id="rtc-five-steps" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🗺️ 00.2 · 全景主线：打通一次视频通话经历的五个阶段与常见缩写角色分工</div>
+  <h3>🗺️ 00.2 一次完整 RTC 通话的五步主线与名词对照</h3>
+
+  <p>
+    初学者看音视频资料时容易混乱，往往是因为 <code>SDP</code>、<code>ICE</code>、<code>STUN</code>、<code>TURN</code>、<code>SRTP</code>、<code>SFU</code> 等缩写混在一起出现。其实把一次实时通话按先后顺序摊开，始终遵循清晰的<strong>五个阶段</strong>——而且最核心的一条分界线是：<span class="hl-mint">前期借用你自己的 WebSocket 后端牵线搭桥，连上线后音视频直接走 UDP 媒体通道传输</span>。
+  </p>
+
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg role="img" aria-labelledby="webrtc-ov-title webrtc-ov-desc" viewBox="0 0 880 344" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.5px solid #2848D8; border-radius:14px;">
+        <title id="webrtc-ov-title">一次完整 WebRTC 通话的五步端到端流程全景图</title>
+        <desc id="webrtc-ov-desc">上半部分按时间顺序展示一次视频通话经历的采集压缩、信令互换名片、地址探测穿透、加密抗弱网传输、播放渲染与多人扩展五个阶段；下半部分对比前期借用 WebSocket 的信令牵线层与后期走 UDP 的实时媒体传输层。</desc>
+        <defs>
+          <marker id="ov-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2848D8" />
+          </marker>
+          <marker id="ov-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#D2381E" />
+          </marker>
+          <marker id="ov-arr-leaf" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#1E7043" />
+          </marker>
+        </defs>
+
+        <!-- Zone 1: 5 Sequential Stages -->
+        <rect x="28" y="16" width="824" height="144" rx="10" fill="#FBF8F0" stroke="#2848D8" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="44" y="24" width="448" height="22" rx="6" fill="#2848D8" />
+        <text x="268" y="39" fill="#FFF8E7" font-size="9.8" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle" letter-spacing="0.04em">⚡ END-TO-END RTC WORKFLOW · 从点击呼叫到画面上屏的 5 个环节</text>
+
+        <!-- Zone 2: Control Plane vs Media Plane -->
+        <rect x="28" y="176" width="824" height="108" rx="10" fill="#FFF5F7" stroke="#2848D8" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="44" y="184" width="468" height="22" rx="6" fill="#D2381E" />
+        <text x="278" y="199" fill="#FFF8E7" font-size="9.8" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle" letter-spacing="0.04em">🔀 双通道核心分界 · 前期借 WebSocket 牵线，连上后音视频走 UDP 专线</text>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <line x1="184" y1="102" x2="208" y2="102" stroke="#2848D8" stroke-width="2.2" marker-end="url(#ov-arr)" />
+        <line x1="344" y1="102" x2="368" y2="102" stroke="#2848D8" stroke-width="2.2" marker-end="url(#ov-arr)" />
+        <line x1="504" y1="102" x2="528" y2="102" stroke="#D2381E" stroke-width="2.2" marker-end="url(#ov-arr-accent)" />
+        <line x1="664" y1="102" x2="688" y2="102" stroke="#1E7043" stroke-width="2.2" marker-end="url(#ov-arr-leaf)" />
+        <line x1="416" y1="244" x2="464" y2="244" stroke="#D2381E" stroke-width="2.4" marker-end="url(#ov-arr-accent)" />
+
+        <!-- 5 Stage Boxes -->
+        <rect x="48" y="60" width="136" height="84" rx="8" fill="#F6C445" stroke="#2848D8" stroke-width="2.2" />
+        <text x="116" y="83" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">① 采集与压缩</text>
+        <text x="116" y="103" fill="#14226B" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">开摄像头麦克风 · 降噪</text>
+        <text x="116" y="123" fill="#3B4A92" font-size="8.4" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">实战篇 02 / 原理篇 00</text>
+
+        <rect x="208" y="60" width="136" height="84" rx="8" fill="#A9B6EE" stroke="#2848D8" stroke-width="2.2" />
+        <text x="276" y="83" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">② 信令换名片</text>
+        <text x="276" y="103" fill="#14226B" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">借 WebSocket 传 SDP</text>
+        <text x="276" y="123" fill="#14226B" font-size="8.4" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">实战篇 03 / 原理篇 01</text>
+
+        <rect x="368" y="60" width="136" height="84" rx="8" fill="#9FD8B8" stroke="#2848D8" stroke-width="2.2" />
+        <text x="436" y="83" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">③ 寻址与内网穿透</text>
+        <text x="436" y="103" fill="#14226B" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">STUN 查IP · TURN 兜底</text>
+        <text x="436" y="123" fill="#1E7043" font-size="8.4" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">实战篇 03 / 原理篇 01</text>
+
+        <rect x="528" y="60" width="136" height="84" rx="8" fill="#F6A9B8" stroke="#D2381E" stroke-width="2.4" />
+        <text x="596" y="83" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">④ 加密传输抗弱网</text>
+        <text x="596" y="103" fill="#14226B" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">UDP + SRTP · 丢包恢复</text>
+        <text x="596" y="123" fill="#D2381E" font-size="8.4" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">原理篇 02</text>
+
+        <rect x="688" y="60" width="144" height="84" rx="8" fill="#EEF3FF" stroke="#2848D8" stroke-width="2.2" />
+        <text x="760" y="83" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">⑤ 播放与多人扩展</text>
+        <text x="760" y="103" fill="#14226B" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">&lt;video&gt; 渲染 · SFU 转发</text>
+        <text x="760" y="123" fill="#2848D8" font-size="8.4" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">实战篇 04 / 原理篇 03</text>
+
+        <!-- Zone 2 Nodes -->
+        <rect x="48" y="216" width="368" height="54" rx="8" fill="#EEF3FF" stroke="#2848D8" stroke-width="2.2" />
+        <text x="232" y="238" fill="#14226B" font-size="11.2" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">前期牵线：信令通道（项目自己的 WebSocket 业务后端）</text>
+        <text x="232" y="257" fill="#3B4A92" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">只传几 KB 的 JSON 控制消息（房间匹配 / SDP 名片 / ICE 地址）</text>
+
+        <rect x="464" y="216" width="368" height="54" rx="8" fill="#F6C445" stroke="#D2381E" stroke-width="2.4" />
+        <text x="648" y="238" fill="#14226B" font-size="11.2" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">正式通话：媒体通道（P2P 直连 / TURN 中转 / SFU 转发网关）</text>
+        <text x="648" y="257" fill="#D2381E" font-size="8.8" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">每秒数百 KB 实时音视频流走 UDP 专线，不再经过 WebSocket 服</text>
+
+        <!-- Legend Strip -->
+        <line x1="28" y1="300" x2="852" y2="300" stroke="#2848D8" stroke-width="1.2" stroke-dasharray="4,3" />
+        <text x="32" y="324" fill="#14226B" font-size="9" font-family="ui-monospace, monospace" font-weight="900" letter-spacing="0.12em">LEGEND</text>
+        <line x1="104" y1="320" x2="140" y2="320" stroke="#2848D8" stroke-width="2.2" marker-end="url(#ov-arr)" />
+        <text x="150" y="324" fill="#14226B" font-size="10.8" font-weight="700" font-family="system-ui, sans-serif">信令协商与地址探测流转</text>
+        <line x1="340" y1="320" x2="376" y2="320" stroke="#D2381E" stroke-width="2.4" marker-end="url(#ov-arr-accent)" />
+        <text x="386" y="324" fill="#D2381E" font-size="10.8" font-weight="800" font-family="system-ui, sans-serif">实时音视频流传输主干</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p style="margin-top:12px;">
+    把两个在各自家里连着 Wi-Fi 的手机用户想象成<strong>住在两个封闭小区里的住户</strong>，下面这张表就能把 RTC 里的全部常见角色一次对号入座：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">核心术语</th>
+          <th style="width:14%">出场阶段</th>
+          <th style="width:40%">生活类比与真实职责</th>
+          <th>前端日常代码里做什么</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>MediaStream</code> 与编码</strong></td>
+          <td>① 采集压缩</td>
+          <td><strong>打包行李：</strong>调用摄像头和麦克风拿到画面声音，先消除回声杂音，再把每秒上百 MB 的原始画面压缩成几百 KB。</td>
+          <td>调用 <code>getUserMedia()</code> 申请权限，控制闭麦、关画面与切镜头。</td>
+        </tr>
+        <tr>
+          <td><strong>信令服 (<code>Signaling</code>)</strong></td>
+          <td>② 信令换名片</td>
+          <td><strong>中间媒人：</strong>两部手机连上前互不认识，需要借助双方都连着的 WebSocket 业务服务器帮忙转交名片与地址。</td>
+          <td>用项目现有的 <code>WebSocket</code> 收发进房、匹配成功、挂断与协商消息。</td>
+        </tr>
+        <tr>
+          <td><strong><code>SDP</code>（会话描述协议）</strong></td>
+          <td>② 信令换名片</td>
+          <td><strong>个人能力名片：</strong>一段纯文本，写明「我有音频和视频，支持 H.264 画面与 Opus 声音，这是我的加密指纹」。</td>
+          <td>调用 <code>createOffer / createAnswer</code> 生成名片并通过信令传给对端。</td>
+        </tr>
+        <tr>
+          <td><strong><code>NAT / STUN / TURN</code></strong></td>
+          <td>③ 寻址穿透</td>
+          <td><strong>查公网门牌与驿站中转：</strong>手机只知内网号（如 <code>192.168.1.5</code>），去问公网上的 <code>STUN</code> 服务查出自家路由器的公网地址尝试直连；若被防火墙拦住打不通，则由 <code>TURN</code> 中转服务器帮忙转发。</td>
+          <td>在 <code>new RTCPeerConnection({ iceServers })</code> 中填入后端下发的 STUN/TURN 地址与临时凭证。</td>
+        </tr>
+        <tr>
+          <td><strong><code>ICE Candidate</code></strong></td>
+          <td>③ 寻址穿透</td>
+          <td><strong>候选路线单：</strong>浏览器搜集到的每一条潜在通信地址（局域网 IP、STUN 查出的公网 IP、TURN 中转 IP）。</td>
+          <td>监听 <code>onicecandidate</code> 发给对方，收到对方的候选调用 <code>addIceCandidate</code>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>SRTP / JitterBuffer</code></strong></td>
+          <td>④ 加密抗弱网</td>
+          <td><strong>加密车队与缓冲池：</strong><code>SRTP</code> 给音视频包加密防窃听；<code>JitterBuffer</code> 把网络颠簸乱序到达的数据包排齐后再送去播放。</td>
+          <td>浏览器底层自动完成；前端可通过 <code>getStats()</code> 读取延迟与丢包率展示弱网提示。</td>
+        </tr>
+        <tr>
+          <td><strong><code>SFU</code>（选择性转发网关）</strong></td>
+          <td>⑤ 多人扩展</td>
+          <td><strong>多人房间分拣站：</strong>超过 3~4 人的语聊房不再两两直连，每人只发 1 份流给 SFU 服务器，由它按需转发给房间其他人。</td>
+          <td>多人连麦场景通常接入 LiveKit、声网（Agora）或即构（ZEGO）等 SDK 与 SFU 交互。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.3 · 第一个 WebRTC 网页：25 行代码打开本地摄像头预览与静音开关 -->
+<div class="wb-card" id="hello-camera" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">📝 00.3 · 第一个程序：无需任何后端，25 行代码跑通本地摄像头采集、预览与开关画面</div>
+  <h3>📝 00.3 编写第一个本地摄像头预览网页</h3>
+
+  <p>
+    体验 WebRTC 的第一步完全不需要搭建服务器。新建一个 <code>hello-camera.html</code> 文件，用 VS Code 的 <code>Live Server</code>（或终端执行 <code>python3 -m http.server 8000</code> 后访问 <code>http://localhost:8000/hello-camera.html</code>）打开，点击按钮并允许权限，就能在网页里看到自己的实时画面：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span>📄 hello-camera.html · 最小本地摄像头采集与开关示例</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-rtc-hello', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-rtc-hello"><code>&lt;!DOCTYPE html&gt;
+&lt;html lang=<span class="c-str">"zh-CN"</span>&gt;
+&lt;body&gt;
+  <span class="c-cm">&lt;!-- 本地预览必须加 muted 静音，防止自己扬声器外放的声音再被麦克风录进去啸叫 --&gt;</span>
+  &lt;video id=<span class="c-str">"local-video"</span> autoplay muted playsinline
+         style=<span class="c-str">"width: 360px; background: #111; border-radius: 10px;"</span>&gt;&lt;/video&gt;
+  &lt;div style=<span class="c-str">"margin-top: 10px;"</span>&gt;
+    &lt;button id=<span class="c-str">"start-btn"</span>&gt;1. 开启摄像头&lt;/button&gt;
+    &lt;button id=<span class="c-str">"stop-btn"</span>&gt;2. 彻底关闭硬件&lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;script&gt;
+    <span class="c-kw">let</span> localStream = <span class="c-kw">null</span>;
+    <span class="c-kw">const</span> videoEl = document.<span class="c-fn">getElementById</span>(<span class="c-str">'local-video'</span>);
+
+    document.<span class="c-fn">getElementById</span>(<span class="c-str">'start-btn'</span>).<span class="c-fn">addEventListener</span>(<span class="c-str">'click'</span>, <span class="c-kw">async</span> () =&gt; {
+      <span class="c-cm">// 向浏览器申请摄像头画面与麦克风声音，返回 MediaStream 媒体流对象</span>
+      localStream = <span class="c-kw">await</span> navigator.mediaDevices.<span class="c-fn">getUserMedia</span>({ video: <span class="c-kw">true</span>, audio: <span class="c-kw">true</span> });
+      videoEl.srcObject = localStream; <span class="c-cm">// 将实时流直接绑定到 video 元素播放</span>
+    });
+
+    document.<span class="c-fn">getElementById</span>(<span class="c-str">'stop-btn'</span>).<span class="c-fn">addEventListener</span>(<span class="c-str">'click'</span>, () =&gt; {
+      localStream?.<span class="c-fn">getTracks</span>().<span class="c-fn">forEach</span>(track =&gt; track.<span class="c-fn">stop</span>());
+      videoEl.srcObject = <span class="c-kw">null</span>;
+    });
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📖 逐行关键细节拆解（零基础对照）</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
+        <li><strong>为什么必须通过 <code>localhost</code> 或 <code>https://</code> 访问：</strong>为了保护用户隐私，浏览器规定只有在「安全上下文（Secure Context）」下才暴露 <code>navigator.mediaDevices</code>；若直接用局域网明文 <code>http://192.168.x.x</code> 打开，该对象为 <code>undefined</code>。</li>
+        <li><strong><code>videoEl.srcObject = localStream</code>：</strong>普通点播视频给 <code>videoEl.src</code> 赋一个 <code>.mp4</code> 网址字符串；而实时媒体流在内存里持续产生画面帧，因此直接赋值给 <code>srcObject</code> 属性。</li>
+        <li><strong>本地预览必加 <code>muted</code>：</strong><code>muted</code> 只会让本机浏览器不把你自己的声音从喇叭放出来，<strong>并不会影响麦克风采集发给远端对方</strong>；如果不加，你的声音从音箱出来又进麦克风循环放大，一秒内就会产生刺耳的回声啸叫。</li>
+        <li><strong><code>playsinline</code>：</strong>在 iOS Safari / 微信内置浏览器中必加，告知系统在网页原有位置内联播放，不要一接通就强行弹起全屏系统播放器挡住页面按钮。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 00.4 · 本地开发与排障面板：无摄像头模拟与 chrome://webrtc-internals -->
+<div class="wb-card" id="webrtc-devtools" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🛠️ 00.4 · 调试工作台：台式机无摄像头模拟参数与 Chrome 内置 WebRTC 诊断面板</div>
+  <h3>🛠️ 00.4 本地开发与诊断工具：虚拟设备参数与 <code>chrome://webrtc-internals</code></h3>
+
+  <p>
+    日常在公司用台式机开发或一个人联调双人通话时，经常遇到「电脑没有外接摄像头」或「连接断了但在普通 Network 面板里看不到 UDP 音视频包」的情况，下面三项浏览器内置能力是音视频前端最常用的调试手段：
+  </p>
+
+  <div class="table-wrap" style="margin:12px 0;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">调试工具 / 能力</th>
+          <th style="width:32%">开启方式</th>
+          <th>主要观测内容与开发用途</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. <code>chrome://webrtc-internals</code></strong></td>
+          <td>在 Chrome / Edge 地址栏直接输入该内部地址回车</td>
+          <td><strong>WebRTC 官方黑匣子面板：</strong>自动记录当前所有 <code>RTCPeerConnection</code> 实例的 API 调用时间线（<code>createOffer / setRemoteDescription / addIceCandidate</code>）、完整的本地与远端 SDP 文本、选中的 ICE 候选地址对，以及实时的发送/接收码率、帧率、RTT 延迟和丢包率折线图。</td>
+        </tr>
+        <tr>
+          <td><strong>2. Chrome 内置虚拟摄像头与麦克风</strong></td>
+          <td>终端带参启动 Chrome：<code>--use-fake-device-for-media-stream --use-fake-ui-for-media-stream</code></td>
+          <td>无需真实硬件摄像头，Chrome 会自动生成一个带旋转绿圈计时器的测试视频画面与滴答音频流，并自动跳过权限弹窗，适合在无摄像头的开发机或自动化 E2E 测试中使用。</td>
+        </tr>
+        <tr>
+          <td><strong>3. DevTools → <code>Network (WS)</code></strong></td>
+          <td>打开 <code>F12 → Network</code>，筛选 <code>WS</code>（WebSocket）标签并点开 <code>Messages</code></td>
+          <td>虽然正式通话后的 UDP 媒体包不显示在 Network 面板里，但前期所有的<strong>信令交互消息</strong>（进房、<code>offer</code>、<code>answer</code>、<code>ice-candidate</code>）都能在 <code>WS → Messages</code> 里逐条检查收发顺序。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>💡 双篇阅读导航：</strong>本篇（🌱 基础与实战篇）涵盖网页媒体标签与协议选型、摄像头采集与轨道热切换、双人信令建连及 Vue 3 通话组件封装。若需进一步查阅 PCM/YUV 编码推导、对称型 NAT 穿透受阻原因、弱网抗丢包（<code>JitterBuffer / NACK / FEC / GCC</code>）和多人 SFU 大小流底层机制，可随时点击顶部切换栏进入 <a href="principles.html">📘 核心原理篇 ↗</a>。
+  </div>
+</div>

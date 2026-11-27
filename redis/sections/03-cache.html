@@ -1,139 +1,245 @@
 <!-- ====================================================================
-             PART 03: 做缓存必遇的坑 · 穿透/击穿/雪崩、布隆过滤器、DB双写一致性、大Key与热Key
-             ==================================================================== -->
-        <div class="wb-sec-header pink" id="cache-problem">
-          <span class="wb-sec-num">03</span>
-          <span class="wb-sec-title">缓存实战避坑 · 穿透/击穿/雪崩、布隆过滤器、MySQL 双写一致性与大 Key 治理</span>
-          <span class="plop-tag tomato">HIGH FREQUENCY · 生产防线</span>
-        </div>
+     PART 03: 缓存读写设计模式、三大异常防御与大 Key / 热 Key 治理
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="cache-problem">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">缓存读写模式、三大异常防护与大 Key / 热 Key 治理</span>
+  <span class="plop-tag tomato">CACHE-ASIDE · SINGLEFLIGHT · BLOOM · BIGKEY &amp; HOTKEY</span>
+</div>
 
-        <!-- 06：缓存三大问题 + 布隆过滤器 SVG（由上到下顺序排列） -->
-        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
-            <div class="washi-tape"></div>
-            <div class="chapter-q-pill">❓ 03.1 · 缓存穿透、击穿、雪崩有什么区别？分别怎么挡住？</div>
-            <h3>🛡️ 03.1 缓存三大经典问题（都会打到 DB，但触发根因完全不同）</h3>
+<!-- 03.1 · Cache-Aside 旁路缓存标准读写工程实践 -->
+<div class="wb-card" id="consistency" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔄 03.1 · 缓存协同模式：Cache-Aside 标准读写闭环与双写最终一致性落地</div>
+  <h3>🔄 03.1 旁路缓存模式（Cache-Aside）与双写协同规范</h3>
 
-            <div class="table-wrap">
-              <table class="plop-table">
-                <thead>
-                  <tr>
-                    <th style="width:18%">异常类型</th>
-                    <th style="width:36%">一句话本质</th>
-                    <th>标准工程解法</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><strong>① 缓存穿透</strong></td>
-                    <td>查<strong>根本不存在</strong>的数据（如 <code>id=-1</code>），缓存和 DB 都没有，每次都穿透打到 DB</td>
-                    <td>• <strong>布隆过滤器</strong>前置拦截<br>• <strong>缓存空对象</strong>（<code>NULL</code> 设 30~60s 短 TTL）<br>• 接口层参数合法性校验</td>
-                  </tr>
-                  <tr>
-                    <td><strong>② 缓存击穿</strong></td>
-                    <td><strong>单个超热 Key</strong>（如秒杀商品）到期瞬间，万级并发同时回源 DB 重建</td>
-                    <td>• <strong>互斥锁（Mutex）</strong>：只让第 1 个线程查 DB 重建，其余等待重试<br>• <strong>逻辑过期</strong>：物理永不过期，value 存逻辑时间戳，过期异步重建、先返旧值</td>
-                  </tr>
-                  <tr>
-                    <td><strong>③ 缓存雪崩</strong></td>
-                    <td><strong>大批 Key 同时到期</strong> 或 <strong>Redis 实例宕机</strong>，流量洪峰压垮 DB</td>
-                    <td>• <strong>TTL 加随机打散值</strong>（基础时间 + 随机几分钟）<br>• <strong>高可用集群</strong>（哨兵 / Cluster）<br>• <strong>本地多级缓存</strong>（Caffeine）+ 限流降级</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+  <p>
+    当同一份业务数据既持久化在 MySQL 中，又缓存在 Redis 中时，应用程序采用最广泛的协作规范是 <strong>Cache-Aside（旁路缓存模式）</strong>：由业务服务同时对接数据库与缓存，遵循<strong>「读请求未命中时回源查库并回填缓存；写请求先更新数据库，成功后删除对应缓存」</strong>的顺序。
+  </p>
 
-            <!-- 大字号手账卡片图解：布隆过滤器位数组与 k 次哈希原理 -->
-            <h4>🌸 布隆过滤器（Bloom Filter）防穿透原理：位数组 + <code>k</code> 个哈希函数</h4>
-            <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:12px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
-              <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:10px;">
-                ① 写入真实存在的 <code>key_A</code>：经 3 个哈希函数映射到下标 <code>[ #2, #7, #11 ]</code>，全部置为 <code>1</code>
-              </div>
+  <!-- Editorial SVG: Cache-Aside Read & Write Standard Flow -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 880 284" style="width:100%; min-width:760px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rd-ca-title rd-ca-desc">
+        <title id="rd-ca-title">Cache-Aside 旁路缓存标准读路径与写路径工程流转图</title>
+        <desc id="rd-ca-desc">左半区展示读路径：先查 Redis，命中直接返回，未命中则查 MySQL 并将结果带随机抖动 TTL 回填 Redis；右半区展示写路径：先在事务中更新 MySQL，提交成功后再删除 Redis 旧缓存，若删除失败则通过异步重试或订阅 Binlog 补偿。</desc>
+        <defs>
+          <marker id="rd-ca-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rd-ca-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="rd-ca-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
 
-              <!-- 12 位 bit 数组网格 -->
-              <div style="display:grid; grid-template-columns:repeat(12, minmax(38px, 1fr)); gap:4px; text-align:center; font-family:var(--font-mono); margin-bottom:12px; overflow-x:auto;">
-                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; color:var(--plop-ink-soft);">#0</div><div style="font-size:14px; font-weight:800;">0</div></div>
-                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; color:var(--plop-ink-soft);">#1</div><div style="font-size:14px; font-weight:800;">0</div></div>
-                <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; font-weight:900; color:var(--plop-ink);">#2</div><div style="font-size:15px; font-weight:900; color:var(--plop-leaf);">1</div></div>
-                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; color:var(--plop-ink-soft);">#3</div><div style="font-size:14px; font-weight:800;">0</div></div>
-                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; color:var(--plop-ink-soft);">#4</div><div style="font-size:14px; font-weight:800;">0</div></div>
-                <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; font-weight:900; color:var(--plop-tomato);">#5</div><div style="font-size:14px; font-weight:900; color:var(--plop-tomato);">0✗</div></div>
-                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; color:var(--plop-ink-soft);">#6</div><div style="font-size:14px; font-weight:800;">0</div></div>
-                <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; font-weight:900; color:var(--plop-ink);">#7</div><div style="font-size:15px; font-weight:900; color:var(--plop-leaf);">1</div></div>
-                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; color:var(--plop-ink-soft);">#8</div><div style="font-size:14px; font-weight:800;">0</div></div>
-                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; color:var(--plop-ink-soft);">#9</div><div style="font-size:14px; font-weight:800;">0</div></div>
-                <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; color:var(--plop-ink-soft);">#10</div><div style="font-size:14px; font-weight:800;">0</div></div>
-                <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:7px; padding:6px 2px;"><div style="font-size:11px; font-weight:900; color:var(--plop-ink);">#11</div><div style="font-size:15px; font-weight:900; color:var(--plop-leaf);">1</div></div>
-              </div>
+        <!-- Left Zone: Read Path -->
+        <rect x="24" y="20" width="404" height="244" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.16)" stroke-width="1"/>
+        <text x="226" y="42" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#1F1F23">1. 读路径（Read）：先查缓存，未命中再查库回填</text>
 
-              <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:10px; padding:10px 14px; font-size:13.2px; line-height:1.6;">
-                • <strong style="color:var(--plop-leaf);">查 <code>key_A</code>：</strong>落点 <code>[#2, #7, #11]</code> 全为 <code>1</code> → 判定<strong>「可能存在」</strong>（放行去查 Redis / DB，存在极小假阳性误判率）<br/>
-                • <strong style="color:var(--plop-tomato);">查不存在的 <code>key_X</code>：</strong>落点 <code>[#2, #5, #11]</code>，发现 <code>#5</code> 为 <code>0</code> → <strong>100% 必定不存在！直接前置拦截穿透 ✅</strong>
-              </div>
-              <div style="margin-top:8px; font-size:12.8px; color:var(--plop-ink-soft); font-weight:700;">
-                💡 <strong>铁律：</strong>说“不存在”绝对可信（零漏判）；说“存在”可能被其他 Key 凑巧把那几位都撞成了 1（假阳性）。普通布隆过滤器不支持直接删除元素（把 1 改回 0 会误伤共享该位的其他 Key）。
-              </div>
-            </div>
-        </div>
+        <!-- Read Connectors (drawn BEFORE boxes) -->
+        <!-- App (180,88) -> Redis (268,88) -->
+        <line x1="180" y1="88" x2="268" y2="88" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#rd-ca-arr-link)"/>
+        <rect x="194" y="68" width="60" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="224" y="77" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#2e5aa8">1. GET</text>
 
-        <!-- 07 & 08：缓存与数据库双写一致性 + 大 Key / 热 Key（由上到下顺序排列） -->
-        <div class="wb-card" id="consistency" style="background:var(--plop-paper); margin-bottom:20px;">
-            <div class="washi-tape mint"></div>
-            <div class="chapter-q-pill">❓ 03.2 · 先改 DB 还是先删缓存？为什么是“删”而不是“更新”缓存？</div>
-            <h3>🔄 03.2 缓存与数据库一致性（Cache-Aside 旁路缓存）</h3>
-            <p>
-              只要数据同时存在 MySQL 和 Redis，就要解决同步顺序问题。标准答案是 <strong>Cache-Aside：读时未命中查 DB 回填；写时「先更新 DB，再删除缓存」</strong>。
-            </p>
+        <!-- App bottom (112,116) -> MySQL top (112,184) -->
+        <line x1="112" y1="116" x2="112" y2="184" stroke="#4f5d75" stroke-width="1.3" marker-end="url(#rd-ca-arr-muted)"/>
+        <rect x="120" y="142" width="76" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="158" y="152" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">2. Miss-&gt;DB</text>
 
-            <div class="table-wrap">
-              <table class="plop-table">
-                <thead>
-                  <tr>
-                    <th style="width:28%">错误/备选方案</th>
-                    <th>为什么不行或并发下会出什么问题？</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><strong>❌ 写 DB + 更新缓存</strong></td>
-                    <td><strong>① 并发写覆盖：</strong>请求 A(写10) 先写 DB，请求 B(写20) 后写 DB 并先更新缓存=20，结果 A 的网络慢最后把缓存覆写成旧值 10！<br><strong>② 算力浪费：</strong>写多读少时频繁更新没人读的缓存白费力气，直接删掉按需懒加载更划算。</td>
-                  </tr>
-                  <tr>
-                    <td><strong>⚠️ 先删缓存，再更 DB</strong></td>
-                    <td><strong>高概率脏回填：</strong>写请求 A 刚删完缓存、还没来得及改完 DB 时，并发读请求 B 进来发现缓存空了，去 DB 读出<strong>旧值 V1</strong> 重新灌回缓存，导致缓存长期脏数据！<br>👉 <em>补救：若非要用此顺序，必须在更完 DB 后做<strong>延迟双删</strong>（如 sleep 500ms 再删一次）。</em></td>
-                  </tr>
-                  <tr>
-                    <td><strong>✅ 先更 DB，再删缓存</strong><br><span style="font-size:11.5px; color:var(--plop-leaf);">(工业界首选)</span></td>
-                    <td>只有当“缓存恰好失效 + 读查到旧值 V1 + 写改完 DB 并删完缓存 + 读最后才把 V1 写回缓存”同时发生才会脏（因为读内存远快于写磁盘，此交错概率极低），配合 <strong>TTL 兜底</strong> 即可。</td>
-                  </tr>
-                  <tr>
-                    <td><strong>🚀 Canal 订阅 binlog</strong></td>
-                    <td>若“删缓存”那一步网络报错失败怎么办？可用 <strong>MQ 异步重试删除</strong>，或用 <strong>Canal 伪装成 MySQL 从库订阅 binlog</strong> 异步删除缓存，与业务代码彻底解耦。</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+        <!-- MySQL right (180,212) -> Redis bottom (336,116) via r=8 elbow -->
+        <path d="M 180,212 H 328 Q 336,212 336,204 V 116" fill="none" stroke="#bf4520" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#rd-ca-arr-accent)"/>
+        <rect x="210" y="220" width="124" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="272" y="230" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#bf4520">3. SET EX + Jitter</text>
 
-            <hr style="border:none; border-top:2px dashed rgba(40,72,216,0.3); margin:14px 0;" />
+        <!-- Read Nodes -->
+        <rect x="44" y="60" width="136" height="56" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="112" y="85" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">业务读接口</text>
+        <text x="112" y="103" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">Query Handler</text>
 
-            <div class="chapter-q-pill" id="bigkey">❓ 03.3 · 大 Key 与热 Key 有什么危害？怎么排查和根治？</div>
-            <div class="wb-grid-2" style="gap:10px;">
-              <div class="wb-card" style="background:var(--plop-sheet); padding:11px 13px; margin-top:0;">
-                <h4>🐘 大 Key（单个 Value 体积过大）</h4>
-                <p style="font-size:12.6px;">
-                  <strong>标准：</strong>String &gt; 10KB，或 Hash/List/Set/ZSet 元素数 &gt; 5000。<br>
-                  <strong>危害：</strong>单线程读写/<code>DEL</code> 阻塞其他命令、打满网卡带宽、Cluster 分片内存倾斜。<br>
-                  <strong>排查：</strong><code>redis-cli --bigkeys</code>、<code>MEMORY USAGE key</code>。<br>
-                  <strong>根治：</strong>① <strong>化整为零拆分</strong>（大 Hash 按 field 取模拆成多个小 Hash）；② 删除一律用 <strong><code>UNLINK</code></strong>（4.0 后台异步回收，绝不用 <code>DEL</code>）。
-                </p>
-              </div>
-              <div class="wb-card" style="background:var(--plop-sheet); padding:11px 13px; margin-top:0;">
-                <h4>🔥 热 Key（单个 Key QPS 极高）</h4>
-                <p style="font-size:12.6px;">
-                  <strong>场景：</strong>顶流明星八卦、大促爆款商品，单 Key 每秒被查几万次。<br>
-                  <strong>危害：</strong>流量全打在 Cluster 的同一个分片节点上，把单机网卡/CPU 打死，失效瞬间还会引发缓存击穿。<br>
-                  <strong>发现：</strong><code>redis-cli --hotkeys</code>（需开启 LFU）、客户端/Proxy 埋点。<br>
-                  <strong>根治：</strong>① <strong>升级本地二级缓存</strong>（应用内存 Caffeine 挡掉 95% 读）；② <strong>Key 加随机后缀打散</strong>（复制成 <code>key#1..N</code> 分散到多节点）。
-                </p>
-              </div>
-            </div>
-        </div>
+        <rect x="268" y="60" width="136" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="336" y="85" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">Redis 缓存</text>
+        <text x="336" y="103" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">Hit 直接返回</text>
+
+        <rect x="44" y="184" width="136" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="112" y="209" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">MySQL 数据库</text>
+        <text x="112" y="227" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">SELECT Primary</text>
+
+        <!-- Right Zone: Write Path -->
+        <rect x="452" y="20" width="404" height="244" rx="8" fill="rgba(191,69,32,0.03)" stroke="rgba(191,69,32,0.35)" stroke-width="1.2"/>
+        <text x="654" y="42" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#bf4520">2. 写路径（Write）：先更新 MySQL，再删除缓存</text>
+
+        <!-- Write Connectors (drawn BEFORE boxes) -->
+        <!-- Write App bottom (540,116) -> MySQL top (540,184) -->
+        <line x1="540" y1="116" x2="540" y2="184" stroke="#1F1F23" stroke-width="1.4" marker-end="url(#rd-ca-arr-muted)"/>
+        <rect x="548" y="142" width="84" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="590" y="152" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#1F1F23">1. UPDATE DB</text>
+
+        <!-- Write App right (608,88) -> Redis left (696,88) -->
+        <line x1="608" y1="88" x2="696" y2="88" stroke="#bf4520" stroke-width="1.6" marker-end="url(#rd-ca-arr-accent)"/>
+        <rect x="616" y="68" width="72" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="652" y="77" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#bf4520">2. UNLINK</text>
+
+        <!-- MySQL right (608,212) -> Redis bottom (764,116) async binlog retry -->
+        <path d="M 608,212 H 756 Q 764,212 764,204 V 116" fill="none" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#rd-ca-arr-muted)"/>
+        <rect x="628" y="220" width="144" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="700" y="230" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">Binlog / MQ 异步补偿删除</text>
+
+        <!-- Write Nodes -->
+        <rect x="472" y="60" width="136" height="56" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="540" y="85" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">业务写接口</text>
+        <text x="540" y="103" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">Mutation API</text>
+
+        <rect x="696" y="60" width="136" height="56" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="764" y="85" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">删除旧缓存</text>
+        <text x="764" y="103" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#bf4520">下次读按需加载</text>
+
+        <rect x="472" y="184" width="136" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="540" y="209" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">MySQL 主库</text>
+        <text x="540" y="227" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">事务提交 + Binlog</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p>
+    在工程实践中执行写操作时，之所以选择<strong>「删除缓存（Invalidate）」而非「直接覆写更新缓存（Update）」</strong>，一是避免两个并发写请求因网络乱序导致旧值覆盖新值，二是在写多读少场景下省去反复序列化计算却无人读取的资源消耗。同时，为了防止第二步“删除缓存”因瞬时网络抖动报错失败，生产系统通常会为所有缓存设置合理的<strong>兜底过期时间（TTL）</strong>，对一致性敏感的核心业务还会引入消息队列重试或通过 <code>Canal</code> 订阅 MySQL <code>binlog</code> 异步删除缓存。
+  </p>
+</div>
+
+<!-- 03.2 · 缓存穿透、缓存击穿与缓存雪崩的防御实战 -->
+<div class="wb-card" id="three-anomalies" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🛡️ 03.2 · 三大缓存异常防护：穿透（空值/布隆）、击穿（singleflight 归并）与雪崩（随机抖动 TTL）</div>
+  <h3>🛡️ 03.2 缓存穿透、击穿与雪崩的识别与代码防护</h3>
+
+  <p>
+    高并发场景下，缓存层可能因三种不同原因无法拦截请求，导致流量直接回源访问数据库。区分三者最清晰的方式是看<strong>“请求查的 Key 在数据库里是否存在、涉及单个热点 Key 还是大批量 Key”</strong>：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">异常名称</th>
+          <th style="width:34%">触发场景与成因</th>
+          <th>标准工程防护手段</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 缓存穿透</strong><br><span style="font-size:11.5px; color:var(--plop-ink-soft);">(Penetration)</span></td>
+          <td>大量请求查询<strong>缓存与数据库中都根本不存在</strong>的记录（例如恶意遍历负值或伪造不存在的商品 ID），每次回源都查不到结果因而无法写入正常缓存。</td>
+          <td>1. <strong>接口入参校验</strong>（拦截格式非法 ID）；<br>2. <strong>缓存空值占位符</strong>（查库为空时写入特殊标记如 <code>"__NULL__"</code>，设 <code>30~60s</code> 短 TTL）；<br>3. <strong>布隆过滤器（Bloom Filter）前置拦截</strong>（所有合法 ID 预热进位图，判定不存在的直接拒绝回源）。</td>
+        </tr>
+        <tr>
+          <td><strong>② 缓存击穿</strong><br><span style="font-size:11.5px; color:var(--plop-ink-soft);">(Breakdown)</span></td>
+          <td><strong>单个超高并发热点 Key</strong> 在到达过期时间失效的瞬间，成千上万个并发读请求同时发现缓存未命中，一拥而上回源查库重建同一份数据。</td>
+          <td>1. <strong>进程内请求归并（如 Go <code>singleflight</code>）或分布式互斥锁</strong>：同一时刻只放行 1 个协程回源查库并回填缓存，其余同 Key 请求共享该次查询结果；<br>2. <strong>逻辑过期刷新</strong>：物理上不设 Redis TTL，在 Value JSON 内封装逻辑到期时间戳，发现逻辑过期后先立即返回旧值，同时异步派发单协程后台刷新。</td>
+        </tr>
+        <tr>
+          <td><strong>③ 缓存雪崩</strong><br><span style="font-size:11.5px; color:var(--plop-ink-soft);">(Avalanche)</span></td>
+          <td><strong>大批量缓存 Key 在同一时刻集中过期</strong>（例如定时任务批量预热写了相同的 TTL），或者 <strong>Redis 节点故障不可用</strong>，引发全局回源洪峰。</td>
+          <td>1. <strong>过期时间增加随机抖动值（Jitter）</strong>：如基础 <code>30 分钟 + rand(0, 300s)</code> 打散过期时间点；<br>2. <strong>部署 Sentinel / Cluster 高可用架构</strong>；<br>3. <strong>应用进程本地二级缓存 + 熔断限流降级</strong>兜底。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin-top:12px;">
+    下面这段 Go 生产级缓存读取函数，将<strong>空值防穿透、<code>singleflight</code> 请求归并防击穿、以及随机抖动 TTL 防雪崩</strong>三项防护完整整合在一个干净的查询闭环中：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 safe_cache_loader.go · 整合空值缓存 + singleflight 防击穿 + 随机 TTL 抖动</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-safe-cache', this)">复制 Go 代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-redis-safe-cache"><code><span class="c-kw">const</span> emptyPlaceholder = <span class="c-str">"__EMPTY__"</span>
+
+<span class="c-kw">type</span> ProductCache <span class="c-kw">struct</span> {
+    rdb   *redis.Client
+    group singleflight.Group <span class="c-cm">// golang.org/x/sync/singleflight：合并同一进程内相同 Key 的并发回源</span>
+}
+
+<span class="c-kw">func</span> (c *ProductCache) GetProductJSON(ctx context.Context, skuID <span class="c-kw">int64</span>) (<span class="c-kw">string</span>, <span class="c-kw">error</span>) {
+    key := fmt.Sprintf(<span class="c-str">"mall:sku:detail:%d"</span>, skuID)
+
+    <span class="c-cm">// 1. 优先查询 Redis</span>
+    cached, err := c.rdb.Get(ctx, key).Result()
+    <span class="c-kw">if</span> err == <span class="c-kw">nil</span> {
+        <span class="c-kw">if</span> cached == emptyPlaceholder {
+            <span class="c-kw">return</span> <span class="c-str">""</span>, ErrProductNotFound <span class="c-cm">// 命中空值占位符，直接拦截缓存穿透</span>
+        }
+        <span class="c-kw">return</span> cached, <span class="c-kw">nil</span>
+    }
+
+    <span class="c-cm">// 2. 缓存未命中：使用 singleflight 确保万级并发下同一 skuID 只有 1 个请求穿透查 MySQL</span>
+    v, err, _ := c.group.Do(key, <span class="c-kw">func</span>() (<span class="c-kw">any</span>, <span class="c-kw">error</span>) {
+        data, dbErr := queryProductFromMySQL(ctx, skuID)
+        <span class="c-kw">if</span> errors.Is(dbErr, ErrProductNotFound) {
+            <span class="c-cm">// 数据库也不存在：写入 45 秒短 TTL 空值占位，防止重复穿透</span>
+            _ = c.rdb.Set(ctx, key, emptyPlaceholder, 45*time.Second).Err()
+            <span class="c-kw">return</span> <span class="c-str">""</span>, ErrProductNotFound
+        }
+        <span class="c-kw">if</span> dbErr != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span> <span class="c-str">""</span>, dbErr
+        }
+
+        <span class="c-cm">// 正常回填：基础 30 分钟 + 0~300 秒随机偏移，打散大批缓存同时过期导致的雪崩</span>
+        jitter := time.Duration(rand.IntN(300)) * time.Second
+        _ = c.rdb.Set(ctx, key, data, 30*time.Minute+jitter).Err()
+        <span class="c-kw">return</span> data, <span class="c-kw">nil</span>
+    })
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> <span class="c-str">""</span>, err
+    }
+    <span class="c-kw">return</span> v.(<span class="c-kw">string</span>), <span class="c-kw">nil</span>
+}</code></pre>
+  </div>
+</div>
+
+<!-- 03.3 · 大 Key 与热 Key 线上排查与治理手册 -->
+<div class="wb-card" id="bigkey" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🐘 03.3 · 线上容量与流量倾斜治理：BigKey 拆分清理与 HotKey 多级缓存分流</div>
+  <h3>🐘 03.3 大 Key（BigKey）与热 Key（HotKey）工程治理</h3>
+
+  <div class="wb-grid-2">
+    <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
+      <h4>1. 大 Key（单个 Value 字节过大或集合元素过多）</h4>
+      <ul>
+        <li><strong>参考判定阈值</strong>：<code>String</code> 类型 Value 超过 <strong><code>10 KiB</code></strong>（严禁超过 <code>1 MiB</code>）；<code>Hash / List / Set / ZSet</code> 元素数量超过 <strong><code>5000</code> 个</strong>。</li>
+        <li><strong>实际影响</strong>：单次读取占用大量网卡出口带宽、主线程处理耗时拉长导致后续请求排队、集群模式下引发单个分片节点内存率先写满、同步执行 <code>DEL</code> 时造成百毫秒级卡顿。</li>
+        <li><strong>低影响排查工具</strong>：在从节点或业务低峰期运行 <code>redis-cli --bigkeys -i 0.01</code>（内部基于 <code>SCAN</code> 并在每轮间休眠 <code>10ms</code> 保护实例），再对可疑键调用 <code>MEMORY USAGE key SAMPLES 5</code> 测量实际字节占用。</li>
+        <li><strong>拆分与清理方案</strong>：
+          <ol>
+            <li><strong>水平分桶（Sharding）</strong>：例如一个存了 50 万用户映射的大 <code>Hash</code>，按 <code>user_id % 100</code> 拆成 <code>100</code> 个小 <code>Hash</code>（每个约 5000 项）；</li>
+            <li><strong>冷字段剥离与压缩</strong>：仅缓存高频使用的核心字段，长文本用 Snappy / Zstd 压缩后再存入；</li>
+            <li><strong>安全删除</strong>：统一使用 <code>UNLINK key</code>（若在 4.0 以下旧版本，则先通过 <code>HSCAN / SSCAN</code> 小批量删除内部元素，最后再删空壳 Key）。</li>
+          </ol>
+        </li>
+      </ul>
+    </div>
+
+    <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
+      <h4>2. 热 Key（单个 Key 瞬间承受数万至数十万 QPS）</h4>
+      <ul>
+        <li><strong>典型场景</strong>：全网突发热点新闻、直播间整点秒杀商品配置、全局热门榜单首页。即便部署了 10 节点的 Redis Cluster，同一个 Key 根据哈希槽算法也只会固定落在<strong>其中某 1 台分片节点</strong>上，导致单机网卡或 CPU 达到上限。</li>
+        <li><strong>发现手段</strong>：业务 SDK 接入层实时滑动窗口计数监控、代理层热点统计、或在开启 LFU 策略的实例上执行 <code>redis-cli --hotkeys</code>。</li>
+        <li><strong>分流治理方案</strong>：
+          <ol>
+            <li><strong>升级应用进程内二级缓存（首选）</strong>：在 Go（如 <code>ristretto</code> / <code>bigcache</code>）或 Java（<code>Caffeine</code>）应用内存中缓存热点键 <code>1 ~ 3 秒</code>，直接由数十台无状态业务机器的内存吸收 95% 以上的读流量，配合 Redis 7.0 <strong>Client-Side Caching（客户端跟踪失效广播）</strong>或 Pub/Sub 主动通知更新；</li>
+            <li><strong>多副本随机后缀打散</strong>：将热点键同步复制为 <code>sku:hot:888#1</code> 至 <code>sku:hot:888#N</code> 共 <code>N</code> 份，读取时随机拼接后缀路由到不同集群分片节点。</li>
+          </ol>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="plop-callout tip" style="margin-top:12px;">
+    <strong>📘 原理深挖：</strong>为什么「先删缓存、再更新数据库」在并发读写下极易产生长期脏数据？布隆过滤器的位数组容量与哈希函数个数该如何按误判率公式精确计算？详见 <a href="principles.html#cache-problem">《📘 核心原理篇 · 03 布隆过滤器数学推导与双写并发时序分析》</a>。
+  </div>
+</div>

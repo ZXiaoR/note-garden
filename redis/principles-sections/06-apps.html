@@ -1,0 +1,246 @@
+<!-- ====================================================================
+     PART 06 (PRINCIPLES): 分布式锁安全边界（Redlock vs Fencing Token）、Lua 复制确定性与 Stream rax 内核
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="lock">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">Redlock 安全性辨析、Fencing Token、Stream rax 基数树与深度自测</span>
+  <span class="plop-tag">REDLOCK · FENCING TOKEN · STREAM RAX + LISTPACK · KERNEL QUIZ</span>
+</div>
+
+<!-- 06.1 · Redlock 争议本质与单调递增栅栏令牌（Fencing Token） -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">⚖️ 06.1 · 分布式锁形式化边界：异步复制丢锁、Redlock 时钟/GC 争议与 Fencing Token 防护模型</div>
+  <h3>⚖️ 06.1 主从异步切换丢锁、Redlock 争议与 <code>Fencing Token</code> 栅栏校验</h3>
+
+  <p>
+    由于 Redis 主从复制与 Cluster 主备切换本质上是<strong>异步复制（Asynchronous Replication）</strong>而非基于 Raft / Paxos 多数派落盘的线性一致复制，当客户端 C1 在主库刚执行完 <code>SET lock val NX PX 30000</code> 收到 <code>OK</code>、主库尚未将该命令传播给从库即断电宕机时，从库晋升为新主后并不包含这把锁，客户端 C2 便能再次加锁成功。
+  </p>
+  <p>
+    为解决单主切换丢锁，antirez 提出了 <strong>Redlock 算法</strong>：部署 <code>N = 5</code> 台完全独立无主从关系的 Redis Master，客户端记录起始本地时间 <code>T<sub>1</sub></code>，依次向 5 台实例用相同 Key/Token 请求加锁，记录结束时间 <code>T<sub>2</sub></code>；仅当在<strong>至少 <code>3</code> 台（多数派）加锁成功，且加锁总耗时 <code>(T<sub>2</sub> - T<sub>1</sub>) &lt; TTL</code></strong> 时才算获取锁成功，实际有效租约剩余时间为 <code>TTL - (T<sub>2</sub> - T<sub>1</sub>) - 时钟漂移余量</code>。然而分布式系统学者 Martin Kleppmann 指出：<strong>在存在进程停顿（如 JVM Full GC / Go STW / 容器 CPU Throttling）或系统时钟跳变的非同步网络模型下，任何单纯依赖客户端侧租约（TTL）的锁都无法单独保证下游存储的绝对互斥</strong>：
+  </p>
+
+  <!-- Editorial SVG: GC Pause Breaking Lease Lock vs Storage-Layer Fencing Token Defense -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 900 304" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rdp-ft-title rdp-ft-desc">
+        <title id="rdp-ft-title">客户端长停顿击穿租约锁时序与存储层 Fencing Token 单调递增拦截机制</title>
+        <desc id="rdp-ft-desc">展示客户端 C1 获取第 33 号锁令牌后发生长时间 GC STW 停顿导致锁在服务端超时释放；期间客户端 C2 获取第 34 号锁令牌并成功写入后端存储（存储层记录最大已见令牌 max_token=34）；随后 C1 从停顿恢复并携带过期的 token=33 尝试写入，被后端存储层因 33 小于 34 直接拒绝，从而守住强一致正确性边界。</desc>
+        <defs>
+          <marker id="rdp-ft-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rdp-ft-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="rdp-ft-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Lifelines: Client 1 (116), Lock Service (348), Client 2 (568), Storage DB (796) -->
+        <line x1="116" y1="68" x2="116" y2="264" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+        <line x1="348" y1="68" x2="348" y2="264" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+        <line x1="568" y1="68" x2="568" y2="264" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+        <line x1="796" y1="68" x2="796" y2="264" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+
+        <!-- GC Pause Activation Block on Client 1 (y=108..216) -->
+        <rect x="108" y="108" width="16" height="108" rx="2" fill="rgba(191,69,32,0.14)" stroke="#bf4520" stroke-width="1.2"/>
+        <text x="98" y="166" text-anchor="end" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" font-weight="700" fill="#bf4520">GC STW 停顿</text>
+
+        <!-- Sequence Messages (strictly horizontal, drawn BEFORE actor boxes) -->
+        <!-- 1. C1 acquires lock -> token=33 (y=96) -->
+        <line x1="116" y1="96" x2="348" y2="96" stroke="#1F1F23" stroke-width="1.3" marker-end="url(#rdp-ft-arr-muted)"/>
+        <rect x="164" y="78" width="136" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="232" y="87" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#1F1F23">1. 加锁成功 (token = 33)</text>
+
+        <!-- 2. Lock expires at y=132, C2 acquires lock -> token=34 (y=144) -->
+        <line x1="568" y1="144" x2="348" y2="144" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#rdp-ft-arr-link)"/>
+        <rect x="384" y="126" width="148" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="458" y="135" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#2e5aa8">2. 锁超时，C2 获锁 (token=34)</text>
+
+        <!-- 3. C2 writes to Storage DB with token=34 (y=180) -->
+        <line x1="568" y1="180" x2="796" y2="180" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#rdp-ft-arr-link)"/>
+        <rect x="604" y="162" width="156" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="682" y="171" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#2e5aa8">3. 写入成功 (记录 max_tok=34)</text>
+
+        <!-- 4. C1 wakes up at y=228 and sends zombie write with stale token=33 to Storage DB -->
+        <line x1="116" y1="232" x2="796" y2="232" stroke="#bf4520" stroke-width="1.7" stroke-dasharray="5,4" marker-end="url(#rdp-ft-arr-accent)"/>
+        <rect x="364" y="212" width="320" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="524" y="222" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="700" fill="#bf4520">4. 停顿恢复迟到写请求 (token=33 &lt; 34) -&gt; 存储层拒绝拦截</text>
+
+        <!-- Actor Header Boxes -->
+        <rect x="52" y="32" width="128" height="36" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="116" y="54" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#1F1F23">客户端 C1</text>
+
+        <rect x="280" y="32" width="136" height="36" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="348" y="54" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#1F1F23">分布式锁服务</text>
+
+        <rect x="504" y="32" width="128" height="36" rx="6" fill="#FFFFFF" stroke="#2e5aa8" stroke-width="1.2"/>
+        <text x="568" y="54" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#2e5aa8">客户端 C2</text>
+
+        <rect x="720" y="32" width="152" height="36" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="796" y="54" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="800" fill="#bf4520">下游存储校验栅栏</text>
+
+        <!-- Bottom Engineering Rule -->
+        <line x1="36" y1="272" x2="868" y2="272" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <text x="36" y="292" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">• 选型结论：以性能优化（避免重复计算/请求防抖）为目的选单主/哨兵 Redis 锁；以数据绝对正确性为目的必须配合数据库乐观锁版本号/唯一约束或 etcd Raft Revision。</text>
+      </svg>
+    </div>
+  </figure>
+</div>
+
+<!-- 06.2 · Stream 底层 rax 基数树 + listpack 宏节点与 Lua 复制确定性 -->
+<div class="wb-card" id="mq" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill" id="misc">🌳 06.2 · Stream 与 Lua 内核：前缀压缩基数树 rax + listpack 宏节点结构与脚本命令级复制</div>
+  <h3>🌳 06.2 <code>Stream</code> 底层 <code>rax + listpack</code> 存储模型与 Lua 确定性约束</h3>
+
+  <p>
+    一条 Stream 消息队列往往包含数万条具有相同字段名（如每条订单消息都带 <code>order_id</code>、<code>user_id</code>、<code>amount</code>）且消息 ID 具有极强时间戳前缀规律（如 <code>1732676001012-0</code>、<code>1732676001015-0</code>）的记录。若像普通哈希表那样把每条消息的字段名都重复存一遍，内存很快就会耗尽。Redis 为 <code>Stream</code> 设计了精巧的<strong>「<code>rax</code> 前缀压缩基数树 + <code>listpack</code> 同构字段复用宏节点」</strong>两层复合引擎：
+  </p>
+
+  <!-- Editorial SVG: Stream rax Radix Tree + listpack Master Entry Compression -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 900 248" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rdp-rax-title rdp-rax-desc">
+        <title id="rdp-rax-title">Redis Stream 底层 rax 基数树前缀压缩路由与 listpack 宏节点字段复用布局</title>
+        <desc id="rdp-rax-desc">左侧展示 rax 基数树将连续时间戳消息 ID 的公共前缀合并进单个压缩节点，叶子指针指向右侧的 listpack 宏节点；每个 listpack 头部仅存储一次 Master Entry 的字段名列表 [order_id, amount]，后续追加的数十条同构消息设置 SAMEFIELDS 标志位仅紧凑存放纯数值与相对于基准 ID 的差值 delta-ID。</desc>
+        <defs>
+          <marker id="rdp-rax-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rdp-rax-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (drawn BEFORE boxes, strictly orthogonal r=8) -->
+        <!-- rax root (196, 84) -> branch 1 leaf (248, 84) -->
+        <line x1="196" y1="84" x2="248" y2="84" stroke="#1F1F23" stroke-width="1.3" marker-end="url(#rdp-rax-arr-muted)"/>
+        <!-- rax root bottom (116, 112) -> branch 2 leaf (248, 176) -->
+        <path d="M 116,112 V 168 Q 116,176 124,176 H 248" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#rdp-rax-arr-muted)"/>
+        <!-- branch 1 leaf (396, 84) -> listpack macro node (456, 84) -->
+        <line x1="396" y1="84" x2="456" y2="84" stroke="#bf4520" stroke-width="1.6" marker-end="url(#rdp-rax-arr-accent)"/>
+
+        <!-- Left: rax Compressed Prefix Tree -->
+        <rect x="36" y="56" width="160" height="56" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="116" y="80" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#1F1F23">rax 压缩前缀节点</text>
+        <text x="116" y="98" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#2e5aa8">前缀 "173267600"</text>
+
+        <rect x="248" y="56" width="148" height="56" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.5"/>
+        <text x="322" y="80" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#bf4520">叶节点 "1000-0"</text>
+        <text x="322" y="98" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#1F1F23">基准宏节点 ID</text>
+
+        <rect x="248" y="148" width="148" height="56" rx="6" fill="rgba(45,49,66,0.04)" stroke="#4f5d75" stroke-width="1.1"/>
+        <text x="322" y="172" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="600" fill="#4f5d75">叶节点 "5000-0"</text>
+        <text x="322" y="190" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#5a6580">下一块 listpack</text>
+
+        <!-- Right: listpack Macro Node (<= 4KB or <= 100 messages) -->
+        <rect x="456" y="36" width="412" height="176" rx="8" fill="rgba(45,49,66,0.02)" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="662" y="60" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#1F1F23">单块 listpack 宏节点（默认 ≤ 4096B 或 ≤ 100 条消息）</text>
+
+        <!-- Continuous strip inside listpack -->
+        <rect x="476" y="76" width="372" height="48" rx="4" fill="rgba(191,69,32,0.09)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="662" y="96" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#bf4520">Master Entry: 仅存 1 次字段名模板 [order_id, amount]</text>
+        <text x="662" y="114" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#1F1F23">记录基准时间戳与字段表，供同块后续消息直接按偏移复用</text>
+
+        <rect x="476" y="136" width="372" height="56" rx="4" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="662" y="158" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#1F1F23">后续消息项: [flags=SAMEFIELDS | +delta_ms | "9002" | "88.0"]</text>
+        <text x="662" y="178" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#4f5d75">省去全部重复字段名字符串，ID 用相对差值变长编码，空间缩减数倍</text>
+      </svg>
+    </div>
+  </figure>
+
+  <ul>
+    <li><strong><code>PEL</code>（Pending Entries List）的双 <code>rax</code> 树同步索引</strong>：每个消费者组结构体 <code>streamCG</code> 维护一张组全局 <code>pel</code> 基数树（记录组内所有已投递未 <code>XACK</code> 的消息 ID 指向 <code>streamNACK</code> 元数据），同时每个消费者 <code>streamConsumer</code> 内部也持有一张局部 <code>pel</code> 树指向同一个 <code>streamNACK</code> 对象（类似 <code>redisDb</code> 的键对象共享），使按组巡检与按消费者查询待确认消息均保持高效。</li>
+    <li><strong>Lua 脚本的确定性与主从/AOF 复制演进</strong>：在早期 Redis 3.2 之前，主从复制与 AOF 重放的是整段 Lua 脚本源码本身（<code>SCRIPT REPLICATION</code>），因此若脚本内先调用了非确定性命令（如 <code>TIME</code> 或 <code>SRANDMEMBER</code>）再去修改键值，会导致从库重放时产生与主库不一致的结果而被内核直接拒绝报错。自 Redis 3.2 引入并在 <strong>Redis 5.0+ 设为默认的“效果复制（Effects Replication）”</strong>起，服务端不再把含随机逻辑的脚本原样发给从库，而是将脚本本次实际执行产生的一组确定性写命令包裹在 <code>MULTI ... EXEC</code> 事务块中写入 AOF 并同步给从库，彻底解除了随机读之后执行写操作的限制。</li>
+  </ul>
+</div>
+
+<!-- 06.3 · 核心原理篇 12 道深度内核自测题 -->
+<div class="wb-card" id="cheat" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🎯 06.3 · 内核原理闭卷自测：12 道底层数据结构、内存管理与分布式协议追问</div>
+  <h3>☑️ 06.3 核心原理篇深度追问自检表</h3>
+
+  <div class="wb-grid-2">
+    <div>
+      <details class="plop-drawer">
+        <summary>01. redisDb 如何组织过期时间？设置了 TTL 的键会把键名 SDS 存两份吗？</summary>
+        <div class="drawer-body">
+          <p><code>redisDb</code> 独立维护主键空间字典 <code>dict</code> 与过期字典 <code>expires</code>。两者对应的 <code>dictEntry-&gt;key</code> 指针直接指向<strong>同一个物理内存地址上的键名 <code>SDS</code> 对象</strong>，零重复字符串开销；且过期字典利用 <code>dictEntry</code> 的 8 字节 <code>union v</code> 直接原位存储 <code>int64_t</code> 毫秒级时间戳，无需额外分配 <code>redisObject</code>。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>02. Redis 6.0+ 开启多线程 I/O 后，为什么主线程操作哈希表和跳表依然不需要加锁？</summary>
+        <div class="drawer-body">
+          <p>因为引入了<strong>阶段同步屏障（Spin Barrier）</strong>：主线程先将不同客户端连接互不重叠地分发给各 I/O 线程并行读取 Socket 与解析 RESP 命令，期间主线程自旋等待所有 I/O 线程完成解析后，才由<strong>唯一的主线程独自串行遍历执行全部内存命令</strong>，最后再交由 I/O 线程并行刷回 Socket。内存数据结构自始至终只被主线程单线程读写。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>03. 精确写出 String 类型 embstr 编码与 raw 编码以 44 字节为分界线的推导式。</summary>
+        <div class="drawer-body">
+          <p><code>jemalloc</code> 分配一块刚好对齐单个 CPU Cache Line 的 <strong><code>64 Bytes</code></strong> 连续内存：减去 <code>struct redisObject</code> 元数据头（<code>4b type + 4b encoding + 24b lru + 4B refcount + 8B ptr = 16 Bytes</code>），减去取消对齐填充后的紧凑头 <code>struct sdshdr8</code>（<code>1B len + 1B alloc + 1B flags = 3 Bytes</code>），再减去末尾空字符 <code>'\0'</code>（<code>1 Byte</code>），剩余最大载荷恰好为 <code>64 - 16 - 3 - 1 = 44 Bytes</code>。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>04. Redis 7.0 的 listpack 是如何同时消灭 ziplist 连锁更新并保留从后向前遍历能力的？</summary>
+        <div class="drawer-body">
+          <p><code>ziplist</code> 在每个节点头部记录“前驱节点长度 <code>prevlen</code>”，当前驱跨越 254B 阈值时迫使后继头部从 1B 扩为 5B 引发多米诺式连续重分配；<code>listpack</code> 彻底删去前驱长度，改为在<strong>每个节点自身末尾存放当前节点总字节数 <code>element-tot-len</code></strong>（每字节最高位标示长度编码是否结束），反向遍历时从末尾向左读取出自身长度即可一步跳到当前节点头部，节点修改完全自包含。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>05. ZSet 执行 ZRANK 查询某元素排名为什么是 O(log N) 而不是 O(N)？</summary>
+        <div class="drawer-body">
+          <p>因为 <code>zskiplistNode</code> 的每一层结构 <code>zskiplistLevel</code> 除了维护前进指针 <code>*forward</code> 外，还维护了跨度无符号整数 <strong><code>span</code>（记录该层指针跨越了多少个底层节点）</strong>。查找目标元素从高层向底层折线下探时，将沿途走过的每一跳 <code>span</code> 直接累加即可算出精确名次，无需扫描底层链表。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>06. 哈希表 dict 扩容负载因子阈值为什么在有子进程时从 1 抬升到 5？</summary>
+        <div class="drawer-body">
+          <p>在 <code>BGSAVE</code> 或 <code>BGREWRITEAOF</code> 子进程存活期间，父子进程正通过操作系统页表共享只读物理内存页。若此时启动哈希表扩容搬迁，大面积修改桶指针会瞬间触发成千上万次<strong>写时复制（Copy-On-Write）缺页异常</strong>，导致 <code>4 KiB</code> 物理页被大量复制，引发内存翻倍风险，因此尽量推迟扩容直至子进程结束。</p>
+        </div>
+      </details>
+    </div>
+
+    <div>
+      <details class="plop-drawer">
+        <summary>07. 为什么从节点（Replica）发现某 Key 已过期时，向客户端返回空却不自己物理删除它？</summary>
+        <div class="drawer-body">
+          <p>为保证主从状态机的严格确定性一致。从节点为只读副本，一切内存字典物理变更均须由主节点驱动：读从库遇到已到期键时先在逻辑上拦截返回 <code>nil</code> 避免读到过期脏数据，而物理内存回收统一等待主节点通过惰性或定期删除触发后发来的显式 <code>DEL / UNLINK</code> 同步指令再执行。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>08. LFU 淘汰算法如何仅凭 8-bit 计数器（最大值 255）区分成千上万次访问的热点键？</summary>
+        <div class="drawer-body">
+          <p><code>redisObject.lru</code> 的 24 位在 LFU 模式下被切分为<strong>高 16 位分钟级衰减时钟 <code>ldt</code></strong> 与<strong>低 8 位概率对数计数器 <code>logc</code>（初始值 5）</strong>。每次访问并非线性 <code>+1</code>，而是以概率 <code>1 / ((old_val - 5) × lfu_log_factor + 1)</code> 概率递增，数值越大增长越慢（默认因子 10 下打满 255 约需百万次访问）；且长时间不访问时再按 <code>lfu-decay-time</code> 扣减计数，防止早年旧热点长期霸占内存。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>09. 生产环境部署 Redis 为什么要显式关闭 Linux 透明大页（Transparent Huge Pages, THP）？</summary>
+        <div class="drawer-body">
+          <p>常规内存页粒度为 <code>4 KiB</code>，而开启 THP 后内核会将大块内存合并为 <strong><code>2 MiB</code>（放大 512 倍）</strong>的大页。在 <code>BGSAVE</code> 子进程运行期间，哪怕主线程只是执行了一条 <code>INCR</code> 修改了某页内的 8 个字节，写时复制（COW）都不得不分配并拷贝整整 <code>2 MiB</code> 的物理内存副本，造成单条写命令出现数十毫秒尖刺延迟与内存暴涨。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>10. PSYNC 2.0 为什么要设计 replid 和 replid2 两套复制流 ID？</summary>
+        <div class="drawer-body">
+          <p>解决主从切换后其余从库退化全量同步的问题。当哨兵将从库 A 提升为新主时，A 将原主库的 <code>replid</code> 存入 <code>replid2</code> 并冻结当时的偏移量于 <code>second_replid_offset</code>，随后生成新 <code>replid</code>。其他从库 B 改连新主 A 时携带的旧主 <code>replid</code> 可与 A 的 <code>replid2</code> 比对成功，只要偏移量仍在积压缓冲范围内即可直接走轻量增量同步。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>11. Redis Cluster 为什么用 16384 个槽而非 65536 个？在线迁槽时 ASK 与 MOVED 有何差异？</summary>
+        <div class="drawer-body">
+          <p>Gossip 心跳包头携带槽位图 <code>myslots</code>：16384 位仅占 <code>2 KiB</code>，而 65536 位占 <code>8 KiB</code>（浪费 4 倍心跳带宽），且推荐主节点 ≤ 1000 台下 16384 槽已足够均匀。<code>MOVED</code> 代表槽归属已永久变更，客户端收到后<strong>更新本地槽映射缓存</strong>；<code>ASK</code> 代表槽正处于在线迁移中途，客户端<strong>不更新本地缓存</strong>，仅针对本次请求向目标节点先发 <code>ASKING</code> 临时开门再重发命令。</p>
+        </div>
+      </details>
+      <details class="plop-drawer">
+        <summary>12. 为什么即使使用 5 节点 Redlock，面对客户端 GC 停顿仍需配合 Fencing Token 才能保证绝对安全？</summary>
+        <div class="drawer-body">
+          <p>客户端 C1 拿到锁后若在发送写数据库请求前发生超过锁 TTL 的长时间 GC STW 停顿，锁在 Redis 端自动过期并被客户端 C2 合法获取且完成写入；随后 C1 从 GC 恢复继续把早已准备好的旧数据发出，就会覆盖 C2 的最新结果。唯有由锁服务颁发全局单调递增序号（<code>Fencing Token</code>），并由下游存储引擎校验拒绝序号小于历史最大值的迟到请求，才能在存储边界彻底拦截过期锁写入。</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>

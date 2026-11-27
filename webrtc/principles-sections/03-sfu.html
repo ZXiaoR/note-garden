@@ -1,0 +1,220 @@
+<!-- ====================================================================
+     PART 03: 多人实时架构与综合复盘 · Mesh / MCU / SFU 模型、Simulcast/SVC 与自测卡
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="sfu">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">多人实时架构与综合复盘 · Mesh / MCU / SFU 复杂度、Simulcast 与自测卡</span>
+  <span class="plop-tag mint">SFU × SIMULCAST / SVC × SELF-CHECK</span>
+</div>
+
+<!-- 03.1 · Mesh vs MCU vs SFU + Simulcast 带宽算力账本 -->
+<div class="wb-card" id="sfu-simulcast-arch" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🏗️ 03.1 · 拓扑对比：<code>N</code> 人房间下 Mesh、MCU 与 SFU + Simulcast 的上下行带宽及服务端算力推导</div>
+  <h3>🏗️ 03.1 多人实时互动三种拓扑与 Simulcast 大小流机制</h3>
+
+  <p>
+    假设一个视频派对房间内有 <code>N</code> 位开摄像头的连麦用户（设单路高清视频码率为 <code>1 Mbps</code>），三种多人架构在客户端带宽与服务器成本上呈现完全不同的量级关系：
+  </p>
+
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg role="img" aria-labelledby="webrtc-topo-title webrtc-topo-desc" viewBox="0 0 880 364" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.5px solid #2848D8; border-radius:14px;">
+        <title id="webrtc-topo-title">多人实时音视频三种拓扑对比图</title>
+        <desc id="webrtc-topo-desc">横向对比 Mesh 客户端两两全互联、MCU 服务端解码混流重编码、以及现代语聊连麦主流的 SFU 选择性转发配合 Simulcast 高低码率分层分发架构。</desc>
+        <defs>
+          <marker id="tp-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2848D8" />
+          </marker>
+          <marker id="tp-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#D2381E" />
+          </marker>
+          <marker id="tp-arr-leaf" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#1E7043" />
+          </marker>
+        </defs>
+
+        <!-- 3 Comparison Zones -->
+        <rect x="28" y="16" width="256" height="288" rx="10" fill="#FBF8F0" stroke="#2848D8" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="40" y="24" width="232" height="22" rx="6" fill="#2848D8" />
+        <text x="156" y="39" fill="#FFF8E7" font-size="9.2" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle">1. MESH 全互联 (仅限 2~4 人)</text>
+
+        <rect x="304" y="16" width="252" height="288" rx="10" fill="#EEF3FF" stroke="#2848D8" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="316" y="24" width="228" height="22" rx="6" fill="#1E7043" />
+        <text x="430" y="39" fill="#FFF8E7" font-size="9.2" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle">2. MCU 中心混流 (旁路直播/录制)</text>
+
+        <rect x="576" y="16" width="276" height="288" rx="10" fill="#FFF5F7" stroke="#D2381E" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="588" y="24" width="252" height="22" rx="6" fill="#D2381E" />
+        <text x="714" y="39" fill="#FFF8E7" font-size="9.2" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle">★ 3. SFU + SIMULCAST (主流多人房)</text>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <path d="M 92,84 H 88 Q 80,84 80,92 V 172" fill="none" stroke="#2848D8" stroke-width="2" marker-end="url(#tp-arr)" />
+        <path d="M 224,84 H 228 Q 236,84 236,92 V 172" fill="none" stroke="#2848D8" stroke-width="2" marker-end="url(#tp-arr)" />
+        <line x1="148" y1="196" x2="168" y2="196" stroke="#2848D8" stroke-width="2" marker-end="url(#tp-arr)" />
+
+        <line x1="370" y1="104" x2="370" y2="132" stroke="#2848D8" stroke-width="2" marker-end="url(#tp-arr)" />
+        <line x1="490" y1="104" x2="490" y2="132" stroke="#2848D8" stroke-width="2" marker-end="url(#tp-arr)" />
+        <line x1="430" y1="184" x2="430" y2="212" stroke="#1E7043" stroke-width="2.2" marker-end="url(#tp-arr-leaf)" />
+
+        <line x1="696" y1="104" x2="696" y2="132" stroke="#D2381E" stroke-width="2.2" marker-end="url(#tp-arr-accent)" />
+        <line x1="728" y1="104" x2="728" y2="132" stroke="#1E7043" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#tp-arr-leaf)" />
+        <line x1="668" y1="184" x2="668" y2="212" stroke="#D2381E" stroke-width="2.2" marker-end="url(#tp-arr-accent)" />
+        <line x1="756" y1="184" x2="756" y2="212" stroke="#1E7043" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#tp-arr-leaf)" />
+
+        <!-- Zone 1 Nodes -->
+        <rect x="92" y="60" width="132" height="48" rx="8" fill="#F6C445" stroke="#2848D8" stroke-width="2.2" />
+        <text x="158" y="81" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">终端 A</text>
+        <text x="158" y="97" fill="#D2381E" font-size="8.5" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">上行 N-1 路流</text>
+
+        <rect x="48" y="172" width="100" height="48" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2" />
+        <text x="98" y="193" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">终端 B</text>
+        <text x="98" y="209" fill="#3B4A92" font-size="8.5" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">P2P 直连</text>
+
+        <rect x="168" y="172" width="100" height="48" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2" />
+        <text x="218" y="193" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">终端 C</text>
+        <text x="218" y="209" fill="#3B4A92" font-size="8.5" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">P2P 直连</text>
+
+        <text x="156" y="256" fill="#14226B" font-size="9.6" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">零媒体服成本 · 总连接数 N(N-1)/2</text>
+        <text x="156" y="276" fill="#D2381E" font-size="9.6" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">超过 4 人移动端上行与发热受限</text>
+
+        <!-- Zone 2 Nodes -->
+        <rect x="320" y="60" width="100" height="44" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2" />
+        <text x="370" y="80" fill="#14226B" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">推流端 A</text>
+        <text x="370" y="95" fill="#3B4A92" font-size="8.2" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">上行 1 路</text>
+
+        <rect x="440" y="60" width="100" height="44" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2" />
+        <text x="490" y="80" fill="#14226B" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">推流端 B</text>
+        <text x="490" y="95" fill="#3B4A92" font-size="8.2" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">上行 1 路</text>
+
+        <rect x="344" y="132" width="172" height="52" rx="8" fill="#A9B6EE" stroke="#2848D8" stroke-width="2.2" />
+        <text x="430" y="154" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">MCU 混流服务器</text>
+        <text x="430" y="171" fill="#14226B" font-size="8.5" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">解码 → 拼图混音 → 重编码</text>
+
+        <rect x="356" y="212" width="148" height="44" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2.2" />
+        <text x="430" y="232" fill="#14226B" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">订阅端 (下行 1 路)</text>
+        <text x="430" y="247" fill="#1E7043" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">布局固定 · 低端机省电</text>
+
+        <text x="430" y="280" fill="#14226B" font-size="9.6" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">服务端 CPU 转码开销高 · 延迟略增</text>
+
+        <!-- Zone 3 Nodes -->
+        <rect x="624" y="60" width="176" height="44" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2" />
+        <text x="712" y="80" fill="#14226B" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">推流端 · Simulcast</text>
+        <text x="712" y="95" fill="#3B4A92" font-size="8.2" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">同时发 High / Low 大小流</text>
+
+        <rect x="620" y="132" width="184" height="52" rx="8" fill="#F6C445" stroke="#D2381E" stroke-width="2.4" />
+        <text x="712" y="154" fill="#14226B" font-size="11" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">SFU 选择性转发网关</text>
+        <text x="712" y="171" fill="#D2381E" font-size="8.5" font-weight="900" font-family="ui-monospace, monospace" text-anchor="middle">零转码纯转发 · 按需切流</text>
+
+        <rect x="592" y="212" width="116" height="44" rx="8" fill="#F6A9B8" stroke="#D2381E" stroke-width="2.2" />
+        <text x="650" y="232" fill="#14226B" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">主麦大窗 (Wi-Fi)</text>
+        <text x="650" y="247" fill="#D2381E" font-size="8.2" font-weight="900" font-family="ui-monospace, monospace" text-anchor="middle">收 720p 高清层</text>
+
+        <rect x="720" y="212" width="116" height="44" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2.2" />
+        <text x="778" y="232" fill="#14226B" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">小窗 / 4G 弱网端</text>
+        <text x="778" y="247" fill="#1E7043" font-size="8.2" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">收 180p 低清层</text>
+
+        <text x="714" y="280" fill="#D2381E" font-size="9.6" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">低延迟零重编码 · 前端可自由排布 UI</text>
+
+        <!-- Legend Strip -->
+        <line x1="28" y1="320" x2="852" y2="320" stroke="#2848D8" stroke-width="1.2" stroke-dasharray="4,3" />
+        <text x="32" y="344" fill="#14226B" font-size="9" font-family="ui-monospace, monospace" font-weight="900" letter-spacing="0.12em">LEGEND</text>
+        <line x1="108" y1="340" x2="144" y2="340" stroke="#D2381E" stroke-width="2.4" marker-end="url(#tp-arr-accent)" />
+        <text x="154" y="344" fill="#D2381E" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif">Simulcast 高码率层 (720p)</text>
+        <line x1="340" y1="340" x2="376" y2="340" stroke="#1E7043" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#tp-arr-leaf)" />
+        <text x="386" y="344" fill="#1E7043" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif">Simulcast 低码率层 (180p) / 合成单流</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="table-wrap" style="margin-top:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">架构方案</th>
+          <th style="width:18%">单终端上行流</th>
+          <th style="width:18%">单终端下行流</th>
+          <th style="width:20%">服务端算力负载</th>
+          <th>核心工程权衡与生产定位</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Mesh</strong></td>
+          <td><code>N - 1</code> 路</td>
+          <td><code>N - 1</code> 路</td>
+          <td><code>O(1)</code>（仅跑信令）</td>
+          <td>全房间连接数达 <code>O(N<sup>2</sup>)</code>，且最慢的一位弱网观众会通过拥塞反馈把发送端全局画质拉低；适合 <strong>1v1 视频匹配</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>MCU</strong></td>
+          <td><code>1</code> 路</td>
+          <td><code>1</code> 路合成画面</td>
+          <td>极高（全量解码 + GPU 拼图 + 重编码）</td>
+          <td>增加 <code>80~150ms</code> 转码延迟，且前端无法单独拖拽某个人的小窗或做声浪高亮；主要用于<strong>连麦 PK 旁路合流转推 CDN 直播与云端录制</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>SFU + Simulcast</strong></td>
+          <td><code>1</code> 组大小流<br><small>(约 1.35x 码率)</small></td>
+          <td><code>N - 1</code> 路按需分层流</td>
+          <td>极低（纯网络 I/O 改写 RTP 包头转发）</td>
+          <td>推流端通过 <code>sendEncodings: [{rid:'h'}, {rid:'m', scaleResolutionDownBy:2}, {rid:'l', scaleResolutionDownBy:4}]</code> 同时发高/中/低三层流；SFU 切层时向推流端发 PLI 请求目标层 <code>I 帧</code> 实现无花屏切换，是<strong>语聊房与多人派对的标准底座</strong>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 03.2 · Simulcast 与 SVC 分层编码对比及全篇 6 道核心机制自测卡 -->
+<div class="wb-card" id="self-check-qa" style="background:var(--plop-paper); margin-bottom:10px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🎯 03.2 · 进阶对比与复盘：Simulcast vs SVC 分层编码、WHIP/WHEP 演进与 6 道核心机制自测卡</div>
+  <h3>🎯 03.2 Simulcast vs SVC 演进与核心机制自测卡片</h3>
+
+  <div class="plop-callout info" style="margin-bottom:14px;">
+    <strong>🔭 分层编码与信令标准化演进（Simulcast / SVC / WHIP）：</strong><br>
+    • <strong>Simulcast（联播大小流）vs SVC（可伸缩视频编码，如 VP9-SVC / AV1-SVC）：</strong>Simulcast 独立编码高、中、低 3 条互不依赖的码流（总上行带宽约为单高清流的 <code>1.35x</code>），SFU 切层时必须等目标层的下一个 <code>I 帧</code>；而 SVC 在同一条码流内部划分为基础层（Base Layer）与增强层（Enhancement Layer），只多占约 <code>1.15x</code> 带宽且支持任意帧边界平滑剥离。<br>
+    • <strong>WHIP 与 WHEP 标准：</strong>IETF 制定的基于单次 <code>HTTP POST</code> 交换 SDP 的极简推流（WHIP）与拉流（WHEP）标准，正逐步替代传统 OBS 的 RTMP 推流，让直播推流到观看全链路进入亚秒级延迟。
+  </div>
+
+  <details class="plop-drawer" id="qa-01" open>
+    <summary><span class="plop-drawer-title">自测 1：两个人建立一次 WebRTC 通话，从点击呼叫到画面上屏经历了哪四个核心环节？</span></summary>
+    <div class="drawer-body">
+      <p>① <strong>媒体采集与绑定</strong>：双方调用 <code>getUserMedia</code>（开启 3A 回声降噪与 <code>ideal</code> 约束）拿到音视频轨并通过 <code>addTrack</code> 注入 <code>RTCPeerConnection</code>；② <strong>信令交换 SDP 名片</strong>：主叫方 <code>createOffer → setLocalDescription</code> 经 WebSocket 发给被叫方，被叫方 <code>setRemoteDescription → createAnswer → setLocalDescription</code> 回传，敲定编解码器（Opus / H.264）、<code>BUNDLE</code> 单口复用与 <code>DTLS</code> 证书指纹；③ <strong>Trickle ICE 地址穿透</strong>：双方并行向 STUN/TURN 收集 <code>host / srflx / relay</code> 三类候选增量互发，在远端 SDP 设置完成前收到的候选先暂存进队列再调用 <code>addIceCandidate</code>，ICE 按优先级选出最优连通对；④ <strong>加密传输与上屏</strong>：完成 DTLS 握手导出对称密钥，SRTP 加密媒体流送达触发对端 <code>ontrack</code>，挂载到带 <code>autoplay playsinline</code> 的 <code>&lt;video&gt;</code> 渲染首帧。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" id="qa-02">
+    <summary><span class="plop-drawer-title">自测 2：既然免费的 STUN 服务器就能查出公网 IP:Port，为什么生产环境还必须部署 TURN？</span></summary>
+    <div class="drawer-body">
+      <p>STUN 只能反射出「客户端访问 STUN 服务器那一刻路由器分配的公网 <code>IP:Port</code>」。在家庭锥形 NAT 下，访问任何外部主机都复用同一个出口端口，对端直接往该端口发包即可打通 P2P；但在<strong>对称型 NAT（Symmetric NAT，广泛存在于 4G/5G 移动运营商网关与企业防火墙）</strong>下，路由器采用「目标 <code>IP:Port</code> 一变就重新分配新外部端口」策略——客户端转头连接对端 Peer B 时出口已变成全新端口，刚才通过 STUN 查到并告知对端的旧端口完全失效，且入站防火墙会丢弃陌生包。这部分约占真实线上流量的 <code>15% ~ 20%</code>，必须依靠拥有固定公网地址的 <code>TURN</code>（及 443 端口 <code>TURNS</code>）双向中继才能把接通率推向 <code>99%+</code>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" id="qa-03">
+    <summary><span class="plop-drawer-title">自测 3：高丢包、高抖动的跨国弱网下，WebRTC 底层靠哪些协同机制保证声音不断、画面不花屏？</span></summary>
+    <div class="drawer-body">
+      <p>① 传输层基于 <strong>UDP</strong> 规避 TCP 丢单包阻塞后续所有新帧的队头阻塞；② 接收端维护自适应 <strong>JitterBuffer</strong> 吸收延迟抖动并按序列号重排乱序包；③ 丢包恢复按延迟分级——低 RTT 走 <strong>RTCP NACK</strong> 精准重传丢失包，跨洲高 RTT 或随机丢包走 <strong>FEC 前向纠错</strong>冗余包零等待恢复，参考帧损坏时发 <strong>PLI</strong> 请求编码器立即插入完整 <code>I 帧</code> 消除花屏；④ 发送端运行 <strong>GCC 拥塞控制</strong>，基于 <code>TWCC</code> 到达时间梯度提前感知路由器排队并下调视频码率与分辨率，极端弱网下严格执行「保 Opus 音频、降视频画质」。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" id="qa-04">
+    <summary><span class="plop-drawer-title">自测 4：从 1v1 视频匹配扩展到 8 人视频派对房，为什么不能继续 P2P？SFU 与 MCU 如何取舍？</span></summary>
+    <div class="drawer-body">
+      <p>8 人若用 P2P Mesh 全互联，每部手机需同时编码上行推送 <code>7</code> 路视频并解码下行 <code>7</code> 路视频，移动端上行带宽瞬间打满且严重发热掉帧。多人互动房间主流选 <strong>SFU + Simulcast 三层大小流</strong>：推流端只需向 SFU 发送一次（含 720p/360p/180p 层），SFU 不做耗费 CPU 的解码重编码，只做零转码路由分发——主讲大屏发高清层，九宫格小窗或 4G 弱网观众只发 180p 小流，延迟低且前端 Vue 组件可自由定制每个麦位的 UI 挂件；而 <strong>MCU</strong> 在服务端混流重编码算力昂贵，通常仅用于将主播 PK 画面旁路合成为单路流转推给 CDN 供场外数万观众看单向直播或云端录制留存。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" id="qa-05">
+    <summary><span class="plop-drawer-title">自测 5：在 Vue 3 与移动端 H5 中开发实时视频组件，有哪些关键的前端工程规范？</span></summary>
+    <div class="drawer-body">
+      <p>① <strong>响应式代理隔离</strong>：<code>RTCPeerConnection</code> 与 <code>MediaStream</code> 必须用 <code>shallowRef</code> 持有，避免 Vue 深层 Proxy 破坏原生内部插槽；② <strong>ICE 候选时序队列</strong>：<code>setRemoteDescription</code> 完成前到达的 <code>ice-candidate</code> 先缓存进数组，完成后再批量冲刷防 <code>InvalidStateError</code>；③ <strong>移动端播放器规范</strong>：本机预览必加 <code>muted</code> 防啸叫，所有 <code>&lt;video&gt;</code> 必加 <code>playsinline</code> 防 iOS 全屏劫持，并捕获 <code>play()</code> 的 <code>NotAllowedError</code> 引导用户轻触解锁声音；④ <strong>1v1 连续切人优化</strong>：换人时复用已开启的本地 <code>MediaStream</code> 仅重建 <code>RTCPeerConnection</code>，消除每次唤醒硬件镜头的半秒黑屏；⑤ <strong>生命周期防泄漏</strong>：组件卸载时清理统计定时器、调用 <code>pc.close()</code> 并遍历执行 <code>track.stop()</code> 熄灭摄像头指示灯。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" id="qa-06">
+    <summary><span class="plop-drawer-title">自测 6：为什么实时 AI 语音对话与数字人系统普遍采用 WebRTC 替代 WebSocket 传输音频？</span></summary>
+    <div class="drawer-body">
+      <p>传统「前端切片录音发 WebSocket → 后端 ASR → LLM → TTS 切片回传播放」方案存在三大短板：链路串行延迟常超 <code>1.5~3s</code>、跨国 TCP 丢包易卡顿、且前端用普通 <code>AudioContext</code> 播放 TTS 时缺少与麦克风联动的硬件级 <strong>AEC 回声消除</strong>（AI 说话声极易被手机麦克风录回去误触发打断）。改用 <strong>WebRTC（如 OpenAI Realtime API / LiveKit Agents）</strong>后，语音走原生 SRTP 音频轨直接获得浏览器内置的 Opus 编码、JitterBuffer 与 3A 回声消除，同时复用同一连接里的 <code>RTCDataChannel</code> 毫秒级同步实时字幕、Function Calling 工具调用与服务端 <code>VAD</code> 插话打断指令，端到端响应可压进 <code>300~500ms</code>。</p>
+    </div>
+  </details>
+</div>

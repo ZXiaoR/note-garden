@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="音视频与 WebRTC 核心原理篇：深入剖析 PCM/Opus 音频管线与 YUV 4:2:0 / I·P·B 视频编码推导、SDP 报文解剖与对称型 NAT 穿透受阻机制、UDP 单口多路复用与 DTLS-SRTP 弱网抗抖动闭环（JitterBuffer/NACK/FEC/GCC），以及多人 SFU + Simulcast 大小流路由与核心机制自测。" />
+  <title>音视频与 WebRTC · 核心原理篇 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+      </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" data-edition-target="index.html" title="切换到五步通话全景导读、第一个摄像头页面、轨道控制与 Vue 3 实战封装">🌱 基础与实战篇 ↗</a>
+        <a href="principles.html" class="active principles" aria-current="page" title="深入音视频采样压缩推导、SDP 与对称型 NAT 穿透、弱网 QoS 抗抖动闭环与 SFU 大小流架构">📘 核心原理篇</a>
+      </nav>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + 底层机制速查 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与底层参数速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="音视频核心原理章节书签">
+          <a href="#codec" class="plop-ear-tab active" data-toc="codec">
+            <span class="ear-dot"></span>
+            <span>00 采样量化与帧间压缩</span>
+          </a>
+          <a href="#nat" class="plop-ear-tab" data-toc="nat">
+            <span class="ear-dot mint"></span>
+            <span>01 SDP报文与NAT穿透</span>
+          </a>
+          <a href="#qos" class="plop-ear-tab" data-toc="qos">
+            <span class="ear-dot periwinkle"></span>
+            <span>02 协议栈与弱网QoS</span>
+          </a>
+          <a href="#sfu" class="plop-ear-tab" data-toc="sfu">
+            <span class="ear-dot pink"></span>
+            <span>03 SFU大小流与复盘</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：底层核心参数速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>RTC INTERNALS</span>
+            <span>#CORE</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>色度抽样</span>
+            <span>YUV 4:2:0 (省50%)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>实时帧序列</span>
+            <span>仅 I+P (禁 B 帧)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>对称型 NAT</span>
+            <span>TURN 中继 (约15%)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>音画主时钟</span>
+            <span>RTCP SR 对齐音频</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>多人连麦</span>
+            <span>SFU + Simulcast</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#codec" class="active">00 采样与帧结构</a>
+        <a href="#nat">01 SDP与对称NAT</a>
+        <a href="#qos">02 协议栈与弱网</a>
+        <a href="#sfu">03 SFU与复盘</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape periwinkle"></div>
+
+        <!-- 左侧金属活页线圈书脊 -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card" style="background:var(--plop-periwinkle);">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">RTC / INTERNALS</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:32px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">WebRTC</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">核心原理篇</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag periwinkle">📘 核心原理篇</span>
+              <span class="plop-tag mint">PCM / YUV 4:2:0 · I/P/B 帧 · SDP 与对称 NAT</span>
+              <span class="plop-tag tomato">DTLS-SRTP · NACK/FEC/GCC · SFU 大小流</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              音视频与 WebRTC · 核心原理篇
+            </h1>
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0 0 14px; font-weight:600;">
+              面向掌握基本 API 用法后希望知其所以然的读者：从原始音频字节计算、色度抽样与视频帧间预测结构切入，逐行解剖 SDP 协商报文与对称型 NAT 导致 STUN 穿透受阻的网络根因，推演 UDP 单端口多路复用、DTLS-SRTP 加密与跨国弱网抗抖动闭环，最后对比多人拓扑带宽算力模型并整理全篇核心机制自测卡片。若刚开始接触 WebRTC，建议先阅读 <a href="index.html">🌱 基础与实战篇 ↗</a>。
+            </p>
+
+            <!-- 三阶段手账小票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#codec" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 编码压缩与穿透原理</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 00—01：Opus 与 YUV/GOP 推导、SDP 报文解剖、四类 NAT 与对称穿透受阻</div>
+              </a>
+              <a href="#qos" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 协议栈与出海弱网对抗</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 02：UDP 防队头阻塞、单口复用、JitterBuffer、NACK/FEC/PLI 与 GCC 算法</div>
+              </a>
+              <a href="#sfu" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ SFU 大小流与综合复盘</div>
+                <div style="font-size:12.2px; font-weight:700;">章节 03：Mesh/MCU/SFU 复杂度、Simulcast/SVC 分层编码与 6 道核心机制自测卡</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 4 大原理章节摘要与独立 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="principles-sections/00-codec.html">
+          <section class="wb-card" id="codec" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/00-codec.html">00 · 数字音视频采样与压缩原理：PCM 码率推导、YUV 4:2:0 色度抽样与 I/P/B 帧结构</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">推导原始音视频码率账本，拆解 Opus 双核编码与 3A 信号处理管线，阐明 YUV 4:2:0 省流原理及实时通信禁用 B 帧的延迟根因。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/01-nat.html">
+          <section class="wb-card" id="nat" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/01-nat.html">01 · SDP 协议解剖、四类 NAT 映射模型与 ICE 连通性检查算法</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">逐行注释真实 SDP 报文关键字段，图解锥形 NAT 与对称型 NAT 端口重分配差异，梳理 ICE 候选对优先级公式与 ICE Restart 恢复流程。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/02-qos.html">
+          <section class="wb-card" id="qos" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/02-qos.html">02 · 传输协议栈与出海弱网对抗机制：DTLS-SRTP、JitterBuffer、NACK/FEC 与 GCC</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">剖析 UDP 单端口多路复用首字节分流、DTLS 指纹校验、接收端抗抖动三级恢复、RTCP SR 音画同步时钟，以及 GCC 延迟梯度拥塞控制。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/03-sfu.html">
+          <section class="wb-card" id="sfu" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/03-sfu.html">03 · 多人实时架构与综合复盘：Mesh / MCU / SFU 模型、Simulcast/SVC 与核心自测卡</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比三种多人拓扑的带宽算力复杂度，详解 Simulcast 三层大小流关键帧对齐切换与 SVC/WHIP 演进，并整理 6 道核心机制自测卡。</p>
+          </section>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷导航与跨专题切换">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>📘 原理核心速查</span>
+            </span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:7px; margin-top:8px;">
+            <a class="plop-pill-sticker mint" href="#nat">核心 ①：对称 NAT 与 TURN 兜底</a>
+            <a class="plop-pill-sticker periwinkle" href="#qos">核心 ②：JitterBuffer + NACK + FEC</a>
+            <a class="plop-pill-sticker" href="#self-check-qa">复盘 ③：直达底部 6 道机制自测卡</a>
+          </div>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标 -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+
+</body>
+</html>

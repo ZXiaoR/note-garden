@@ -1,143 +1,336 @@
 <!-- ====================================================================
-             PART 00: 第一性原理导读 · 为什么有了 MySQL 还需要 Redis？入门懂什么、进阶解决什么？
-             ==================================================================== -->
-        <div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
-          <span class="wb-sec-num">00</span>
-          <span class="wb-sec-title">第一性原理导读 · 为什么有了 MySQL 还要学 Redis？入门懂什么、进阶在解决什么？</span>
-          <span class="plop-tag tomato">FIRST PRINCIPLES · 必读心法</span>
-        </div>
+     PART 00: 架构定位、环境安装、核心配置与第一个 Redis 程序
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">架构定位、全平台环境部署与第一个 Redis 程序</span>
+  <span class="plop-tag tomato">POSITIONING · INSTALL · REDIS-CLI · GO-REDIS</span>
+</div>
 
-        <div class="wb-card" style="background:var(--plop-paper);">
-          <div class="washi-tape"></div>
-          <div class="chapter-q-pill">🧭 先搞清楚定位 · Redis 不是为了替代 MySQL，而是为了补齐物理硬件的“速度鸿沟”</div>
-          <h3>💡 从第一性原理出发：为什么磁盘数据库扛不住几十万 QPS 的高并发？</h3>
-          <p>
-            刚学完 MySQL，你一定会问：<strong>“既然 MySQL 已经有 B+ 树索引、有 Buffer Pool 内存池、还有事务和锁，为什么几乎所有互联网系统还要在 MySQL 前面再架一层 Redis？”</strong>
-          </p>
-          <p>
-            答案藏在<strong>计算机硬件的物理极限与架构分工</strong>里：MySQL 的首要使命是<strong>“数据绝对可靠、支持复杂关系查询（JOIN/排序/聚合）与严格事务 ACID”</strong>，每次写操作都要维护 B+ 树页、写 Redo/Undo/Binlog 日志，单机能抗住几千 QPS 就已经很吃力；而当面对秒杀抢购、热点商品详情、排行榜、分布式锁这种<strong>每秒几万到几十万次的极高频简单读写</strong>时，必须把数据直接放在<strong>纯内存 + 极致简单的数据结构</strong>里——这就是 Redis 诞生的第一性原理。
-          </p>
+<!-- 00.1 · Redis 的架构定位与分工 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧭 00.1 · 架构定位：内存键值状态层与磁盘关系型数据库的协同分工</div>
+  <h3>🧭 00.1 Redis 解决的核心问题与系统分工</h3>
 
-          <!-- 大字号手账卡片图解：从第一性原理推导 Redis 全景知识体系（自适应换行，绝不溢出） -->
-          <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
-            <div style="display:grid; grid-template-columns:250px 1fr; gap:16px; align-items:stretch;">
-              <!-- 左侧：入门阶段（起点） -->
-              <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:10px;">
-                <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:8px; padding:6px 10px; text-align:center; font-weight:900; font-size:14px; color:var(--plop-ink-text);">
-                  🌱 入门阶段（起点）
-                </div>
-                <div style="text-align:center;">
-                  <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink);">拿来当「高速字典」用</div>
-                  <div style="font-size:12.2px; font-weight:700; color:var(--plop-ink-soft);">（选对类型 + 设好过期时间）</div>
-                </div>
+  <p>
+    <strong>Redis（Remote Dictionary Server，远程字典服务）</strong>是一个基于内存运行、支持可选磁盘持久化的键值（Key-Value）数据存储系统。在实际工程架构中，MySQL 或 PostgreSQL 等关系型数据库承担着<strong>持久化账本、多表关联查询与严格 ACID 事务</strong>的职责，每次修改都需要维护磁盘页结构与事务日志，单实例通常面向数千至上万 QPS 的复杂读写；而当系统面临商品详情页、会话登录态、实时排行榜、计数器限流等<strong>每秒数万至十万级的低延迟简单读写</strong>时，直接将所有流量压向磁盘数据库会导致连接池耗尽与响应延迟升高。
+  </p>
+  <p>
+    因此，现代后端系统普遍采用<strong>「Redis 内存加速与状态协调层 + 关系型数据库持久化底座」</strong>的分层协同架构：由 Redis 在内存中以亚毫秒级（通常 <code>&lt; 1ms</code>）响应高频读写与跨进程原子协调，由 MySQL / PostgreSQL 负责数据的最终持久化落盘与复杂统计分析。
+  </p>
 
-                <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 10px; text-align:center;">
-                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">① 掌握 5 大基础数据类型</div>
-                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">String / Hash / List / Set / ZSet</div>
-                </div>
+  <!-- Editorial SVG: Redis & RDBMS Tiered Collaboration Architecture -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 880 288" style="width:100%; min-width:760px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rd-pos-title rd-pos-desc">
+        <title id="rd-pos-title">现代后端架构中 Redis 与关系型数据库的分层协同拓扑</title>
+        <desc id="rd-pos-desc">客户端请求进入业务服务集群后，优先访问亚毫秒级响应的 Redis 内存状态层完成热点缓存、原子计数与分布式协调；缓存未命中或持久化写操作再访问底层的 MySQL 关系型数据库。</desc>
+        <defs>
+          <marker id="rd-pos-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rd-pos-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="rd-pos-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
 
-                <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 10px; text-align:center;">
-                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">② 旁路缓存读写套路</div>
-                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">先查 Redis → 未命中查 DB 回填</div>
-                </div>
+        <!-- Zone: Storage & State Tier -->
+        <rect x="464" y="20" width="392" height="208" rx="8" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="480" y="24" width="148" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="554" y="36" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">数据存储与状态层</text>
 
-                <div style="background:var(--plop-sheet); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 10px; text-align:center;">
-                  <div style="font-weight:900; font-size:13px; color:var(--plop-ink-text);">③ 基础过期与原子操作</div>
-                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-soft); margin-top:2px;">EXPIRE 过期 / INCR 计数 / SETNX</div>
-                </div>
+        <!-- Connectors (drawn BEFORE boxes, strictly orthogonal r=8) -->
+        <!-- Client -> App Service (straight horizontal at y=128) -->
+        <line x1="176" y1="128" x2="248" y2="128" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#rd-pos-arr-link)"/>
+        <rect x="186" y="106" width="52" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="212" y="116" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#2e5aa8">HTTP/RPC</text>
 
-                <div style="background:#FFF0F5; border:2px dashed var(--plop-tomato); border-radius:9px; padding:9px 10px; text-align:center; margin-top:auto;">
-                  <div style="font-weight:900; font-size:12.8px; color:var(--plop-tomato);">⚠️ 只会调命令为什么不够？</div>
-                  <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin-top:3px; line-height:1.45;">
-                    内存会满、断电会丢、高并发会击穿 DB 👉 <strong style="color:var(--plop-tomato);">引出右侧四大进阶主线 ➔</strong>
-                  </div>
-                </div>
-              </div>
+        <!-- App Service right top port (408, 108) -> Redis left port (504, 84) -->
+        <path d="M 408,108 H 436 Q 444,108 444,100 V 92 Q 444,84 452,84 H 504" fill="none" stroke="#bf4520" stroke-width="1.6" marker-end="url(#rd-pos-arr-accent)"/>
+        <rect x="404" y="60" width="88" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="448" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#bf4520">高频读写 &lt;1ms</text>
 
-              <!-- 右侧：四大进阶主线（由上到下 4 张横向卡片，自动换行绝不超出） -->
-              <div style="display:grid; gap:12px;">
-                <!-- 主线 1 -->
-                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:grid; grid-template-columns:210px 1fr; gap:12px; align-items:center;">
-                  <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:9px; padding:10px; text-align:center;">
-                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">⚡ 主线一：它凭什么这么快？</div>
-                    <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin:3px 0;">（第 01～02 章 · 线程与编码）</div>
-                    <div style="font-size:12px; font-weight:900; color:var(--plop-tomato);">单核每秒十万级 QPS 的秘密</div>
-                  </div>
-                  <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
-                    • <strong>网络与执行：</strong>纯内存 + 单线程免锁免切换 + <code>epoll</code> 多路复用 + 6.0 多线程 IO<br/>
-                    • <strong>底层数据结构：</strong><code>SDS</code> / <code>intset</code> / <code>dict</code>（渐进式 rehash）/ <code>listpack</code>（消除连锁更新）/ 跳表<br/>
-                    <span style="color:var(--plop-ink-soft); font-weight:700;">👉 明白为什么一个大 Key 会卡死整个单线程、为什么小集合比大集合省几倍内存</span>
-                  </div>
-                </div>
+        <!-- App Service right bottom port (408, 148) -> MySQL left port (504, 176) -->
+        <path d="M 408,148 H 436 Q 444,148 444,156 V 168 Q 444,176 452,176 H 504" fill="none" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#rd-pos-arr-muted)"/>
+        <rect x="398" y="184" width="96" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="446" y="196" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="500" fill="#5a6580">落盘与回源查询</text>
 
-                <!-- 主线 2 -->
-                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:grid; grid-template-columns:210px 1fr; gap:12px; align-items:center;">
-                  <div style="background:var(--plop-bubblegum); border:2px solid var(--plop-ink); border-radius:9px; padding:10px; text-align:center;">
-                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">🛡️ 主线二：做缓存会踩什么坑？</div>
-                    <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin:3px 0;">（第 03 章 · 异常与同步）</div>
-                    <div style="font-size:12px; font-weight:900; color:var(--plop-tomato);">保护背后的 MySQL 不被打穿</div>
-                  </div>
-                  <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
-                    • <strong>三大异常：</strong>穿透（查不存在→布隆/空值）/ 击穿（单热 Key 失效→互斥锁）/ 雪崩（大批同时失效）<br/>
-                    • <strong>双写一致性：</strong><code>Cache-Aside</code> 先更 DB 再删缓存 + 延迟双删 + Canal 订阅 <code>binlog</code><br/>
-                    <span style="color:var(--plop-ink-soft); font-weight:700;">👉 加上大 Key 拆分（<code>UNLINK</code>）与热 Key 多级缓存分流，构筑完整生产防线</span>
-                  </div>
-                </div>
+        <!-- Node 1: Client -->
+        <rect x="28" y="92" width="148" height="72" rx="6" fill="#FFFDF7"/>
+        <rect x="28" y="92" width="148" height="72" rx="6" fill="rgba(79,93,117,0.08)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="102" y="124" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#1F1F23">终端与上游调用方</text>
+        <text x="102" y="144" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">Web / App / Gateway</text>
 
-                <!-- 主线 3 -->
-                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:grid; grid-template-columns:210px 1fr; gap:12px; align-items:center;">
-                  <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:9px; padding:10px; text-align:center;">
-                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">💾 主线三：数据会丢、内存会满</div>
-                    <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin:3px 0;">（第 04 章 · 持久化与淘汰）</div>
-                    <div style="font-size:12px; font-weight:900; color:var(--plop-tomato);">内存有限且易失，怎么兜底？</div>
-                  </div>
-                  <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
-                    • <strong>断电不丢：</strong>RDB 快照（<code>fork</code> + COW 写时复制）+ AOF 命令日志 + 4.0 混合持久化<br/>
-                    • <strong>空间清理：</strong>过期删除（惰性 + 定期抽样）+ 内存满了触发 8 种 <code>maxmemory</code> 淘汰策略<br/>
-                    <span style="color:var(--plop-ink-soft); font-weight:700;">👉 理解近似 LRU / LFU 为什么不用全局双向链表，而是靠 24-bit 字段抽样淘汰</span>
-                  </div>
-                </div>
+        <!-- Node 2: App Service -->
+        <rect x="248" y="88" width="160" height="80" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="328" y="122" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#1F1F23">无状态业务服务</text>
+        <text x="328" y="142" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">Go / Node / Java</text>
+        <text x="328" y="156" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#5a6580">go-redis Pool</text>
 
-                <!-- 主线 4 -->
-                <div style="background:var(--plop-paper); border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:grid; grid-template-columns:210px 1fr; gap:12px; align-items:center;">
-                  <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:9px; padding:10px; text-align:center;">
-                    <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink-text);">🌐 主线四：单机挂了 / 装不下</div>
-                    <div style="font-size:12px; font-weight:700; color:var(--plop-ink-text); margin:3px 0;">（第 05～06 章 · 集群与分布式锁）</div>
-                    <div style="font-size:12px; font-weight:900; color:var(--plop-tomato);">高可用演进与跨进程协调</div>
-                  </div>
-                  <div style="font-size:13px; line-height:1.58; color:var(--plop-ink-text);">
-                    • <strong>高可用三级跳：</strong>主从复制（RDB + <code>repl_backlog</code>）→ 哨兵 Sentinel（自动选主）→ Cluster（16384 槽）<br/>
-                    • <strong>分布式能力：</strong>分布式锁（<code>SET NX EX</code> + Lua + Watchdog）+ Stream 消息队列 + Lua / Pipeline<br/>
-                    <span style="color:var(--plop-ink-soft); font-weight:700;">👉 看懂主从切换为什么会导致分布式锁丢锁（RedLock 争议）与脑裂怎么防护</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+        <!-- Node 3: Redis (Focal Accent Node #1) -->
+        <rect x="504" y="48" width="332" height="72" rx="6" fill="#FFFDF7"/>
+        <rect x="504" y="48" width="332" height="72" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="670" y="76" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13.5" font-weight="800" fill="#bf4520">Redis 内存加速与协调层（10w+ QPS）</text>
+        <text x="670" y="96" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#1F1F23">热点缓存 · 会话共享 · 排行榜 · 计数限流 · 分布式锁</text>
+        <text x="670" y="112" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">TCP :6379 · RESP Protocol · In-Memory</text>
 
-          <!-- 入门 vs 进阶双栏对照 -->
-          <div class="wb-grid-2" style="margin-top:14px;">
-            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
-              <span class="plop-tag mint" style="margin-bottom:8px;">STAGE 1 · 入门阶段我们懂什么就够了？</span>
-              <h4>🎯 目标：把 Redis 当成“带过期时间的远程内存字典”用对</h4>
-              <ol>
-                <li><strong>选对 5 种基础数据结构：</strong>缓存单值/计数器用 <code>String</code>，存用户各属性/购物车用 <code>Hash</code>，简单队列/时间线用 <code>List</code>，去重/交集抽奖用 <code>Set</code>，排行榜/权重区间用 <code>ZSet</code>。</li>
-                <li><strong>写对旁路缓存（Cache-Aside）套路：</strong>读请求先查 Redis，没有再查 MySQL 并写入 Redis（一定要带 <code>EXPIRE</code> 过期时间）；写请求先改 MySQL，再删 Redis 缓存。</li>
-                <li><strong>会用基本原子指令：</strong>用 <code>INCR / DECR</code> 做原子计数/限流，用 <code>SET key val NX EX 10</code> 做最基础的防重/互斥锁。</li>
-              </ol>
-            </div>
+        <!-- Node 4: RDBMS Store -->
+        <rect x="504" y="140" width="332" height="72" rx="6" fill="#FFFDF7"/>
+        <rect x="504" y="140" width="332" height="72" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="670" y="168" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#1F1F23">MySQL / PostgreSQL 持久化存储底座</text>
+        <text x="670" y="188" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">权威账本数据 · 复杂多表 JOIN · ACID 事务兜底</text>
+        <text x="670" y="204" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#5a6580">TCP :3306 / :5432 · B+Tree + WAL</text>
 
-            <div class="wb-card" style="background:var(--plop-sheet); margin-top:0;">
-              <span class="plop-tag tomato" style="margin-bottom:8px;">STAGE 2 · 进阶在干什么？为什么要了解进阶？</span>
-              <h4>🔥 目标：应对「单线程卡顿」「缓存击穿雪崩」「丢数据」与「集群扩容」</h4>
-              <ul>
-                <li><strong>为什么明明是内存操作，线上 Redis 突然卡顿几百毫秒？</strong><br>
-                  👉 因为命令执行是<strong>单线程</strong>！不懂底层编码与渐进式 rehash，随便塞一个百万元素的<strong>大 Key</strong> 或执行 <code>DEL / KEYS *</code>，就会把所有人的请求全部堵死。</li>
-                <li><strong>为什么加了 Redis，大促零点 MySQL 还是瞬间被打崩了？</strong><br>
-                  👉 因为没防住<strong>缓存穿透、击穿（热点 Key 过期瞬间万级回源）和雪崩（同批 TTL 同时失效）</strong>。</li>
-                <li><strong>为什么加了分布式锁还是出现超卖/误删别人的锁？</strong><br>
-                  👉 不懂<strong>唯一 Value + Lua 脚本原子释放 + Watchdog 自动续期</strong>，以及主从异步复制切换导致的锁丢失边界。</li>
-              </ul>
-            </div>
-          </div>
-        </div>
+        <!-- Horizontal Legend Strip at bottom -->
+        <line x1="28" y1="244" x2="856" y2="244" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="28" y="256" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="48" y="265" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">核心内存热路径（默认吸收 90%+ 读流量）</text>
+        <line x1="316" y1="261" x2="344" y2="261" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4"/>
+        <text x="352" y="265" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">缓存未命中回源查询与事务持久化写路径</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">应用维度</th>
+          <th style="width:36%">Redis 典型业务角色</th>
+          <th>与关系型数据库的分工边界</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 高速旁路缓存</strong></td>
+          <td>商品详情、用户信息、首页配置、热点资讯列表缓存</td>
+          <td>Redis 存高频读取的热点数据并设置过期时间（TTL）；MySQL 保存全量历史数据作为唯一事实来源（Source of Truth）。</td>
+        </tr>
+        <tr>
+          <td><strong>② 共享会话与状态</strong></td>
+          <td>分布式登录 Session、短信验证码（5 分钟自动失效）、OAuth 令牌黑名单</td>
+          <td>多台无状态应用实例共享同一份带自动过期能力的内存状态，避免将短生命周期临时数据频繁写入磁盘表。</td>
+        </tr>
+        <tr>
+          <td><strong>③ 原生排行榜与聚合</strong></td>
+          <td>直播间礼物实时榜、游戏战力排名、亿级 UV 去重统计、附近门店搜索</td>
+          <td>借助 <code>ZSet</code>、<code>HyperLogLog</code>、<code>GEO</code> 在内存中以 <code>O(log N)</code> 或 <code>O(1)</code> 完成实时计算，免去高成本的 <code>ORDER BY</code> 与 <code>COUNT(DISTINCT)</code> 扫表。</td>
+        </tr>
+        <tr>
+          <td><strong>④ 跨进程并发协调</strong></td>
+          <td>接口滑动窗口限流、秒杀库存预扣减、防重复提交互斥锁、轻量异步队列</td>
+          <td>利用单线程串行执行命令与 Lua 脚本的原子性充当前置流量漏斗；核心账务最终结果仍落盘至关系型数据库。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip">
+    <strong>📘 延伸阅读：</strong>想深入了解 CPU 缓存、DRAM 内存与 NVMe 磁盘的物理访问延迟差距，以及 Redis 内核全局字典 <code>redisDb</code> 的底层指针结构，可随时点击顶部切换栏前往 <a href="principles.html#why">《📘 核心原理篇 · 00 存储层级与全局哈希表》</a>。
+  </div>
+</div>
+
+<!-- 00.2 · 全平台安装部署与核心配置文件解读 -->
+<div class="wb-card" id="install-config" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🛠️ 00.2 · 环境搭建：Docker Compose、macOS / Linux 安装与 redis.conf 关键配置项</div>
+  <h3>🛠️ 00.2 环境安装与核心配置规范</h3>
+
+  <p>
+    日常本地开发与测试推荐使用 <strong>Docker Compose</strong> 或系统包管理器安装 <strong>Redis 7.2 LTS</strong>（长期支持版，向下完整兼容 6.x 语法）。下面列出三种主流环境的安装启动方式：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐳 docker-compose.yml · 容器化启动 Redis 7.2</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-docker', this)">复制配置</button>
+      </div>
+      <pre class="plop-code-pre" id="code-redis-docker"><code>services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: local-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-data:/data
+    command: &gt;
+      redis-server
+      --requirepass DevPass_2026
+      --appendonly yes
+      --aof-use-rdb-preamble yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    restart: unless-stopped</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>💻 macOS Homebrew / Ubuntu APT 本地安装</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-native', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-redis-native"><code><span class="c-cm"># === macOS (Homebrew) ===</span>
+brew install redis
+<span class="c-cm"># 后台服务启动（配置文件位于 /opt/homebrew/etc/redis.conf）</span>
+brew services start redis
+
+<span class="c-cm"># === Ubuntu / Debian Linux ===</span>
+sudo apt-get update &amp;&amp; sudo apt-get install -y redis-server
+sudo systemctl enable --now redis-server
+sudo systemctl status redis-server</code></pre>
+    </div>
+  </div>
+
+  <h4 style="margin-top:16px;">核心配置文件 <code>redis.conf</code> 生产必检参数表</h4>
+  <p>
+    无论是裸机部署还是容器挂载自定义配置文件，上线前都应重点核对以下 6 项基础安全与资源边界参数：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:28%">配置指令与推荐示例</th>
+          <th style="width:20%">默认值</th>
+          <th>参数含义与工程注意事项</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>bind 127.0.0.1 10.0.1.15</code></td>
+          <td><code>127.0.0.1 -::1</code></td>
+          <td>指定允许接收连接的本机网卡地址。生产环境仅绑定内网网卡 IP，切勿在无防火墙保护的公网机器上配置 <code>bind 0.0.0.0</code>。</td>
+        </tr>
+        <tr>
+          <td><code>protected-mode yes</code></td>
+          <td><code>yes</code></td>
+          <td>安全保护模式：当未显式绑定 IP 且未设置访问密码时，拒绝一切外部机器连接，仅允许本机回环地址访问。</td>
+        </tr>
+        <tr>
+          <td><code>requirepass &lt;强密码&gt;</code><br><span style="font-size:11.5px; color:var(--plop-ink-soft);">或 6.0+ <code>ACL SETUSER</code></span></td>
+          <td>空（无密码）</td>
+          <td><code>requirepass</code> 设置默认用户 <code>default</code> 的连接密码；Redis 6.0+ 支持细粒度 <strong>ACL 权限控制</strong>，可为不同微服务创建独立账号并限制允许执行的命令类别（例如禁止业务账号调用 <code>FLUSHALL / KEYS</code>）。</td>
+        </tr>
+        <tr>
+          <td><code>databases 16</code></td>
+          <td><code>16</code></td>
+          <td>单实例默认提供编号 <code>0 ~ 15</code> 共 16 个逻辑数据库（默认进入 <code>db0</code>）。生产环境推荐不同业务使用<strong>不同 Key 业务前缀或独立实例</strong>隔离，而非依赖 <code>SELECT</code> 切换逻辑库（Redis Cluster 集群模式仅支持 <code>db0</code>）。</td>
+        </tr>
+        <tr>
+          <td><code>maxmemory 4gb</code></td>
+          <td><code>0</code>（64位不限）</td>
+          <td>实例最大可用物理内存上限。生产环境必须显式配置，一般设为机器可用内存的 <strong>70% 左右</strong>，为操作系统、主从复制缓冲区与后台子进程预留安全余量。</td>
+        </tr>
+        <tr>
+          <td><code>daemonize no</code> / <code>supervised systemd</code></td>
+          <td><code>no</code></td>
+          <td>裸机后台运行设为 <code>daemonize yes</code>；在 Docker 容器内运行<strong>必须保持 <code>daemonize no</code></strong>（以前台主进程方式运行，否则容器启动后会立即退出）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.3 · redis-cli 交互基础与第一个 Go 客户端程序 -->
+<div class="wb-card" id="first-program" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🚀 00.3 · 快速上手：redis-cli 命令行交互、ACL 账号授权与 Go 客户端最小可运行程序</div>
+  <h3>🚀 00.3 使用 <code>redis-cli</code> 与编写第一个客户端程序</h3>
+
+  <p>
+    安装启动完成后，可以先使用官方自带的命令行客户端 <code>redis-cli</code> 验证连通性、配置业务专用 ACL 只读/读写账号，再通过应用程序连接池访问 Redis。注意命令行添加 <code>--raw</code> 参数可以让包含中文 UTF-8 字符的返回值直接原样显示，而非十六进制转义序列（如 <code>\xe5\xbc\xa0</code>）。
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>⌨️ redis-cli · 连接验证、ACL 细粒度建号与第一次键值读写</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-cli-init', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-redis-cli-init"><code><span class="c-cm"># 1. 连接本地实例并启用 UTF-8 中文原样输出 (--raw)</span>
+redis-cli -h 127.0.0.1 -p 6379 --raw
+
+<span class="c-cm"># 2. 身份认证与连通性探活（返回 PONG 表示服务就绪）</span>
+127.0.0.1:6379&gt; AUTH DevPass_2026
+OK
+127.0.0.1:6379&gt; PING
+PONG
+
+<span class="c-cm"># 3. Redis 6.0+ 创建最小权限业务账号 order_svc：</span>
+<span class="c-cm">#    on(启用) &gt;密码 ~order:*(仅允许访问 order: 前缀的 Key) +@read +@write -@dangerous(禁用高危管理命令)</span>
+127.0.0.1:6379&gt; ACL SETUSER order_svc on &gt;OrderSvc_Secret ~order:* +@read +@write -@dangerous
+OK
+
+<span class="c-cm"># 4. 写入一条 300 秒后自动过期的订单缓存并读取验证</span>
+127.0.0.1:6379&gt; SET order:10001 "待支付-张小荣" EX 300
+OK
+127.0.0.1:6379&gt; GET order:10001
+待支付-张小荣
+127.0.0.1:6379&gt; TTL order:10001
+296</code></pre>
+  </div>
+
+  <p style="margin-top:14px;">
+    在实际后端服务中，客户端通过 TCP 长连接池与 Redis 通信（底层使用文本结构清晰的 <strong>RESP 序列化协议</strong>）。禁止每次请求临时新建和销毁 TCP 连接。以下是使用 Go 官方维护的 <code>github.com/redis/go-redis/v9</code> 初始化生产级连接池并完成读写、过期判断的最小可运行示例：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 main.go · 使用 go-redis/v9 连接池完成键值读写与 redis.Nil 空值判定</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-go-hello', this)">复制 Go 代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-redis-go-hello"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"errors"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"log"</span>
+    <span class="c-str">"time"</span>
+
+    <span class="c-str">"github.com/redis/go-redis/v9"</span>
+)
+
+<span class="c-kw">func</span> main() {
+    <span class="c-cm">// 1. 创建进程级全局单例 Client（内部自带协程安全的 TCP 连接池，切勿每次请求重新 NewClient）</span>
+    rdb := redis.NewClient(&amp;redis.Options{
+        Addr:         <span class="c-str">"127.0.0.1:6379"</span>,
+        Username:     <span class="c-str">"order_svc"</span>,       <span class="c-cm">// 若未启用独立 ACL 账号，留空即可</span>
+        Password:     <span class="c-str">"OrderSvc_Secret"</span>, <span class="c-cm">// 对应 requirepass 或 ACL 密码</span>
+        DB:           0,                 <span class="c-cm">// 默认使用 db0</span>
+        PoolSize:     32,                <span class="c-cm">// 连接池最大并发连接数</span>
+        MinIdleConns: 8,                 <span class="c-cm">// 保活的最小空闲连接数，避免突发流量冷建连延迟</span>
+        DialTimeout:  2 * time.Second,
+        ReadTimeout:  500 * time.Millisecond,
+        WriteTimeout: 500 * time.Millisecond,
+    })
+    <span class="c-kw">defer</span> rdb.Close()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+    <span class="c-kw">defer</span> cancel()
+
+    <span class="c-cm">// 2. 启动时探活校验连接池配置</span>
+    <span class="c-kw">if</span> err := rdb.Ping(ctx).Err(); err != <span class="c-kw">nil</span> {
+        log.Fatalf(<span class="c-str">"连接 Redis 失败: %v"</span>, err)
+    }
+
+    <span class="c-cm">// 3. 写入键值并绑定 5 分钟过期时间（等价于 SET order:10002 "已支付" EX 300）</span>
+    <span class="c-kw">if</span> err := rdb.Set(ctx, <span class="c-str">"order:10002"</span>, <span class="c-str">"已支付"</span>, 5*time.Minute).Err(); err != <span class="c-kw">nil</span> {
+        log.Fatalf(<span class="c-str">"写入失败: %v"</span>, err)
+    }
+
+    <span class="c-cm">// 4. 读取键值：必须严格区分「键不存在 (redis.Nil)」与「真正的网络/超时错误」</span>
+    val, err := rdb.Get(ctx, <span class="c-str">"order:10002"</span>).Result()
+    <span class="c-kw">if</span> errors.Is(err, redis.Nil) {
+        fmt.Println(<span class="c-str">"缓存未命中，准备回源查询数据库"</span>)
+    } <span class="c-kw">else if</span> err != <span class="c-kw">nil</span> {
+        log.Fatalf(<span class="c-str">"读取 Redis 发生异常: %v"</span>, err)
+    } <span class="c-kw">else</span> {
+        fmt.Printf(<span class="c-str">"缓存命中: order:10002 = %s\n"</span>, val)
+    }
+}</code></pre>
+  </div>
+</div>

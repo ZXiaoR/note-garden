@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster" data-font="hand-crisp">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>服务端稳定性七件套与生产上线防线：底层机制、故障推演与 Go/Lua 实战 | note-garden</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Patrick+Hand&display=swap" rel="stylesheet" />
+  <script src="../assets/plop-garden.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部手账贴纸控制台 (Sticky Craft Console)
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+        <span class="plop-tag tomato">BACKEND RELIABILITY</span>
+      </div>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <!-- ==========================================================================
+       手账工作台全览 (3-Column Craft Desk with Left & Right Stickers)
+       ========================================================================== -->
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸列 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与速查卡片">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 -->
+        <nav class="plop-index-tabs" id="toc-tabs">
+          <a href="#sec-01" class="plop-ear-tab active" data-toc="sec-01">
+            <span class="ear-dot"></span>
+            <span>01 超时拆解与流式空闲读</span>
+          </a>
+          <a href="#sec-02" class="plop-ear-tab" data-toc="sec-02">
+            <span class="ear-dot tomato"></span>
+            <span>02 重试放大与重试预算</span>
+          </a>
+          <a href="#sec-03" class="plop-ear-tab" data-toc="sec-03">
+            <span class="ear-dot mint"></span>
+            <span>03 熔断计数桶与降级闭环</span>
+          </a>
+          <a href="#sec-04" class="plop-ear-tab" data-toc="sec-04">
+            <span class="ear-dot periwinkle"></span>
+            <span>04 Redis Lua TPM 令牌桶</span>
+          </a>
+          <a href="#sec-05" class="plop-ear-tab" data-toc="sec-05">
+            <span class="ear-dot mustard"></span>
+            <span>05 双写迁移与 SSE 排水</span>
+          </a>
+          <a href="#sec-06" class="plop-ear-tab" data-toc="sec-06">
+            <span class="ear-dot pink"></span>
+            <span>06 ORM 租户隔离与防 SSRF</span>
+          </a>
+          <a href="#sec-07" class="plop-ear-tab" data-toc="sec-07">
+            <span class="ear-dot mint"></span>
+            <span>07 燃烧率告警与代码改造</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：关键工程参数 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>高可用工程参数</span>
+            <span>#SRE</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>HTTP Client.Timeout</span>
+            <span>流式场景设为 0</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>重试预算上限</span>
+            <span>≤ 10% 正常流量</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>熔断错误过滤</span>
+            <span>排除 400/401/404</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>TPM 令牌扣减</span>
+            <span>预扣 + 结算回退</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>SSRF 拦截位置</span>
+            <span>Dialer.Control</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="full-broadsheet-view">
+      <!-- 窄屏横向章节导航栏 -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#sec-01" class="active">01 超时底层</a>
+        <a href="#sec-02">02 重试预算</a>
+        <a href="#sec-03">03 熔断降级</a>
+        <a href="#sec-04">04 Lua 限流</a>
+        <a href="#sec-05">05 迁移与停机</a>
+        <a href="#sec-06">06 租户与 SSRF</a>
+        <a href="#sec-07">07 告警与改造</a>
+      </nav>
+
+      <div class="wb-sheet">
+        <div class="washi-tape" style="width:130px; height:24px; margin-left:-65px; top:-12px;"></div>
+
+        <!-- 刊头 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card mint">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">NOTE-GARDEN CHRONICLE</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:44px; font-weight:900; color:var(--plop-ink); line-height:1; margin:6px 0;">11.27</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">RELIABILITY</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag tomato">STABILITY 7-PILLARS</span>
+              <span class="plop-tag mint">GO &amp; REDIS LUA</span>
+              <span class="plop-tag periwinkle">ZERO-DOWNTIME &amp; SECURITY</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              服务端稳定性七件套与生产上线防线：底层机制、故障推演与代码落地
+            </h1>
+            <p style="font-size:14.8px; color:var(--plop-ink-soft); margin:0; font-weight:600;">
+              从一次真实的门店核销与大模型流式调用链路出发，拆解 HTTP 分阶段超时与流式空闲读取器、级联重试放大与重试预算控制、熔断器错误过滤与降级闭环、Redis Lua 预扣结算式令牌桶、Expand-Contract 双写迁移与 SSE 双信号优雅停机、ORM 租户注入与内核连接级防 SSRF，最后落到次卡核销接口的完整加固改造。
+            </p>
+          </div>
+        </header>
+
+        <!-- 故障现场引子 + 跨篇互链 -->
+        <div class="wb-card" style="background:var(--plop-sheet); margin-bottom:22px; padding:14px 16px; font-size:13.4px; line-height:1.76;">
+          <strong>🧭 从一个真实连锁故障看为什么要把“七件套”串起来：</strong><br/>
+          假设门店 SaaS 助手的「顾客次卡核销 + 生成回访建议」接口在晚高峰遇到上游大模型抖动（响应从 1s 变慢到 25s）。如果直接使用默认的 <code>&amp;http.Client{}</code>（无超时），800 个并发请求在 10 秒内就会占满服务的数据库连接池与协程；网关层看到 504 自动重试 2 次，业务层 SDK 又重试 2 次，瞬间把下游压力放大 9 倍；好不容易改代码紧急发版，容器收到 <code>SIGTERM</code> 直接断开所有活跃的 SSE 回答流，用户手抖再次点击“确认核销”，结果把顾客次卡扣了两次。<br/>
+          <span style="font-size:12.6px; color:var(--plop-ink-soft);">
+            （底层存储专项请配合查阅：<a href="../ai/sse-idempotency.html" style="color:var(--plop-tomato); font-weight:700;">SSE 与接口幂等</a> · <a href="../mysql/index.html" style="color:var(--plop-ink); font-weight:700;">MySQL 事务与锁</a> · <a href="../redis/index.html" style="color:var(--plop-ink); font-weight:700;">Redis 缓存与锁</a> · <a href="../mq/index.html" style="color:var(--plop-ink); font-weight:700;">消息队列</a>）
+          </span>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 01: 超时底层拆解与 AI 流式空闲超时实现
+             ==================================================================== -->
+        <div class="wb-sec-header" id="sec-01">
+          <span class="wb-sec-num">01</span>
+          <span class="wb-sec-title">超时治理底层：HTTP 四阶段拆分、预算递减与流式 IdleReader 实现</span>
+          <span class="plop-tag tomato">PILLAR 01 · TIMEOUT</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          在 Go 标准库中，<code>http.Client{Timeout: 15 * time.Second}</code> 控制的是<strong>从发起 DNS 解析到整个响应 Body 全部读完的总耗时</strong>。这个配置对普通 JSON 短接口很方便，但一碰到 SSE 流式生成就会引发矛盾：设 15 秒会把正常输出 40 秒的长篇代码截断；设 120 秒又会导致目标节点死机时连接白白挂起两分钟。正确的做法是<strong>把总超时设为 0，拆分为底层 Transport 阶段超时 + 流式滚动空闲超时</strong>。
+        </p>
+
+        <!-- Diagram 1: Deadline Propagation & Streaming Dual Timeout -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px; padding:16px;">
+          <div style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-soft); margin-bottom:10px; letter-spacing:0.04em;">
+            FIG 1.0 · CALL-CHAIN DEADLINE PROPAGATION &amp; STREAMING TTFT / IDLE WINDOWS
+          </div>
+          <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+            <svg role="img" aria-labelledby="timeout-chain-title timeout-chain-desc" viewBox="0 0 880 356" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;">
+              <title id="timeout-chain-title">调用链截止时间递减传递与流式双超时机制图</title>
+              <desc id="timeout-chain-desc">上半部分展示 5000ms 请求预算如何沿网关、门店服务、MySQL 查询与模型代理逐跳扣减并受局部上限约束；下半部分展示流式接口通过 10s 首字节超时与每块重置的 15s 空闲超时实现长回答零误杀。</desc>
+              <defs>
+                <marker id="to-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                  <polygon points="0 0, 8 3, 0 6" fill="#4f5d75" />
+                </marker>
+                <marker id="to-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                  <polygon points="0 0, 8 3, 0 6" fill="#bf4520" />
+                </marker>
+                <marker id="to-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                  <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8" />
+                </marker>
+              </defs>
+
+              <!-- Zone 1: Sync Deadline Propagation -->
+              <rect x="36" y="20" width="808" height="124" rx="8" fill="rgba(45,49,66,0.025)" stroke="rgba(45,49,66,0.18)" stroke-width="1" stroke-dasharray="4,3" />
+              <text x="52" y="36" fill="#5a6580" font-size="8.5" font-family="ui-monospace, monospace" font-weight="700" letter-spacing="0.1em">DEADLINE PROPAGATION · min(parent_remain, local_cap)</text>
+
+              <!-- Zone 2: Streaming Dual Timeout -->
+              <rect x="36" y="164" width="808" height="124" rx="8" fill="rgba(45,49,66,0.025)" stroke="rgba(45,49,66,0.18)" stroke-width="1" stroke-dasharray="4,3" />
+              <text x="52" y="180" fill="#5a6580" font-size="8.5" font-family="ui-monospace, monospace" font-weight="700" letter-spacing="0.1em">LLM STREAMING · TTFT HEADER TIMEOUT + ROLLING IDLE READ</text>
+
+              <!-- Connectors (drawn BEFORE boxes) -->
+              <line x1="220" y1="86" x2="276" y2="86" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#to-arr)" />
+              <line x1="452" y1="86" x2="508" y2="86" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#to-arr)" />
+              <line x1="664" y1="86" x2="696" y2="86" stroke="#bf4520" stroke-width="1.6" marker-end="url(#to-arr-accent)" />
+
+              <line x1="272" y1="230" x2="316" y2="230" stroke="#bf4520" stroke-width="1.6" marker-end="url(#to-arr-accent)" />
+              <line x1="584" y1="230" x2="628" y2="230" stroke="#2e5aa8" stroke-width="1.6" marker-end="url(#to-arr-link)" />
+
+              <!-- Zone 1 Nodes -->
+              <rect x="56" y="56" width="164" height="60" rx="6" fill="#FFFDF7" stroke="#2d3142" stroke-width="1.5" />
+              <text x="138" y="80" fill="#2d3142" font-size="11.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">1. API 入口网关</text>
+              <text x="138" y="98" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">Budget = 5000ms</text>
+
+              <rect x="280" y="56" width="172" height="60" rx="6" fill="#FFFDF7" stroke="#2d3142" stroke-width="1.5" />
+              <text x="366" y="80" fill="#2d3142" font-size="11.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">2. 门店核销服务</text>
+              <text x="366" y="98" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">Remain = 4920ms</text>
+
+              <rect x="512" y="56" width="152" height="60" rx="6" fill="#FFFDF7" stroke="#2e5aa8" stroke-width="1.5" />
+              <text x="588" y="80" fill="#2e5aa8" font-size="11.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">3. MySQL 查询</text>
+              <text x="588" y="98" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">min(4920, 500ms)</text>
+
+              <rect x="700" y="56" width="128" height="60" rx="6" fill="#FFFDF7" />
+              <rect x="700" y="56" width="128" height="60" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8" />
+              <text x="764" y="80" fill="#2d3142" font-size="11.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">4. 模型代理</text>
+              <text x="764" y="98" fill="#bf4520" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">Remain ≈ 4400ms</text>
+
+              <!-- Zone 2 Nodes -->
+              <rect x="56" y="200" width="216" height="60" rx="6" fill="#FFFDF7" />
+              <rect x="56" y="200" width="216" height="60" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8" />
+              <text x="164" y="224" fill="#2d3142" font-size="11.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">首响应头 / TTFT 超时</text>
+              <text x="164" y="242" fill="#bf4520" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">ResponseHeaderTimeout: 10s</text>
+
+              <rect x="320" y="200" width="264" height="60" rx="6" fill="#FFFDF7" stroke="#2e5aa8" stroke-width="1.5" />
+              <text x="452" y="224" fill="#2e5aa8" font-size="11.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">滚动空闲读 (IdleTimeoutReader)</text>
+              <text x="452" y="242" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">每次 Read(chunk) 重置 15s 定时器</text>
+
+              <rect x="632" y="200" width="196" height="60" rx="6" fill="#FFFDF7" stroke="#2d3142" stroke-width="1.5" />
+              <text x="730" y="224" fill="#2d3142" font-size="11.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">长回答完整送达</text>
+              <text x="730" y="242" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">总长 90s 不误杀 · 卡死 15s 必断</text>
+
+              <!-- Legend Strip -->
+              <line x1="36" y1="304" x2="844" y2="304" stroke="rgba(45,49,66,0.14)" stroke-width="1" />
+              <text x="36" y="330" fill="#5a6580" font-size="8.5" font-family="ui-monospace, monospace" font-weight="700" letter-spacing="0.14em">LEGEND</text>
+              <line x1="112" y1="326" x2="148" y2="326" stroke="#bf4520" stroke-width="1.6" marker-end="url(#to-arr-accent)" />
+              <text x="158" y="330" fill="#2d3142" font-size="10.5" font-family="system-ui, sans-serif">关键超时卡点（TTFT 与剩余预算）</text>
+              <line x1="380" y1="326" x2="416" y2="326" stroke="#2e5aa8" stroke-width="1.6" marker-end="url(#to-arr-link)" />
+              <text x="426" y="330" fill="#2d3142" font-size="10.5" font-family="system-ui, sans-serif">按分片续期的流式读取窗口</text>
+            </svg>
+          </div>
+        </div>
+
+        <div class="wb-grid-2" style="margin-bottom:20px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h3 style="font-size:15.5px; margin-bottom:8px;">🔍 四个必须分清的底层超时与预算取小原则</h3>
+            <ul style="font-size:13.2px; padding-left:18px; line-height:1.74; margin:0;">
+              <li style="margin-bottom:5px;"><strong><code>NetDialer.Timeout</code>（1~2s）：</strong>三次握手建连上限。若目标机器宕机或防火墙丢包，2 秒立刻失败，绝不等内核默认 75~127 秒。</li>
+              <li style="margin-bottom:5px;"><strong><code>TLSHandshakeTimeout</code>（2~3s）：</strong>防止对端 TCP 通但进程假死卡在 TLS 握手。</li>
+              <li style="margin-bottom:5px;"><strong><code>ResponseHeaderTimeout</code>（10~15s）：</strong>请求发完到收到 <code>HTTP 200 OK</code> 响应头的上限——在 SSE 场景下，如果服务端收到上游首 Token 才刷出 Header，它天然就是<strong>首字超时（TTFT Timeout）</strong>。</li>
+              <li><strong>局部上限与父预算取小：</strong>调 MySQL 时写 <code>dbCtx, cancel := context.WithTimeout(reqCtx, 500*time.Millisecond)</code>。Go 的 <code>WithTimeout</code> 内部会自动取 <code>min(父 reqCtx 剩余时间, 500ms)</code>——既防止慢 SQL 吃光整条链路的 5 秒预算，又保证上游一旦超时取消，下游 SQL 立刻跟着中止。</li>
+            </ul>
+          </div>
+
+          <div class="wb-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column;">
+            <div style="background:#1c2333; color:#fff; padding:7px 12px; font-family:var(--font-mono); font-size:11.6px; font-weight:800; display:flex; justify-content:space-between; align-items:center;">
+              <span>🐹 Go · 流式专用 HTTP Client + IdleTimeoutReader</span>
+              <button class="sticker-btn" style="padding:2px 8px; font-size:10.8px;" onclick="copyText('code-stream-timeout', this)">复制</button>
+            </div>
+            <pre class="plop-code-pre" id="code-stream-timeout" style="padding:11px 13px; font-size:11.4px; line-height:1.5; margin:0; flex:1;"><code><span class="c-cm">// 1. Client.Timeout 设为 0（不限制流总时长），靠 Transport 管建连与首包</span>
+<span class="c-kw">var</span> llmHTTPClient = &amp;http.Client{
+    Timeout: 0,
+    Transport: &amp;http.Transport{
+        DialContext:           (&amp;net.Dialer{Timeout: 2 * time.Second}).DialContext,
+        TLSHandshakeTimeout:   3 * time.Second,
+        ResponseHeaderTimeout: 12 * time.Second, <span class="c-cm">// 首包响应头超时</span>
+        MaxIdleConnsPerHost:   100,
+    },
+}
+
+<span class="c-cm">// 2. 包装 resp.Body：每读到一块数据就往后顺延 15s，半途卡死立刻触发 cancel</span>
+<span class="c-kw">type</span> idleTimeoutReader <span class="c-kw">struct</span> {
+    rc          io.ReadCloser
+    idleTimeout time.Duration
+    timer       *time.Timer
+}
+
+<span class="c-kw">func</span> <span class="c-fn">WrapIdleTimeout</span>(ctx context.Context, cancel context.CancelFunc, rc io.ReadCloser, idle time.Duration) io.ReadCloser {
+    r := &amp;idleTimeoutReader{rc: rc, idleTimeout: idle}
+    r.timer = time.<span class="c-fn">AfterFunc</span>(idle, cancel) <span class="c-cm">// 连续 idle 无数据则取消请求 Context</span>
+    <span class="c-kw">return</span> r
+}
+
+<span class="c-kw">func</span> (r *idleTimeoutReader) <span class="c-fn">Read</span>(p []byte) (int, error) {
+    r.timer.<span class="c-fn">Reset</span>(r.idleTimeout) <span class="c-cm">// 每次进入读取重置空闲窗口</span>
+    n, err := r.rc.<span class="c-fn">Read</span>(p)
+    <span class="c-kw">if</span> n &gt; 0 {
+        r.timer.<span class="c-fn">Reset</span>(r.idleTimeout)
+    }
+    <span class="c-kw">return</span> n, err
+}
+
+<span class="c-kw">func</span> (r *idleTimeoutReader) <span class="c-fn">Close</span>() error {
+    r.timer.<span class="c-fn">Stop</span>()
+    <span class="c-kw">return</span> r.rc.<span class="c-fn">Close</span>()
+}</code></pre>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 02: 级联重试放大与重试预算控制
+             ==================================================================== -->
+        <div class="wb-sec-header pink" id="sec-02">
+          <span class="wb-sec-num">02</span>
+          <span class="wb-sec-title">重试治理：级联放大效应、剩余预算预判与 Retry Budget 控制</span>
+          <span class="plop-tag tomato">PILLAR 02 &amp; 03</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          很多故障复盘报告里都会出现同一个场景：下游数据库或模型网关只是短暂抖动了 3 秒，结果监控看到流量瞬间暴涨几十倍直接把下游彻底打死——根源就是<strong>多层嵌套重试 + 无抖动同步重发 + 不看剩余超时盲目重试</strong>。
+        </p>
+
+        <div class="wb-grid-2" style="margin-bottom:20px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h3 style="font-size:15.5px; margin-bottom:8px;">📐 生产级重试必须同时满足的 4 个硬条件</h3>
+            <ol style="font-size:13.2px; padding-left:18px; line-height:1.74; margin:0;">
+              <li style="margin-bottom:5px;"><strong>单层收敛原则：</strong>5 层调用链如果每层都配“失败重试 2 次（共执行 3 次）”，最底层承受的流量是 <code>3<sup>5</sup> = 243</code> 倍。规范要求<strong>只在最贴近外部依赖的客户端做重试</strong>，网关与上游业务层通过响应头识别并禁止二次重试。</li>
+              <li style="margin-bottom:5px;"><strong>剩余时间预判（Deadline Check）：</strong>如果父 <code>Context</code> 只剩 <code>400ms</code> 就超时了，而退避等待计算出来要 <code>sleep(900ms)</code>，此时睡眠毫无意义，应直接放弃重试立即返回错误。</li>
+              <li style="margin-bottom:5px;"><strong>进程级重试预算（Retry Budget）：</strong>参考 Google SRE 做法，维护一个滑动比率计数器，限制重试请求总量不得超过正常请求量的 <strong>10%</strong>。当下游全面宕机时，重试配额迅速耗尽，自动退化为“每请求只试 1 次”，从数学上杜绝重试风暴。</li>
+              <li><strong>写操作强制绑定幂等键：</strong>重试发送的是完全相同的 <code>Idempotency-Key</code>（详见 <a href="../ai/sse-idempotency.html#sec-07" style="color:var(--plop-tomato); font-weight:700;">幂等状态机实现</a>）。</li>
+            </ol>
+          </div>
+
+          <div class="wb-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column;">
+            <div style="background:#1c2333; color:#fff; padding:7px 12px; font-family:var(--font-mono); font-size:11.6px; font-weight:800; display:flex; justify-content:space-between; align-items:center;">
+              <span>🐹 Go · 遵守 Retry-After + 剩余时间预判 + 重试预算</span>
+              <button class="sticker-btn" style="padding:2px 8px; font-size:10.8px;" onclick="copyText('code-smart-retry', this)">复制</button>
+            </div>
+            <pre class="plop-code-pre" id="code-smart-retry" style="padding:11px 13px; font-size:11.4px; line-height:1.5; margin:0; flex:1;"><code><span class="c-kw">func</span> <span class="c-fn">DoWithBudgetRetry</span>(ctx context.Context, budget *TokenBucket, fn <span class="c-kw">func</span>() (*http.Response, error)) (*http.Response, error) {
+    budget.<span class="c-fn">Deposit</span>(0.1) <span class="c-cm">// 每 10 个正常请求存入 1 个重试额度（上限 10% 重试率）</span>
+    <span class="c-kw">for</span> attempt := 0; attempt &lt; 3; attempt++ {
+        resp, err := <span class="c-fn">fn</span>()
+        <span class="c-kw">if</span> err == <span class="c-kw">nil</span> &amp;&amp; resp.StatusCode &lt; 500 &amp;&amp; resp.StatusCode != 429 {
+            <span class="c-kw">return</span> resp, <span class="c-kw">nil</span> <span class="c-cm">// 成功，或 400/401/403 客户端错误直接原样返回，绝不重试</span>
+        }
+        <span class="c-kw">if</span> attempt == 2 || !budget.<span class="c-fn">TryWithdraw</span>(1.0) {
+            <span class="c-kw">return</span> resp, err <span class="c-cm">// 已达最大次数，或全局 10% 重试预算已耗尽，停止放大</span>
+        }
+        wait := <span class="c-fn">parseRetryAfterOrFullJitter</span>(resp, attempt) <span class="c-cm">// 优先读 Retry-After，否则 rand(0, 500ms*2^attempt)</span>
+        <span class="c-kw">if</span> dl, ok := ctx.<span class="c-fn">Deadline</span>(); ok &amp;&amp; time.<span class="c-fn">Until</span>(dl) &lt;= wait {
+            <span class="c-kw">return</span> resp, context.DeadlineExceeded <span class="c-cm">// 剩余时间连退避等待都不够，立刻放弃</span>
+        }
+        <span class="c-kw">select</span> {
+        <span class="c-kw">case</span> &lt;-time.<span class="c-fn">After</span>(wait):
+        <span class="c-kw">case</span> &lt;-ctx.<span class="c-fn">Done</span>():
+            <span class="c-kw">return nil</span>, ctx.<span class="c-fn">Err</span>()
+        }
+    }
+    <span class="c-kw">return nil</span>, errors.<span class="c-fn">New</span>(<span class="c-str">"unreachable"</span>)
+}</code></pre>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 03: 熔断器错误过滤与降级闭环
+             ==================================================================== -->
+        <div class="wb-sec-header mint" id="sec-03">
+          <span class="wb-sec-num">03</span>
+          <span class="wb-sec-title">熔断与降级闭环：错误分类过滤、三态流转与有损兜底实战</span>
+          <span class="plop-tag mint">PILLAR 04 &amp; 06</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          限流守入口（防外部流量打垮自己），熔断守出口（防故障下游拖死自己）。写熔断器代码时最容易踩的线上事故是<strong>没有过滤业务错误</strong>：某个前端版本拼错了参数导致下游持续返回 <code>400 Bad Request</code> 或 <code>404 Not Found</code>，其实下游服务完全健康，结果熔断器把 <code>4xx</code> 当成故障统计，生生把所有正常用户的流量全部熔断了。
+        </p>
+
+        <!-- Diagram 2: Editorial State Machine for Circuit Breaker -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px; padding:16px;">
+          <div style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-soft); margin-bottom:10px; letter-spacing:0.04em;">
+            FIG 2.0 · CIRCUIT BREAKER STATE MACHINE (5XX / TIMEOUT ONLY, EXCLUDING 4XX)
+          </div>
+          <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+            <svg role="img" aria-labelledby="cb-state-title cb-state-desc" viewBox="0 0 880 332" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;">
+              <title id="cb-state-title">熔断器三态流转状态机图</title>
+              <desc id="cb-state-desc">展示熔断器仅统计 5xx 与网络超时（排除 400/404 业务错），在样本达标且错误率超阈值后打开快速失败触发降级，冷却期后半开试探并决定恢复或重开的完整路径。</desc>
+              <defs>
+                <marker id="cb-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                  <polygon points="0 0, 8 3, 0 6" fill="#bf4520" />
+                </marker>
+                <marker id="cb-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                  <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8" />
+                </marker>
+              </defs>
+
+              <!-- Connectors (drawn BEFORE boxes) -->
+              <line x1="256" y1="140" x2="332" y2="140" stroke="#bf4520" stroke-width="1.7" marker-end="url(#cb-arr-accent)" />
+              <rect x="262" y="114" width="68" height="14" rx="2" fill="#FFFDF7" />
+              <text x="296" y="124" fill="#bf4520" font-size="8.2" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">5XX &gt; 50%</text>
+
+              <line x1="544" y1="140" x2="620" y2="140" stroke="#2e5aa8" stroke-width="1.6" marker-end="url(#cb-arr-link)" />
+              <rect x="550" y="114" width="68" height="14" rx="2" fill="#FFFDF7" />
+              <text x="584" y="124" fill="#2e5aa8" font-size="8.2" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">COOLDOWN</text>
+
+              <path d="M 728 104 L 728 56 A 8 8 0 0 0 720 48 L 160 48 A 8 8 0 0 0 152 56 L 152 100" fill="none" stroke="#2e5aa8" stroke-width="1.6" marker-end="url(#cb-arr-link)" />
+              <rect x="348" y="24" width="184" height="14" rx="2" fill="#FFFDF7" />
+              <text x="440" y="34" fill="#2e5aa8" font-size="8.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">3 PROBES OK → RECOVER</text>
+
+              <path d="M 728 176 L 728 224 A 8 8 0 0 1 720 232 L 448 232 A 8 8 0 0 1 440 224 L 440 180" fill="none" stroke="#bf4520" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#cb-arr-accent)" />
+              <rect x="504" y="242" width="160" height="14" rx="2" fill="#FFFDF7" />
+              <text x="584" y="252" fill="#bf4520" font-size="8.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle">PROBE FAILED → RE-OPEN</text>
+
+              <!-- State Boxes -->
+              <rect x="48" y="104" width="208" height="72" rx="8" fill="#FFFDF7" stroke="#2d3142" stroke-width="1.6" />
+              <rect x="58" y="112" width="52" height="13" rx="2" fill="none" stroke="rgba(45,49,66,0.4)" stroke-width="0.8" />
+              <text x="84" y="121.5" fill="#4f5d75" font-size="7.5" font-family="ui-monospace, monospace" text-anchor="middle">STATE 1</text>
+              <text x="152" y="143" fill="#2d3142" font-size="13" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">CLOSED · 关闭放行</text>
+              <text x="152" y="162" fill="#5a6580" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">req ≥ 20 · 忽略 400/404</text>
+
+              <rect x="336" y="104" width="208" height="72" rx="8" fill="#FFFDF7" />
+              <rect x="336" y="104" width="208" height="72" rx="8" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8" />
+              <rect x="346" y="112" width="52" height="13" rx="2" fill="none" stroke="rgba(191,69,32,0.5)" stroke-width="0.8" />
+              <text x="372" y="121.5" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" text-anchor="middle">STATE 2</text>
+              <text x="440" y="143" fill="#2d3142" font-size="13" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">OPEN · 快速失败</text>
+              <text x="440" y="162" fill="#bf4520" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">0ms 返 ErrOpenState 走降级</text>
+
+              <rect x="624" y="104" width="208" height="72" rx="8" fill="#FFFDF7" stroke="#2e5aa8" stroke-width="1.6" />
+              <rect x="634" y="112" width="52" height="13" rx="2" fill="none" stroke="rgba(46,90,168,0.45)" stroke-width="0.8" />
+              <text x="660" y="121.5" fill="#2e5aa8" font-size="7.5" font-family="ui-monospace, monospace" text-anchor="middle">STATE 3</text>
+              <text x="728" y="143" fill="#2e5aa8" font-size="13" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">HALF-OPEN · 半开试探</text>
+              <text x="728" y="162" fill="#5a6580" font-size="9" font-family="ui-monospace, monospace" text-anchor="middle">仅放行 MaxRequests=3 探针</text>
+
+              <!-- Legend Strip -->
+              <line x1="36" y1="276" x2="844" y2="276" stroke="rgba(45,49,66,0.14)" stroke-width="1" />
+              <text x="36" y="302" fill="#5a6580" font-size="8.5" font-family="ui-monospace, monospace" font-weight="700" letter-spacing="0.14em">LEGEND</text>
+              <line x1="112" y1="298" x2="148" y2="298" stroke="#bf4520" stroke-width="1.7" marker-end="url(#cb-arr-accent)" />
+              <text x="158" y="302" fill="#2d3142" font-size="10.5" font-family="system-ui, sans-serif">服务端故障触发熔断或试探失败重开</text>
+              <line x1="396" y1="298" x2="432" y2="298" stroke="#2e5aa8" stroke-width="1.6" marker-end="url(#cb-arr-link)" />
+              <text x="442" y="302" fill="#2d3142" font-size="10.5" font-family="system-ui, sans-serif">冷却结束试探与恢复闭合</text>
+            </svg>
+          </div>
+        </div>
+
+        <div class="wb-card" style="padding:0; overflow:hidden; margin-bottom:20px;">
+          <div style="background:#1c2333; color:#fff; padding:8px 14px; font-family:var(--font-mono); font-size:12px; font-weight:800; display:flex; justify-content:space-between; align-items:center;">
+            <span>🐹 Go · 熔断器排除 4xx 错误 + 三级有损降级完整调用链</span>
+            <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-cb-fallback', this)">复制</button>
+          </div>
+          <pre class="plop-code-pre" id="code-cb-fallback" style="padding:13px; font-size:11.6px; line-height:1.54; margin:0;"><code><span class="c-kw">var</span> primaryCB = gobreaker.<span class="c-fn">NewCircuitBreaker</span>[*ChatReply](gobreaker.Settings{
+    Name:        <span class="c-str">"llm-primary"</span>,
+    MaxRequests: 3,                <span class="c-cm">// Half-Open 期间最多放 3 个探针；第 4 个并发请求会直接返 ErrTooManyRequests</span>
+    Interval:    30 * time.Second, <span class="c-cm">// Closed 状态下每 30 秒清空一次统计计数</span>
+    Timeout:     20 * time.Second, <span class="c-cm">// Open 状态持续 20 秒后自动转入 Half-Open</span>
+    IsSuccessful: <span class="c-kw">func</span>(err error) bool {
+        <span class="c-kw">if</span> err == <span class="c-kw">nil</span> {
+            <span class="c-kw">return true</span>
+        }
+        <span class="c-cm">// 核心细节：用户主动取消 (context.Canceled) 和 400/422 客户端参数错不算下游故障！</span>
+        <span class="c-kw">var</span> apiErr *UpstreamHTTPError
+        <span class="c-kw">if</span> errors.<span class="c-fn">As</span>(err, &amp;apiErr) &amp;&amp; apiErr.StatusCode &gt;= 400 &amp;&amp; apiErr.StatusCode &lt; 500 &amp;&amp; apiErr.StatusCode != 429 {
+            <span class="c-kw">return true</span>
+        }
+        <span class="c-kw">return</span> errors.<span class="c-fn">Is</span>(err, context.Canceled)
+    },
+    ReadyToTrip: <span class="c-kw">func</span>(c gobreaker.Counts) bool {
+        <span class="c-kw">return</span> c.Requests &gt;= 20 &amp;&amp; float64(c.TotalFailures)/float64(c.Requests) &gt;= 0.5
+    },
+})
+
+<span class="c-cm">// 业务调用：主模 (带 Agent 工具) → 备模 (仅支持轻量对话) → 降级为纯本地知识库检索卡片</span>
+<span class="c-kw">func</span> <span class="c-fn">AskStoreCopilot</span>(ctx context.Context, q Query) (*ChatReply, error) {
+    reply, err := primaryCB.<span class="c-fn">Execute</span>(<span class="c-kw">func</span>() (*ChatReply, error) {
+        <span class="c-kw">return</span> primaryLLM.<span class="c-fn">RunWithTools</span>(ctx, q)
+    })
+    <span class="c-kw">if</span> err == <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> reply, <span class="c-kw">nil</span>
+    }
+    <span class="c-cm">// 若是客户端自身取消或参数错，直接报错，不要白调备用模型</span>
+    <span class="c-kw">if</span> errors.<span class="c-fn">Is</span>(err, context.Canceled) {
+        <span class="c-kw">return nil</span>, err
+    }
+    <span class="c-cm">// 触发熔断 (ErrOpenState / ErrTooManyRequests) 或 5xx 超时 → 切备用模型并附带降级标识</span>
+    <span class="c-kw">if</span> fbReply, fbErr := backupLLM.<span class="c-fn">ChatWithoutTools</span>(ctx, q); fbErr == <span class="c-kw">nil</span> {
+        fbReply.DegradedNotice = <span class="c-str">"当前处于高峰保护模式，仅支持知识问答，自动建单暂不可用"</span>
+        <span class="c-kw">return</span> fbReply, <span class="c-kw">nil</span>
+    }
+    <span class="c-cm">// 极端兜底：两路模型全挂，直接返回 Qdrant 检索出的 Top-3 SOP 原文片段，保证店员仍能查手册</span>
+    <span class="c-kw">return</span> ragService.<span class="c-fn">SearchRawDocsAsFallback</span>(ctx, q)
+}</code></pre>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 04: 分布式限流底层 —— Redis Lua 预扣结算式令牌桶
+             ==================================================================== -->
+        <div class="wb-sec-header periwinkle" id="sec-04">
+          <span class="wb-sec-num">04</span>
+          <span class="wb-sec-title">分布式限流实现：四大算法取舍与 Redis Lua 预扣结算式 TPM 令牌桶</span>
+          <span class="plop-tag periwinkle">PILLAR 05 · RATE LIMIT</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          四大限流算法里：<strong>固定窗口</strong>在整分交界处有 2 倍突发毛刺；<strong>滑动窗口</strong>（Redis ZSET）适合低频高精度防刷（如每手机号每小时 5 条短信），但高 QPS 下每个请求存一条成员太占内存；<strong>漏桶</strong>强行匀速流出，不支持突发；因此网关与 AI 配额最常用的是<strong>令牌桶（Token Bucket）</strong>——在 Redis 里只需存 <code>tokens</code>（当前余量）和 <code>last_ms</code>（上次补充时间戳）两个数字，空间复杂度恒为 <code>O(1)</code>。
+        </p>
+
+        <p style="font-size:14px; line-height:1.8; margin-bottom:12px;">
+          <strong>AI 场景的工程难点：</strong>请求发出去之前，只知道输入大概占多少 Token，不知道模型最终会吐多少输出 Token。如果等生成完再扣，10 个并发大请求已经把供应商配额打穿了；因此生产中采用<strong>「请求前按预估上限原子预扣（Reserve）→ 流结束后按真实 <code>usage</code> 多退少补（Reconcile）」</strong>两阶段 Lua 脚本：
+        </p>
+
+        <div class="wb-card" style="padding:0; overflow:hidden; margin-bottom:20px;">
+          <div style="background:#1c2333; color:#fff; padding:8px 14px; font-family:var(--font-mono); font-size:12px; font-weight:800; display:flex; justify-content:space-between; align-items:center;">
+            <span>🧱 Redis Lua · 支持 TPM 预扣与结算退还的原子令牌桶</span>
+            <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-lua-tpm', this)">复制</button>
+          </div>
+          <pre class="plop-code-pre" id="code-lua-tpm" style="padding:13px; font-size:11.6px; line-height:1.54; margin:0;"><code><span class="c-cm">-- KEYS[1]: rate:tpm:{tenant_id}</span>
+<span class="c-cm">-- ARGV[1]: capacity (桶最大容量, 如 60000 Token)</span>
+<span class="c-cm">-- ARGV[2]: refill_per_ms (每毫秒补充速率, 如 60000/60000 = 1.0 Token/ms)</span>
+<span class="c-cm">-- ARGV[3]: now_ms (当前毫秒时间戳, 建议用 redis.call('TIME') 统一时钟防多机时钟漂移)</span>
+<span class="c-cm">-- ARGV[4]: delta_tokens (正数表示请求前预扣, 负数表示流结束后退还多扣的差额)</span>
+
+<span class="c-kw">local</span> capacity = <span class="c-fn">tonumber</span>(ARGV[1])
+<span class="c-kw">local</span> rate     = <span class="c-fn">tonumber</span>(ARGV[2])
+<span class="c-kw">local</span> now_ms   = <span class="c-fn">tonumber</span>(ARGV[3])
+<span class="c-kw">local</span> delta    = <span class="c-fn">tonumber</span>(ARGV[4])
+
+<span class="c-kw">local</span> data = redis.<span class="c-fn">call</span>(<span class="c-str">'HMGET'</span>, KEYS[1], <span class="c-str">'tokens'</span>, <span class="c-str">'last_ms'</span>)
+<span class="c-kw">local</span> tokens  = <span class="c-fn">tonumber</span>(data[1]) <span class="c-kw">or</span> capacity
+<span class="c-kw">local</span> last_ms = <span class="c-fn">tonumber</span>(data[2]) <span class="c-kw">or</span> now_ms
+
+<span class="c-cm">-- 1. 惰性补充：按距离上次访问流逝的毫秒数补满令牌（不超桶上限）</span>
+<span class="c-kw">local</span> elapsed = math.<span class="c-fn">max</span>(0, now_ms - last_ms)
+tokens = math.<span class="c-fn">min</span>(capacity, tokens + elapsed * rate)
+
+<span class="c-cm">-- 2. 结算阶段（delta &lt; 0，例如预扣了 4000，实际只用了 1200，传入 -2800 退回桶内）</span>
+<span class="c-kw">if</span> delta &lt;= 0 <span class="c-kw">then</span>
+  tokens = math.<span class="c-fn">min</span>(capacity, tokens - delta)
+  redis.<span class="c-fn">call</span>(<span class="c-str">'HMSET'</span>, KEYS[1], <span class="c-str">'tokens'</span>, tokens, <span class="c-str">'last_ms'</span>, now_ms)
+  redis.<span class="c-fn">call</span>(<span class="c-str">'PEXPIRE'</span>, KEYS[1], 120000)
+  <span class="c-kw">return</span> {1, math.<span class="c-fn">floor</span>(tokens), 0}
+<span class="c-kw">end</span>
+
+<span class="c-cm">-- 3. 预扣阶段（delta &gt; 0）：余额不足时精确算出还差多少毫秒能攒够，供外层填 Retry-After 响应头</span>
+<span class="c-kw">if</span> tokens &lt; delta <span class="c-kw">then</span>
+  <span class="c-kw">local</span> retry_after_ms = math.<span class="c-fn">ceil</span>((delta - tokens) / rate)
+  redis.<span class="c-fn">call</span>(<span class="c-str">'HMSET'</span>, KEYS[1], <span class="c-str">'tokens'</span>, tokens, <span class="c-str">'last_ms'</span>, now_ms)
+  <span class="c-kw">return</span> {0, math.<span class="c-fn">floor</span>(tokens), retry_after_ms} <span class="c-cm">-- 外层收到 0 返回 HTTP 429 + Retry-After</span>
+<span class="c-kw">end</span>
+
+tokens = tokens - delta
+redis.<span class="c-fn">call</span>(<span class="c-str">'HMSET'</span>, KEYS[1], <span class="c-str">'tokens'</span>, tokens, <span class="c-str">'last_ms'</span>, now_ms)
+redis.<span class="c-fn">call</span>(<span class="c-str">'PEXPIRE'</span>, KEYS[1], 120000)
+<span class="c-kw">return</span> {1, math.<span class="c-fn">floor</span>(tokens), 0}</code></pre>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 05: 零停机迁移实例与 SSE 双信号优雅停机
+             ==================================================================== -->
+        <div class="wb-sec-header mustard" id="sec-05">
+          <span class="wb-sec-num">05</span>
+          <span class="wb-sec-title">零停机发布：Expand-Contract 双写演进实例与 SSE 双信号排水机制</span>
+          <span class="plop-tag tomato">ZERO-DOWNTIME P0</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          滚动发版（Rolling Update）期间，集群里会同时跑着 <strong>旧版 Pod v1</strong> 和 <strong>新版 Pod v2</strong>，且它们读写的是同一个数据库。如果直接执行 <code>ALTER TABLE orders CHANGE store_id origin_store_id BIGINT</code>，发版瞬间仍在运行的 v1 Pod 执行 <code>SELECT store_id</code> 会立刻全部报 <code>Unknown column</code> 故障，而且一旦 v2 有 Bug 想回滚，数据库已经被改名了根本退不回去。
+        </p>
+
+        <!-- Diagram 3: Expand-Contract Zero-Downtime Migration -->
+        <div class="wb-card" style="background:var(--plop-paper); margin-bottom:16px; padding:16px;">
+          <div style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-soft); margin-bottom:10px; letter-spacing:0.04em;">
+            FIG 3.0 · EXPAND-CONTRACT SCHEMA MIGRATION (EXAMPLE: store_id → origin_store_id + redeem_store_id)
+          </div>
+          <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+            <svg role="img" aria-labelledby="ec-mig-title ec-mig-desc" viewBox="0 0 880 300" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;">
+              <title id="ec-mig-title">Expand-Contract 零停机数据库迁移四阶段图</title>
+              <desc id="ec-mig-desc">以门店订单表拆分核销门店字段为例，展示加可空新列、v2 双写加脚本分批回填、切读核对无差异、最后单独发版删除旧列四个阶段与安全回滚窗口。</desc>
+              <defs>
+                <marker id="ec-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                  <polygon points="0 0, 8 3, 0 6" fill="#4f5d75" />
+                </marker>
+                <marker id="ec-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                  <polygon points="0 0, 8 3, 0 6" fill="#bf4520" />
+                </marker>
+              </defs>
+
+              <line x1="216" y1="104" x2="244" y2="104" stroke="#4f5d75" stroke-width="1.6" marker-end="url(#ec-arr)" />
+              <line x1="424" y1="104" x2="452" y2="104" stroke="#bf4520" stroke-width="1.7" marker-end="url(#ec-arr-accent)" />
+              <line x1="632" y1="104" x2="660" y2="104" stroke="#4f5d75" stroke-width="1.6" marker-end="url(#ec-arr)" />
+
+              <rect x="40" y="48" width="176" height="112" rx="8" fill="#FFFDF7" stroke="#2d3142" stroke-width="1.6" />
+              <rect x="52" y="58" width="58" height="14" rx="2" fill="none" stroke="rgba(45,49,66,0.4)" stroke-width="0.8" />
+              <text x="81" y="68" fill="#4f5d75" font-size="7.5" font-family="ui-monospace, monospace" text-anchor="middle">STAGE 1</text>
+              <text x="128" y="96" fill="#2d3142" font-size="12.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">EXPAND · 扩列</text>
+              <text x="128" y="118" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">ADD origin_store_id NULL</text>
+              <text x="128" y="136" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">INPLACE 不锁表 · v1 照跑</text>
+
+              <rect x="248" y="48" width="176" height="112" rx="8" fill="#FFFDF7" />
+              <rect x="248" y="48" width="176" height="112" rx="8" fill="rgba(191,69,32,0.07)" stroke="#bf4520" stroke-width="1.8" />
+              <rect x="260" y="58" width="58" height="14" rx="2" fill="none" stroke="rgba(191,69,32,0.5)" stroke-width="0.8" />
+              <text x="289" y="68" fill="#bf4520" font-size="7.5" font-family="ui-monospace, monospace" text-anchor="middle">STAGE 2</text>
+              <text x="336" y="96" fill="#2d3142" font-size="12.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">DUAL-WRITE · 双写</text>
+              <text x="336" y="118" fill="#bf4520" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">v2 同时写新旧列 (读旧列)</text>
+              <text x="336" y="136" fill="#bf4520" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">按主键每次 1000 行回填存量</text>
+
+              <rect x="456" y="48" width="176" height="112" rx="8" fill="#FFFDF7" stroke="#2e5aa8" stroke-width="1.6" />
+              <rect x="468" y="58" width="58" height="14" rx="2" fill="none" stroke="rgba(46,90,168,0.45)" stroke-width="0.8" />
+              <text x="497" y="68" fill="#2e5aa8" font-size="7.5" font-family="ui-monospace, monospace" text-anchor="middle">STAGE 3</text>
+              <text x="544" y="96" fill="#2e5aa8" font-size="12.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">CUT-OVER · 对账切读</text>
+              <text x="544" y="118" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">灰度读新列并与旧列比对</text>
+              <text x="544" y="136" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">0 差异观察稳定后停写旧列</text>
+
+              <rect x="664" y="48" width="176" height="112" rx="8" fill="#FFFDF7" stroke="#4f5d75" stroke-width="1.5" />
+              <rect x="676" y="58" width="58" height="14" rx="2" fill="none" stroke="rgba(79,93,117,0.45)" stroke-width="0.8" />
+              <text x="705" y="68" fill="#4f5d75" font-size="7.5" font-family="ui-monospace, monospace" text-anchor="middle">STAGE 4</text>
+              <text x="752" y="96" fill="#2d3142" font-size="12.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">CONTRACT · 删旧列</text>
+              <text x="752" y="118" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">观察数天确认无需回滚后</text>
+              <text x="752" y="136" fill="#5a6580" font-size="8.8" font-family="ui-monospace, monospace" text-anchor="middle">DROP COLUMN store_id</text>
+
+              <rect x="40" y="184" width="592" height="36" rx="6" fill="rgba(46,90,168,0.08)" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" />
+              <text x="336" y="206" fill="#2e5aa8" font-size="10.5" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle">安全回滚区间：Stage 1 ~ 3 旧列数据始终实时完整，v2/v3 随时可一键切回 v1 镜像</text>
+
+              <line x1="36" y1="244" x2="844" y2="244" stroke="rgba(45,49,66,0.14)" stroke-width="1" />
+              <text x="36" y="270" fill="#5a6580" font-size="8.5" font-family="ui-monospace, monospace" font-weight="700" letter-spacing="0.14em">LEGEND</text>
+              <text x="112" y="270" fill="#2d3142" font-size="10.5" font-family="system-ui, sans-serif">回填存量严禁全表 UPDATE orders SET ...（锁全表打爆主从延迟），必须按 WHERE id &gt; last_id LIMIT 1000 分批更新。</text>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Go http.Server.Shutdown 对 SSE 的真实边界与双信号排水代码 -->
+        <div class="wb-card" style="padding:0; overflow:hidden; margin-bottom:20px;">
+          <div style="background:#1c2333; color:#fff; padding:8px 14px; font-family:var(--font-mono); font-size:12px; font-weight:800; display:flex; justify-content:space-between; align-items:center;">
+            <span>🐹 Go · 解决 http.Server.Shutdown 不通知 SSE 长连接的双信号优雅排水实现</span>
+            <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sse-drain', this)">复制</button>
+          </div>
+          <pre class="plop-code-pre" id="code-sse-drain" style="padding:13px; font-size:11.6px; line-height:1.54; margin:0;"><code><span class="c-cm">// 关键底层机制：Go 标准库的 srv.Shutdown(ctx) 只会关闭 Listener 停止接新单，</span>
+<span class="c-cm">// 并【不会】主动取消正在运行的请求 r.Context()！如果 SSE 流要跑 90s，而 K8s terminationGracePeriodSeconds=45s，</span>
+<span class="c-cm">// 傻等就会在第 45s 被 SIGKILL 硬杀。正确做法是用 drainCh 广播“即将停机”，让 SSE 在安全边界主动发送重连帧并落盘断点。</span>
+
+<span class="c-kw">var</span> (
+    isReady = atomic.Bool{}
+    drainCh = <span class="c-fn">make</span>(<span class="c-kw">chan struct</span>{}) <span class="c-cm">// close(drainCh) 会瞬间唤醒所有在线的 SSE Handler</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">SSEHandler</span>(w http.ResponseWriter, r *http.Request) {
+    flusher := w.(http.Flusher)
+    seq := 0
+    <span class="c-kw">for</span> {
+        <span class="c-kw">select</span> {
+        <span class="c-kw">case</span> &lt;-r.<span class="c-fn">Context</span>().<span class="c-fn">Done</span>():
+            <span class="c-kw">return</span> <span class="c-cm">// 客户端自己点了停止</span>
+        <span class="c-kw">case</span> &lt;-drainCh:
+            <span class="c-cm">// 收到发版停机广播：把已生成进度刷盘，并通知前端带 Last-Event-ID 无缝重连到新 Pod</span>
+            fmt.<span class="c-fn">Fprintf</span>(w, <span class="c-str">"id: %d\nevent: reconnect\ndata: {\"offset\":%d}\n\n"</span>, seq, seq)
+            flusher.<span class="c-fn">Flush</span>()
+            <span class="c-kw">return</span>
+        <span class="c-kw">case</span> tok, ok := &lt;-streamCh:
+            <span class="c-kw">if</span> !ok {
+                <span class="c-kw">return</span>
+            }
+            seq++
+            fmt.<span class="c-fn">Fprintf</span>(w, <span class="c-str">"id: %d\nevent: delta\ndata: %s\n\n"</span>, seq, tok)
+            flusher.<span class="c-fn">Flush</span>()
+        }
+    }
+}
+
+<span class="c-cm">// 停机编排顺序（对应 K8s terminationGracePeriodSeconds: 45）</span>
+<span class="c-kw">func</span> <span class="c-fn">GracefulShutdown</span>(srv *http.Server) {
+    isReady.<span class="c-fn">Store</span>(<span class="c-kw">false</span>)        <span class="c-cm">// Step 1 (T+0s): /readyz 返 503，K8s Endpoints 摘除本 Pod</span>
+    time.<span class="c-fn">Sleep</span>(5 * time.Second) <span class="c-cm">// Step 2 (T+5s): 等待 kube-proxy / Ingress 路由表同步完毕，不再有在途新连接</span>
+    <span class="c-fn">close</span>(drainCh)              <span class="c-cm">// Step 3 (T+5s): 通知长连接 SSE 发送 reconnect 事件优雅交接</span>
+    ctx, cancel := context.<span class="c-fn">WithTimeout</span>(context.<span class="c-fn">Background</span>(), 25*time.Second)
+    <span class="c-kw">defer</span> <span class="c-fn">cancel</span>()
+    _ = srv.<span class="c-fn">Shutdown</span>(ctx)       <span class="c-cm">// Step 4 (T+30s 内): 等待剩余短事务 HTTP 请求与后台 Worker 全部收尾退出</span>
+}</code></pre>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 06: 业务安全底层 —— ORM 强制租户注入与连接级防 SSRF
+             ==================================================================== -->
+        <div class="wb-sec-header pink" id="sec-06">
+          <span class="wb-sec-num">06</span>
+          <span class="wb-sec-title">业务安全代码防线：ORM 强制租户隔离与 Dialer.Control 防 SSRF 绕过</span>
+          <span class="plop-tag tomato">SECURITY P0</span>
+        </div>
+
+        <p style="font-size:14.5px; line-height:1.85; margin-bottom:14px;">
+          安全防线如果写成“代码规范要求大家记得校验门店 ID、记得拦截 `127.0.0.1`”，上线后一定会被漏掉或绕过：新同事写个根据主键查详情的接口忘了带 `store_id` 就是水平越权（IDOR）；攻击者注册一个域名先解析到公网 IP 骗过 URL 检查、1 秒后把 DNS 改回 `169.254.169.254`（<strong>DNS Rebinding 重绑定攻击</strong>）或用十进制整数 `http://2130706433/` 就能轻松绕过字符串黑名单。两类问题都必须沉到框架底层强制拦截：
+        </p>
+
+        <div class="wb-grid-2" style="margin-bottom:20px;">
+          <div class="wb-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column;">
+            <div style="background:#1c2333; color:#fff; padding:7px 12px; font-family:var(--font-mono); font-size:11.6px; font-weight:800; display:flex; justify-content:space-between; align-items:center;">
+              <span>🪪 防 IDOR · GORM 全局插件强制注入 store_id</span>
+              <button class="sticker-btn" style="padding:2px 8px; font-size:10.8px;" onclick="copyText('code-gorm-tenant', this)">复制</button>
+            </div>
+            <pre class="plop-code-pre" id="code-gorm-tenant" style="padding:11px 13px; font-size:11.3px; line-height:1.5; margin:0; flex:1;"><code><span class="c-cm">// 注册到 GORM Query / Update / Delete 生命周期：</span>
+<span class="c-cm">// 业务写 db.WithContext(ctx).First(&amp;order, 10087) 时，</span>
+<span class="c-cm">// 自动改写为 WHERE id = 10087 AND store_id = 42，漏传直接拒绝执行！</span>
+<span class="c-kw">func</span> <span class="c-fn">enforceTenantCallback</span>(db *gorm.DB) {
+    <span class="c-kw">if</span> db.Statement.Schema == <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span>
+    }
+    <span class="c-kw">if</span> _, hasStore := db.Statement.Schema.FieldsByDBName[<span class="c-str">"store_id"</span>]; !hasStore {
+        <span class="c-kw">return</span> <span class="c-cm">// 系统全局字典表跳过</span>
+    }
+    storeID, ok := <span class="c-fn">StoreIDFromContext</span>(db.Statement.Context)
+    <span class="c-kw">if</span> !ok || storeID == 0 {
+        _ = db.<span class="c-fn">AddError</span>(errors.<span class="c-fn">New</span>(<span class="c-str">"SECURITY: missing tenant store_id in context"</span>))
+        <span class="c-kw">return</span>
+    }
+    db.Statement.<span class="c-fn">AddClause</span>(clause.Where{
+        Exprs: []clause.Expression{clause.Eq{
+            Column: clause.Column{Table: clause.CurrentTable, Name: <span class="c-str">"store_id"</span>},
+            Value:  storeID,
+        }},
+    })
+}</code></pre>
+          </div>
+
+          <div class="wb-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column;">
+            <div style="background:#1c2333; color:#fff; padding:7px 12px; font-family:var(--font-mono); font-size:11.6px; font-weight:800; display:flex; justify-content:space-between; align-items:center;">
+              <span>🌐 防 SSRF（免疫 DNS 重绑定）· Dialer.Control 内核建连前拦截</span>
+              <button class="sticker-btn" style="padding:2px 8px; font-size:10.8px;" onclick="copyText('code-ssrf-dialer', this)">复制</button>
+            </div>
+            <pre class="plop-code-pre" id="code-ssrf-dialer" style="padding:11px 13px; font-size:11.3px; line-height:1.5; margin:0; flex:1;"><code><span class="c-cm">// 在操作系统 connect(fd, sockaddr) 真正发包前的一刻拿到最终解析出的 IP！</span>
+safeDialer := &amp;net.Dialer{
+    Timeout: 3 * time.Second,
+    Control: <span class="c-kw">func</span>(network, address string, c syscall.RawConn) error {
+        host, _, err := net.<span class="c-fn">SplitHostPort</span>(address)
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span> err
+        }
+        ip, err := netip.<span class="c-fn">ParseAddr</span>(host)
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span> err
+        }
+        <span class="c-cm">// 一次性封死 127.0.0.0/8、10/8、172.16/12、192.168/16、169.254.169.254 及 IPv6 ::1</span>
+        <span class="c-kw">if</span> ip.<span class="c-fn">IsLoopback</span>() || ip.<span class="c-fn">IsPrivate</span>() || ip.<span class="c-fn">IsLinkLocalUnicast</span>() ||
+           ip.<span class="c-fn">IsLinkLocalMulticast</span>() || ip.<span class="c-fn">IsUnspecified</span>() {
+            <span class="c-kw">return</span> fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"SSRF_BLOCKED: forbidden internal IP %s"</span>, ip)
+        }
+        <span class="c-kw">return nil</span>
+    },
+}</code></pre>
+          </div>
+        </div>
+
+        <!-- ====================================================================
+             SECTION 07: SLO 燃烧率告警与「自检三问」代码实战改造
+             ==================================================================== -->
+        <div class="wb-sec-header" id="sec-07">
+          <span class="wb-sec-num">07</span>
+          <span class="wb-sec-title">SLO 错误预算告警与「接口自检三问」代码改造对比</span>
+          <span class="plop-tag mint">PILLAR 07 &amp; CASE STUDY</span>
+        </div>
+
+        <div class="wb-grid-2" style="margin-bottom:16px;">
+          <div class="wb-card" style="background:var(--plop-paper);">
+            <h4 style="font-size:15.5px; margin-bottom:8px; color:var(--plop-ink);">📈 1. 为什么看 P99 与错误预算燃烧率，不看平均值与 CPU</h4>
+            <p style="font-size:13.2px; line-height:1.74; margin:0 0 8px;">
+              • <strong>平均值的欺骗性：</strong>99 个请求耗时 <code>10ms</code>，1 个请求死锁卡满 <code>10,000ms</code>，算出来的平均耗时只有 <code>110ms</code> 看似极快，但实际上每 100 次点击就有 1 次卡死（若一个页面调 5 个接口，用户遇到卡死的概率高达 <code>1 − 0.99<sup>5</sup> ≈ 4.9%</code>），只有 <code>p95 / p99</code> 能暴露长尾故障。<br/>
+              • <strong>错误预算与燃烧率（Burn Rate）告警：</strong>若月度 SLO 为 <code>99.9%</code>，意味着一个月允许 <code>43.2</code> 分钟故障预算。如果当前 1 小时内的错误率速度会在 3 小时内烧光整月预算（燃烧率 &gt; <code>14.4x</code>），才触发电话/短信强告警；单机 CPU 短暂冲到 85% 但请求延迟与成功率完全正常时只记工单不半夜叫人，避免“狼来了”告警疲劳。
+            </p>
+          </div>
+
+          <div class="wb-card" style="background:var(--plop-mustard);">
+            <h4 style="font-size:15.5px; margin-bottom:8px; color:var(--plop-ink-text);">✅ 2. 写完任何写接口后的「自检三问」</h4>
+            <ol style="font-size:13.4px; font-weight:800; padding-left:20px; line-height:1.8; margin:0; color:var(--plop-ink-text);">
+              <li><strong>同一请求重复来两次会怎样？</strong><br/><span style="font-weight:600; font-size:12.6px;">（网络超时重试或连点 → 查唯一幂等键与结果重放）</span></li>
+              <li><strong>两个人同一毫秒并发来会怎样？</strong><br/><span style="font-weight:600; font-size:12.6px;">（先查再改必超卖 → 查原子条件更新 <code>WHERE remain &gt;= 1</code> 或锁）</span></li>
+              <li><strong>换另一家门店的账号来调会怎样？</strong><br/><span style="font-weight:600; font-size:12.6px;">（改 JSON 里的 ID → 查登录态 <code>store_id</code> 强制绑定）</span></li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- Before vs After 真实接口改造对比 -->
+        <div class="wb-grid-2">
+          <div class="wb-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column;">
+            <div style="background:#7f1d1d; color:#fff; padding:7px 12px; font-family:var(--font-mono); font-size:11.6px; font-weight:800;">
+              ❌ 改造前：三问全挂的裸奔「次卡核销」代码
+            </div>
+            <pre class="plop-code-pre" style="padding:12px; font-size:11.4px; line-height:1.52; margin:0; flex:1;"><code><span class="c-kw">func</span> <span class="c-fn">RedeemCardBad</span>(ctx context.Context, req RedeemReq) error {
+    <span class="c-cm">// 漏洞 3 (越权): 直接用前端传的 CardID 查，B 店员能核销 A 店顾客的卡！</span>
+    <span class="c-kw">var</span> card MemberCard
+    db.<span class="c-fn">First</span>(&amp;card, req.CardID)
+    <span class="c-kw">if</span> card.RemainTimes &lt; 1 {
+        <span class="c-kw">return</span> ErrInsufficientTimes
+    }
+    <span class="c-cm">// 漏洞 2 (并发超卖): 先读到内存减 1 再写回，两个并发请求同时读到 1，扣完剩 0 却核销了两次！</span>
+    <span class="c-cm">// 漏洞 1 (无幂等): 网关超时重试一次，直接多扣顾客一次卡！</span>
+    card.RemainTimes -= 1
+    db.<span class="c-fn">Save</span>(&amp;card)
+    <span class="c-cm">// 致命隐患: 若事务里还顺手调了缓慢的发微信通知 HTTP 接口，长事务直接锁死行并耗尽连接池</span>
+    wechat.<span class="c-fn">SendNotify</span>(card.UserOpenID)
+    <span class="c-kw">return nil</span>
+}</code></pre>
+          </div>
+
+          <div class="wb-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column;">
+            <div style="background:#14532d; color:#fff; padding:7px 12px; font-family:var(--font-mono); font-size:11.6px; font-weight:800; display:flex; justify-content:space-between; align-items:center;">
+              <span>✅ 改造后：三问全过的生产级「次卡核销」代码</span>
+              <button class="sticker-btn" style="padding:2px 8px; font-size:10.8px;" onclick="copyText('code-redeem-good', this)">复制</button>
+            </div>
+            <pre class="plop-code-pre" id="code-redeem-good" style="padding:12px; font-size:11.4px; line-height:1.52; margin:0; flex:1;"><code><span class="c-kw">func</span> <span class="c-fn">RedeemCardProd</span>(ctx context.Context, storeID int64, idemKey string, cardID int64) error {
+    <span class="c-cm">// 事务内只做极快的纯内存/DB 原子操作，严禁夹杂外部 RPC / LLM 调用！</span>
+    <span class="c-kw">return</span> db.<span class="c-fn">WithContext</span>(ctx).<span class="c-fn">Transaction</span>(<span class="c-kw">func</span>(tx *gorm.DB) error {
+        <span class="c-cm">// 1. 过第一问 (幂等): 插入带 uk(store_id, idem_key) 唯一索引的核销流水与 Outbox 消息</span>
+        logRow := RedeemLog{StoreID: storeID, IdemKey: idemKey, CardID: cardID}
+        <span class="c-kw">if</span> err := tx.<span class="c-fn">Create</span>(&amp;logRow).Error; <span class="c-fn">isDuplicateKey</span>(err) {
+            <span class="c-kw">return nil</span> <span class="c-cm">// 重试请求命中唯一索引，幂等返回成功</span>
+        } <span class="c-kw">else if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span> err
+        }
+        <span class="c-cm">// 2. 过第二、三问 (防并发超卖 + 防越权): 单条原子 SQL 同时校验 store_id 与 remain_times &gt;= 1</span>
+        res := tx.<span class="c-fn">Model</span>(&amp;MemberCard{}).
+            <span class="c-fn">Where</span>(<span class="c-str">"id = ? AND store_id = ? AND remain_times &gt;= 1"</span>, cardID, storeID).
+            <span class="c-fn">UpdateColumn</span>(<span class="c-str">"remain_times"</span>, gorm.<span class="c-fn">Expr</span>(<span class="c-str">"remain_times - 1"</span>))
+        <span class="c-kw">if</span> res.Error != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span> res.Error
+        }
+        <span class="c-kw">if</span> res.RowsAffected == 0 {
+            <span class="c-kw">return</span> ErrInsufficientOrForbidden <span class="c-cm">// 触发事务回滚，上面插入的流水自动撤销</span>
+        }
+        <span class="c-cm">// 3. 异步通知走同事务 Outbox 表，事务提交后由后台 Worker 投递微信通知</span>
+        <span class="c-kw">return</span> tx.<span class="c-fn">Create</span>(&amp;OutboxEvent{Topic: <span class="c-str">"card.redeemed"</span>, BizID: logRow.ID}).Error
+    })
+}</code></pre>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸列 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
+      <div class="rail-sticky-cluster">
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>🧭 落地关键点速记</span>
+            </span>
+            <span>NOTE</span>
+          </div>
+          <p style="font-size:12px; line-height:1.65; margin:6px 0 0; color:var(--plop-ink-text);">
+            • 流式：<code>Client.Timeout=0</code> + <code>IdleReader</code><br/>
+            • 重试：单层 + 剩余时间预判 + 10% 预算<br/>
+            • 熔断：<code>IsSuccessful</code> 排除 4xx<br/>
+            • 限流：Lua 预扣 + <code>usage</code> 结算退还<br/>
+            • 停机：<code>drainCh</code> 广播 SSE 重连帧<br/>
+            • 安全：ORM 注入 <code>store_id</code> + <code>Dialer.Control</code> 拦内网
+          </p>
+        </div>
+
+        <!-- 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" style="cursor:pointer;" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>

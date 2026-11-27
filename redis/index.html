@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="从第一性原理理解 Redis：单线程与 epoll 多路复用、底层数据结构与编码演进、缓存三大问题与双写一致性、RDB/AOF 混合持久化、主从哨兵集群高可用与分布式锁。" />
-  <title>Redis：从内存加速层，到分布式状态基础设施 · note-garden 技术知识花园</title>
+  <meta name="description" content="Redis 基础与实战篇：从架构定位、全平台部署、ACL 权限与 go-redis 连接池入手，系统讲解键空间规范与 Pipeline、5 种基础类型与 4 种扩展类型实战、Cache-Aside 模式与三大缓存异常代码防护、混合持久化与内存规划、主从哨兵 Cluster 集群运维，以及分布式锁、Lua 脚本与 Stream 消费组。" />
+  <title>Redis · 基础与实战篇 · note-garden 技术知识花园</title>
   <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
   <link rel="stylesheet" href="../assets/plop-garden.css" />
   <script src="../assets/plop-garden.js"></script>
@@ -23,8 +23,11 @@
       <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
         <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
         <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
-        <span class="plop-tag tomato">🧱 REDIS 6.0 / 7.x 全览</span>
       </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" class="active" aria-current="page" title="循序渐进：从环境安装、通用指令、5+4 数据类型实战、缓存设计模式到持久化、主从集群运维与分布式锁落地">🌱 基础与实战篇</a>
+        <a href="principles.html" data-edition-target="principles.html" title="切换到当前章节的 redisDb 内核、epoll 多线程 I/O、redisObject/listpack/skiplist 内存布局、COW 页表、PSYNC2 与 Fencing Token 原理">📘 核心原理篇 ↗</a>
+      </nav>
     </div>
 
     <div class="console-group">
@@ -38,8 +41,8 @@
   </header>
 
   <div class="plop-desk-stage">
-    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + Redis 参数速查小票 ==================== -->
-    <aside class="plop-side-rail left" aria-label="本篇章节导航与参数速查">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + 日常开发速查 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与日常开发速查">
       <div class="rail-sticky-cluster">
         <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
         <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
@@ -58,62 +61,62 @@
         </div>
 
         <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
-        <nav class="plop-index-tabs" id="toc-tabs" aria-label="Redis 章节书签">
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="Redis 基础与实战章节书签">
           <a href="#why" class="plop-ear-tab active" data-toc="why">
             <span class="ear-dot"></span>
-            <span>00 第一性原理导读</span>
+            <span>00 环境安装与入门</span>
           </a>
           <a href="#fast" class="plop-ear-tab" data-toc="fast">
             <span class="ear-dot mustard"></span>
-            <span>01 为什么快与线程模型</span>
+            <span>01 键管理与Pipeline</span>
           </a>
           <a href="#datatype" class="plop-ear-tab" data-toc="datatype">
             <span class="ear-dot mint"></span>
-            <span>02 数据结构与底层编码</span>
+            <span>02 5+4数据类型实战</span>
           </a>
           <a href="#cache-problem" class="plop-ear-tab" data-toc="cache-problem">
             <span class="ear-dot pink"></span>
-            <span>03 缓存三问题与一致性</span>
+            <span>03 缓存模式与治理</span>
           </a>
           <a href="#persistence" class="plop-ear-tab" data-toc="persistence">
             <span class="ear-dot periwinkle"></span>
-            <span>04 持久化与过期淘汰</span>
+            <span>04 持久化与淘汰规划</span>
           </a>
           <a href="#replication" class="plop-ear-tab" data-toc="replication">
             <span class="ear-dot mint"></span>
-            <span>05 主从、哨兵与集群</span>
+            <span>05 主从哨兵与集群</span>
           </a>
           <a href="#lock" class="plop-ear-tab" data-toc="lock">
             <span class="ear-dot mustard"></span>
-            <span>06 分布式锁、MQ与自测</span>
+            <span>06 分布式锁与Stream</span>
           </a>
         </nav>
 
-        <!-- 3. 打孔小票贴纸：Redis 关键数值与边界速查 -->
+        <!-- 3. 打孔小票贴纸：Redis 日常开发速查 -->
         <div class="plop-side-ticket tilt-right">
           <div class="plop-side-ticket-head">
-            <span>REDIS 黄金数值</span>
+            <span>REDIS 开发速查</span>
             <span>#6.0/7.x</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>redisObject 头</span>
-            <span>16 Bytes</span>
+            <span>安全遍历</span>
+            <span>SCAN 游标=0止</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>embstr 边界</span>
-            <span>≤ 44 Bytes</span>
+            <span>非阻塞删除</span>
+            <span>UNLINK</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>Cluster 哈希槽</span>
-            <span>16384 个</span>
+            <span>原子加锁</span>
+            <span>SET NX PX</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>HyperLogLog</span>
-            <span>12 KB (0.81%)</span>
+            <span>同槽路由</span>
+            <span>{user_id}</span>
           </div>
           <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
-            <span>AOF 默认刷盘</span>
-            <span>everysec (最多丢1s)</span>
+            <span>内核深挖</span>
+            <span>顶部 📘原理篇</span>
           </div>
         </div>
       </div>
@@ -123,13 +126,13 @@
     <main class="plop-workbench" id="content">
       <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
       <nav class="plop-mobile-toc" aria-label="章节快速跳转">
-        <a href="#why" class="active">00 第一性原理</a>
-        <a href="#fast">01 线程模型</a>
-        <a href="#datatype">02 底层编码</a>
-        <a href="#cache-problem">03 缓存与一致性</a>
-        <a href="#persistence">04 持久化与淘汰</a>
+        <a href="#why" class="active">00 安装与入门</a>
+        <a href="#fast">01 键与Pipeline</a>
+        <a href="#datatype">02 数据类型实战</a>
+        <a href="#cache-problem">03 缓存与治理</a>
+        <a href="#persistence">04 持久化规划</a>
         <a href="#replication">05 主从哨兵集群</a>
-        <a href="#lock">06 分布式锁与自测</a>
+        <a href="#lock">06 锁与Stream</a>
       </nav>
 
       <div class="wb-sheet plop-journal-book">
@@ -138,119 +141,129 @@
         <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
         <div class="journal-spine-rings" aria-hidden="true"></div>
 
-        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三遍读法车票 -->
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三阶段路线车票 -->
         <header class="wb-masthead">
           <div class="wb-card wb-date-card pink">
-            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">CACHE &amp; STATE / 02</span>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">EDITION 01 / PRACTICE</span>
             <div style="font-family:var(--font-head); font-style:italic; font-size:38px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">Redis</div>
-            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">6.0 · 7.0 · 7.2</span>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">🌱 基础与实战篇</span>
           </div>
 
           <div class="wb-masthead-main">
             <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
-              <span class="plop-tag tomato">IN-MEMORY ENGINE</span>
-              <span class="plop-tag mint">EPOLL REACTOR · LISTPACK · SKIPLIST</span>
-              <span class="plop-tag periwinkle">CACHE-ASIDE · SENTINEL · 16384 SLOTS</span>
+              <span class="plop-tag mint">🌱 EDITION 1 · 基础与实战篇</span>
+              <span class="plop-tag tomato">5+4 DATA TYPES · CACHE-ASIDE</span>
+              <span class="plop-tag periwinkle">SENTINEL · CLUSTER · LUA &amp; STREAM</span>
             </div>
-            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
-              Redis：从内存加速层，到分布式状态基础设施
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              Redis · 基础与实战篇：环境配置、数据类型选型、缓存工程与分布式协调
             </h1>
-            <p style="font-size:14.8px; color:var(--plop-ink-soft); margin:0; font-weight:600;">
-              从第一性原理出发：既然有了可靠的 MySQL，为什么高并发系统一定还要加一层 Redis？把内存放进架构后，如何榨干每一字节、如何与 MySQL 保持数据同步、挂机怎么恢复、单机撑不住怎么横向扩展？一条主线串到底。
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0; font-weight:600; line-height:1.6;">
+              面向日常后端开发与线上运维实操：从 Redis 与关系型数据库的分层定位、全平台安装配置、ACL 账号授权与客户端连接池起步，依次梳理键空间管理规范与批量管道优化、五种基础类型与四种高阶扩展类型的业务选型、旁路缓存模式与三大缓存异常代码防护、混合持久化与内存水位规划，最后落地主从哨兵集群部署、生产级分布式锁与 Stream 消息队列。
             </p>
 
-            <!-- 三遍读法手账小票卡片 -->
+            <!-- 三阶段学习路线车票卡片 -->
             <div class="wb-kpi-grid">
               <a href="#why" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 第一遍：立住直觉</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 00—02：先搞懂为什么需要 Redis、单线程为什么快、数据结构怎么选</div>
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">① 环境部署与数据结构基本功</div>
+                <div style="font-size:12px; font-weight:700;">章节 00—02：安装授权、SCAN/Pipeline 与 5+4 类型完整操作</div>
               </a>
               <a href="#cache-problem" class="plop-ticket-kpi" style="background:var(--plop-mint);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 第二遍：攻克实战</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 03—04：穿透/击穿/雪崩防御、MySQL×Redis 双写一致性、RDB+AOF</div>
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">② 缓存防线与持久化容量规划</div>
+                <div style="font-size:12px; font-weight:700;">章节 03—04：Cache-Aside、穿透/击穿/雪崩防护、大热 Key 与淘汰策略</div>
               </a>
               <a href="#replication" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 第三遍：分布式进阶</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 05—06：主从哨兵集群演进、分布式锁四步曲 → 9 道闭卷自测题</div>
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">③ 高可用运维与分布式协调</div>
+                <div style="font-size:12px; font-weight:700;">章节 05—06：主从哨兵 Cluster 搭建、分布式锁、Stream 与 8 题自测</div>
               </a>
             </div>
           </div>
         </header>
 
-        <!-- ====================================================================
-             7 大章节纯 HTML 子模块（由 assets/plop-garden.js 自动并行加载拼装）
-             平时修改某个章节，直接编辑 redis/sections/ 下的对应小文件即可；
-             每个挂载点内预置静态章节摘要与直达链接，兼顾搜索引擎、阅读器、AI 抓取与无 JS 环境可达性
-             ==================================================================== -->
         <noscript>
           <div class="plop-callout warn" style="margin:14px 0;">
-            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全篇 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
           </div>
         </noscript>
 
         <div data-plop-section="sections/00-why.html">
           <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 第一性原理导读：为什么有了 MySQL 还要学 Redis？入门懂什么、进阶在解决什么？</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">从磁盘数据库随机 I/O 与行锁并发瓶颈出发，推导 Redis「纯内存 + 高效数据结构、缓存异常与双写一致性、持久化与主从哨兵集群高可用、分布式协调原语」四大核心主线。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 架构定位、全平台环境部署与第一个 Redis 程序</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">阐明 Redis 内存状态层与关系型数据库的协同分工，提供 Docker Compose 与本地安装模板、核心配置表、ACL 最小权限建号以及 go-redis/v9 连接池示例。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/01-fast.html">
           <section class="wb-card" id="fast" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-fast.html">01 · 性能与线程模型：Redis 为什么这么快？单线程 Reactor、<code>epoll</code> 多路复用与 Redis 6.0+ 多线程 I/O</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解支撑 Redis 十万 QPS 的四大支柱，厘清为什么命令执行坚持单线程，以及 Redis 4.0 异步惰性删除（<code>UNLINK</code>）与 Redis 6.0+ 多线程网络 I/O 的真实分工。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-fast.html">01 · 键空间管理、通用指令、Pipeline 批处理与慢查询排查</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">梳理企业级分段 Key 命名约定、TTL 特殊返回值与异步删除 UNLINK，详解 SCAN 游标循环规则、Pipeline 合并网络 RTT 实战与 SLOWLOG 诊断方法。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/02-datatype.html">
           <section class="wb-card" id="datatype" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-datatype.html">02 · 数据类型与底层结构：5 种基础 + 4 种扩展类型、<code>redisObject</code>、<code>SDS</code>、跳表 <code>skiplist</code>、<code>listpack</code> 与渐进式 rehash</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖 String / List / Hash / Set / ZSet 与 Bitmap / HyperLogLog / GEO / Stream 的业务选型及编码转换阈值（<code>embstr</code> 44B 分界、Redis 7.0 <code>listpack</code> 全面替代 <code>ziplist</code> 消除连锁更新、ZSet 为什么用跳表而非红黑树/B+树）。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-datatype.html">02 · 五大基础数据类型与四大扩展类型实战指南</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">逐一演练 String / Hash / List / Set / ZSet 的高频命令与业务代码（含购物车、抽奖去重与实时排行榜），并涵盖 Bitmap 签到、HyperLogLog UV 统计与 GEO 检索。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/03-cache.html">
           <section class="wb-card" id="cache-problem" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-cache.html">03 · 缓存实战避坑：穿透 / 击穿 / 雪崩防御、布隆过滤器、MySQL × Redis 双写一致性与 BigKey / HotKey 治理</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比三大缓存异常的根因与防线，推演 Cache-Aside「先更新数据库，再删除缓存」为何优于其他顺序，以及大 Key 拆分清理与热 Key 本地二级缓存方案。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-cache.html">03 · 缓存读写模式、三大异常防护与大 Key / 热 Key 治理</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">图解 Cache-Aside 标准读写闭环，整合空值占位、singleflight 请求归并与随机抖动 TTL 代码防御穿透/击穿/雪崩，并给出大 Key 分桶拆分与热 Key 二级缓存治理方案。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/04-storage.html">
           <section class="wb-card" id="persistence" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-storage.html">04 · 数据怎么存、怎么清：RDB (<code>fork</code> COW) × AOF × 4.0 混合持久化、惰性+定期过期删除与 8 种内存淘汰策略</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解 `bgsave` 写时复制原理、AOF 三种刷盘策略（`always / everysec / no`）与重写机制、过期键清理，以及 `allkeys-lru` vs `allkeys-lfu` 近似淘汰算法。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-storage.html">04 · 持久化配置方案、灾难备份恢复与内存淘汰策略选型</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比 RDB、AOF 与混合持久化生产配置及 Redis 7.0 Multi-Part AOF 文件结构，图解服务器物理内存 70% 安全水位规划与 8 种 maxmemory 淘汰策略选型矩阵。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/05-cluster.html">
           <section class="wb-card" id="replication" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-cluster.html">05 · 高可用三级演进：主从复制（<code>replid + offset</code> 增量/全量）→ 哨兵 Sentinel（SDOWN/ODOWN 与 Raft 选主）→ Cluster 16384 哈希槽</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">梳理主从复制环形缓冲区、哨兵自动故障转移四步曲、Redis Cluster 为什么设计 16384 个槽位、在线扩缩容 `MOVED / ASK` 重定向与 `{hash_tag}`、以及脑裂成因与防护参数。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-cluster.html">05 · 高可用与分布式部署：主从复制、Sentinel 哨兵与 Cluster 分片集群</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">图解主从、哨兵与 Cluster 三种生产拓扑的容量边界，提供 replicaof、3 节点 Sentinel 防脑裂配置、3 主 3 从集群创建及 {Hash Tag} 同槽多键实操。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/06-apps.html">
           <section class="wb-card" id="lock" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-apps.html">06 · 实战扩展与自测：分布式锁 4 步演进（UUID + Lua 原子解锁 + Watchdog 看门狗 + Redlock）、Stream 消费组与 9 道闭卷自测</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">手把手推导生产级分布式锁演进、对比 List / PubSub / Stream 消息队列、辨析 `MULTI/EXEC` 事务 vs Lua 脚本 vs Pipeline 管道，并附考前速记表与自测题。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-apps.html">06 · 分布式协调与实战扩展：分布式锁、Lua 脚本、Stream 消费组与自测</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">封装带唯一令牌、Lua 原子解锁与看门狗自动续期的 Go 分布式锁，辨析 MULTI 事务与 Lua 脚本，演练 Stream 消费者组 PEL / XACK / XAUTOCLAIM 闭环与 8 道实战自测。</p>
           </section>
         </div>
 
       </div>
     </main>
 
-    <!-- ==================== 右侧手账贴纸栏：生产脚本速拷贴 + 跨专题切换耳标 ==================== -->
+    <!-- ==================== 右侧手账贴纸栏：原理篇切换 + 生产脚本速拷贴 + 跨专题切换耳标 ==================== -->
     <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
       <div class="rail-sticky-cluster">
-        <!-- 1. 毛线帽吉祥物 + 快捷复制脚本便签 -->
-        <div class="plop-sticky-note mint tilt-right">
+        <!-- 1. 切换核心原理篇提示便签 -->
+        <div class="plop-sticky-note periwinkle tilt-left">
           <div class="plop-pin"></div>
           <div class="sticky-title">
             <span style="display:inline-flex; align-items:center; gap:5px;">
               <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
-              <span>📋 生产脚本速拷</span>
+              <span>📘 深入核心原理篇</span>
             </span>
+            <span>KERNEL</span>
+          </div>
+          <p style="font-size:11.8px; line-height:1.5; margin:6px 0 8px; color:var(--plop-ink-text); font-weight:700;">
+            想研究 epoll 多线程屏障、embstr 44B 位宽、listpack、跳表 span、COW 页表与 Redlock 争议？
+          </p>
+          <a href="principles.html" data-edition-target="principles.html" class="plop-pill-sticker mustard" style="display:block; text-align:center; font-size:11.8px; padding:6px 8px; text-decoration:none;">
+            📘 前往核心原理篇 ↗
+          </a>
+        </div>
+
+        <!-- 2. 快捷复制脚本便签 -->
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span>📋 生产脚本速拷</span>
             <span>COPY</span>
           </div>
           <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
@@ -263,7 +276,7 @@
           </div>
         </div>
 
-        <!-- 2. 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <!-- 3. 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
         <div class="plop-index-tabs" data-plop-topics></div>
 
         <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">

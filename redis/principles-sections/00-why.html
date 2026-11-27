@@ -1,0 +1,176 @@
+<!-- ====================================================================
+     PART 00 (PRINCIPLES): 存储介质延迟层级、redisDb 全局哈希表与键值寻址链路
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">存储介质物理延迟层级、redisDb 全局字典与键值寻址内核</span>
+  <span class="plop-tag tomato">LATENCY HIERARCHY · REDISDB · DICTENTRY · EXPIRES</span>
+</div>
+
+<!-- 00.1 · 计算机存储层级物理延迟定量对比与架构取舍 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">⏱️ 00.1 · 硬件延迟定量对比：从 CPU Cache、DRAM 主存到 NVMe SSD 的数量级跨度</div>
+  <h3>⏱️ 00.1 存储介质访问延迟层级与内存引擎的设计取舍</h3>
+
+  <p>
+    要理解 Redis 在内核层面的每一项数据结构设计（为何不做固定大小页缓冲池、为何命令执行流不加互斥锁、为何对小对象做字节级紧凑编码），需要先建立现代服务器各级存储介质的物理访问延迟基准：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">存储层级</th>
+          <th style="width:18%">典型单次访问延迟</th>
+          <th style="width:20%">放大为人类时间尺度<br><span style="font-size:11px; font-weight:600;">(设 1 ns = 1 秒)</span></th>
+          <th>对存储引擎内核设计的直接约束</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>L1 / L2 CPU Cache</strong></td>
+          <td><code>~ 1 ns / 4 ns</code></td>
+          <td><code>1 秒 ~ 4 秒</code></td>
+          <td>现代 CPU 缓存行（Cache Line）固定为 <strong><code>64 Bytes</code></strong>。将对象元数据头与短字符串紧凑打包进同一个 64B 块（如 <code>embstr</code> 与 <code>listpack</code>），可避免跨缓存行指针跳转引发的 Cache Miss。</td>
+        </tr>
+        <tr>
+          <td><strong>L3 Cache / DRAM 主存</strong></td>
+          <td><code>~ 15 ns / 80~100 ns</code></td>
+          <td><code>15 秒 ~ 1.5 分钟</code></td>
+          <td><strong>Redis 的核心工作区</strong>。单次随机内存寻址约 <code>100 ns</code>，在不发生互斥锁争用与线程上下文切换（单次切换约 <code>1~3 μs</code>，相当于数十次内存寻址）的前提下，单核每秒足以完成数十万至百万次数据结构操作。</td>
+        </tr>
+        <tr>
+          <td><strong>同机房 TCP 网络 RTT</strong></td>
+          <td><code>~ 200 μs ~ 500 μs</code></td>
+          <td><code>2.3 天 ~ 5.8 天</code></td>
+          <td>同机房一次网络收发耗时是单次 DRAM 寻址的 <strong><code>2000 ~ 5000</code> 倍</strong>。因此 Redis 的吞吐瓶颈首先出现在<strong>网络套接字缓冲区拷贝与系统调用开销</strong>，这也是 6.0 引入多线程网络 I/O 的直接动因。</td>
+        </tr>
+        <tr>
+          <td><strong>NVMe SSD 随机 4KB 读</strong></td>
+          <td><code>~ 20 μs ~ 100 μs</code></td>
+          <td><code>6 小时 ~ 1.1 天</code></td>
+          <td>磁盘关系型引擎（InnoDB / PostgreSQL）必须设计 <code>8~16 KiB</code> 页缓冲池、页锁与预写日志（WAL）来摊薄块设备随机 I/O；而纯内存引擎无需按磁盘页对齐，可直接通过 64 位虚拟地址指针组织变长结构。</td>
+        </tr>
+        <tr>
+          <td><strong>机械硬盘（HDD）寻道</strong></td>
+          <td><code>~ 5 ms ~ 10 ms</code></td>
+          <td><code>2 个月 ~ 4 个月</code></td>
+          <td>Redis 仅由后台子进程或 <code>bio</code> 线程顺序写入 RDB 快照与 AOF 日志，避免在主线程命令执行路径上触发同步磁盘阻塞。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.2 · redisServer -> redisDb 全局键空间与过期字典指针拓扑 -->
+<div class="wb-card" id="redisdb-kernel" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🧬 00.2 · 键空间内核结构：redisDb 双哈希表（dict + expires）指针共享与一次 GET 的寻址链路</div>
+  <h3>🧬 00.2 <code>redisDb</code> 全局键空间与过期时间字典的内存拓扑</h3>
+
+  <p>
+    在 Redis 源码（<code>server.h</code>）中，服务端全局实例状态由 <code>struct redisServer</code> 维护，其成员 <code>redisDb *db</code> 指向逻辑数据库数组。每个 <code>redisDb</code> 的核心并非二维表，而是两张协同工作的全局哈希字典：<strong>主键空间字典 <code>dict *dict</code>（保存全库所有键值对）</strong>与<strong>过期时间字典 <code>dict *expires</code>（仅保存设置了 TTL 的键及其毫秒级到期时间戳）</strong>：
+  </p>
+
+  <!-- Editorial SVG: redisDb -> dict & expires Shared Key Pointer Topology (Zero Crossings) -->
+  <figure style="margin:16px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 900 332" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rdp-db-title rdp-db-desc">
+        <title id="rdp-db-title">redisDb 内部主键空间字典 dict 与过期字典 expires 的指针共享拓扑</title>
+        <desc id="rdp-db-desc">展示 struct redisDb 的 dict 指针指向主键空间哈希节点 dictEntry（其 v.val 指向 Value 的 redisObject，key 指向键名 SDS），而 expires 指针指向过期字典节点 dictEntry（其 key 指针直接复用指向同一份键名 SDS 对象避免重复占用内存，v.s64 联合体字段直接内联存储 64 位毫秒级过期时间戳）。</desc>
+        <defs>
+          <marker id="rdp-db-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rdp-db-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="rdp-db-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (ALL drawn BEFORE node boxes, strictly orthogonal r=8, ZERO crossings) -->
+        <!-- 1. redisDb.dict (208, 96) -> Main dictEntry (296, 96) -->
+        <line x1="208" y1="96" x2="296" y2="96" stroke="#bf4520" stroke-width="1.6" marker-end="url(#rdp-db-arr-accent)"/>
+        <rect x="220" y="76" width="64" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="252" y="85" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#bf4520">db-&gt;dict</text>
+
+        <!-- 2. redisDb.expires (208, 228) -> Expires dictEntry (296, 228) -->
+        <line x1="208" y1="228" x2="296" y2="228" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#rdp-db-arr-link)"/>
+        <rect x="214" y="208" width="76" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="252" y="217" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#2e5aa8">db-&gt;expires</text>
+
+        <!-- 3. Main dictEntry v.val (512, 72) -> Value redisObject (604, 72) -->
+        <line x1="512" y1="72" x2="604" y2="72" stroke="#bf4520" stroke-width="1.6" marker-end="url(#rdp-db-arr-accent)"/>
+        <rect x="528" y="52" width="60" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="558" y="61" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#bf4520">v.val</text>
+
+        <!-- 4. Main dictEntry *key (512, 116) -> Shared Key SDS top-left port (604, 156) -->
+        <path d="M 512,116 H 548 Q 556,116 556,124 V 148 Q 556,156 564,156 H 604" fill="none" stroke="#1F1F23" stroke-width="1.3" marker-end="url(#rdp-db-arr-muted)"/>
+
+        <!-- 5. Expires dictEntry *key (512, 208) -> Shared Key SDS bottom-left port (604, 180) -->
+        <path d="M 512,208 H 548 Q 556,208 556,200 V 188 Q 556,180 564,180 H 604" fill="none" stroke="#2e5aa8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#rdp-db-arr-link)"/>
+        <rect x="522" y="162" width="68" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="556" y="171" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8" fill="#2e5aa8">共享 *key</text>
+
+        <!-- 6. Expires dictEntry v.s64 (512, 252) -> Inline 64-bit Timestamp (604, 252) -->
+        <line x1="512" y1="252" x2="604" y2="252" stroke="#4f5d75" stroke-width="1.3" marker-end="url(#rdp-db-arr-muted)"/>
+        <rect x="528" y="232" width="60" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="558" y="241" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">v.s64</text>
+
+        <!-- Node 1: struct redisDb -->
+        <rect x="28" y="52" width="180" height="224" rx="8" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.5"/>
+        <text x="118" y="74" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">struct redisDb</text>
+        <rect x="44" y="84" width="148" height="32" rx="4" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.2"/>
+        <text x="118" y="104" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#bf4520">dict *dict (主键表)</text>
+        <rect x="44" y="128" width="148" height="32" rx="4" fill="rgba(45,49,66,0.04)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <text x="118" y="148" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">dict *blocking_keys</text>
+        <rect x="44" y="168" width="148" height="32" rx="4" fill="rgba(45,49,66,0.04)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+        <text x="118" y="188" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">dict *watched_keys</text>
+        <rect x="44" y="212" width="148" height="32" rx="4" fill="rgba(46,90,168,0.08)" stroke="#2e5aa8" stroke-width="1.2"/>
+        <text x="118" y="232" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="700" fill="#2e5aa8">dict *expires (过期表)</text>
+        <text x="118" y="264" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">avg_ttl / id = 0</text>
+
+        <!-- Node 2: Main dictEntry -->
+        <rect x="296" y="52" width="216" height="88" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="404" y="72" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#bf4520">dictEntry (主键空间桶项)</text>
+        <text x="404" y="94" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">union v { void *val; } (8B)</text>
+        <text x="404" y="114" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">void *key (8B) · *next (8B)</text>
+
+        <!-- Node 3: Expires dictEntry -->
+        <rect x="296" y="188" width="216" height="88" rx="6" fill="#FFFFFF" stroke="#2e5aa8" stroke-width="1.3"/>
+        <text x="404" y="208" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#2e5aa8">dictEntry (过期字典桶项)</text>
+        <text x="404" y="230" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">void *key (复用主表 SDS 地址)</text>
+        <text x="404" y="250" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">union v { int64_t s64; } (8B)</text>
+
+        <!-- Node 4: Value redisObject (Focal) -->
+        <rect x="604" y="44" width="268" height="56" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="738" y="68" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#bf4520">robj (Value 元数据头 16B)</text>
+        <text x="738" y="88" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#1F1F23">type | encoding | lru | *ptr</text>
+
+        <!-- Node 5: Shared Key SDS -->
+        <rect x="604" y="136" width="268" height="64" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="738" y="162" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">共享键名 SDS ("order:10001")</text>
+        <text x="738" y="184" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" fill="#4f5d75">两张表指向同一物理地址，零重复拷贝</text>
+
+        <!-- Node 6: Inline 64-bit Timestamp -->
+        <rect x="604" y="224" width="268" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="738" y="248" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" font-weight="700" fill="#1F1F23">内联 int64_t 绝对毫秒时间戳</text>
+        <text x="738" y="268" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">1732679900000 (无需再 malloc robj)</text>
+
+        <!-- Bottom Legend -->
+        <line x1="28" y1="296" x2="872" y2="296" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <text x="28" y="316" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">• 内存优化细节：dictEntry 利用 C 语言 union 联合体，在主字典中存 8B 指针 *val，在过期字典中直接把 8B 当作 int64_t 时间戳原位存储。</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4>一次完整 <code>GET key</code> 在内核源码（<code>db.c: lookupKeyReadWithFlags</code>）中的执行步骤</h4>
+  <ol>
+    <li><strong>惰性过期前置拦截（<code>expireIfNeeded</code>）</strong>：计算 <code>SipHash(key)</code> 后先查 <code>db-&gt;expires</code>（若 <code>expires</code> 表本身为空则直接跳过这一步）。若命中且当前毫秒时钟 <code>mstime() &gt; entry-&gt;v.s64</code>，说明键已到期——若当前节点是主库（Master），当场将删除动作传播至 AOF 与所有从库，并根据对象复杂度决定同步释放或投入 <code>bio_lazy_free</code> 异步释放，随后直接向客户端返回空；若当前节点是从库（Replica），<strong>不修改内存物理字典</strong>，但逻辑上同样向读客户端直接返回空值。</li>
+    <li><strong>主键空间寻址与统计更新（<code>lookupKey</code>）</strong>：在 <code>db-&gt;dict</code> 中按桶头单向链表（拉链法解决哈希冲突）比对 <code>SDS</code> 键值，找到目标 <code>dictEntry</code> 后取出 <code>robj *val</code>。</li>
+    <li><strong>淘汰元数据刷新</strong>：若当前未处于 <code>fork</code> 后台子进程运行期间（避免读操作仅仅因为刷新访问时钟就意外写脏共享内存页触发 COW），更新 <code>val-&gt;lru</code> 的 24 位时钟或 LFU 计数，并递增全局命中指标 <code>stat_keyspace_hits</code>。</li>
+  </ol>
+</div>

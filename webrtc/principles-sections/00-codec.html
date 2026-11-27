@@ -1,0 +1,97 @@
+<!-- ====================================================================
+     PART 00: 数字音视频采样与压缩原理 · PCM 码率推导、YUV 4:2:0 色度抽样与 I/P/B 帧结构
+     ==================================================================== -->
+<div class="wb-sec-header" id="codec" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">数字音视频采样与压缩原理 · PCM 码率账本、YUV 4:2:0 与 I/P/B 帧结构</span>
+  <span class="plop-tag tomato">OPUS × YUV 4:2:0 × INTRA/INTER PREDICTION</span>
+</div>
+
+<!-- 00.1 · 音频数字化账本与 Opus 编码 + 3A 信号处理流水线 -->
+<div class="wb-card" id="audio-pcm-opus" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🎙️ 00.1 · 音频管线：PCM 原始码率公式、3A 前置信号处理顺序与 Opus 双核混合编码机制</div>
+  <h3>🎙️ 00.1 音频采样量化、3A 处理管线与 Opus 编码原理</h3>
+
+  <p>
+    声带振动产生的连续声波经麦克风模数转换后，生成未压缩的 <strong>PCM（Pulse Code Modulation，脉冲编码调制）</strong>裸字节流。其每秒原始比特率严格由三个物理量相乘决定：
+  </p>
+
+  <div class="plop-callout info">
+    <strong>📐 原始音频码率公式：</strong><code>Bitrate = 采样率 (Hz) × 位深 (bit) × 声道数</code>。<br>
+    以高清双声道通话（<code>48,000 Hz</code> 采样率、<code>16-bit</code> 有符号整型量化、<code>2</code> 立体声道）为例：每秒产生的未压缩数据量为 <code>48,000 × 16 × 2 = 1,536,000 bps ≈ 1.54 Mbps</code>（约 <code>192 KB/s</code>）。仅音频单路就占去近 2 兆带宽，因此送入网络前必须经过前置净音与有损感知编码。
+  </div>
+
+  <p style="margin-top:12px;">
+    在浏览器 WebRTC 音频引擎（<code>WebRTC VoiceEngine</code>）内部，麦克风采集到的 <code>10ms</code> PCM 音频帧会依次流经以下四级数字信号处理管线：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">处理阶段</th>
+          <th style="width:22%">底层算法机制</th>
+          <th>解决的真实工程问题</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. AEC（声学回声消除）</strong></td>
+          <td>自适应滤波器比对「本机播放参考信号」与「麦克风采集信号」并做相位抵消</td>
+          <td>手机免提外放时，对方传来的说话声从喇叭播出来会立刻钻进本机麦克风；若无 AEC，对方会在 200ms 后听到自己的回音甚至形成正反馈高频啸叫。</td>
+        </tr>
+        <tr>
+          <td><strong>2. ANS（背景噪声抑制）</strong></td>
+          <td>频谱减法或轻量级 RNN 降噪网络（如 RNNoise）区分稳态噪声与人声共振峰</td>
+          <td>滤除空调风声、街道车流声与键盘敲击声，同时防止静默期间把环境底噪编码发送浪费码率（配合 DTX 不连续传输）。</td>
+        </tr>
+        <tr>
+          <td><strong>3. AGC（自动增益控制）</strong></td>
+          <td>动态范围压缩器监测短时能量包络，拉升微弱语音并限幅防爆音削顶</td>
+          <td>不同用户离手机距离远近不一，AGC 将输出响度平滑稳定在统一目标分贝区间（如 <code>-18 dBFS ~ -12 dBFS</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong>4. Opus 混合编码器</strong></td>
+          <td>融合 Skype 开源的 <strong>SILK</strong>（低码率语音线性预测）与 Xiph 的 <strong>CELT</strong>（高码率全频带 MDCT 变换）</td>
+          <td>算法帧长支持 <code>2.5ms ~ 60ms</code>（WebRTC 默认打包 <code>20ms</code> 一帧），码率可在 <code>6 kbps ~ 510 kbps</code> 之间逐帧无感变速，将 <code>1.54 Mbps</code> 的 PCM 压至 <code>24 ~ 48 kbps</code>（压缩超 30 倍）仍保持清晰人声，且支持<strong>带内前向纠错（In-band FEC）</strong>——在第 <code>N</code> 个包内顺带塞入第 <code>N-1</code> 个包的低码率副本对抗单包丢失。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.2 · 视频空间与时间冗余压缩：YUV 4:2:0 与 I/P/B 帧解码依赖 -->
+<div class="wb-card" id="video-yuv-gop" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🎬 00.2 · 视频管线：<code>YUV 4:2:0</code> 色度抽样空间省流账本，以及实时通话禁用 <code>B 帧</code> 的延迟推导</div>
+  <h3>🎬 00.2 视频色度抽样（YUV 4:2:0）与帧间预测模型（I / P / B 帧）</h3>
+
+  <p>
+    未压缩视频的数据量远比音频惊人：一帧 <code>1920 × 1080</code> 分辨率的 24 位 <code>RGB</code>（每个像素红、绿、蓝各占 1 字节 = <code>3 字节</code>）图像体积为 <code>1920 × 1080 × 3 = 6,220,800 Bytes ≈ 6.22 MB</code>；按每秒 30 帧（<code>30 fps</code>）计算，每秒高达 <code>186.6 MB/s ≈ 1.49 Gbps</code>。视频编码器（<code>H.264 / VP8 / VP9 / AV1</code>）通过两步压缩将其压到 <code>800 kbps ~ 2 Mbps</code>（压缩近千倍）：
+  </p>
+
+  <div class="wb-grid-2" style="margin:12px 0;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px;">
+      <div style="font-weight:900; font-size:14.8px; color:var(--plop-ink); margin-bottom:6px;">① 消除空间与视觉感知冗余：<code>YUV 4:2:0</code> + 帧内预测</div>
+      <p style="font-size:13.2px; line-height:1.68; margin:0;">
+        人类视网膜上的视杆细胞远多于视锥细胞，对<strong>明暗轮廓（亮度 Y，Luminance）极其敏感</strong>，而对<strong>色彩过渡（色度 U / V，Chrominance）相对迟钝</strong>。编码前先将 <code>RGB</code> 转换为 <strong><code>YUV 4:2:0</code></strong>：在每 <code>2 × 2 = 4</code> 个相邻像素组成的方块中，4 个像素各自保留独立的 1 字节亮度 <code>Y</code>（共 4 字节），但 4 个像素<strong>共用同一组 <code>U</code>（1 字节）和 <code>V</code>（1 字节）</strong>。这样 4 个像素从原本 RGB 的 <code>4 × 3 = 12 字节</code> 降为 <code>4 + 1 + 1 = 6 字节</code>，在肉眼几乎无感的前提下<strong>直接削减 50% 原始体积</strong>；随后再对单帧内部平坦区域（如纯色背景墙）做分块离散余弦变换（DCT）与量化熵编码。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px;">
+      <div style="font-weight:900; font-size:14.8px; color:var(--plop-ink); margin-bottom:6px;">② 消除时间连续冗余：<code>I / P / B 帧</code> 与 <code>GOP</code> 权衡</div>
+      <p style="font-size:13.2px; line-height:1.68; margin:0;">
+        视频聊天时背景占画面 80% 且静止不动，前后两帧高度相似。两个完整关键帧之间的帧序列称为一个 <strong><code>GOP（Group of Pictures）</code></strong>：<br>
+        • <strong><code>I 帧（Intra 关键帧）</code></strong>：自带整张图的完整信息，不依赖任何其他帧即可独立解码（首屏秒开或丢包恢复都必须从 I 帧开始），体积最大；<br>
+        • <strong><code>P 帧（Predicted 前向预测帧）</code></strong>：只记录相对<strong>前序 I/P 帧</strong>的块运动矢量（Motion Vector）与残差，体积仅为 I 帧的 <code>1/10 ~ 1/5</code>；<br>
+        • <strong><code>B 帧（Bi-predictive 双向预测帧）</code></strong>：同时参考<strong>前面已播的帧与后面未来的帧</strong>，压缩比最高，但在 WebRTC 中<span class="hl-mustard">默认严格禁用（bframes = 0）</span>。
+      </p>
+    </div>
+  </div>
+
+  <div class="plop-callout warn" style="margin-bottom:0;">
+    <strong>⚠️ 帧序权衡：点播短视频启用 B 帧与 WebRTC 实时通话强制禁用 B 帧的延迟根因</strong><br>
+    假设显示顺序为 <code>I<sub>1</sub> → B<sub>2</sub> → B<sub>3</sub> → P<sub>4</sub></code>（<code>30fps</code> 下每帧间隔 <code>33.3ms</code>）。因为 <code>B<sub>2</sub></code> 和 <code>B<sub>3</sub></code> 依赖未来的 <code>P<sub>4</sub></code> 才能算出插值，发送端摄像头拍完第 2 帧后<strong>不能立刻编码发出，必须等待 <code>66.6ms</code> 把第 4 帧拍出来编成 <code>P<sub>4</sub></code> 后才能回头编 <code>B<sub>2</sub></code></strong>；接收端同样要乱序缓存重排。仅仅这一项编码等待就会平白增加 <code>70 ~ 130ms</code> 的固定算法延迟，还会拉高移动端芯片功耗。因此 WebRTC 视频流（如 <code>H.264 Constrained Baseline Profile</code>）统一采用无 B 帧的 <code>I → P → P → P...</code> 低延迟帧序列。
+  </div>
+</div>

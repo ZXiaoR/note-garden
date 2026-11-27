@@ -1,0 +1,285 @@
+<!-- ====================================================================
+     PART 04: Vue 3 项目实战与 AI 语音接入 · useWebRTCCall 封装、多人 SDK 模型与排障清单
+     ==================================================================== -->
+<div class="wb-sec-header" id="engineering" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">Vue 3 项目实战与 AI 语音接入 · 组合式函数封装、多人 SDK 模型与日常排障</span>
+  <span class="plop-tag tomato">STAGE ⑤ · VUE 3 COMPOSABLE × REALTIME AI</span>
+</div>
+
+<!-- 04.1 · 海外 1v1 视频社交场景的 Vue 3 生产级封装 -->
+<div class="wb-card" id="vue3-composable" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">💚 04.1 · Vue 3 实战：封装支持候选暂存队列、断网重连、弱网提示与秒切下一位的 <code>useWebRTCCall</code></div>
+  <h3>💚 04.1 Vue 3 视频通话组合式函数封装（<code>useWebRTCCall.ts</code>）</h3>
+
+  <p>
+    在 Vue 3 项目（如海外 1v1 视频匹配、在线视频客服）中落地原生 WebRTC 时，有四个直接决定线上稳定性的工程细节需要封装进 Composable：
+  </p>
+
+  <ul style="margin:6px 0 14px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>① 用 <code>shallowRef</code> 隔离浏览器原生对象：</strong><code>RTCPeerConnection</code> 与 <code>MediaStream</code> 带有内部 C++ 绑定插槽，不能放进 Vue 的深层 <code>ref() / reactive()</code> Proxy 代理，否则调用原生方法可能触发非法调用异常。</li>
+    <li><strong>② <code>pendingCandidates</code> 暂存队列消除信令竞态：</strong>网络异步传输时，对端发来的 <code>ice-candidate</code> 有可能比 <code>offer / answer</code> 更早到达本地，或者本地正在异步执行 <code>setRemoteDescription</code> 尚未完成；此时直接调用 <code>addIceCandidate</code> 会抛 <code>InvalidStateError</code>。先推入队列、待远端 SDP 就绪后统一冲刷即可彻底解决。</li>
+    <li><strong>③ 左滑「切换下一位」复用本地 <code>MediaStream</code>：</strong>在 1v1 随机匹配场景中，用户连续划走换人时，只关闭并重建轻量的 <code>RTCPeerConnection</code>，保留已打开的本地摄像头流不调用 <code>stop()</code>，可省去移动端每次重启硬件镜头的 <code>400~800ms</code> 黑屏闪烁；只有退出匹配页时才彻底关闭硬件。</li>
+    <li><strong>④ 定时采样 <code>pc.getStats()</code> 感知弱网：</strong>每 2 秒读取一次真实往返延迟（<code>RTT</code>）与视频近期丢包率，驱动 UI 弹出「当前网络较差，建议关闭视频保持语音畅通」提示条。</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>💚 src/composables/useWebRTCCall.ts · 生产级 Vue 3 双人音视频通话 Hook</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-vue-rtc', this)">复制完整代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-vue-rtc"><code><span class="c-kw">import</span> { ref, shallowRef, onBeforeUnmount } <span class="c-kw">from</span> <span class="c-str">'vue'</span>;
+
+<span class="c-kw">export interface</span> CallQualityStats {
+  rttMs: number;          <span class="c-cm">// 往返延迟 (ms)</span>
+  packetLossRate: number; <span class="c-cm">// 近期丢包率 (0 ~ 1)</span>
+  isWeakNetwork: boolean; <span class="c-cm">// 是否触发前端弱网提示</span>
+}
+
+<span class="c-kw">export function</span> <span class="c-fn">useWebRTCCall</span>(signalingWs: WebSocket, roomId: string, iceServers: RTCIceServer[]) {
+  <span class="c-kw">const</span> localStream = <span class="c-fn">shallowRef</span>&lt;MediaStream | <span class="c-kw">null</span>&gt;(<span class="c-kw">null</span>);
+  <span class="c-kw">const</span> remoteStream = <span class="c-fn">shallowRef</span>&lt;MediaStream | <span class="c-kw">null</span>&gt;(<span class="c-kw">null</span>);
+  <span class="c-kw">const</span> connectionState = <span class="c-fn">ref</span>&lt;RTCPeerConnectionState&gt;(<span class="c-str">'new'</span>);
+  <span class="c-kw">const</span> isMicMuted = <span class="c-fn">ref</span>(<span class="c-kw">false</span>);
+  <span class="c-kw">const</span> isCamOff = <span class="c-fn">ref</span>(<span class="c-kw">false</span>);
+  <span class="c-kw">const</span> quality = <span class="c-fn">ref</span>&lt;CallQualityStats&gt;({ rttMs: <span class="c-num">0</span>, packetLossRate: <span class="c-num">0</span>, isWeakNetwork: <span class="c-kw">false</span> });
+
+  <span class="c-kw">let</span> pc: RTCPeerConnection | <span class="c-kw">null</span> = <span class="c-kw">null</span>;
+  <span class="c-kw">let</span> isRemoteDescSet = <span class="c-kw">false</span>;
+  <span class="c-kw">const</span> pendingCandidates: RTCIceCandidateInit[] = [];
+  <span class="c-kw">let</span> statsTimer: ReturnType&lt;<span class="c-kw">typeof</span> setInterval&gt; | <span class="c-kw">null</span> = <span class="c-kw">null</span>;
+  <span class="c-kw">let</span> prevLost = <span class="c-num">0</span>;
+  <span class="c-kw">let</span> prevRecv = <span class="c-num">0</span>;
+
+  <span class="c-kw">function</span> <span class="c-fn">sendSignal</span>(type: string, payload: unknown) {
+    <span class="c-kw">if</span> (signalingWs.readyState === WebSocket.OPEN) {
+      signalingWs.<span class="c-fn">send</span>(JSON.<span class="c-fn">stringify</span>({ roomId, type, payload }));
+    }
+  }
+
+  <span class="c-kw">function</span> <span class="c-fn">initPeerConnection</span>() {
+    pc = <span class="c-kw">new</span> <span class="c-fn">RTCPeerConnection</span>({
+      iceServers,
+      iceCandidatePoolSize: <span class="c-num">4</span>, <span class="c-cm">// 提前预热候选地址池，缩短海外匹配首帧等待</span>
+    });
+    isRemoteDescSet = <span class="c-kw">false</span>;
+    remoteStream.value = <span class="c-kw">new</span> <span class="c-fn">MediaStream</span>();
+
+    <span class="c-cm">// 1. 注入本地已采集的音视频轨道</span>
+    localStream.value?.<span class="c-fn">getTracks</span>().<span class="c-fn">forEach</span>(track =&gt; {
+      pc!.<span class="c-fn">addTrack</span>(track, localStream.value!);
+    });
+
+    <span class="c-cm">// 2. Trickle ICE：每收集到一个候选地址，立即通过信令发给对端</span>
+    pc.onicecandidate = ({ candidate }) =&gt; {
+      <span class="c-kw">if</span> (candidate) <span class="c-fn">sendSignal</span>(<span class="c-str">'ice-candidate'</span>, candidate.<span class="c-fn">toJSON</span>());
+    };
+
+    <span class="c-cm">// 3. 收到对端轨道时合入 remoteStream，绑定到 &lt;video :srcObject.prop="remoteStream" autoplay playsinline /&gt;</span>
+    pc.ontrack = ({ track }) =&gt; {
+      remoteStream.value?.<span class="c-fn">addTrack</span>(track);
+    };
+
+    <span class="c-cm">// 4. 网络切换恢复：用户从 Wi-Fi 走到室外切 4G 导致 failed 时，发起 ICE Restart 重新打洞</span>
+    pc.onconnectionstatechange = <span class="c-kw">async</span> () =&gt; {
+      <span class="c-kw">if</span> (!pc) <span class="c-kw">return</span>;
+      connectionState.value = pc.connectionState;
+      <span class="c-kw">if</span> (pc.connectionState === <span class="c-str">'failed'</span>) {
+        <span class="c-kw">const</span> restartOffer = <span class="c-kw">await</span> pc.<span class="c-fn">createOffer</span>({ iceRestart: <span class="c-kw">true</span> });
+        <span class="c-kw">await</span> pc.<span class="c-fn">setLocalDescription</span>(restartOffer);
+        <span class="c-fn">sendSignal</span>(<span class="c-str">'offer'</span>, restartOffer);
+      }
+    };
+
+    <span class="c-fn">startStatsMonitor</span>();
+    <span class="c-kw">return</span> pc;
+  }
+
+  <span class="c-cm">// 主叫方入口：创建并发送 Offer SDP</span>
+  <span class="c-kw">async function</span> <span class="c-fn">startAsCaller</span>(stream: MediaStream) {
+    localStream.value = stream;
+    <span class="c-kw">const</span> peer = <span class="c-fn">initPeerConnection</span>();
+    <span class="c-kw">const</span> offer = <span class="c-kw">await</span> peer.<span class="c-fn">createOffer</span>();
+    <span class="c-kw">await</span> peer.<span class="c-fn">setLocalDescription</span>(offer);
+    <span class="c-fn">sendSignal</span>(<span class="c-str">'offer'</span>, offer);
+  }
+
+  <span class="c-cm">// 处理信令服务器转发过来的协商消息</span>
+  <span class="c-kw">async function</span> <span class="c-fn">handleSignalMessage</span>(msg: { type: string; payload: <span class="c-kw">any</span> }, stream: MediaStream) {
+    <span class="c-kw">if</span> (!localStream.value) localStream.value = stream;
+    <span class="c-kw">if</span> (!pc) <span class="c-fn">initPeerConnection</span>();
+
+    <span class="c-kw">if</span> (msg.type === <span class="c-str">'offer'</span>) {
+      <span class="c-kw">await</span> pc!.<span class="c-fn">setRemoteDescription</span>(<span class="c-kw">new</span> <span class="c-fn">RTCSessionDescription</span>(msg.payload));
+      isRemoteDescSet = <span class="c-kw">true</span>;
+      <span class="c-kw">await</span> <span class="c-fn">flushPendingCandidates</span>();
+      <span class="c-kw">const</span> answer = <span class="c-kw">await</span> pc!.<span class="c-fn">createAnswer</span>();
+      <span class="c-kw">await</span> pc!.<span class="c-fn">setLocalDescription</span>(answer);
+      <span class="c-fn">sendSignal</span>(<span class="c-str">'answer'</span>, answer);
+    } <span class="c-kw">else if</span> (msg.type === <span class="c-str">'answer'</span>) {
+      <span class="c-kw">await</span> pc!.<span class="c-fn">setRemoteDescription</span>(<span class="c-kw">new</span> <span class="c-fn">RTCSessionDescription</span>(msg.payload));
+      isRemoteDescSet = <span class="c-kw">true</span>;
+      <span class="c-kw">await</span> <span class="c-fn">flushPendingCandidates</span>();
+    } <span class="c-kw">else if</span> (msg.type === <span class="c-str">'ice-candidate'</span>) {
+      <span class="c-kw">if</span> (!isRemoteDescSet) {
+        pendingCandidates.<span class="c-fn">push</span>(msg.payload); <span class="c-cm">// 远端 SDP 未就绪，先暂存防报错</span>
+      } <span class="c-kw">else</span> {
+        <span class="c-kw">await</span> pc!.<span class="c-fn">addIceCandidate</span>(<span class="c-kw">new</span> <span class="c-fn">RTCIceCandidate</span>(msg.payload));
+      }
+    }
+  }
+
+  <span class="c-kw">async function</span> <span class="c-fn">flushPendingCandidates</span>() {
+    <span class="c-kw">while</span> (pendingCandidates.length &gt; <span class="c-num">0</span> &amp;&amp; pc) {
+      <span class="c-kw">await</span> pc.<span class="c-fn">addIceCandidate</span>(<span class="c-kw">new</span> <span class="c-fn">RTCIceCandidate</span>(pendingCandidates.<span class="c-fn">shift</span>()!));
+    }
+  }
+
+  <span class="c-kw">function</span> <span class="c-fn">startStatsMonitor</span>() {
+    <span class="c-kw">if</span> (statsTimer) <span class="c-fn">clearInterval</span>(statsTimer);
+    statsTimer = <span class="c-fn">setInterval</span>(<span class="c-kw">async</span> () =&gt; {
+      <span class="c-kw">if</span> (!pc || pc.connectionState !== <span class="c-str">'connected'</span>) <span class="c-kw">return</span>;
+      <span class="c-kw">const</span> reports = <span class="c-kw">await</span> pc.<span class="c-fn">getStats</span>();
+      <span class="c-kw">let</span> rttMs = <span class="c-num">0</span>;
+      <span class="c-kw">let</span> lossRate = <span class="c-num">0</span>;
+      reports.<span class="c-fn">forEach</span>(r =&gt; {
+        <span class="c-kw">if</span> (r.type === <span class="c-str">'candidate-pair'</span> &amp;&amp; r.state === <span class="c-str">'succeeded'</span> &amp;&amp; r.currentRoundTripTime != <span class="c-kw">null</span>) {
+          rttMs = Math.<span class="c-fn">round</span>(r.currentRoundTripTime * <span class="c-num">1000</span>);
+        }
+        <span class="c-kw">if</span> (r.type === <span class="c-str">'inbound-rtp'</span> &amp;&amp; r.kind === <span class="c-str">'video'</span>) {
+          <span class="c-kw">const</span> dLost = (r.packetsLost || <span class="c-num">0</span>) - prevLost;
+          <span class="c-kw">const</span> dRecv = (r.packetsReceived || <span class="c-num">0</span>) - prevRecv;
+          lossRate = dLost + dRecv &gt; <span class="c-num">0</span> ? Math.<span class="c-fn">max</span>(<span class="c-num">0</span>, dLost / (dLost + dRecv)) : <span class="c-num">0</span>;
+          prevLost = r.packetsLost || <span class="c-num">0</span>;
+          prevRecv = r.packetsReceived || <span class="c-num">0</span>;
+        }
+      });
+      quality.value = { rttMs, packetLossRate: lossRate, isWeakNetwork: rttMs &gt; <span class="c-num">350</span> || lossRate &gt; <span class="c-num">0.08</span> };
+    }, <span class="c-num">2000</span>);
+  }
+
+  <span class="c-kw">function</span> <span class="c-fn">toggleMic</span>() {
+    isMicMuted.value = !isMicMuted.value;
+    localStream.value?.<span class="c-fn">getAudioTracks</span>().<span class="c-fn">forEach</span>(t =&gt; { t.enabled = !isMicMuted.value; });
+  }
+  <span class="c-kw">function</span> <span class="c-fn">toggleCamera</span>() {
+    isCamOff.value = !isCamOff.value;
+    localStream.value?.<span class="c-fn">getVideoTracks</span>().<span class="c-fn">forEach</span>(t =&gt; { t.enabled = !isCamOff.value; });
+  }
+
+  <span class="c-cm">// stopHardware=false 用于右滑秒切下一位（复用摄像头流）；stopHardware=true 用于彻底挂断退出</span>
+  <span class="c-kw">function</span> <span class="c-fn">cleanup</span>(stopHardware = <span class="c-kw">true</span>) {
+    <span class="c-kw">if</span> (statsTimer) { <span class="c-fn">clearInterval</span>(statsTimer); statsTimer = <span class="c-kw">null</span>; }
+    <span class="c-kw">if</span> (pc) {
+      pc.onicecandidate = <span class="c-kw">null</span>;
+      pc.ontrack = <span class="c-kw">null</span>;
+      pc.onconnectionstatechange = <span class="c-kw">null</span>;
+      pc.<span class="c-fn">close</span>();
+      pc = <span class="c-kw">null</span>;
+    }
+    <span class="c-kw">if</span> (stopHardware) {
+      localStream.value?.<span class="c-fn">getTracks</span>().<span class="c-fn">forEach</span>(t =&gt; t.<span class="c-fn">stop</span>());
+      localStream.value = <span class="c-kw">null</span>;
+    }
+    remoteStream.value = <span class="c-kw">null</span>;
+    pendingCandidates.length = <span class="c-num">0</span>;
+    isRemoteDescSet = <span class="c-kw">false</span>;
+  }
+
+  <span class="c-fn">onBeforeUnmount</span>(() =&gt; <span class="c-fn">cleanup</span>(<span class="c-kw">true</span>));
+
+  <span class="c-kw">return</span> {
+    localStream, remoteStream, connectionState, quality, isMicMuted, isCamOff,
+    startAsCaller, handleSignalMessage, toggleMic, toggleCamera, cleanup,
+  };
+}</code></pre>
+  </div>
+</div>
+
+<!-- 04.2 · 多人 SDK 模型与 WebRTC × AI 实时语音对话前端落地 -->
+<div class="wb-card" id="sdk-and-realtime-ai" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🤖 04.2 · 工程进阶：多人语聊 SDK 三层抽象模型与海外 AI 实时语音伴侣对接方式</div>
+  <h3>🤖 04.2 多人 RTC SDK 模型与 AI 实时语音交互实践</h3>
+
+  <div class="wb-grid-2">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px;">
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:6px;">🏢 1. 商业与开源多人 SDK 的统一抽象</div>
+      <p style="font-size:13.2px; line-height:1.68; margin:0 0 8px;">
+        当业务从 1v1 升级到 8 人语聊房或派对房时，工程团队通常接入开源 <strong>LiveKit</strong> 或商业 <strong>声网（Agora）/ 即构（ZEGO）</strong>。虽然各家包名不同，但前端状态模型完全一致，都是三层树状结构：
+      </p>
+      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.65;">
+        <li><strong><code>Room</code>（房间实例）：</strong>传入后端签发的 <code>token</code> 调用 <code>room.connect(wsUrl, token)</code>，SDK 内部自动搞定信令、重连与 SFU 穿透；</li>
+        <li><strong><code>Participant</code>（参会成员）：</strong>区分 <code>localParticipant</code> 与 <code>remoteParticipants</code> 列表，用于渲染麦位头像、说话声浪光圈（<code>isSpeaking</code>）；</li>
+        <li><strong><code>TrackPublication</code>（轨道发布）：</strong>监听 <code>TrackSubscribed</code> 事件把远端成员的音画轨挂载到对应麦位组件上。</li>
+      </ul>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px;">
+      <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:6px;">🎙️ 2. WebRTC × AI 实时语音/数字人架构</div>
+      <p style="font-size:13.2px; line-height:1.68; margin:0 0 8px;">
+        早期 AI 语音聊天用「前端录音分片发 WebSocket → ASR → LLM → TTS 分片播放」，延迟常超 2 秒且外放声音容易被手机麦克风录回去自己打断自己。主流实时多模态接口（如 <strong>OpenAI Realtime API、LiveKit Agents</strong>）已全面转向 WebRTC：
+      </p>
+      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.65;">
+        <li><strong>语音走原生音频轨：</strong>直接复用浏览器内置的 Opus 低延迟编码、JitterBuffer 抗抖动与硬件级 <strong>AEC 回声消除</strong>，随时插话不啸叫；</li>
+        <li><strong>字幕与工具调用走 <code>RTCDataChannel</code>：</strong>实时双语字幕流、情绪动作指令、Function Calling 结果以及用户开口打断信号（服务端 <code>VAD</code> 检测），全部通过同一连接的数据通道毫秒级同步。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 04.3 · 日常联调与上线高频排障清单 -->
+<div class="wb-card" id="rtc-troubleshooting" style="background:var(--plop-paper); margin-bottom:10px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🩺 04.3 · 排障手册：前端音视频开发最常遇到的 6 类现象、根因与标准解法</div>
+  <h3>🩺 04.3 日常联调与线上排障速查清单</h3>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">异常现象</th>
+          <th style="width:32%">最常见根因</th>
+          <th>前端核查与修复方案</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>调用采集直接报 <code>TypeError: Cannot read properties of undefined (reading 'getUserMedia')</code></td>
+          <td>局域网手机调试使用了明文 <code>http://192.168.x.x</code>，非安全上下文下浏览器屏蔽了媒体接口。</td>
+          <td>使用 Vite <code>@vitejs/plugin-basic-ssl</code> 开启本地 HTTPS，或通过 USB 端口转发映射为手机本地 <code>localhost</code>。</td>
+        </tr>
+        <tr>
+          <td>iPhone 上一接通视频，整个画面突然弹成系统全屏挡住聊天与礼物按钮</td>
+          <td>iOS Safari 的 <code>&lt;video&gt;</code> 默认全屏播放视频流。</td>
+          <td>所有 <code>&lt;video&gt;</code> 标签统一加上 <code>playsinline</code> 与 <code>webkit-playsinline</code> 属性。</td>
+        </tr>
+        <tr>
+          <td>对端画面出来了但没有声音，或者控制台报 <code>NotAllowedError</code></td>
+          <td>浏览器自动播放策略拦截了未经用户手势交互的有声媒体播放。</td>
+          <td>尽量在用户点击「开始匹配」按钮的交互链路内预初始化播放元素；捕获 <code>NotAllowedError</code> 时先静音起播画面，并弹出轻触开启声音按钮。</td>
+        </tr>
+        <tr>
+          <td>两人一接通就传出刺耳的回声或循环啸叫</td>
+          <td>本地预览自己的 <code>&lt;video&gt;</code> 忘了加 <code>muted</code>，把自己麦克风的声音从本机喇叭放了出来。</td>
+          <td>渲染本机流的 <code>&lt;video&gt;</code> 永久设置 <code>muted</code> 属性，同时确认采集约束开启了 <code>echoCancellation: true</code>。</td>
+        </tr>
+        <tr>
+          <td>同 Wi-Fi 下测试百试百通，一换手机 4G/5G 流量就卡在 <code>checking</code> 后变 <code>failed</code></td>
+          <td>未配置可用的公网 <code>TURN</code> 中继服务器（或 TURN 短期账号密码已过期），遇到运营商对称型 NAT 无法直连。</td>
+          <td>打开 <code>chrome://webrtc-internals</code> 检查候选列表中是否有 <code>relay</code> 类型候选；联系后端核对 TURN 凭证有效性与 443 端口连通性。</td>
+        </tr>
+        <tr>
+          <td>挂断退出通话组件后，浏览器标签页小红点或电脑摄像头绿灯依然常亮</td>
+          <td>只把 <code>&lt;video&gt;</code> 从 DOM 卸载或只调了 <code>pc.close()</code>，未停止底层媒体轨道。</td>
+          <td>在退房函数与 <code>onBeforeUnmount</code> 钩子中遍历 <code>localStream.getTracks().forEach(t =&gt; t.stop())</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout info" style="margin-bottom:0;">
+    <strong>📘 进一步深挖底层原理：</strong>掌握日常 API 与 Vue 3 组件封装后，若想继续理解原始音视频压缩公式、为什么需要付费部署 TURN 对抗对称型 NAT、跨国高丢包弱网下的抗抖动算法（<code>JitterBuffer / NACK / FEC / GCC</code>）以及多人语聊房的 <code>SFU + Simulcast</code> 大小流路由机制，可继续阅读 <a href="principles.html"><strong>《📘 核心原理篇》↗</strong></a>。
+  </div>
+</div>

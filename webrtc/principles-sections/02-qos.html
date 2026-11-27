@@ -1,0 +1,168 @@
+<!-- ====================================================================
+     PART 02: 传输协议栈与出海弱网对抗机制 · DTLS-SRTP、JitterBuffer、NACK/FEC 与 GCC
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="qos">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">传输协议栈与出海弱网对抗 · 单端口分流、抗丢包三级恢复与 GCC 拥塞控制</span>
+  <span class="plop-tag tomato">DTLS-SRTP × JITTERBUFFER × NACK/FEC × GCC</span>
+</div>
+
+<!-- 02.1 · 单端口多路复用首字节分流与双轨加密协议栈 -->
+<div class="wb-card" id="protocol-demux-stack" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🔐 02.1 · 传输底座：UDP 防队头阻塞推导、单端口首字节分流（RFC 7983）与 DTLS-SRTP 密钥导出</div>
+  <h3>🔐 02.1 单端口多路复用协议栈与强制加密握手</h3>
+
+  <p>
+    TCP 为了提供可靠字节流，在内核协议栈中强制实施<strong>严格按序上交（In-order Delivery）</strong>：即便只丢失了第 <code>10</code> 号分段，哪怕第 <code>11 ~ 35</code> 号最新语音帧早已抵达接收端内核缓冲区，<code>recv()</code> 系统调用也会被阻塞至少 <code>1 ~ 2 RTT</code> 等待第 10 号包重传到达，造成「先静音卡死、随后几句话挤压在一起快进播完」的队头阻塞（Head-of-Line Blocking）。WebRTC 选择直接构建在无序无连接的 <strong>UDP</strong> 之上，并在单个 UDP 端口上通过检查<strong>数据包第 1 个字节的取值范围（RFC 7983）</strong>同时承载四类协议：
+  </p>
+
+  <ul style="margin:6px 0 14px; padding-left:20px; font-size:13.4px; line-height:1.68;">
+    <li>首字节范围 <code>[0 .. 3]</code> → 交给 <strong>STUN / TURN</strong> 处理器做连通性保活心跳；</li>
+    <li>首字节范围 <code>[20 .. 63]</code> → 交给 <strong>DTLS 1.2 / 1.3</strong> 模块完成握手（比对 SDP 中的 <code>a=fingerprint</code> 防篡改，并通过 <code>DTLS-SRTP</code> 密钥导出器在两端本地派生出对称 AES 密钥，全程不在信令里传输密钥）；</li>
+    <li>首字节范围 <code>[128 .. 191]</code> → 交给 <strong>SRTP / SRTCP</strong> 引擎解密音视频帧与网络质量反馈控制包；</li>
+    <li>搭载于 DTLS 加密隧道内部的 <strong>SCTP（流控制传输协议）</strong> → 支撑 <code>RTCDataChannel</code> 多通道并发，可按通道粒度独立配置有序/无序与最大重传次数。</li>
+  </ul>
+
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg role="img" aria-labelledby="webrtc-stack-title webrtc-stack-desc" viewBox="0 0 880 404" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.5px solid #2848D8; border-radius:14px;">
+        <title id="webrtc-stack-title">WebRTC 加密协议栈与弱网抗抖动闭环图</title>
+        <desc id="webrtc-stack-desc">上半部分展示基于 UDP 与 ICE 的 DTLS 握手如何分流出 SRTP 音视频加密通道与 SCTP 数据通道；下半部分展示从 3A 采集、GCC 码率控制与 FEC 编码到接收端 JitterBuffer 缓冲与 RTCP 反馈的弱网自适应闭环。</desc>
+        <defs>
+          <marker id="st-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2848D8" />
+          </marker>
+          <marker id="st-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#D2381E" />
+          </marker>
+          <marker id="st-arr-leaf" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#1E7043" />
+          </marker>
+        </defs>
+
+        <!-- Zone 1: Transport & Dual Security Stack -->
+        <rect x="32" y="16" width="816" height="156" rx="10" fill="#EEF3FF" stroke="#2848D8" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="48" y="24" width="448" height="22" rx="6" fill="#2848D8" />
+        <text x="272" y="39" fill="#FFF8E7" font-size="9.5" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle">🔐 SINGLE-PORT UDP MULTIPLEXING · 单端口首字节分流与双轨加密栈</text>
+
+        <!-- Zone 2: Weak-Network Resilience Loop -->
+        <rect x="32" y="188" width="816" height="160" rx="10" fill="#FFF6E5" stroke="#2848D8" stroke-width="2" stroke-dasharray="6,4" />
+        <rect x="48" y="196" width="468" height="22" rx="6" fill="#D2381E" />
+        <text x="282" y="211" fill="#FFF8E7" font-size="9.5" font-family="ui-monospace, monospace" font-weight="800" text-anchor="middle">🛡️ WEAK-NETWORK QOS LOOP · 出海高丢包抖动下的抗卡顿反馈闭环</text>
+
+        <!-- Connectors -->
+        <line x1="232" y1="102" x2="280" y2="102" stroke="#2848D8" stroke-width="2" marker-end="url(#st-arr)" />
+        <line x1="464" y1="80" x2="536" y2="80" stroke="#D2381E" stroke-width="2.2" marker-end="url(#st-arr-accent)" />
+        <line x1="464" y1="124" x2="536" y2="124" stroke="#1E7043" stroke-width="2" marker-end="url(#st-arr-leaf)" />
+
+        <line x1="220" y1="260" x2="260" y2="260" stroke="#2848D8" stroke-width="2" marker-end="url(#st-arr)" />
+        <line x1="436" y1="260" x2="476" y2="260" stroke="#D2381E" stroke-width="2.2" marker-end="url(#st-arr-accent)" />
+        <line x1="648" y1="260" x2="688" y2="260" stroke="#2848D8" stroke-width="2" marker-end="url(#st-arr)" />
+
+        <path d="M 562,288 V 320 Q 562,328 554,328 H 356 Q 348,328 348,320 V 288" fill="none" stroke="#1E7043" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#st-arr-leaf)" />
+
+        <!-- Arrow Label Mask (8px above stroke y=328, matching Zone 2 #FFF6E5) -->
+        <rect x="380" y="308" width="148" height="12" rx="3" fill="#FFF6E5" />
+        <text x="454" y="317" fill="#1E7043" font-size="8.5" font-weight="900" font-family="ui-monospace, monospace" text-anchor="middle" letter-spacing="0.04em">RTCP NACK / TWCC / PLI</text>
+
+        <!-- Zone 1 Nodes -->
+        <rect x="56" y="68" width="176" height="68" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2" />
+        <text x="144" y="96" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">1. UDP + ICE 连通层</text>
+        <text x="144" y="116" fill="#3B4A92" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">首字节分流 · 心跳保活</text>
+
+        <rect x="280" y="68" width="184" height="68" rx="8" fill="#A9B6EE" stroke="#2848D8" stroke-width="2.2" />
+        <text x="372" y="96" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">2. DTLS 1.2 / 1.3 握手</text>
+        <text x="372" y="116" fill="#14226B" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">核验 SDP 指纹 · 导出密钥</text>
+
+        <rect x="536" y="56" width="288" height="48" rx="8" fill="#F6C445" stroke="#D2381E" stroke-width="2.4" />
+        <text x="680" y="77" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">3A. SRTP / SRTCP 音视频引擎</text>
+        <text x="680" y="93" fill="#D2381E" font-size="8.8" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">AES 媒体加密 (SRTP) + 控制反馈 (SRTCP)</text>
+
+        <rect x="536" y="112" width="288" height="48" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2.2" />
+        <text x="680" y="133" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">3B. SCTP over DTLS (DataChannel)</text>
+        <text x="680" y="149" fill="#1E7043" font-size="8.8" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">可配可靠保序或零重传低延迟指令流</text>
+
+        <!-- Zone 2 Nodes -->
+        <rect x="56" y="228" width="164" height="60" rx="8" fill="#FFFDF7" stroke="#2848D8" stroke-width="2" />
+        <text x="138" y="253" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">采集与音频 3A</text>
+        <text x="138" y="271" fill="#3B4A92" font-size="8.8" font-weight="700" font-family="ui-monospace, monospace" text-anchor="middle">AEC回声 / ANS降噪 / AGC</text>
+
+        <rect x="260" y="228" width="176" height="60" rx="8" fill="#9FD8B8" stroke="#1E7043" stroke-width="2.2" />
+        <text x="348" y="253" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">GCC 码率 + FEC 编码</text>
+        <text x="348" y="271" fill="#1E7043" font-size="8.8" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">按延迟梯度调码率 · 冗余包</text>
+
+        <rect x="476" y="228" width="172" height="60" rx="8" fill="#F6A9B8" stroke="#D2381E" stroke-width="2.4" />
+        <text x="562" y="253" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">JitterBuffer 抖动缓冲</text>
+        <text x="562" y="271" fill="#D2381E" font-size="8.8" font-weight="900" font-family="ui-monospace, monospace" text-anchor="middle">乱序重排 · 缺包触发 NACK</text>
+
+        <rect x="688" y="228" width="136" height="60" rx="8" fill="#EEF3FF" stroke="#2848D8" stroke-width="2" />
+        <text x="756" y="253" fill="#14226B" font-size="11.5" font-weight="800" font-family="system-ui, sans-serif" text-anchor="middle">解码与音画同步</text>
+        <text x="756" y="271" fill="#2848D8" font-size="8.8" font-weight="800" font-family="ui-monospace, monospace" text-anchor="middle">RTCP SR 锚定音频时钟</text>
+
+        <!-- Legend Strip -->
+        <line x1="32" y1="364" x2="848" y2="364" stroke="#2848D8" stroke-width="1.2" stroke-dasharray="4,3" />
+        <text x="32" y="386" fill="#14226B" font-size="9" font-family="ui-monospace, monospace" font-weight="900" letter-spacing="0.12em">LEGEND</text>
+        <line x1="112" y1="382" x2="148" y2="382" stroke="#D2381E" stroke-width="2.4" marker-end="url(#st-arr-accent)" />
+        <text x="158" y="386" fill="#D2381E" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif">核心加密媒体流与缓冲枢纽</text>
+        <line x1="348" y1="382" x2="384" y2="382" stroke="#1E7043" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#st-arr-leaf)" />
+        <text x="394" y="386" fill="#1E7043" font-size="10.5" font-weight="800" font-family="system-ui, sans-serif">SRTCP 逆向质量反馈与 SCTP 数据通道</text>
+      </svg>
+    </div>
+  </figure>
+</div>
+
+<!-- 02.2 · 出海弱网抗卡顿四件套与音画同步时钟推导 -->
+<div class="wb-card" id="weak-network-resilience" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🛡️ 02.2 · 弱网对抗：<code>JitterBuffer</code>、<code>NACK vs FEC</code> 适用边界、<code>GCC</code> 拥塞控制与音画同步</div>
+  <h3>🛡️ 02.2 跨国弱网抗抖动机制矩阵与音画同步原理</h3>
+
+  <p>
+    在东南亚、中东、拉美等移动网络波动剧烈的海外市场，UDP 本身不提供任何重传与流控，WebRTC 完全依靠应用层的以下五项协同机制实现「丢包 20% 仍能清晰对话」：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">核心机制</th>
+          <th style="width:22%">生效端与报文类型</th>
+          <th>工作原理与网络适用边界</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 自适应 JitterBuffer</strong><br>（音频 NetEQ / 视频 VCM）</td>
+          <td>接收端内存队列</td>
+          <td>按 RTP 包头的 16 位递增 <code>Sequence Number</code> 排齐乱序到达的数据包并组帧；网络平稳时把缓冲压低至 <code>20~40ms</code> 追求低延迟，抖动剧烈时动态加深缓冲防止断音，音频 NetEQ 还能通过轻微变速播放（加速/慢放 5%）无感消化积压包。</td>
+        </tr>
+        <tr>
+          <td><strong>2. NACK 精准重传</strong><br>(Negative ACK)</td>
+          <td>接收端发 <code>RTCP NACK</code> → 发送端查重传环缓冲重发</td>
+          <td><strong>适用低中 RTT（如 <code>&lt; 150ms</code>）与偶发突发丢包：</strong>零额外带宽浪费（只有真丢了包才补发），但每次重传需要消耗 <code>1 × RTT</code> 往返时间。</td>
+        </tr>
+        <tr>
+          <td><strong>3. FEC 前向纠错</strong><br>(UlpFEC / FlexFEC)</td>
+          <td>发送端主动附加异或 / 矩阵冗余校验包</td>
+          <td><strong>适用跨洲高 RTT（<code>&gt; 200ms</code>）或高频随机丢包：</strong>例如每发 4 个媒体包附带 1 个 XOR 冗余包，路上任丢其中 1 个包，接收端可<strong>零等待当场算出丢失包</strong>，代价是多消耗 15%~25% 上行带宽。</td>
+        </tr>
+        <tr>
+          <td><strong>4. PLI 关键帧恢复</strong><br>(Picture Loss Indication)</td>
+          <td>接收端解码断裂时发送 <code>RTCP PLI / FIR</code></td>
+          <td>若连续丢包超过 NACK/FEC 恢复上限导致 P 帧参考链断裂（画面花屏马赛克），接收端立即发 PLI 通知发送端编码器强制插入一个完整 <code>I 帧</code> 重置参考链。</td>
+        </tr>
+        <tr>
+          <td><strong>5. GCC 拥塞控制</strong><br>(Google Congestion Control)</td>
+          <td>接收端回传 <code>TWCC</code> 到达时间 → 发送端卡尔曼滤波估计</td>
+          <td>无需等待路由器队列溢出丢包才降速，而是监测相邻包组<strong>到达间隔差（Inter-arrival Time Delta）是否持续拉大</strong>：一旦发现路由器排队变长，提前平滑下调视频目标码率、帧率与分辨率，严格遵守<span class="hl-mustard">「极端弱网优先保音频、主动降视频」</span>准则。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong>⏱️ 音画同步（Lip-Sync）时钟锚定原理：</strong><br>
+    音频 RTP 流采用 <code>48kHz</code> 采样时钟，视频 RTP 流采用 <code>90kHz</code> 采样时钟，且视频编码耗时比音频慢得多，单独看各自的 RTP 时间戳无法对齐。发送端会周期性发送 <strong><code>RTCP SR（Sender Report）</code></strong>控制包，包内同时携带「64 位绝对物理墙上时间 <code>NTP Timestamp</code>」与「当前轨道对应的 <code>RTP Timestamp</code>」。接收端据此把音轨和画轨统一换算到同一把 NTP 绝对标尺上，并以<strong>连续不可跳变的音频播放时钟作为主基准（Master Clock）</strong>：视频帧若早到则挂起等待几毫秒再上屏，视频帧若落后过多则跳过非参考帧追赶声音。
+  </div>
+</div>
