@@ -127,6 +127,8 @@
       } <span class="c-kw">else</span> {
         <span class="c-kw">await</span> pc!.<span class="c-fn">addIceCandidate</span>(<span class="c-kw">new</span> <span class="c-fn">RTCIceCandidate</span>(msg.payload));
       }
+    } <span class="c-kw">else if</span> (msg.type === <span class="c-str">'hangup'</span>) {
+      <span class="c-fn">cleanup</span>(<span class="c-kw">true</span>); <span class="c-cm">// 对端挂断同步：立即关闭连接、停掉硬件并清空画面</span>
     }
   }
 
@@ -187,11 +189,17 @@
     isRemoteDescSet = <span class="c-kw">false</span>;
   }
 
+  <span class="c-cm">// 主动挂断：通过 WebSocket 通知对端同步释放资源，随后清理本端连接与摄像头</span>
+  <span class="c-kw">function</span> <span class="c-fn">hangupCall</span>() {
+    <span class="c-fn">sendSignal</span>(<span class="c-str">'hangup'</span>, {});
+    <span class="c-fn">cleanup</span>(<span class="c-kw">true</span>);
+  }
+
   <span class="c-fn">onBeforeUnmount</span>(() =&gt; <span class="c-fn">cleanup</span>(<span class="c-kw">true</span>));
 
   <span class="c-kw">return</span> {
     localStream, remoteStream, connectionState, quality, isMicMuted, isCamOff,
-    startAsCaller, handleSignalMessage, toggleMic, toggleCamera, cleanup,
+    startAsCaller, handleSignalMessage, toggleMic, toggleCamera, hangupCall, cleanup,
   };
 }</code></pre>
   </div>
@@ -230,7 +238,7 @@
 </div>
 
 <!-- 04.3 · 日常联调与上线高频排障清单 -->
-<div class="wb-card" id="rtc-troubleshooting" style="background:var(--plop-paper); margin-bottom:10px;">
+<div class="wb-card" id="rtc-troubleshooting" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
   <div class="chapter-q-pill">🩺 04.3 · 排障手册：前端音视频开发最常遇到的 6 类现象、根因与标准解法</div>
   <h3>🩺 04.3 日常联调与线上排障速查清单</h3>
@@ -277,6 +285,37 @@
         </tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- 04.4 · 全篇收官小结：双人音视频通话五步闭环与速记小贴纸 -->
+<div class="wb-card" id="rtc-full-summary" style="background:var(--plop-paper); margin-bottom:10px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">📌 04.4 · 全篇收官小结：WebRTC + WebSocket 双人音视频通话全链路闭环与速记小贴纸</div>
+  <h3>📌 04.4 双人音视频通话全链路闭环小结（WebRTC + WebSocket）</h3>
+
+  <p>
+    把整篇实战内容浓缩回最核心的一条主线：<strong><code>WebSocket</code> 负责传控制指令</strong>（呼叫、接听、SDP 协商、ICE 候选同步、挂断状态），<strong><code>WebRTC</code> 负责传实时音视频流</strong>，跑通以下五个关键环节即可实现与微信视频通话一致的稳定呼叫、接听与挂断体验：
+  </p>
+
+  <ol style="margin:8px 0 16px; padding-left:20px; font-size:13.5px; line-height:1.72; color:var(--plop-ink-text);">
+    <li><strong>设备采集与连接初始化：</strong>调用 <code>navigator.mediaDevices.getUserMedia</code> 获取本地摄像头与麦克风流，实例化核心连接对象 <code>RTCPeerConnection</code>（配置 <code>STUN</code> 服务器探测公网地址及 <code>TURN</code> 中继保底），并将本地音视频轨道注入连接。</li>
+    <li><strong>SDP 双向连接协商：</strong>呼叫方生成 <code>Offer</code> 设为本地描述后经 WebSocket 发给接听方；接听方收到后<strong>必须先调用 <code>setRemoteDescription(offer)</code> 写入远端参数</strong>，再生成 <code>Answer</code> 设为本地描述并回传；呼叫方最后设置远端 <code>Answer</code>，双方就此对齐音视频编解码格式与加密参数。</li>
+    <li><strong>ICE 候选同步与暂存队列（防时序报错）：</strong>双方将探测到的网络穿透参数（<code>ICE Candidate</code>）通过 WebSocket 实时互发。<strong>注意必须等对端的 <code>Offer / Answer</code> 设置完成后才能调用 <code>addIceCandidate</code></strong>，否则会抛出状态异常（<code>InvalidStateError</code>）；工程上通过维护一个<strong>候选暂存队列</strong>，远端描述未就绪前先缓存，就绪后再批量冲刷添加。</li>
+    <li><strong>远端流渲染上屏：</strong>监听 <code>ontrack</code> 事件拿到对端传来的实时流，挂载到 <code>videoEl.srcObject</code> 完成双向画面与声音互通。</li>
+    <li><strong>通话状态管控与资源回收：</strong>任一方点击挂断（或异常离线）时，通过 WebSocket 发送 <code>hangup</code> 指令同步状态；对端收到后同步执行 <strong><code>pc.close()</code> 关闭连接 → 遍历 <code>track.stop()</code> 停掉摄像头与麦克风硬件 → 清空 <code>videoEl.srcObject = null</code></strong>，避免硬件常亮占用与资源浪费。</li>
+  </ol>
+
+  <!-- 手账图钉小贴纸：版本 B 连贯顺读版 -->
+  <div class="plop-sticky-note" style="margin:16px 0 16px; padding:16px 18px 14px; font-size:13.3px; line-height:1.72; transform:rotate(-0.35deg);">
+    <div class="plop-pin"></div>
+    <div class="sticky-title" style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; font-size:13.8px;">
+      <span>🗒️ 随手速记小贴纸 · 一段话串起全流程</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('rtc-sticky-recap', this)">复制速记</button>
+    </div>
+    <div id="rtc-sticky-recap" style="font-weight:600; color:var(--plop-ink-text);">
+      基于 <code>WebRTC + WebSocket</code> 实现双人实时音视频通话全流程，核心解决<strong>媒体流调度、SDP 协商、ICE 候选同步与通话状态管控</strong>四个问题，跑通呼叫、接听与挂断闭环。整体分工是<strong>靠 WebRTC 传实时音视频、靠 WebSocket 传控制指令</strong>：首先通过 <code>getUserMedia</code> 调起摄像头和麦克风拿到本地流，创建带 <code>STUN / TURN</code> 配置的 <code>RTCPeerConnection</code> 帮设备寻址建连；接着做连接协商，呼叫方生成 <code>Offer</code> 凭证经 WebSocket 发给对方，对方先把 <code>Offer</code> 设为远端参数再生成 <code>Answer</code> 回传，呼叫方再设置远端 <code>Answer</code>，统一双方音视频格式；随后同步 <code>ICE</code> 网络穿透候选，由于必须等对端的 <code>Offer / Answer</code> 设置好才能添加候选否则会报错，因此用<strong>暂存队列</strong>先缓存未就绪时的候选，等远端描述就绪后再批量写入；最后做好状态同步，一方挂断时通过 WebSocket 通知对方，双方同步关闭连接、停掉摄像头麦克风并清空视频画面，避免资源浪费——重点把连接协商与网络穿透适配跑通，整条通话链路就能稳定运行。
+    </div>
   </div>
 
   <div class="plop-callout info" style="margin-bottom:0;">
