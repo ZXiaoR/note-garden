@@ -1,0 +1,353 @@
+<!-- ====================================================================
+     PART 06: 常见业务场景实战 · 8 大真实开发打包、全栈部署与排障闭环
+     ==================================================================== -->
+<div class="wb-sec-header" id="scenarios" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">常见业务场景实战：8 大真实打包、部署与排障闭环</span>
+  <span class="plop-tag tomato">DEV STACK · GO &amp; NODE · SPA NGINX · MULTI-ARCH · DISK CLEANUP</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>直接复用经过生产验证的本地中间件全家桶、Go / Node.js / 前端 SPA 标准 <code>Dockerfile</code>、全栈内网防扫库编排、Mac 跨架构构建命令以及服务器磁盘爆满急救方案。
+</div>
+
+<!-- 06.1 · 本地后端开发中间件一键全家桶（MySQL + Redis + Kafka） -->
+<div class="wb-card" id="sc-dev-stack" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> 06.1 · 本地开发环境一键就绪：MySQL 8.4 + Redis 7.2 + Kafka 3.8 (KRaft) 单文件编排</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> 06.1 本地开发中间件全家桶：一行命令拉起 MySQL + Redis + Kafka</h3>
+
+  <p>
+    <strong>业务需求</strong>：新换一台电脑或拉取电商/社区项目跑本地联调时，需要同时用到 <a href="../mysql/index.html">MySQL</a>、<a href="../redis/index.html">Redis</a> 和 <a href="../mq/index.html">Kafka 消息队列</a>。把下面这份 <code>dev-infra/compose.yaml</code> 存下来，以后任何项目只需敲一行 <code>docker compose up -d</code> 即可在 15 秒内全部就绪：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> dev-infra/compose.yaml · 本地联调三大件标准配置</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-infra', this)">复制 YAML</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-infra"><code><span class="c-kw">name:</span> <span class="c-str">local-infra</span>
+<span class="c-kw">services:</span>
+  <span class="c-fn">mysql:</span>
+    <span class="c-kw">image:</span> <span class="c-str">mysql:8.4</span>
+    <span class="c-kw">ports:</span> [<span class="c-str">"127.0.0.1:3306:3306"</span>]
+    <span class="c-kw">environment:</span>
+      <span class="c-fn">MYSQL_ROOT_PASSWORD:</span> <span class="c-str">Secret_2026</span>
+      <span class="c-fn">MYSQL_DATABASE:</span> <span class="c-str">shop_db</span>
+      <span class="c-fn">TZ:</span> <span class="c-str">Asia/Shanghai</span>
+    <span class="c-kw">command:</span> [<span class="c-str">"--character-set-server=utf8mb4"</span>, <span class="c-str">"--collation-server=utf8mb4_0900_ai_ci"</span>]
+    <span class="c-kw">volumes:</span> [<span class="c-str">"mysql_data:/var/lib/mysql"</span>]
+
+  <span class="c-fn">redis:</span>
+    <span class="c-kw">image:</span> <span class="c-str">redis:7.2-alpine</span>
+    <span class="c-kw">ports:</span> [<span class="c-str">"127.0.0.1:6379:6379"</span>]
+    <span class="c-kw">command:</span> [<span class="c-str">"redis-server"</span>, <span class="c-str">"--appendonly"</span>, <span class="c-str">"yes"</span>]
+    <span class="c-kw">volumes:</span> [<span class="c-str">"redis_data:/data"</span>]
+
+  <span class="c-fn">kafka:</span>
+    <span class="c-kw">image:</span> <span class="c-str">apache/kafka:3.8.0</span>
+    <span class="c-kw">ports:</span> [<span class="c-str">"127.0.0.1:9092:9092"</span>]
+    <span class="c-kw">environment:</span>
+      <span class="c-fn">KAFKA_NODE_ID:</span> <span class="c-num">1</span>
+      <span class="c-fn">KAFKA_PROCESS_ROLES:</span> <span class="c-str">broker,controller</span>
+      <span class="c-fn">KAFKA_LISTENERS:</span> <span class="c-str">PLAINTEXT://:9092,CONTROLLER://:9093</span>
+      <span class="c-fn">KAFKA_ADVERTISED_LISTENERS:</span> <span class="c-str">PLAINTEXT://localhost:9092</span>
+      <span class="c-fn">KAFKA_CONTROLLER_LISTENER_NAMES:</span> <span class="c-str">CONTROLLER</span>
+      <span class="c-fn">KAFKA_CONTROLLER_QUORUM_VOTERS:</span> <span class="c-str">1@localhost:9093</span>
+      <span class="c-fn">KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR:</span> <span class="c-num">1</span>
+
+<span class="c-kw">volumes:</span>
+  <span class="c-fn">mysql_data:</span>
+  <span class="c-fn">redis_data:</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 关键细节与常见坑</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong>为什么端口写成 <code>127.0.0.1:3306:3306</code> 而不是 <code>3306:3306</code>？</strong>只写 <code>3306:3306</code> 等同于 <code>0.0.0.0:3306:3306</code>——你在咖啡厅连公共 Wi-Fi 时，局域网里的其他人也能直接扫到你的测试数据库端口！加上 <code>127.0.0.1:</code> 仅允许本机回环访问，安全得多。</li>
+        <li><strong>平时不写代码时怎么省内存？</strong>敲 <code>docker compose stop</code> 即可暂停释放全部内存，下次敲 <code>docker compose start</code> 2 秒恢复且数据全在。</li>
+      </ul>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:10px 0 0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong><code>0.0.0.0</code> 与 <code>127.0.0.1</code> 端口绑定在内核 NAT 表上有何区别？详见 <a href="principles.html#iptables-nat">《核心原理篇 · 03.2 iptables DNAT 端口转发》</a>。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.2 · Go 后端服务生产级容器化打包 -->
+<div class="wb-card" id="sc-go-app" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 06.2 · Go 服务生产镜像：CGO 静态编译 + HTTPS 根证书 + 时区 + 非 root 用户（~24MB）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 06.2 <a href="../go/index.html">Go</a> 后端服务生产级 <code>Dockerfile</code> 模板</h3>
+
+  <p>
+    <strong>业务需求</strong>：将 Go HTTP 服务打包成轻量安全的生产镜像，避免上线后调微信支付 HTTPS 接口报证书错误、打日志时间慢 8 小时或以高危 <code>root</code> 身份裸跑。
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> Dockerfile (Go 1.23 多阶段构建标准模板)</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-go', this)">复制 Dockerfile</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-go"><code><span class="c-cm"># ========= 阶段一：编译静态二进制 =========</span>
+<span class="c-kw">FROM</span> golang:1.23-alpine <span class="c-kw">AS</span> builder
+<span class="c-kw">WORKDIR</span> /src
+<span class="c-kw">ENV</span> GOPROXY=https://goproxy.cn,direct
+
+<span class="c-cm"># 先单独拷 go.mod/go.sum 下载依赖，充分利用层缓存</span>
+<span class="c-kw">COPY</span> go.mod go.sum ./
+<span class="c-kw">RUN</span> go mod download
+
+<span class="c-cm"># 再拷源码，关闭 CGO 编译纯静态二进制，-ldflags="-s -w" 剥离调试符号减小体积</span>
+<span class="c-kw">COPY</span> . .
+<span class="c-kw">RUN</span> CGO_ENABLED=0 GOOS=linux go build -ldflags=<span class="c-str">"-s -w"</span> -o /out/server ./cmd/server
+
+<span class="c-cm"># ========= 阶段二：极简安全运行镜像 =========</span>
+<span class="c-kw">FROM</span> alpine:3.20
+<span class="c-cm"># 必装 ca-certificates（调外部 HTTPS 必需）与 tzdata（东八区时区必需）</span>
+<span class="c-kw">RUN</span> apk --no-cache add ca-certificates tzdata \
+    &amp;&amp; adduser -D -u 10001 appuser
+<span class="c-kw">ENV</span> TZ=Asia/Shanghai
+
+<span class="c-kw">WORKDIR</span> /app
+<span class="c-kw">COPY</span> --from=builder /out/server /app/server
+<span class="c-kw">USER</span> appuser
+<span class="c-kw">EXPOSE</span> 8080
+<span class="c-kw">ENTRYPOINT</span> [<span class="c-str">"/app/server"</span>]</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> Go 容器化的 3 个经典线上坑</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong>漏关 <code>CGO_ENABLED=0</code> 报 <code>not found</code></strong>：如果在 Debian 构建阶段没设 <code>CGO_ENABLED=0</code>，编出的二进制会动态链接 <code>glibc</code>，拷进 <code>alpine</code>（只有 <code>musl</code>）启动会匪夷所思地报 <code>exec /app/server: no such file or directory</code>。</li>
+        <li><strong>漏装 <code>ca-certificates</code></strong>：精简镜像默认没有根证书库，任何向外发起的 HTTPS 请求都会报 <code>x509: certificate signed by unknown authority</code>。</li>
+        <li><strong>漏装 <code>tzdata</code></strong>：只写 <code>ENV TZ=Asia/Shanghai</code> 却没装时区数据包，<code>time.LoadLocation</code> 依然找不到东八区回退到 UTC。</li>
+      </ul>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:10px 0 0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>容器设置了 <code>--cpus=2</code> 后，Go 进程里的 <code>GOMAXPROCS</code> 怎么感知配额？详见 <a href="principles.html#cgroups-v2">《核心原理篇 · 01.2 Cgroups 运行时感知》</a>。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.3 · Node.js (Fastify / TS) 服务生产级容器化打包 -->
+<div class="wb-card" id="sc-node-app" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> 06.3 · Node.js / TypeScript 生产镜像：剔除 devDependencies + 非 root 运行 + 信号直达</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> 06.3 <a href="../node/index.html">Node.js</a> (TypeScript) 服务生产级 <code>Dockerfile</code> 模板</h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> Dockerfile (Node 22 LTS + TypeScript 多阶段模板)</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-node', this)">复制 Dockerfile</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-node"><code><span class="c-cm"># ========= 阶段一：安装全量依赖并把 TS 编译为 JS =========</span>
+<span class="c-kw">FROM</span> node:22-bookworm-slim <span class="c-kw">AS</span> builder
+<span class="c-kw">WORKDIR</span> /app
+<span class="c-kw">COPY</span> package.json package-lock.json ./
+<span class="c-kw">RUN</span> npm ci
+<span class="c-kw">COPY</span> tsconfig.json ./
+<span class="c-kw">COPY</span> src ./src
+<span class="c-kw">RUN</span> npm run build
+
+<span class="c-cm"># ========= 阶段二：生产运行镜像（仅保留运行期依赖与 dist 产物） =========</span>
+<span class="c-kw">FROM</span> node:22-bookworm-slim
+<span class="c-kw">ENV</span> NODE_ENV=production TZ=Asia/Shanghai
+<span class="c-kw">WORKDIR</span> /app
+
+<span class="c-kw">COPY</span> package.json package-lock.json ./
+<span class="c-kw">RUN</span> npm ci --omit=dev &amp;&amp; npm cache clean --force
+<span class="c-kw">COPY</span> --from=builder /app/dist ./dist
+
+<span class="c-cm"># 直接使用官方镜像内置的低权限账号 node，并直接启动 node 而非 npm start！</span>
+<span class="c-kw">USER</span> node
+<span class="c-kw">EXPOSE</span> 3000
+<span class="c-kw">CMD</span> [<span class="c-str">"node"</span>, <span class="c-str">"dist/server.js"</span>]</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 为什么最后一行的 <code>CMD</code> 千万别写 <code>["npm", "start"]</code>？</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong><code>npm</code> 不会完整转发优雅停机信号</strong>：如果用 <code>npm start</code> 做 <code>PID 1</code>，执行 <code>docker stop</code> 时系统发来的 <code>SIGTERM</code> 被外层 <code>npm</code> 拦下，里面的 <code>node</code> 代码里写的 <code>process.on('SIGTERM', ...)</code> 收不到通知，无法排空正在处理的订单请求，只能干等 10 秒被强制杀死！直接写 <code>["node", "dist/server.js"]</code> 最干净。</li>
+        <li><strong>用 <code>npm ci</code> 代替 <code>npm install</code></strong>：<code>npm ci</code> 严格按 <code>package-lock.json</code> 确定性安装，锁文件不一致立即报错，保证本地与线上依赖版本分毫不差。</li>
+      </ul>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:10px 0 0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>为什么容器内 <code>PID 1</code> 进程在 Linux 内核里的信号行为很特殊？详见 <a href="principles.html#six-namespaces">《核心原理篇 · 00.2 PID Namespace 与信号规则》</a>。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.4 · 前端 SPA (React / Vue) 构建 + Nginx 托管与反向代理 -->
+<div class="wb-card" id="sc-spa-nginx" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 06.4 · 前端单页应用部署：Node 打包 dist + Nginx 托管（防 History 路由刷新 404 与 /api 反代）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 06.4 前端 SPA (React / Vue) + Nginx 反向代理一键打包</h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> Dockerfile · 前端构建并封装进 25MB Nginx 镜像</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-spa-df', this)">复制 Dockerfile</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-spa-df"><code><span class="c-kw">FROM</span> node:22-bookworm-slim <span class="c-kw">AS</span> builder
+<span class="c-kw">WORKDIR</span> /web
+<span class="c-kw">COPY</span> package.json package-lock.json ./
+<span class="c-kw">RUN</span> npm ci
+<span class="c-kw">COPY</span> . .
+<span class="c-kw">RUN</span> npm run build
+
+<span class="c-kw">FROM</span> nginx:1.27-alpine
+<span class="c-cm"># 拷入自定义 Nginx 配置与构建好的纯静态资源 dist/</span>
+<span class="c-kw">COPY</span> nginx.conf /etc/nginx/conf.d/default.conf
+<span class="c-kw">COPY</span> --from=builder /web/dist /usr/share/nginx/html
+<span class="c-kw">EXPOSE</span> 80</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> nginx.conf · History 路由兜底与容器内网 /api 反代</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-nginx', this)">复制配置</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-nginx"><code><span class="c-kw">server</span> {
+  <span class="c-fn">listen</span> <span class="c-num">80</span>;
+  <span class="c-fn">root</span> /usr/share/nginx/html;
+  <span class="c-fn">index</span> index.html;
+
+  <span class="c-cm"># 1. 前端路由兜底：访问 /orders/123 找不到物理文件时回退给 index.html，防刷新 404</span>
+  <span class="c-kw">location</span> / {
+    <span class="c-fn">try_files</span> $uri $uri/ /index.html;
+  }
+
+  <span class="c-cm"># 2. 同域反向代理后端容器 api:8080，彻底免除浏览器 CORS 跨域配置</span>
+  <span class="c-kw">location</span> /api/ {
+    <span class="c-fn">proxy_pass</span> http://api:8080;
+    <span class="c-fn">proxy_set_header</span> Host $host;
+    <span class="c-fn">proxy_set_header</span> X-Real-IP $remote_addr;
+  }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 06.5 · 全栈一栈式安全编排（防数据库暴露公网大坑） -->
+<div class="wb-card" id="sc-fullstack" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.5 · 单机生产安全防线：全栈编排只暴露 Nginx 80/443，严防 -p 绕过 ufw 防火墙</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.5 全栈上线编排：数据库内网隐藏与 <code>ufw</code> 防火墙大坑</h3>
+
+  <p>
+    <strong>高发线上安全事故</strong>：许多开发者在 Ubuntu 云服务器上开了 <code>ufw allow 80,443</code> 防火墙，以为 <code>3306 / 6379</code> 已经被挡住了，于是放心写了 <code>ports: ["3306:3306"]</code>——结果第二天数据库就被公网扫描器勒索了！原因是：<strong>Docker 的 <code>-p</code> 端口映射会直接操作内核更早执行的 <code>iptables PREROUTING (DNAT)</code> 链，直接绕过宿主机 <code>ufw</code> 的 <code>INPUT</code> 过滤规则向全公网敞开大门！</strong>
+  </p>
+  <p>
+    <strong>生产全栈编排黄金准则</strong>：整份生产 <code>compose.yaml</code> 里，<strong>只有最外层的入口网关（Nginx / Caddy）配置 <code>ports: ["80:80", "443:443"]</code></strong>；里面的 <code>api</code>、<code>mysql</code>、<code>redis</code> <strong>一律不写 <code>ports:</code></strong>（它们在 Compose 内网里照常按服务名互通，若运维偶尔需要本机调试数据库，最多写成 <code>127.0.0.1:3306:3306</code> 再走 SSH 隧道连接）。
+  </p>
+</div>
+
+<!-- 06.6 · Mac Apple Silicon 跨架构构建报 exec format error -->
+<div class="wb-card" id="sc-multiarch" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cpu"></use></svg> 06.6 · 跨芯片架构发版：解决 Mac M1~M4 (arm64) 镜像推到云服务器 (amd64) 报 exec format error</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cpu"></use></svg> 06.6 解决跨架构报错 <code>exec format error</code>：Buildx 多架构构建</h3>
+
+  <p>
+    <strong>业务需求</strong>：你在 Apple Silicon Mac（<code>linux/arm64</code> 架构）本机执行 <code>docker build</code> 打好镜像推上仓库，到阿里云 <code>x86_64</code> 服务器（<code>linux/amd64</code> 架构）拉下来一跑立刻秒退报错：<code>exec /app/server: exec format error</code>。这是因为默认打出的镜像指令集架构跟构建机器一致，CPU 指令集不兼容！用内置的 <strong><code>docker buildx</code></strong> 指定目标平台即可一键解决：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:0;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> multiarch_build.sh · 在 Mac 上构建 Linux x86_64 或双架构通用镜像</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-buildx', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-buildx"><code><span class="c-cm"># 方式 A：明确只给线上 x86_64 Linux 服务器使用（构建并加载到本地或直接 --push）</span>
+<span class="c-fn">docker</span> <span class="c-kw">buildx build</span> <span class="c-flag">--platform</span> <span class="c-str">linux/amd64</span> <span class="c-flag">-t</span> <span class="c-str">registry.example.com/team/api:v1.2.0</span> <span class="c-flag">--push</span> .
+
+<span class="c-cm"># 方式 B（团队推荐）：同时构建 amd64 + arm64 双架构 Manifest 清单推上仓库</span>
+<span class="c-cm"># 此后无论 Mac 开发机还是 x86 云服务器执行 docker pull，都会自动匹配拉取对应架构层！</span>
+<span class="c-fn">docker</span> <span class="c-kw">buildx create</span> <span class="c-flag">--name</span> <span class="c-str">multi-builder</span> <span class="c-flag">--use</span>  <span class="c-cm"># 首次创建一次多架构构建器即可</span>
+<span class="c-fn">docker</span> <span class="c-kw">buildx build</span> <span class="c-flag">--platform</span> <span class="c-str">linux/amd64,linux/arm64</span> \
+  <span class="c-flag">-t</span> <span class="c-str">registry.example.com/team/api:v1.2.0</span> <span class="c-flag">--push</span> .</code></pre>
+  </div>
+</div>
+
+<!-- 06.7 · 线上服务器磁盘 100% 排障与安全清理 -->
+<div class="wb-card" id="sc-disk-full" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 06.7 · 磁盘告警急救：No space left on device 定位三板斧与安全清理日志</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 06.7 服务器报 <code>No space left on device</code> 怎么快速定位与止血</h3>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> disk_rescue.sh · 先查谁占了空间，再针对性无损释放</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-disk', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-disk"><code><span class="c-cm"># 1. 一眼看清是镜像、容器、数据卷还是 BuildKit 构建缓存吃满了磁盘</span>
+<span class="c-fn">docker</span> <span class="c-kw">system df</span>
+
+<span class="c-cm"># 2. 清理所有无用的停止容器、未引用网络、悬空镜像与过期构建缓存（绝不触碰运行中容器与 Volume 数据卷）</span>
+<span class="c-fn">docker</span> <span class="c-kw">system prune</span> <span class="c-flag">-f</span>
+<span class="c-fn">docker</span> <span class="c-kw">builder prune</span> <span class="c-flag">-f</span>
+
+<span class="c-cm"># 3. 如果 docker system df 没占多少，但 /var/lib/docker 依然有 100GB，</span>
+<span class="c-cm">#    99% 是某个没配日志轮转的容器打出了几十 GB 的 *-json.log！揪出大日志并在线截断清空：</span>
+<span class="c-fn">sudo</span> <span class="c-fn">du</span> <span class="c-flag">-sh</span> /var/lib/docker/containers/*/*-json.log | <span class="c-fn">sort</span> <span class="c-flag">-hr</span> | <span class="c-fn">head</span> <span class="c-flag">-n</span> <span class="c-num">5</span>
+<span class="c-cm"># 【注意】严禁直接 rm 正在被 dockerd 打开的日志文件（空间不会释放），必须用 truncate 置零：</span>
+<span class="c-fn">sudo</span> <span class="c-fn">truncate</span> <span class="c-flag">-s</span> <span class="c-num">0</span> /var/lib/docker/containers/&lt;容器长ID&gt;/&lt;容器长ID&gt;-json.log</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 为什么直接 <code>rm</code> 大日志文件磁盘还是 100%？</div>
+      <p style="margin:0; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
+        Linux 文件系统中，只要后台 <code>dockerd</code> 进程还持有该日志文件的打开文件描述符（File Descriptor），执行 <code>rm</code> 只是删掉了目录项链接，磁盘物理块并不会释放（直到重启容器或重启 Docker）。而使用 <strong><code>truncate -s 0</code></strong> 直接把原文件长度截断为 0 字节，无需重启容器即可在 1 秒内把几十 GB 磁盘空间立刻归还给操作系统！止血后记得补上 <code>07.3</code> 的日志轮转配置治本。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.8 · 单机生产发版更新与 10 秒紧急回滚 -->
+<div class="wb-card" id="sc-rollout" style="background:var(--plop-paper);">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 06.8 · 单机生产发布SOP：基于不可变版本 Tag 的更新与 10 秒一键回退</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 06.8 单机生产发版更新与 10 秒快速回滚</h3>
+
+  <div class="plop-code-box" style="margin-bottom:16px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> deploy_rollback.sh · compose.yaml 引用 APP_TAG 变量实现秒级发版与回退</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rollout', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-rollout"><code><span class="c-cm"># 在 compose.yaml 中将业务镜像写为：image: registry.example.com/team/api:${APP_TAG:-v1.2.0}</span>
+
+<span class="c-cm"># 1. 发版 v1.3.0：先提前 pull 新镜像（下载期间旧容器照常对外服务，停机窗口缩短到 1 秒内！）</span>
+<span class="c-kw">export</span> APP_TAG=v1.3.0
+<span class="c-fn">docker</span> <span class="c-kw">compose pull</span> api
+<span class="c-fn">docker</span> <span class="c-kw">compose up</span> <span class="c-flag">-d</span> <span class="c-flag">--no-deps</span> api
+
+<span class="c-cm"># 2. 万一上线发现 v1.3.0 有严重 Bug，因本地仍缓存着上一版镜像，切回版本号 2 秒完成回滚：</span>
+<span class="c-kw">export</span> APP_TAG=v1.2.0
+<span class="c-fn">docker</span> <span class="c-kw">compose up</span> <span class="c-flag">-d</span> <span class="c-flag">--no-deps</span> api</code></pre>
+  </div>
+
+  <h4 id="quiz-06" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. Go 项目在 Debian 镜像里 <code>go build</code> 编出二进制拷进 <code>alpine</code> 运行，文件明明在 <code>/app/server</code> 且有 <code>x</code> 权限，启动却报 <code>no such file or directory</code>，为什么？</span></summary>
+    <div class="drawer-body">
+      <p>Linux 内核在加载动态链接可执行文件时，如果找不到它头部声明的动态链接器（Debian 编出的默认找 <code>/lib64/ld-linux-x86-64.so.2</code>，而 Alpine 只有 <code>musl</code>），报出的错误文案正是极具迷惑性的 <code>no such file or directory</code>！编译时加上 <code>CGO_ENABLED=0</code> 生成无外部 C 库依赖的纯静态二进制即可解决。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 云服务器已经在系统里跑了 <code>ufw enable</code> 只放行了 22 和 80 端口，紧接着同事跑了 <code>docker run -d -p 6379:6379 redis:7.2</code>（没设密码），这个 Redis 在公网能被连上吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>能被全公网直接免密连上！</strong>因为 Docker <code>-p 6379:6379</code> 写入的是 <code>iptables nat PREROUTING</code> 和 <code>DOCKER</code> 转发链，数据包还没走到 <code>ufw</code> 所在的 <code>INPUT</code> 链就已经被直接转发进了 Redis 容器。内网组件要么不加 <code>-p</code>，要么严格绑定本机回环 <code>-p 127.0.0.1:6379:6379</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 发版时为什么推荐先单独敲 <code>docker compose pull api</code> 下好新镜像，再敲 <code>docker compose up -d api</code>？</span></summary>
+    <div class="drawer-body">
+      <p>如果新镜像有 300 MB、网络下载要 40 秒，先 <code>pull</code> 可以保证下载全程旧容器毫发无损继续处理线上请求，随后 <code>up -d</code> 只需花不到 1 秒完成旧停新起切换，把单机更新闪断缩到最短。</p>
+    </div>
+  </details>
+</div>

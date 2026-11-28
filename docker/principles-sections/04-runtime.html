@@ -1,0 +1,110 @@
+<!-- ====================================================================
+     PART 04: OCI 运行时与安全沙箱：containerd-shim、runc、Capabilities 与 Seccomp
+     ==================================================================== -->
+<div class="wb-sec-header" id="runtime" style="background:var(--plop-bubblegum);">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">OCI 运行时与安全沙箱：containerd-shim、runc、Capabilities 与 Seccomp</span>
+  <span class="plop-tag periwinkle">CONTAINERD-SHIM × RUNC × PIVOT_ROOT × CAPABILITIES × SECCOMP</span>
+</div>
+
+<!-- 04.1 · dockerd -> containerd -> containerd-shim -> runc 调用链职责拆解 -->
+<div class="wb-card" id="shim-runc" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 04.1 · 运行时拆解：为什么宿主机 ps 里每个容器都跟着一个 containerd-shim，却看不见 runc？</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 04.1 containerd-shim 垫片机制与 runc 一次性启动原理 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#qs-first-run">实战篇 01.2</a> 与 <a href="index.html#sc-rollout">06.8</a> —— 敲下 <code>docker run</code> 背后经历了哪些进程接力？为什么升级或重启 <code>dockerd</code> 守护进程时可以做到不杀掉线上正在跑的业务容器？以及为什么 Kubernetes 1.24 宣布“弃用 dockershim”后大家打的 Docker 镜像照样在 K8s 上无缝运行？
+  </p>
+
+  <p>
+    在宿主机上执行 <code>ps -ef --forest | grep -A 3 containerd-shim</code>，你会发现一个反直觉的现象：真正干脏活创建容器的底层运行时 <code>runc</code> 根本不在进程树里，取而代之的是<strong>每一个运行中的容器头顶都挂着一个专属的父进程 <code>containerd-shim-runc-v2</code></strong>。整套五级分工各有精确边界：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">组件名称</th>
+          <th style="width:18%">生命周期</th>
+          <th>核心职责与解耦收益</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. <code>docker CLI</code></strong></td>
+          <td>命令执行完即退</td>
+          <td>纯客户端，把命令行参数拼装成 HTTP REST 请求发往 <code>/var/run/docker.sock</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>2. <code>dockerd</code></strong></td>
+          <td>全局单实例常驻</td>
+          <td>Docker 高层守护进程：负责对外暴露 API、管理 Docker 网络（<code>docker0</code>/DNS）、管理数据卷与触发 BuildKit 构建，把真正的容器启停与镜像拉取委托给下层 <code>containerd</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>3. <code>containerd</code></strong></td>
+          <td>全局单实例常驻</td>
+          <td>CNCF 毕业的工业级高层容器运行时：负责拉取 OCI 镜像层、管理快照存储。<strong>Kubernetes 1.24+ 弃用 dockershim 后，正是让节点上的 <code>kubelet</code> 跳过 <code>dockerd</code> 直接通过 CRI（Container Runtime Interface，容器运行时接口）调 <code>containerd</code></strong>——因为 Docker 构建出来的镜像严格遵守 OCI 开放标准，K8s 照样原生运行，零兼容性影响。</td>
+        </tr>
+        <tr>
+          <td><strong>4. <code>containerd-shim</code></strong></td>
+          <td><strong>每容器 1 个常驻</strong><br>（内存仅数 MB）</td>
+          <td><strong>垫片父进程（架构精髓）</strong>，承担三大不可替代职责：<br>① <strong>保持标准流管道打开</strong>：替后台（<code>-d</code>）容器持续持有 <code>stdin / stdout / stderr</code> 文件描述符，哪怕上层 <code>dockerd</code> 或 <code>containerd</code> 崩溃重启，容器写日志也不会收到 <code>SIGPIPE</code> 崩溃（支撑 <code>"live-restore": true</code> 无损热升级）；<br>② <strong>允许 <code>runc</code> 跑完即退</strong>：避免每个容器常驻一个较重的 Go 运行时进程；<br>③ <strong>收集退出状态码</strong>：通过 <code>prctl(PR_SET_CHILD_SUBREAPER)</code> 担任子进程收割者，容器主进程退出时精准拿到 Exit Code 回报给 <code>containerd</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>5. <code>runc</code></strong></td>
+          <td><strong>创完容器即退出</strong></td>
+          <td>OCI Runtime Spec 标准参考实现。读取 <code>config.json</code>，调用 <code>clone()</code> 建 Namespace、把子进程写入 Cgroups、调 <code>pivot_root</code> 切换根文件系统、加载 Seccomp/Capabilities 策略，最后 <code>execve()</code> 变身为你的业务进程（如 <code>nginx</code>），<code>runc</code> 引导控制进程随即功成身退。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 04.2 · pivot_root vs chroot、Linux Capabilities 裁剪与 Seccomp 系统调用过滤 -->
+<div class="wb-card" id="seccomp-caps" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.2 · 安全防线：为什么默认容器里的 root 用户既改不了系统时间也挂不了宿主机磁盘？</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.2 pivot_root 切根、Capabilities 权能裁剪与 Seccomp 拦截 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#prod-security">实战篇 07.1</a> —— 既然默认容器内显示自己是 <code>uid=0(root)</code>，为什么在里面敲 <code>date -s</code> 改时间或 <code>mount /dev/sda1</code> 挂宿主机硬盘会报 <code>Operation not permitted</code>，而一旦加上 <code>--privileged</code> 就等于交出整台宿主机控制权？
+  </p>
+
+  <p>
+    因为共享同一个 Linux 内核，光靠 Namespace 遮住视线远远不够挡住内核级破坏。<code>runc</code> 在把控制权交给容器进程前，依次叠加了三道纵深安全闸门：
+  </p>
+
+  <ol>
+    <li>
+      <strong>第一道闸：用 <code>pivot_root</code> 替代古老的 <code>chroot</code> 切换根目录</strong><br>
+      很多入门资料误以为容器用 <code>chroot</code> 隔离文件系统——实际上 <code>chroot</code> 只是修改当前进程路径解析的起始点，整个宿主机根挂载树依然挂在当前命名空间里，拥有 <code>root</code> 权限的进程只需几行 C 代码利用文件描述符切换就能轻松实现 <code>chroot</code> 逃逸。<code>runc</code> 真正使用的是在独立 <code>Mount Namespace</code> 内调用 <strong><code>pivot_root(new_root, put_old)</code></strong>，把整个挂载命名空间的根切换到 <code>overlay2</code> 的 <code>merged</code> 目录，随后立即调用 <code>umount2(put_old, MNT_DETACH)</code> <strong>将旧的宿主机根文件系统彻底卸载剥离</strong>，从根源斩断路径回溯。
+    </li>
+    <li style="margin-top:8px;">
+      <strong>第二道闸：<code>Linux Capabilities（内核权能细分）</code> 剥夺超级管理员特权</strong><br>
+      自 Linux 2.2 起，内核将过去无所不能的 <code>root (UID 0)</code> 拆解成了 40 余项细粒度的独立权能开关。<strong>Docker 默认容器即使以 <code>root</code> 运行，也只保留了绑定低位端口（<code>CAP_NET_BIND_SERVICE</code>）、修改文件属主（<code>CAP_CHOWN</code>）等 14 项基础权能</strong>，默认直接剥夺了：
+      <ul>
+        <li><code>CAP_SYS_TIME</code>（修改宿主机全局内核时钟 —— 因为内核时间未默认按容器隔离，改了全机容器跟着错乱）；</li>
+        <li><code>CAP_SYS_MODULE</code>（加载/卸载内核驱动模块 <code>insmod</code> —— 一旦放开可直接注入内核 Rootkit）；</li>
+        <li><code>CAP_SYS_ADMIN</code>（挂载文件系统 <code>mount</code>、操作命名空间等高危总开关）；</li>
+        <li><code>CAP_NET_ADMIN</code>（修改网卡路由表、抓包篡改宿主机/容器网络配置）。</li>
+      </ul>
+      加固最佳实践：生产无状态 Web 服务完全可以进一步执行 <code>--cap-drop=ALL --security-opt=no-new-privileges:true</code> 把剩余 14 项也全部卸掉；如果某个网络工具仅需改路由，按需最小授予 <code>--cap-add=NET_ADMIN</code>，<strong>绝不要图省事开 <code>--privileged</code></strong>（<code>--privileged</code> 会一次性把全部 40+ 项 Capabilities 全开、关闭 AppArmor/Seccomp，并把宿主机磁盘块设备 <code>/dev/sda*</code> 原样映射进容器，容器内两行 <code>mkdir /mnt/host &amp;&amp; mount /dev/sda1 /mnt/host</code> 即可读写宿主机 <code>/etc/shadow</code> 与 SSH 公钥）。
+    </li>
+    <li style="margin-top:8px;">
+      <strong>第三道闸：<code>Seccomp（Secure Computing Mode，安全计算模式）</code> 系统调用白名单过滤</strong><br>
+      Linux x86_64 内核暴露了 300 多个系统调用（Syscall），普通业务程序一辈子只用得到其中几十个，而历年内核提权漏洞往往出在生僻系统调用上。Docker 默认为每个容器挂载一份基于 <code>BPF（Berkeley Packet Filter，伯克利包过滤器）</code> 的默认 Seccomp 配置文件，在内核态入口处<strong>直接拦截禁止 <code>reboot</code>、<code>swapon</code>、<code>kexec_load</code>、<code>unshare</code>、<code>keyctl</code>、<code>bpf</code>、<code>perf_event_open</code> 等 40 多个高危系统调用</strong>（返回 <code>EPERM</code>），将内核受攻击面压缩到最小。
+    </li>
+  </ol>
+
+  <div class="code-block" style="margin:12px 0 0;">
+    <div class="code-header">
+      <span class="code-lang">bash · 在容器内验证当前进程的 Capabilities 位掩码与 Seccomp 开启状态</span>
+      <button class="copy-btn" onclick="copyText('code-sec-status', this)">复制</button>
+    </div>
+    <pre id="code-sec-status"><code># 查看容器 PID 1 的内核安全状态（Seccomp: 2 代表开启 BPF 过滤模式；CapEff 非全 f 代表特权已裁剪）
+docker exec my-nginx grep -E 'CapEff|Seccomp|NoNewPrivs' /proc/1/status
+# NoNewPrivs: 0
+# Seccomp:    2
+# CapEff:     00000000a80425fb   &lt;-- 若是 --privileged 容器，此处将变成危险的 000001ffffffffff</code></pre>
+  </div>
+</div>

@@ -1,0 +1,200 @@
+<!-- ====================================================================
+     PART 08: 场景自测 · 10 道真实容器排障题与 15 题一句话速记表
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="quiz">
+  <span class="wb-sec-num">08</span>
+  <span class="wb-sec-title">场景自测：10 道真实容器排障题与 15 题一句话速记表</span>
+  <span class="plop-tag tomato">10 TROUBLESHOOTING QUIZZES · 15 ONE-LINE CHEAT SHEET · SOURCES</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 怎么用本章复习：</strong>先遮住答案独立思考“报错根因是什么、敲哪条命令查、改哪行配置修”，再点击展开对照解析。
+</div>
+
+<!-- 08.1 · 10 道综合实战与排障题（默认折叠） -->
+<div class="wb-card" id="self-check" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 08.1 · 实战闭卷检验：10 道最高频开发打包与线上排障题（点击展开解析）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 08.1 综合场景自测 10 题</h3>
+
+  <div class="wb-grid-2">
+    <div>
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">01. 把后端代码打成容器后，连同一台机器上的 MySQL 容器报 <code>connect ECONNREFUSED 127.0.0.1:3306</code>，怎么解决？如果是连宿主机上没容器化的老数据库呢？</span></summary>
+        <div class="drawer-body">
+          <p><strong>报错根因</strong>：每个容器有独立的网络命名空间，容器里写 <code>127.0.0.1</code> 指的是业务容器自己。<br>
+          ① <strong>连旁边的 MySQL 容器</strong>：放进同一个自定义 Bridge 网络（或同一份 <code>compose.yaml</code>），连接地址改为 <strong><code>mysql容器名:3306</code></strong>；<br>
+          ② <strong>连宿主机裸跑的服务</strong>：地址填 <strong><code>host.docker.internal:3306</code></strong>（Linux 宿主机需在启动容器时补加 <code>--add-host=host.docker.internal:host-gateway</code>）（回顾 <a href="#networks">03.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">02. 在 MacBook (M3 芯片) 上 <code>docker build</code> 打出的镜像本地跑得好好的，推到阿里云 ECS (x86_64) 上一启动立刻退出报 <code>exec format error</code>，怎么修？</span></summary>
+        <div class="drawer-body">
+          <p><strong>根因</strong>：Apple Silicon Mac 默认构建出的是 <code>linux/arm64</code> 架构镜像，无法在 <code>x86_64 (linux/amd64)</code> CPU 上执行。<br>
+          <strong>修法</strong>：改用 <code>docker buildx build --platform linux/amd64,linux/arm64 -t 仓库/镜像:版本号 --push .</code> 构建双架构镜像（或指定 <code>--platform linux/amd64</code>）（回顾 <a href="#sc-multiarch">06.6</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">03. 每次只改了一行 JS/Go 业务代码，执行 <code>docker build</code> 却都要重新花 3 分钟下载一遍全部第三方依赖包，Dockerfile 哪写错了？</span></summary>
+        <div class="drawer-body">
+          <p><strong>错在把 <code>COPY . .</code> 写在了装依赖指令（<code>npm ci</code> / <code>go mod download</code>）的前面</strong>，导致任何源码改动都击穿了依赖安装层的构建缓存。<br>
+          <strong>修法</strong>：① 先只 <code>COPY package.json package-lock.json ./</code>（或 <code>go.mod go.sum</code>）；② 执行 <code>RUN npm ci</code>；③ 最后再 <code>COPY . .</code> 拷源码，并配齐 <code>.dockerignore</code> 排除 <code>.git</code> 与 <code>node_modules</code>（回顾 <a href="#df-cache">04.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">04. 第一次执行 <code>docker compose up -d</code> 时，虽然写了 <code>depends_on: [mysql]</code>，但后端容器还是因连不上数据库报错退出了，怎么彻底解决？</span></summary>
+        <div class="drawer-body">
+          <p>普通列表式 <code>depends_on</code> 只等 <code>mysql</code> 容器进程启动（<code>service_started</code>），不等里面的 <code>mysqld</code> 完成初始化开口监听端口。<br>
+          <strong>标准解法</strong>：给 <code>mysql</code> 服务配置 <code>healthcheck</code>（<code>mysqladmin ping</code>），并在后端服务的 <code>depends_on</code> 中声明 <strong><code>condition: service_healthy</code></strong>，同时给后端配 <code>restart: unless-stopped</code> 双重兜底（回顾 <a href="#compose-yaml">05.1</a> / <a href="#compose-healthcheck">05.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">05. Go 服务用多阶段构建打进 <code>alpine</code> 镜像后，体积只有 20MB，但上线一调第三方 HTTPS 接口就报错、打出的日志时间也慢了 8 小时，漏了什么？</span></summary>
+        <div class="drawer-body">
+          <p>极简的 <code>alpine</code> 镜像默认不含根证书库和时区数据包。在最终运行阶段加上 <strong><code>RUN apk --no-cache add ca-certificates tzdata</code></strong> 并设置 <strong><code>ENV TZ=Asia/Shanghai</code></strong> 即可同时修好 HTTPS 证书校验与东八区时间（回顾 <a href="#sc-go-app">06.2</a>）。</p>
+        </div>
+      </details>
+    </div>
+
+    <div>
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">06. 服务器磁盘报警 100% 满，定位到某个容器的 <code>*-json.log</code> 占了 60GB，运维直接敲 <code>rm</code> 删掉了这个文件，为什么 <code>df -h</code> 看磁盘还是 100%？怎么治标又治本？</span></summary>
+        <div class="drawer-body">
+          <p><strong>原因</strong>：后台 <code>dockerd</code> 仍持有该日志文件的打开句柄，直接 <code>rm</code> 不会释放底层磁盘块。<br>
+          ① <strong>在线治标（免重启秒释放）</strong>：用 <strong><code>sudo truncate -s 0 日志文件路径</code></strong> 将文件截断清零；<br>
+          ② <strong>永久治本</strong>：在 <code>/etc/docker/daemon.json</code>（及 <code>compose.yaml</code> 的 <code>logging.options</code>）配齐 <code>"max-size": "50m", "max-file": "3"</code> 日志自动轮转（回顾 <a href="#sc-disk-full">06.7</a> / <a href="#prod-limits">07.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">07. 线上容器偶发自动重启，<code>docker ps -a</code> 看到上一次退出状态为 <code>Exited (137)</code>，这是什么信号、怎么查证和修复？</span></summary>
+        <div class="drawer-body">
+          <p><code>137 = 128 + 9 (SIGKILL)</code>，表示进程被系统强杀。执行 <strong><code>docker inspect 容器名 --format '{{.State.OOMKilled}}'</code></strong>，若为 <code>true</code> 说明触发了容器内存上限 OOM：需排查代码大对象内存泄漏、适当调大容器 <code>memory</code> 限额，并将语言运行时堆上限（如 Node <code>--max-old-space-size</code>）设为容器内存的 75% 左右预留堆外缓冲（回顾 <a href="#ctn-ops">02.2</a> / <a href="#prod-limits">07.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">08. 发版停旧容器时，代码里明明监听了 <code>SIGTERM</code> 做优雅停机，却根本没触发，每次都硬等 10 秒被强杀导致正在处理的请求报错，怎么排查？</span></summary>
+        <div class="drawer-body">
+          <p>排查 Dockerfile 的 <code>CMD / ENTRYPOINT</code>：① 是否写成了字符串 Shell 格式 <code>CMD node server.js</code>（包了一层不转信号的 <code>/bin/sh -c</code>）；② 是否用了 <code>CMD ["npm", "start"]</code>（<code>npm</code> 吞信号）；③ 若通过 <code>entrypoint.sh</code> 启动脚本拉起服务，脚本最后一行是否漏写了 <strong><code>exec</code></strong>（必须写 <code>exec node server.js</code> 让业务进程接替成为 <code>PID 1</code>）（回顾 <a href="#sc-node-app">06.3</a> / <a href="#prod-graceful">07.4</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">09. 云主机已经开了 <code>ufw</code> 防火墙只放行 80/443，为什么 <code>compose.yaml</code> 里给 MySQL 写了 <code>ports: ["3306:3306"]</code> 还是被公网扫到了？</span></summary>
+        <div class="drawer-body">
+          <p>Docker 设置宿主机端口映射时修改的是 Linux 内核 <code>iptables</code> 的 <code>PREROUTING (DNAT)</code> 转发链，优先级早于 <code>ufw</code> 所在的 <code>INPUT</code> 过滤链，导致防火墙形同虚设。<br>
+          <strong>正确做法</strong>：生产环境内部数据库/缓存<strong>删掉 <code>ports:</code> 字段</strong>（仅通过 Compose 内部网络供后端容器访问），或者显式绑定回环地址 <code>127.0.0.1:3306:3306</code>（回顾 <a href="#sc-fullstack">06.5</a> / <a href="principles.html#iptables-nat">原理篇 03.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">10. 想把线上的 Docker Compose 服务停下来改个网络配置再启动，敲 <code>docker compose down</code> 和 <code>docker compose down -v</code> 有什么天壤之别？</span></summary>
+        <div class="drawer-body">
+          <p><code>docker compose down</code> 只销毁容器与虚拟网络，<strong>所有命名数据卷（如 <code>mysql_data</code>）安全保留</strong>；一旦手滑多敲了 <code>-v</code>（<code>--volumes</code>），Docker 会把该项目声明的所有命名卷连同里面的数据库表文件<strong>彻底物理抹除</strong>！线上运维严禁加 <code>-v</code>（回顾 <a href="#compose-cli">05.3</a>）。</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<!-- 08.2 · 15 题一句话速记表 -->
+<div class="wb-card" id="cheat" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 08.2 · 复习速查卡：Docker 15 个核心问题一句话速记表</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 08.2 Docker 15 题一句话速记表</h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:28%">核心问题</th>
+          <th>一句话标准答案（含实战篇与原理篇双跳转）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 容器与传统虚拟机的本质区别？</strong></td>
+          <td>虚拟机虚拟出一套硬件并运行完整 Guest OS（秒~分钟级启动、占 GB 内存）；<strong>容器直接共享宿主机 Linux 内核，靠 Namespace 隔离视图、靠 Cgroups 限制资源</strong>，本质是一个受限宿主机进程（毫秒级启动）（<a href="#compare">00.2</a> / <a href="principles.html#vm-vs-container">原理篇 00.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>2. <code>-p 8080:80</code> 与 <code>-v a:b</code> 左右顺序？</strong></td>
+          <td>统一<strong>「左外（宿主机）: 右内（容器内）」</strong>；且所有传给 Docker 自身的开关必须写在<strong>镜像名之前</strong>，镜像名之后的参数是传给容器内启动程序的（<a href="#qs-flags">01.3</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>3. Alpine、Slim 与 Distroless 怎么选？</strong></td>
+          <td>Node/Python 生产首选 <strong><code>-slim</code></strong>（带标准 <code>glibc</code> 不踩原生扩展兼容坑）；纯静态 Go / Nginx 选 <strong><code>alpine</code> 或 <code>distroless</code></strong>（体积最小、无多余攻击面）；生产禁裸用 <code>:latest</code>（<a href="#img-ops">02.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 命名卷（Volume）与绑定挂载（Bind Mount）怎么选？</strong></td>
+          <td>数据库持久化目录一律用<strong>命名卷（<code>mysql_data:/var/lib/mysql</code>）</strong>；向容器注入单文件配置（<code>my.cnf:ro</code>）或本地开发热更新源码用<strong>绑定挂载</strong>（<a href="#volumes">03.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>5. 容器之间、容器与宿主机怎么互通？</strong></td>
+          <td>同自定义网桥（或同一 Compose）直接填 <strong><code>容器服务名:容器原始端口</code></strong>（靠内置 <code>127.0.0.11</code> DNS）；容器调宿主机进程填 <strong><code>host.docker.internal</code></strong>（<a href="#networks">03.2</a> / <a href="principles.html#veth-bridge">原理篇 03.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>6. <code>COPY vs ADD</code>、<code>ARG vs ENV</code> 区别？</strong></td>
+          <td>日常拷贝一律用透明的 <strong><code>COPY</code></strong>（<code>ADD</code> 会自动解压 tar）；<strong><code>ARG</code></strong> 仅构建期存在，<strong><code>ENV</code></strong> 持久带入运行期容器（敏感密码两者都别放，改用运行期注入）（<a href="#df-directives">04.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>7. 怎么让 <code>docker build</code> 最快、打出的镜像最小？</strong></td>
+          <td>① 配 <code>.dockerignore</code>；② <strong>先拷锁文件装依赖、最后 <code>COPY . .</code> 拷源码</strong>保住层缓存；③ 用<strong>多阶段构建（<code>COPY --from=builder</code>）</strong>只把编译产物拷进精简运行底盘；④ 同层 <code>RUN</code> 内用 <code>&&</code> 顺手清理缓存（<a href="#df-cache">04.2</a> / <a href="#df-multistage">04.3</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>8. <code>ENTRYPOINT</code> 与 <code>CMD</code> 为什么要写 JSON 数组？</strong></td>
+          <td>Exec 数组格式（<code>["node", "server.js"]</code>）直接启动目标进程作为 <strong><code>PID 1</code></strong>，能正常接收 <code>docker stop</code> 发来的 <code>SIGTERM</code> 优雅停机；裸字符串 Shell 格式会包一层 <code>/bin/sh -c</code> 吞掉信号导致卡死 10 秒强杀（<a href="#df-directives">04.1</a> / <a href="#prod-graceful">07.4</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>9. Compose 怎么防应用抢跑连不上数据库？</strong></td>
+          <td>给数据库配 <code>healthcheck</code> 探针，并在业务容器配 <strong><code>depends_on: mysql: condition: service_healthy</code></strong>，等数据库真正可读写后再启动业务进程（<a href="#compose-yaml">05.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>10. Linux Namespace 隔离了哪 6 个维度？</strong></td>
+          <td><strong><code>PID</code></strong>（进程号）、<strong><code>NET</code></strong>（网卡端口路由）、<strong><code>MNT</code></strong>（挂载点目录树）、<strong><code>UTS</code></strong>（主机名）、<strong><code>IPC</code></strong>（进程间通信）、<strong><code>USER</code></strong>（用户 UID 映射）（<a href="principles.html#six-namespaces">原理篇 00.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>11. Cgroups 限制 CPU 和内存超限时表现有何不同？</strong></td>
+          <td><strong>CPU 超配额不会杀进程</strong>，而是触发 CFS 周期节流（Throttling 暂停等待下一周期，表现为接口延迟毛刺）；<strong>物理内存超 <code>memory.max</code> 则直接触发内核 OOM Killer 强杀进程（<code>Exit 137</code>）</strong>（<a href="#prod-limits">07.2</a> / <a href="principles.html#cfs-oom">原理篇 01.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>12. Overlay2 联合文件系统是怎么工作的？</strong></td>
+          <td>底层多个只读镜像层（<code>lowerdir</code>）多容器共享，顶层挂一层容器独占可写层（<code>upperdir</code>），合并挂载在 <code>merged</code>；修改底层文件时触发<strong>写时复制（Copy-on-Write）</strong>拷到顶层再改，删除文件则在顶层生成 <strong>Whiteout</strong> 遮罩文件（<a href="principles.html#overlay2-cow">原理篇 02.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>13. 同宿主机两个容器发包在内核里怎么走？</strong></td>
+          <td>每个容器插着一对跨命名空间的虚拟网线 <strong><code>veth pair</code></strong>，一头是容器内 <code>eth0</code>，另一头插在宿主机虚拟交换机网桥（<code>docker0</code> / <code>br-xxx</code>）上直接二层转发；对外访问与 <code>-p</code> 映射则靠 <code>iptables NAT</code>（<a href="principles.html#veth-bridge">原理篇 03.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>14. 为什么重启 <code>dockerd</code> 时正在跑的容器不会挂？</strong></td>
+          <td>现代架构拆分为 <code>dockerd -> containerd -> containerd-shim -> runc</code>：<code>runc</code> 拉起容器后即退出，由独立的轻量 <strong><code>containerd-shim</code> 垫片进程</strong>担任容器父进程接管 stdio 与退出状态，与 <code>dockerd</code> 解耦（<a href="principles.html#shim-runc">原理篇 04.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>15. 生产上线前哪 4 项配置绝对不能漏？</strong></td>
+          <td>① <code>USER</code> 切非 <code>root</code> 运行；② 数据库不向公网裸露 <code>-p</code>；③ 配齐 <code>memory / cpus</code> 资源上限；④ 配齐 <code>json-file</code> 日志轮转（<code>max-size</code> + <code>max-file</code>）防爆盘（<a href="#production">07 章全景</a>）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 08.3 · 核对依据与适用版本说明 -->
+<div class="wb-card" id="sources" style="background:var(--plop-sheet);">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+    <h3 style="margin:0;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 核对依据与适用版本说明（Docker Engine 26/27 · Compose V2 · BuildKit · OCI Runtime Spec）</h3>
+    <span class="plop-tag periwinkle">VERIFIED: 2026-11-28</span>
+  </div>
+  <p style="font-size:13.3px; margin-bottom:10px;">
+    本笔记所有命令与编排语法均基于 <strong>Docker Engine 26 / 27+、Docker Compose V2（<code>docker compose</code> 子命令与 <code>compose.yaml</code> 规范）以及默认启用的 BuildKit 构建引擎</strong>编写核验。不同 Linux 发行版内核（Cgroups v1/v2）细节可对照以下官方文档核实：
+  </p>
+  <ul class="source-links-grid">
+    <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://docs.docker.com/build/building/best-practices/" target="_blank" rel="noopener">Docker 官方文档 · Dockerfile 编写最佳实践与多阶段构建</a> · <a href="https://docs.docker.com/build/building/multi-platform/" target="_blank" rel="noopener">Buildx 多架构镜像构建</a></li>
+    <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://docs.docker.com/compose/compose-file/" target="_blank" rel="noopener">Compose Specification 官方规范（service_healthy / resources / logging）</a></li>
+    <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://docs.docker.com/engine/network/packet-filtering-firewalls/" target="_blank" rel="noopener">Docker 官方安全警告 · 端口映射与宿主机防火墙（ufw / firewalld）交互规则</a></li>
+    <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://docs.docker.com/engine/storage/drivers/overlayfs-driver/" target="_blank" rel="noopener">Docker OverlayFS (overlay2) 存储驱动官方原理文档</a></li>
+  </ul>
+</div>

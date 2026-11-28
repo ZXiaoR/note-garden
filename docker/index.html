@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Docker 基础与实战篇：从全景定位、镜像加速与 3 分钟跑通第一个容器出发，拆解 docker run 参数、镜像容器管理、数据卷持久化与自定义网桥通信、Dockerfile 分层缓存与多阶段构建瘦身、Docker Compose 编排与健康检查，落地中间件全家桶、Go/Node.js/前端 Nginx 打包、多架构构建与排障八大场景，配齐上线防线与 10 道场景自测。" />
+  <title>Docker · 基础与实战篇 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-home"></use></svg> 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+      </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" class="active" aria-current="page" title="循序渐进：从全景定位、快速跑起来、数据卷网络、Dockerfile 与 Compose，到八大实战场景、上线防线与场景自测"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇</a>
+        <a href="principles.html" data-edition-target="principles.html" title="按需深挖：Linux Namespace 六维隔离、Cgroups CFS 节流与 OOM、Overlay2 写时复制、veth+docker0+iptables NAT 与 containerd-shim 内核原理"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 ↗</a>
+      </nav>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-palette"></use></svg> 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-mat"></use></svg> 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-note"></use></svg> 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-kraft"></use></svg> 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-riso"></use></svg> 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：阅读进度贴 + 章节书签耳标 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与日常开发速查">
+      <div class="rail-sticky-cluster">
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="Docker 基础与实战章节书签">
+          <a href="#overview" class="plop-ear-tab active" data-toc="overview">
+            <span class="ear-dot"></span>
+            <span>00 全景科普与选型</span>
+          </a>
+          <a href="#quickstart" class="plop-ear-tab" data-toc="quickstart">
+            <span class="ear-dot periwinkle"></span>
+            <span>01 快速跑起来</span>
+          </a>
+          <a href="#containers" class="plop-ear-tab" data-toc="containers">
+            <span class="ear-dot mint"></span>
+            <span>02 镜像与容器基本功</span>
+          </a>
+          <a href="#volume-net" class="plop-ear-tab" data-toc="volume-net">
+            <span class="ear-dot mustard"></span>
+            <span>03 数据卷与网络通信</span>
+          </a>
+          <a href="#dockerfile" class="plop-ear-tab" data-toc="dockerfile">
+            <span class="ear-dot pink"></span>
+            <span>04 Dockerfile 实战</span>
+          </a>
+          <a href="#compose" class="plop-ear-tab" data-toc="compose">
+            <span class="ear-dot periwinkle"></span>
+            <span>05 Compose 多容器编排</span>
+          </a>
+          <a href="#scenarios" class="plop-ear-tab" data-toc="scenarios">
+            <span class="ear-dot mustard"></span>
+            <span>06 常见业务场景</span>
+          </a>
+          <a href="#production" class="plop-ear-tab" data-toc="production">
+            <span class="ear-dot mint"></span>
+            <span>07 上线前必须知道</span>
+          </a>
+          <a href="#quiz" class="plop-ear-tab" data-toc="quiz">
+            <span class="ear-dot pink"></span>
+            <span>08 场景自测</span>
+          </a>
+        </nav>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#overview" class="active">00 全景科普</a>
+        <a href="#quickstart">01 跑起来</a>
+        <a href="#containers">02 镜像容器</a>
+        <a href="#volume-net">03 卷与网络</a>
+        <a href="#dockerfile">04 Dockerfile</a>
+        <a href="#compose">05 Compose</a>
+        <a href="#scenarios">06 实战场景</a>
+        <a href="#production">07 上线必知</a>
+        <a href="#quiz">08 场景自测</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape periwinkle"></div>
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card periwinkle">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">EDITION 01 / PRACTICE</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:36px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">Docker</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag mint"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> EDITION 1 · 基础与实战篇</span>
+              <span class="plop-tag periwinkle">IMAGE · VOLUME · NETWORK · DOCKERFILE</span>
+              <span class="plop-tag tomato">COMPOSE · 8 SCENARIOS · PRODUCTION</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              Docker · 基础与实战篇：从一行命令拉服务到全栈项目打包与生产部署
+            </h1>
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0; font-weight:600; line-height:1.6;">
+              面向过去只会照抄一行命令拉起数据库、却常卡在拉镜像超时、删容器丢数据、跨容器连不上端口的开发者：先一屏看清镜像、容器与仓库的协作全景并配好国内加速，彻底读懂每一处挂载与网络参数，再亲手写出瘦身十倍的多阶段 Dockerfile 与带健康检查的 Compose 编排，落地本地中间件全家桶、Go/Node.js/前端打包、多架构发版与磁盘排障八大场景，最后配齐上线安全资源防线与十道场景自测题。
+            </p>
+
+            <div class="wb-kpi-grid">
+              <a href="#overview" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">① 全景认知、加速与基本功</div>
+                <div style="font-size:12px; font-weight:700;">章节 00—03：核心三概念、国内加速、数据卷持久化与容器互通</div>
+              </a>
+              <a href="#dockerfile" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">② 镜像打包、编排与八大场景</div>
+                <div style="font-size:12px; font-weight:700;">章节 04—06：多阶段 Dockerfile、Compose 健康检查与全栈部署</div>
+              </a>
+              <a href="#production" class="plop-ticket-kpi" style="background:var(--plop-periwinkle);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">③ 上线防线与场景自测</div>
+                <div style="font-size:12px; font-weight:700;">章节 07—08：日志防爆盘、内存限额、PID 1 停机与 10 题自测</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已展示全篇 9 大章节的核心脉络摘要与独立 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="sections/00-overview.html">
+          <section class="wb-card" id="overview" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-overview.html">00 · 全景科普：Docker 解决什么问题、三大核心概念与选型边界</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">一句话定义与镜像/容器/仓库协作图，对比裸机安装、虚拟机、Docker、Compose 与 Kubernetes 的适用边界，给出全篇知识路线图。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/01-quickstart.html">
+          <section class="wb-card" id="quickstart" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-quickstart.html">01 · 快速跑起来：国内镜像加速、第一个容器闭环与 docker run 参数拆解</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">先配好镜像源解决拉取超时，3 分钟跑通 Nginx 容器闭环，逐项拆解全站中间件都在用的 -d/-p/-e/-v 参数，附三大平台安装折叠附录。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/02-containers.html">
+          <section class="wb-card" id="containers" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-containers.html">02 · 镜像与容器基本功：版本标签规范、基础镜像选型与排障命令速查</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">掌握镜像拉取清理、Alpine vs Debian Slim vs Distroless 选型、容器退出码判读与排障五件套，结尾附日常命令速查表。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/03-volume-network.html">
+          <section class="wb-card" id="volume-net" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-volume-network.html">03 · 数据持久化与网络通信：命名卷、绑定挂载与跨容器 DNS 互通</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">讲清为什么删容器会丢数据、Volume 与 Bind Mount 怎么选，以及为什么容器内连 127.0.0.1 连不上宿主机旁边的数据库。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/04-dockerfile.html">
+          <section class="wb-card" id="dockerfile" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-dockerfile.html">04 · Dockerfile 实战：核心指令、分层缓存加速与多阶段构建瘦身</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">辨析 COPY/ADD、ENV/ARG、ENTRYPOINT/CMD，利用依赖前置将重构建缩至秒级，并用多阶段构建把镜像从 900MB 瘦身到 20MB。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/05-compose.html">
+          <section class="wb-card" id="compose" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-compose.html">05 · Docker Compose 多容器编排：声明式配置、健康检查等待与生命周期</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">用一份 compose.yaml 统一管理应用与数据库，靠 service_healthy 解决启动抢跑报错，分清 down 与危险删库命令 down -v。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/06-scenarios.html">
+          <section class="wb-card" id="scenarios" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-scenarios.html">06 · 常见业务场景实战：8 大真实开发打包、全栈部署与排障闭环</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖本地 MySQL+Redis+Kafka 全家桶、Go/Node.js/前端 SPA 生产打包、全栈内网隔离、Mac 跨架构构建、磁盘爆满清理与平滑回滚。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/07-production.html">
+          <section class="wb-card" id="production" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/07-production.html">07 · 上线前必须知道：非 root 安全、资源限额、日志轮转、PID 1 与 K8s 边界</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">配齐非特权运行、内存/CPU 上限防整机 OOM、json-file 日志轮转防爆盘、SIGTERM 优雅停机，厘清单机 Compose 到 K8s 的演进代价。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/08-quiz.html">
+          <section class="wb-card" id="quiz" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/08-quiz.html">08 · 场景自测：10 道真实容器排障题与 15 题一句话速记表</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">通过默认折叠的 10 道高频排障与打包题检验实战能力，附 15 题一句话复习速记表与官方文档核对依据。</p>
+          </section>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+</body>
+</html>

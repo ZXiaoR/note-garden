@@ -1,0 +1,111 @@
+<!-- ====================================================================
+     PART 01: Cgroups 资源账本：CPU CFS 周期节流、内存回收与 OOM Killer
+     ==================================================================== -->
+<div class="wb-sec-header" id="cgroups" style="background:var(--plop-periwinkle);">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">Cgroups 资源账本：CPU CFS 周期节流、内存回收与 OOM Killer</span>
+  <span class="plop-tag tomato">CFS QUOTA × CPU THROTTLING × EXIT 137 × CGROUPS V2</span>
+</div>
+
+<!-- 01.1 · CPU CFS 配额节流（Throttling）与内存 OOM 查杀 -->
+<div class="wb-card" id="cfs-oom" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 01.1 · 限流与强杀：为什么 CPU 利用率才 40% 接口却出现百毫秒毛刺？为什么退出码是 137？</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 01.1 CPU CFS 时间片预算与内存 OOM Killer 触发链路 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#ctn-ops">实战篇 02.2</a> 与 <a href="index.html#prod-limits">07.2</a> —— 给容器配了 <code>--cpus="2.0" -m 512m</code> 后，内核究竟怎么限制 CPU 与内存？为什么监控看到平均 CPU 不高但请求 P99 延迟突然飙高，以及容器超出内存上限时发生了什么？
+  </p>
+
+  <p>
+    如果说 <code>Namespace</code> 是给进程戴上眼罩（视图隔离），那么 <strong><code>Cgroups（Control Groups，控制组）</code></strong> 就是给进程套上配额账本（计量与限流）。生产排障中最常遇到的两大高频现场，分别来自 CPU 子系统与 Memory 子系统：
+  </p>
+
+  <h4 style="margin:14px 0 8px; color:var(--plop-ink-text);">一、CPU 限制不是“绑死两颗核”，而是按 100ms 周期发放时间片支票</h4>
+  <p>
+    当你声明 <code>--cpus="2.0"</code>（或 Kubernetes 里的 <code>limits.cpu: "2"</code>）时，并不是只允许容器跑在物理第 0、1 号核上（绑核是 <code>--cpuset-cpus="0,1"</code> 的职责），而是通过 Linux 内核 <strong><code>CFS（Completely Fair Scheduler，完全公平调度器）</code></strong> 的带宽控制参数生效：
+  </p>
+  <ul>
+    <li><strong>结算周期（<code>cfs_period_us</code>）</strong>：默认固定为 <strong><code>100,000 微秒（100ms）</code></strong>。</li>
+    <li><strong>周期配额（<code>cfs_quota_us</code>）</strong>：<code>--cpus="2.0"</code> 对应配额 <strong><code>200,000 微秒（200ms）</code></strong>（在 Cgroups v2 中合并写入单行文件 <code>cpu.max</code>：<code>200000 100000</code>）。</li>
+    <li><strong>引发 P99 毛刺的元凶 —— 多核并发透支与 CFS Throttling（节流冻结）</strong>：假设宿主机有 16 核，你的 Go / Java 服务在某一瞬间涌入一批并发请求，同时唤醒了 <strong>8 个工作线程</strong>在 8 颗物理核上满载并行计算。仅需 <strong><code>200ms ÷ 8 核 = 25ms</code></strong> 的真实墙钟时间（Wall-Clock Time），这 200ms 的 CPU 时间预算就被彻底花光了！随后在当前 100ms 周期剩下的 <strong>整整 75ms</strong> 内，内核会把该容器的所有线程全部移出运行队列<strong>强制挂起（Throttled）</strong>，直到下一个 100ms 周期开始才解冻。监控按 1 分钟平均下来 CPU 使用率也许只有 45%，但落在这 75ms 冻结窗口里的在线请求平白多等了 75ms 甚至跨周期叠加，直接制造出诡异的 P99 延迟尖峰。</li>
+  </ul>
+
+  <h4 style="margin:14px 0 8px; color:var(--plop-ink-text);">二、内存限制：Page Cache 可回收，匿名堆内存超限直通 Exit 137</h4>
+  <p>
+    当你设置 <code>-m 512m</code>（Cgroups v2 对应 <code>memory.max = 536870912</code>）时，内核将该容器的<strong>两类内存</strong>统一计入这 512MB 账本：
+  </p>
+  <ol>
+    <li><strong>文件页缓存（Page Cache）</strong>：容器读写磁盘文件时内核顺手缓存的数据页。当容器总内存逼近 <code>512MB</code> 时，内核内存回收机制会<strong>优先自动丢弃或回写干净的 Page Cache</strong>，腾出空间给业务进程，<strong>不会触发 OOM</strong>（这也是为什么用 <code>docker stats</code> 看内存常年贴近上限却安然无恙——早期工具常把未扣除的可回收 Cache 混在一起展示，现代 Docker CLI 已默认扣除 <code>inactive_file</code>）。</li>
+    <li><strong>匿名页（Anonymous Pages，即进程堆栈 <code>RSS</code>）</strong>：Go 切片、Node.js V8 堆、Java 堆外内存等无法直接丢弃的数据。一旦匿名页持续增长顶满 <code>512MB</code>，且无法换出（生产环境通常关闭 Swap 或设 <code>--memory-swap=512m</code> 禁用容器交换分区）也无可回收的 Page Cache，内核即刻唤醒该 Cgroup 范围内的 <strong><code>OOM Killer（Out-Of-Memory Killer，内存溢出查杀器）</code></strong>，挑出内存占用分（<code>oom_score</code>）最高的子进程直接发送不可捕获的 <strong><code>SIGKILL (信号编号 9)</code></strong>。按照 POSIX 退出码规范 <code>128 + 信号编号 = 128 + 9 = 137</code>，<code>docker inspect</code> 中便会留下 <code>"OOMKilled": true, "ExitCode": 137</code> 的铁证。</li>
+  </ol>
+
+  <div class="code-block" style="margin:12px 0 0;">
+    <div class="code-header">
+      <span class="code-lang">bash · 线上排查容器 CPU 被节流（Throttled）与 OOM 强杀记录</span>
+      <button class="copy-btn" onclick="copyText('code-cgroup-check', this)">复制</button>
+    </div>
+    <pre id="code-cgroup-check"><code># 1. 在容器内（Cgroups v2 环境，如 Ubuntu 22.04+ / Debian 12+）查看 CPU 节流次数与累计冻结微秒数
+docker exec my-api cat /sys/fs/cgroup/cpu.stat
+# usage_usec 48291040
+# nr_periods 12450
+# nr_throttled 892          &lt;-- 被强制冻结了 892 个周期！（占比 &gt; 5% 即需调高 CPU limit 或限制工作线程数）
+# throttled_usec 41205800   &lt;-- 累计被挂起等待的线程时间
+
+# 2. 检查容器是否因内存触顶被内核 OOM Killer 击杀，并核对宿主机内核日志
+docker inspect -f 'ExitCode={{.State.ExitCode}} OOMKilled={{.State.OOMKilled}}' my-api
+sudo dmesg -T | grep -i -E 'killed process|oom-kill' | tail -n 5</code></pre>
+  </div>
+</div>
+
+<!-- 01.2 · Cgroups v1 vs v2 演进与 /proc 未隔离带来的运行时核数陷阱 -->
+<div class="wb-card" id="cgroups-v2" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 01.2 · 层级统一与 /proc 陷阱：Cgroups v2 改了什么？为什么容器里 top 看到的是 64 核？</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 01.2 Cgroups v1 与 v2 架构对比及语言运行时容器感知 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-go-app">实战篇 06.2</a> 与 <a href="index.html#prod-limits">07.2</a> —— 为什么在 64 核宿主机上给容器限额 2 核后，容器内跑 <code>nproc / free -m</code> 看到的依然是宿主机 64 核与 128GB 内存，导致早期 Go / Java / Node.js 应用频繁被节流或 OOM？
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">对比维度</th>
+          <th style="width:38%">Cgroups v1（CentOS 7 / Ubuntu 18.04 默认）</th>
+          <th>Cgroups v2（Ubuntu 22.04+ / Rocky 9+ / Docker 20.10+ 默认）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>目录树结构</strong></td>
+          <td><strong>多棵独立层级树</strong>：<code>/sys/fs/cgroup/cpu/</code>、<code>/sys/fs/cgroup/memory/</code>、<code>blkio/</code> 各自挂一棵树，同一进程可以属于不同子系统的不同节点，管理混乱。</td>
+          <td><strong>单一统一层级树（Unified Hierarchy）</strong>：所有控制器收拢在同一棵 <code>/sys/fs/cgroup/</code> 树下，进程只能挂在叶子节点上，彻底消除跨子系统状态割裂。</td>
+        </tr>
+        <tr>
+          <td><strong>异步磁盘回写限速</strong></td>
+          <td><strong>失效痛点</strong>：容器把数据写进内存 Page Cache 后，由内核后台线程异步刷盘；v1 的 <code>blkio</code> 无法把异步回写账算回原容器，导致某容器狂写日志拖垮整机磁盘 I/O。</td>
+          <td><strong>联动核算</strong>：Memory 与 IO 控制器在同一棵树上协同追踪脏页归属，真正做到限制容器缓冲异步写（Buffered I/O）带宽。</td>
+        </tr>
+        <tr>
+          <td><strong>柔性内存水位与压力指标</strong></td>
+          <td>主要靠硬上限 <code>memory.limit_in_bytes</code>，触线直接强回或 OOM，缺少提前感知指标。</td>
+          <td>新增 <strong><code>memory.high</code>（高水位柔性节流，超线先减速回收而不杀进程）</strong> 与 <strong><code>PSI（Pressure Stall Information，压力停顿信息）</code></strong>（精确统计 CPU/内存/IO 等待占比）。</td>
+        </tr>
+        <tr>
+          <td><strong>Rootless 无特权容器</strong></td>
+          <td>几乎无法安全地将 Cgroups 配额委托给非 root 普通用户。</td>
+          <td>原生支持安全子树委托（Delegation），普通用户跑 Rootless Docker 也能完整限制容器 CPU 与内存。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    <strong>为什么容器内读 <code>/proc/cpuinfo</code> 和 <code>/proc/meminfo</code> 会被“欺骗”？</strong>因为 Linux 的 <code>/proc</code> 伪文件系统诞生于容器时代之前，<strong>并没有对应的 Proc Namespace 对硬件统计文件做虚拟化裁剪</strong>。当你在容器里运行 <code>free -m</code> 或老版本语言的 <code>os.cpus() / runtime.NumCPU()</code> 时，它们读取的是宿主机全局的 <code>/proc/meminfo</code>（比如 128GB）和调度器可见逻辑核（比如 64 核）！这在生产环境曾引发两类经典事故：
+  </p>
+  <ul>
+    <li><strong>CPU 线程膨胀引发剧烈 CFS 节流</strong>：在 64 核宿主机上给 Go 容器分配 <code>--cpus="2.0"</code>，旧版 Go 启动时读到 64 核于是设 <code>GOMAXPROCS=64</code>，瞬间拉起几十个系统线程争抢 200ms 配额，上下文切换与 CFS 冻结耗时远超业务本身。<em>现代进展</em>：<strong>Go 1.25 起运行时已原生支持读取 Cgroups CPU 配额自动收敛 <code>GOMAXPROCS</code></strong>（Go 1.24 及更早版本建议显式配置环境变量 <code>GOMAXPROCS=2</code> 或引入 <code>uber-go/automaxprocs</code>）；Node.js PM2 / Cluster 模式同理切勿盲写 <code>os.cpus().length</code>，应改读 <code>os.availableParallelism()</code>（Node.js 19.4+ 已支持感知 Cgroups 配额）。</li>
+    <li><strong>堆内存上限误判引发 OOM 137</strong>：如果运行时按宿主机 128GB 内存的 1/4 去规划 GC（Garbage Collection，垃圾回收）上限，而容器实际只有 <code>512MB</code>，不等触发全量 GC 容器就已经被内核 OOM Killer 一刀秒杀。<em>现代进展</em>：JDK 8u191+ / JDK 11+ 默认开启 <code>UseContainerSupport</code>，Node.js 20+ 亦支持读取 Cgroups v1/v2 的 <code>memory.max</code>，但为留出堆外缓冲区与原生 C++ 插件余量，生产上仍推荐显式配置老生代或软内存阈值（约为容器内存限额的 <code>75% ~ 80%</code>）。</li>
+  </ul>
+</div>

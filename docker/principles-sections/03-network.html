@@ -1,0 +1,142 @@
+<!-- ====================================================================
+     PART 03: 容器虚拟网络内核：veth pair、docker0 网桥与 iptables NAT
+     ==================================================================== -->
+<div class="wb-sec-header" id="net-kernel" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">容器虚拟网络内核：veth pair、docker0 网桥与 iptables NAT</span>
+  <span class="plop-tag mint">VETH PAIR × LINUX BRIDGE × DNAT/SNAT × 127.0.0.11 DNS</span>
+</div>
+
+<!-- 03.1 · veth pair 跨命名空间虚拟网线与 Linux 网桥二层交换 -->
+<div class="wb-card" id="veth-bridge" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 03.1 · 虚拟交换机：两个各自关在独立 Network Namespace 里的容器，数据包怎么走通？</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 03.1 veth pair 虚拟网线与宿主机网桥二层转发路径 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#networks">实战篇 03.2</a> —— 为什么容器里访问 <code>127.0.0.1</code> 永远只指向容器自己的回环网卡，而同一网桥下的两个容器却能像插在同一台交换机上一样直接互通？
+  </p>
+
+  <p>
+    每个开启默认 Bridge 模式的容器都拥有自己独立的 <code>Network Namespace</code>——里面的回环网卡 <code>lo (127.0.0.1)</code> 完全自闭。为了把孤岛般的容器命名空间连回宿主机网络栈，Linux 内核提供了两样关键虚拟网络设备：<strong>成对出现的跨命名空间虚拟网线 <code>veth pair（Virtual Ethernet Pair，虚拟以太网设备对）</code></strong> 与 <strong>内核二层虚拟交换机 <code>Linux Bridge（如 docker0 或自定义 br-xxx）</code></strong>：
+  </p>
+
+  <figure style="margin:14px 0 16px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 316" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="veth-title veth-desc">
+        <title id="veth-title">容器 Network Namespace 经 veth pair 接入宿主机网桥与物理网卡拓扑图</title>
+        <desc id="veth-desc">上部展示容器 A 与容器 B 各自独立的 Network Namespace 及内部 eth0 网卡；中部展示一对对 veth pair 穿过命名空间边界插在宿主机根命名空间的 Linux 网桥 br-app 上实现同网段二层互通；下部展示经路由转发与 iptables NAT 从物理网卡 eth0 出入外网。</desc>
+        <defs>
+          <marker id="vt-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+          </marker>
+          <marker id="vt-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- 宿主机根 Network Namespace 外框 -->
+        <rect x="24" y="156" width="872" height="140" rx="10" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+        <text x="44" y="180" font-family="'Geist','Noto Sans SC',sans-serif" font-size="12.5" font-weight="800" fill="#1F1F23">宿主机 Root Network Namespace（内核虚拟网桥 + 路由表 + Netfilter/iptables）</text>
+
+        <!-- 容器 A & B 独立 Network Namespace 外框 -->
+        <rect x="44" y="20" width="380" height="108" rx="10" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
+        <text x="64" y="44" font-family="'Geist','Noto Sans SC',sans-serif" font-size="12.5" font-weight="800" fill="#1b5e20">容器 A NetNS（api · 172.18.0.2/16）</text>
+        <rect x="64" y="58" width="136" height="52" rx="6" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.6"/>
+        <text x="132" y="80" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#1F1F23">lo: 127.0.0.1</text>
+        <text x="132" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="10.5" fill="#5A5860">仅容器 A 内部可达</text>
+
+        <rect x="496" y="20" width="380" height="108" rx="10" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
+        <text x="516" y="44" font-family="'Geist','Noto Sans SC',sans-serif" font-size="12.5" font-weight="800" fill="#1b5e20">容器 B NetNS（mysql · 172.18.0.3/16）</text>
+        <rect x="720" y="58" width="136" height="52" rx="6" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.6"/>
+        <text x="788" y="80" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#1F1F23">lo: 127.0.0.1</text>
+        <text x="788" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="10.5" fill="#5A5860">仅容器 B 内部可达</text>
+
+        <!-- 连接线（先于两端网卡节点绘制） -->
+        <!-- veth pair 左 -->
+        <line x1="316" y1="110" x2="316" y2="196" stroke="#bf4520" stroke-width="2.6"/>
+        <rect x="274" y="132" width="84" height="18" rx="3" fill="#FFFDF7"/>
+        <text x="316" y="144" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" font-weight="700" fill="#bf4520">veth pair A</text>
+
+        <!-- veth pair 右 -->
+        <line x1="604" y1="110" x2="604" y2="196" stroke="#bf4520" stroke-width="2.6"/>
+        <rect x="562" y="132" width="84" height="18" rx="3" fill="#FFFDF7"/>
+        <text x="604" y="144" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" font-weight="700" fill="#bf4520">veth pair B</text>
+
+        <!-- 网桥到 iptables/物理网卡 -->
+        <line x1="676" y1="238" x2="724" y2="238" stroke="#1F1F23" stroke-width="2" marker-end="url(#vt-ink)"/>
+
+        <!-- 容器内部 eth0 网卡框 -->
+        <rect x="228" y="58" width="176" height="52" rx="6" fill="#FFFDF7" stroke="#bf4520" stroke-width="2"/>
+        <text x="316" y="80" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#bf4520">eth0 (if24)</text>
+        <text x="316" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">网线一头在容器内</text>
+
+        <rect x="516" y="58" width="176" height="52" rx="6" fill="#FFFDF7" stroke="#bf4520" stroke-width="2"/>
+        <text x="604" y="80" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#bf4520">eth0 (if26)</text>
+        <text x="604" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">网线一头在容器内</text>
+
+        <!-- 宿主机网桥框 -->
+        <rect x="220" y="198" width="456" height="80" rx="8" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="448" y="222" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="11.5" font-weight="800" fill="#bf4520">Linux 网桥 br-app / docker0（网关 172.18.0.1/16）</text>
+        <text x="448" y="244" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" fill="#1F1F23">网线另一头 vethxxx 插在网桥端口上 · 同网段按 MAC 地址二层直转</text>
+        <text x="448" y="264" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" fill="#5A5860">不同自定义网桥之间由 iptables DOCKER-ISOLATION 链默认丢包隔离</text>
+
+        <!-- 宿主机 NAT 与物理网卡框 -->
+        <rect x="726" y="198" width="150" height="80" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="801" y="222" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10.5" font-weight="700" fill="#1F1F23">iptables NAT</text>
+        <text x="801" y="244" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" fill="#5A5860">DNAT / SNAT 转换</text>
+        <text x="801" y="264" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10" fill="#1b5e20">宿主机物理网卡</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p>
+    <code>veth pair</code> 就像一根两端带水晶头的虚拟跳线：从一端塞进去的以太网帧，会原封不动地立刻从另一端冒出来。每启动一个 Bridge 容器，Docker 就会创建一对 <code>veth</code>，把其中一头放进容器的 <code>Network Namespace</code> 并改名为 <code>eth0</code>，把另一头留在宿主机根命名空间（即你在宿主机敲 <code>ip addr</code> 看到的一堆 <code>veth8a3f1c2@if24</code>）并插到虚拟交换机 <code>docker0 / br-xxx</code> 上：
+  </p>
+  <ul>
+    <li><strong>同网桥容器互访（二层交换，不经过 NAT）</strong>：容器 A（<code>172.18.0.2</code>）请求容器 B（<code>172.18.0.3:3306</code>），命中同子网直连路由，通过 ARP 广播学到 B 的 MAC 地址后，帧从 A 的 <code>eth0</code> 经 <code>veth pair A</code> 进入宿主机网桥 <code>br-app</code>，网桥查 MAC 转发表直接从 <code>veth pair B</code> 送进 B 的 <code>eth0</code>，全程二层内存拷贝，延迟仅微秒级。</li>
+    <li><strong><code>--network host</code> 模式为何性能略高但有端口冲突？</strong>开启 Host 网络模式时，<code>runc</code> 直接不传 <code>CLONE_NEWNET</code> 标志位，容器直接共用宿主机根 Network Namespace 里的物理网卡，省去了 <code>veth pair + 网桥 + iptables NAT</code> 转发损耗（适合高吞吐网关或网络监控 Agent），但代价是失去端口隔离，两个容器不能同时监听 <code>80</code> 端口。</li>
+  </ul>
+</div>
+
+<!-- 03.2 · iptables SNAT/DNAT 规则、PREROUTING 绕过宿主机防火墙与 127.0.0.11 DNS -->
+<div class="wb-card" id="iptables-nat" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 03.2 · 防火墙盲区：为什么宿主机开了 ufw 封禁 3306，外部依然能连进 -p 3306:3306 的容器？</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 03.2 iptables DNAT/SNAT 路径、防火墙绕过原因与内嵌 DNS <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#qs-flags">实战篇 01.3</a>、<a href="index.html#sc-dev-stack">06.1</a> 与 <a href="index.html#sc-fullstack">06.5</a> —— 为什么云服务器明明在 <code>ufw</code> 里只放行了 <code>22 / 80 / 443</code>，一旦敲了 <code>docker run -p 3306:3306 mysql</code> 数据库还是会裸奔在公网上？以及为什么自定义网桥能解析服务名而默认 <code>docker0</code> 不能？
+  </p>
+
+  <h4 style="margin:12px 0 8px; color:var(--plop-ink-text);">一、容器出外网与外部连容器的 <code>NAT（Network Address Translation，网络地址转换）</code> 链</h4>
+  <ul>
+    <li><strong>容器主动访问外网（<code>POSTROUTING MASQUERADE / SNAT</code>）</strong>：容器私网 IP <code>172.18.0.2</code> 在公网上不可路由。数据包把网关 <code>172.18.0.1</code> 作为下一跳交给宿主机内核（需开启 <code>net.ipv4.ip_forward = 1</code>），在离开宿主机物理网卡前的 Netfilter <code>nat</code> 表 <strong><code>POSTROUTING</code></strong> 链上命中 <code>MASQUERADE</code> 规则，把源 IP 替换成宿主机公网/内网 IP 发出，并在内核连接跟踪表（<code>conntrack</code>）记录映射以便回包原路逆向还原。</li>
+    <li><strong>外部访问容器映射端口（<code>PREROUTING DNAT</code> 绕过 <code>INPUT</code> 链！）</strong>：当你执行 <code>-p 3306:3306</code>（等价于 <code>-p 0.0.0.0:3306:3306</code>）时，<code>dockerd</code> 在 Netfilter 最前端的 <code>nat</code> 表 <strong><code>PREROUTING</code></strong> 链插入一条 <code>DNAT</code> 规则，数据包刚进物理网卡，目的 IP 就从“宿主机 IP:3306”被改写成了“容器私网 IP <code>172.18.0.3:3306</code>”。紧接着经过内核路由判决：由于目的 IP 已经不再是宿主机本机，数据包<strong>根本不会走宿主机防火墙 <code>ufw / firewalld</code> 默认把守的 <code>INPUT</code> 链，而是拐弯直接走 <code>FORWARD</code> 链直达容器！</strong></li>
+  </ul>
+
+  <div class="plop-callout warn" style="margin:14px 0;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 生产防裸奔双保险：</strong><br>
+    1. <strong>除非是公网入口反向代理（Nginx/Caddy），一切中间件或仅本机访问的调试端口严禁裸写 <code>-p 3306:3306</code></strong>：在单机场景改绑回环地址 <strong><code>-p 127.0.0.1:3306:3306</code></strong>（生成的 DNAT 规则会限定非本机网卡入站不匹配），在 Compose 内部干脆去掉数据库 <code>ports:</code> 让后端直接走内网访问。<br>
+    2. <strong>若必须在宿主机层面做源 IP 白名单过滤</strong>：不要写进 <code>INPUT</code> 链，而是写入 Docker 专门预留且优先级高于容器转发规则的 <strong><code>iptables -I DOCKER-USER ...</code></strong> 链，或依赖云厂商安全组（Security Group，工作在云宿主机虚拟网卡外部，不受容器内部 iptables 影响）。
+  </div>
+
+  <h4 style="margin:14px 0 8px; color:var(--plop-ink-text);">二、为什么自定义网桥能按容器名 DNS 互通，默认 <code>docker0</code> 却不行？</h4>
+  <p>
+    你随便进入一个挂在默认 <code>bridge (docker0)</code> 上的容器执行 <code>cat /etc/resolv.conf</code>，会看到 Docker 只是把宿主机的公共 DNS（如 <code>8.8.8.8</code> 或局域网网关）原样拷了进去，公共 DNS 当然不认识你取的容器名 <code>mysql</code>（这是 Docker 早期为兼容老旧 <code>--link</code> 机制保留的历史包袱）。而只要挂在<strong>自定义网桥（含 <code>docker compose</code> 自动创建的项目网络）</strong>上，容器内的 <code>/etc/resolv.conf</code> 会统一变成：
+  </p>
+  <div class="code-block" style="margin:10px 0 0;">
+    <div class="code-header">
+      <span class="code-lang">bash · 自定义网桥容器内的 /etc/resolv.conf 与内嵌 DNS 转发机制</span>
+      <button class="copy-btn" onclick="copyText('code-embed-dns', this)">复制</button>
+    </div>
+    <pre id="code-embed-dns"><code># 在 Compose 容器内查看 DNS 配置
+docker exec my-api cat /etc/resolv.conf
+# nameserver 127.0.0.11
+# options ndots:0
+
+# 底层流向：容器内 netns 的 iptables OUTPUT 链将发往 127.0.0.11:53 的查询
+# DNAT 转发到 dockerd 内嵌在容器命名空间套接字上的 Embedded DNS Server：
+#   - 若查询名命中同网桥下的容器名/服务别名（如 mysql、redis） -> 直接返回私网 IP 172.18.0.3
+#   - 若查询外部公网域名（如 api.weixin.qq.com）            -> 递归转发给宿主机上游 DNS</code></pre>
+  </div>
+</div>

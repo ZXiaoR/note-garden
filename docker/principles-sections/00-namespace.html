@@ -1,0 +1,186 @@
+<!-- ====================================================================
+     PART 00: 容器本质与 Linux Namespace 视图隔离、PID 1 信号特殊性
+     ==================================================================== -->
+<div class="wb-sec-header" id="why" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">容器本质与 Linux Namespace 视图隔离、PID 1 信号特殊性</span>
+  <span class="plop-tag mint">SHARED KERNEL × CLONE/SETNS × 6 NAMESPACES × PID 1</span>
+</div>
+
+<!-- 00.1 · 虚拟机 vs 容器架构本质与三大系统调用 -->
+<div class="wb-card" id="vm-vs-container" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-layers"></use></svg> 00.1 · 架构本质：Hypervisor 硬件虚拟化 vs 共享宿主机内核的受限进程</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-layers"></use></svg> 00.1 共享内核架构与 clone / unshare / setns 系统调用 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#why">实战篇 00.1</a> 与 <a href="index.html#compare">00.2</a> —— 为什么虚拟机启动要几十秒、镜像动辄数 GB，而 Docker 容器能在百毫秒级拉起、镜像只有几十 MB，且为什么 Linux 容器不能直接运行 Windows 内核程序？
+  </p>
+
+  <p>
+    打开 Linux 内核源码，你找不到任何叫 <code>struct container</code> 的数据结构。传统虚拟机依靠 <strong>Hypervisor（虚拟机监控器，如 KVM / VMware）</strong> 模拟出一整套虚拟 CPU、虚拟网卡与磁盘控制器，每台虚拟机里面都必须完整启动一个独立的 <strong>Guest OS Kernel（客户机操作系统内核）</strong>；而 Docker 容器<strong>完全不虚拟化硬件，也不启动新内核</strong>，所有容器直接共享宿主机同一个 Linux 内核，只打包用户态运行库（<code>glibc / musl</code>、基础工具与业务代码）：
+  </p>
+
+  <figure style="margin:14px 0 16px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 316" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="vmc-title vmc-desc">
+        <title id="vmc-title">Hypervisor 虚拟机与 Docker 共享内核容器栈层级对比图</title>
+        <desc id="vmc-desc">左侧展示传统虚拟机在物理硬件与 Hypervisor 之上各自运行独立 Guest OS Kernel 的重型栈；右侧展示 Docker 容器直接共享宿主机 Linux Kernel，通过 Namespace 与 Cgroups 隔离多个轻量用户态容器进程。</desc>
+
+        <!-- 左栏：虚拟机栈 -->
+        <rect x="24" y="20" width="424" height="276" rx="10" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+        <text x="236" y="44" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#1F1F23">传统虚拟机（KVM / VMware · 硬件层虚拟化）</text>
+
+        <!-- VM 1 & VM 2 -->
+        <rect x="44" y="60" width="184" height="108" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="136" y="80" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1F1F23">业务应用 A + 依赖库</text>
+        <rect x="56" y="92" width="160" height="32" rx="6" fill="#FBE9E7" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="136" y="112" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10" font-weight="700" fill="#bf4520">独立 Guest OS Kernel</text>
+        <text x="136" y="150" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" fill="#5A5860">GB 级镜像 · 秒至分钟启动</text>
+
+        <rect x="244" y="60" width="184" height="108" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="336" y="80" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1F1F23">业务应用 B + 依赖库</text>
+        <rect x="256" y="92" width="160" height="32" rx="6" fill="#FBE9E7" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="336" y="112" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10" font-weight="700" fill="#bf4520">独立 Guest OS Kernel</text>
+        <text x="336" y="150" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" fill="#5A5860">可运行异构 Windows 内核</text>
+
+        <rect x="44" y="180" width="384" height="44" rx="8" fill="#E8EAF6" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="236" y="206" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="12" font-weight="700" fill="#1F1F23">Hypervisor 虚拟化层（模拟 CPU / 内存页表 / 网卡）</text>
+
+        <rect x="44" y="236" width="384" height="44" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="236" y="262" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="12" font-weight="700" fill="#1F1F23">宿主机物理硬件 + Host OS</text>
+
+        <!-- 右栏：容器栈 -->
+        <rect x="472" y="20" width="424" height="276" rx="10" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
+        <text x="684" y="44" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="13" font-weight="800" fill="#1b5e20">Docker 容器（操作系统层隔离 · 共享内核）</text>
+
+        <rect x="492" y="60" width="118" height="108" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="551" y="84" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1F1F23">容器 A (Go)</text>
+        <text x="551" y="108" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#5A5860">仅含二进制</text>
+        <text x="551" y="130" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#1b5e20">体积 ~18MB</text>
+        <text x="551" y="152" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="10.5" fill="#5A5860">无独立内核</text>
+
+        <rect x="625" y="60" width="118" height="108" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="684" y="84" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1F1F23">容器 B (Node)</text>
+        <text x="684" y="108" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#5A5860">Node + Slim</text>
+        <text x="684" y="130" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#1b5e20">体积 ~180MB</text>
+        <text x="684" y="152" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="10.5" fill="#5A5860">百毫秒启动</text>
+
+        <rect x="758" y="60" width="118" height="108" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="817" y="84" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1F1F23">容器 C (MySQL)</text>
+        <text x="817" y="108" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#5A5860">mysqld + 库</text>
+        <text x="817" y="130" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#1b5e20">直接系统调用</text>
+        <text x="817" y="152" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="10.5" fill="#5A5860">近原生 I/O</text>
+
+        <rect x="492" y="180" width="384" height="44" rx="8" fill="#FBE9E7" stroke="#bf4520" stroke-width="2"/>
+        <text x="684" y="206" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#bf4520">共享宿主机 Linux Kernel（Namespace + Cgroups）</text>
+
+        <rect x="492" y="236" width="384" height="44" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="684" y="262" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="12" font-weight="700" fill="#1F1F23">宿主机物理硬件（容器进程 = 宿主机普通进程）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p>
+    这一架构直接解释了三个工程事实：第一，<strong>启动容器就是调用内核创建新进程</strong>，省去了 BIOS 自检与操作系统引导，因此百毫秒即可就绪；第二，所谓“Ubuntu 容器镜像”或“Alpine 容器镜像”，里面<strong>根本不包含 Linux 内核</strong>，只包含各自的包管理器（<code>apt / apk</code>）和 C 标准库（<code>glibc / musl</code>），系统调用全部直接落到宿主机内核上，所以 macOS 和 Windows 运行 Linux 容器时，Docker Desktop 必须在后台偷偷跑一台轻量 Linux 虚拟机；第三，因为共享同一个内核，一旦宿主机内核存在提权漏洞，容器逃逸风险高于硬件虚拟化。
+  </p>
+
+  <p>
+    在底层实现上，<code>runc</code> 操作 Linux Namespace 只依赖三个核心系统调用：
+  </p>
+  <ul>
+    <li><strong><code>clone(fn, stack, flags, arg)</code>（创建新容器时用）</strong>：创建子进程的同时，传入 <code>CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC</code> 等标志位，让子进程一出生就拥有独立的命名空间视图。</li>
+    <li><strong><code>setns(fd, nstype)</code>（执行 <code>docker exec</code> 时用）</strong>：敲下 <code>docker exec -it my-app sh</code> 时，<strong>并没有启动新容器</strong>，而是打开目标容器进程在 <code>/proc/&lt;pid&gt;/ns/</code> 下的命名空间文件描述符，调用 <code>setns()</code> 把新创建的 <code>sh</code> 进程“塞进”目标容器已有的 Namespace 与 Cgroups 里——所以退出 <code>exec</code> 终端完全不会影响容器主进程。</li>
+    <li><strong><code>unshare(flags)</code>（脱离当前命名空间）</strong>：不创建新进程，直接让当前调用进程脱离原有的某个共享命名空间并新建一份独立视图（命令行工具 <code>unshare --pid --fork --mount-proc bash</code> 可在宿主机上徒手模拟容器隔离）。</li>
+  </ul>
+</div>
+
+<!-- 00.2 · 6+2 类 Linux Namespace 与容器 PID 1 信号屏蔽机制 -->
+<div class="wb-card" id="six-namespaces" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 00.2 · 障眼法清单：6 大核心 Namespace 与为什么 docker stop 会卡满 10 秒才强杀</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 00.2 Linux Namespace 全景表与 PID 1 的内核信号保护机制 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-node-app">实战篇 06.3</a> 与 <a href="index.html#prod-graceful">07.4</a> —— 为什么容器里执行 <code>ps aux</code> 只能看到自己的进程，以及为什么用 Shell 模式启动容器会导致 <code>docker stop</code> 卡死 10 秒后被 <code>SIGKILL</code> 强杀？
+  </p>
+
+  <p>
+    <code>Namespace（命名空间）</code> 负责的是<strong>“你能看见什么”的视图裁剪</strong>。现代 Docker 容器默认启用前 5 项 + <code>Cgroup</code> 命名空间（<code>User</code> 命名空间需开启 Rootless 模式或显式配置）：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">Namespace 类型</th>
+          <th style="width:22%">clone() 标志位 / 内核版本</th>
+          <th>隔离的内核资源视图与实战现象</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. Mount (<code>mnt</code>)</strong></td>
+          <td><code>CLONE_NEWNS</code>（Linux 2.4.19）</td>
+          <td><strong>文件系统挂载点视图</strong>（历史上第一个诞生的 Namespace，故宏名叫 <code>NEWNS</code>）。配合 <code>pivot_root</code> 让容器拥有独立的根目录 <code>/</code>，互看不见宿主机目录。</td>
+        </tr>
+        <tr>
+          <td><strong>2. UTS</strong></td>
+          <td><code>CLONE_NEWUTS</code>（Linux 2.6.19）</td>
+          <td><strong>主机名（Hostname）与 NIS 域名</strong>（<code>UTS</code> 即 UNIX Time-Sharing System）。这就是为什么每个容器提示符默认显示自己的 12 位容器短 ID。</td>
+        </tr>
+        <tr>
+          <td><strong>3. IPC</strong></td>
+          <td><code>CLONE_NEWIPC</code>（Linux 2.6.19）</td>
+          <td><strong>进程间通信资源</strong>（<code>IPC</code>，Inter-Process Communication），隔离 System V 消息队列、信号量与 POSIX 共享内存（如 PostgreSQL/Chrome 容器重度依赖 <code>/dev/shm</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong>4. PID</strong></td>
+          <td><code>CLONE_NEWPID</code>（Linux 2.6.24）</td>
+          <td><strong>进程号编号空间</strong>。同一个业务进程具有双重视角：在宿主机根命名空间里它的 PID 可能是 <code>28491</code>，但在容器自己的 PID Namespace 里它就是至高无上的 <strong><code>PID 1</code></strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>5. Network (<code>net</code>)</strong></td>
+          <td><code>CLONE_NEWNET</code>（Linux 2.6.29）</td>
+          <td><strong>网络协议栈全套隔离</strong>：独立网卡（<code>lo / eth0</code>）、独立 IP 地址、独立路由表、独立 <code>iptables</code> 规则与独立 TCP/UDP 端口号监听表（所以 10 个 Nginx 容器都能在各自内部监听 <code>80</code> 端口而不冲突）。</td>
+        </tr>
+        <tr>
+          <td><strong>6. User</strong></td>
+          <td><code>CLONE_NEWUSER</code>（Linux 3.8）</td>
+          <td><strong>UID / GID 用户映射</strong>。支持把容器内的 <code>root (UID 0)</code> 映射为宿主机上的普通低权限账号（如 <code>UID 100000</code>），是 Rootless Docker 防御容器逃逸的核心防线。</td>
+        </tr>
+        <tr>
+          <td><strong>补充：Cgroup / Time</strong></td>
+          <td><code>CLONE_NEWCGROUP</code> (4.6) / <code>CLONE_NEWTIME</code> (5.6)</td>
+          <td><code>Cgroup Namespace</code> 隐藏宿主机完整 cgroup 路径，让容器内看到的 <code>/proc/self/cgroup</code> 以自身为根；<code>Time Namespace</code> 支持单容器独立偏移系统单调时钟与启动时间。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout warn" style="margin:14px 0;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 内核深坑：为什么容器内的 <code>PID 1</code> 天生“刀枪不入”，导致 <code>docker stop</code> 优雅停机失效？</strong><br>
+    在 Linux 内核（<code>kernel/signal.c</code>）中，每个 PID Namespace 的 <code>PID 1</code> 进程都会被打上 <strong><code>SIGNAL_UNKILLABLE</code></strong> 内核标记（因为在传统 Linux 系统里 PID 1 是 <code>systemd / init</code>，一旦误杀整机即刻 Kernel Panic）。这带来了两条与普通进程截然不同的信号核心规则：<br>
+    1. <strong>默认忽略所有未显式注册处理函数（Signal Handler）的信号</strong>：普通进程收到 <code>SIGTERM</code> 若没写捕获逻辑，内核默认动作是终止它；但对于 <strong><code>PID 1</code>，只要代码里没有主动调用 <code>sigaction(SIGTERM, ...)</code> 注册监听器，内核会直接丢弃从外部（含宿主机 <code>docker stop</code>）发来的 <code>SIGTERM</code></strong>！<br>
+    2. <strong>连 <code>/bin/sh</code> 这种壳进程也不会转发信号</strong>：如果你写了 <code>CMD "node server.js"</code>（Shell 格式），容器里的 <code>PID 1</code> 其实是 <code>/bin/sh -c</code>，真正的 <code>node</code> 是 <code>PID 7</code>。执行 <code>docker stop</code> 时，<code>dockerd</code> 向 <code>PID 1 (/bin/sh)</code> 发送 <code>SIGTERM</code>，<code>/bin/sh</code> 既不退出也不把信号转发给子进程 <code>node</code>；苦等 10 秒超时后，宿主机从父级 PID Namespace 强行降下跨命名空间不可豁免的 <code>SIGKILL (9)</code>，直接腰斩连接。<br>
+    <strong>标准解法</strong>：始终使用 JSON 数组的 <strong>Exec 格式（<code>ENTRYPOINT ["./app"]</code>）</strong>让业务进程直任 <code>PID 1</code> 并在代码里监听 <code>SIGTERM</code>；若多子进程无法回收僵尸进程，启用 <code>docker run --init</code>（或在 Compose 中设 <code>init: true</code>），由微型守护进程 <strong><code>tini</code></strong> 担任 <code>PID 1</code> 负责转发信号并调用 <code>waitpid()</code> 回收孤儿僵尸进程。
+  </div>
+
+  <div class="code-block" style="margin:12px 0 0;">
+    <div class="code-header">
+      <span class="code-lang">bash · 在 Linux 宿主机上亲手查看任意容器的 Namespace 句柄号</span>
+      <button class="copy-btn" onclick="copyText('code-ns-inspect', this)">复制</button>
+    </div>
+    <pre id="code-ns-inspect"><code># 1. 查出容器主进程在宿主机根命名空间里的真实 PID
+HOST_PID=$(docker inspect -f '{{.State.Pid}}' my-nginx)
+echo "Host PID: $HOST_PID"
+
+# 2. 查看该进程挂载的命名空间符号链接（方括号内的 inode 编号相同即代表共享同一命名空间）
+sudo ls -l /proc/$HOST_PID/ns
+# lrwxrwxrwx 1 root root 0 cgroup -> 'cgroup:[4026532489]'
+# lrwxrwxrwx 1 root root 0 ipc    -> 'ipc:[4026532405]'
+# lrwxrwxrwx 1 root root 0 mnt    -> 'mnt:[4026532403]'
+# lrwxrwxrwx 1 root root 0 net    -> 'net:[4026532408]'
+# lrwxrwxrwx 1 root root 0 pid    -> 'pid:[4026532406]'
+# lrwxrwxrwx 1 root root 0 uts    -> 'uts:[4026532404]'</code></pre>
+  </div>
+</div>

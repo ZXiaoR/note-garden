@@ -1,0 +1,217 @@
+<!-- ====================================================================
+     PART 01: 快速跑起来 · 国内镜像加速、第一个容器闭环与 docker run 参数拆解
+     ==================================================================== -->
+<div class="wb-sec-header" id="quickstart" style="background:var(--plop-periwinkle);">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">快速跑起来：国内镜像加速、第一个容器闭环与参数拆解</span>
+  <span class="plop-tag mint">REGISTRY MIRROR · FIRST CONTAINER · DOCKER RUN ANATOMY · INSTALL APPENDIX</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>配好镜像加速解决国内 <code>docker pull</code> 超时报错，3 分钟跑通“启动 → 改页面 → 看日志 → 进终端 → 清理”完整闭环，并彻底看懂本花园所有数据库/中间件启动命令里的每一个参数。
+</div>
+
+<!-- 01.1 · 第一步先解决拉不动镜像：配置镜像加速与验证 -->
+<div class="wb-card" id="qs-mirror" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 01.1 · 扫清最大拦路虎：解决连接 Docker Hub 超时（<code>Client.Timeout exceeded</code>）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 01.1 先确认环境就绪，并配好镜像拉取加速</h3>
+
+  <p>
+    如果你本机还没安装 Docker，macOS 用户推荐安装轻量快速的 <strong>OrbStack</strong>（或官方 <strong>Docker Desktop</strong>），Windows 与 Linux 原生安装命令已整理在本章末尾的<a href="#qs-appendix">折叠附录</a>中。装好后，国内网络直接执行 <code>docker pull</code> 经常卡在 <code>context deadline exceeded</code>——原因是默认去海外官方仓库 <code>registry-1.docker.io</code> 拉取。按下面对应方式配置即可解决（适用 Docker Engine 24 ~ 27+）：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> Linux 服务器修改 /etc/docker/daemon.json（桌面端在设置面板填）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dk-mirror', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-dk-mirror"><code><span class="c-cm"># 1. 先检查 Docker 客户端与后台守护进程（Daemon）是否正常运行</span>
+<span class="c-fn">docker</span> <span class="c-kw">version</span>
+
+<span class="c-cm"># 2. Linux 服务器写入镜像加速与日志防爆盘配置（macOS/Windows 打开客户端</span>
+<span class="c-cm">#    Settings -&gt; Docker Engine，把下面 JSON 里的 registry-mirrors 合并进去点 Apply）</span>
+<span class="c-fn">sudo</span> <span class="c-fn">mkdir</span> <span class="c-flag">-p</span> /etc/docker
+<span class="c-fn">sudo</span> <span class="c-fn">tee</span> /etc/docker/daemon.json <span class="c-kw">&lt;&lt;-'EOF'</span>
+{
+  <span class="c-str">"registry-mirrors"</span>: [
+    <span class="c-str">"https://&lt;你的阿里云或云厂商专属加速前缀&gt;.mirror.aliyuncs.com"</span>,
+    <span class="c-str">"https://docker.1ms.run"</span>
+  ],
+  <span class="c-str">"log-driver"</span>: <span class="c-str">"json-file"</span>,
+  <span class="c-str">"log-opts"</span>: { <span class="c-str">"max-size"</span>: <span class="c-str">"50m"</span>, <span class="c-str">"max-file"</span>: <span class="c-str">"3"</span> }
+}
+<span class="c-kw">EOF</span>
+
+<span class="c-cm"># 3. 重新加载配置并重启守护进程，核验 Registry Mirrors 已生效</span>
+<span class="c-fn">sudo</span> <span class="c-fn">systemctl</span> <span class="c-kw">daemon-reload</span> <span class="c-kw">&amp;&amp;</span> <span class="c-fn">sudo</span> <span class="c-fn">systemctl</span> <span class="c-kw">restart</span> docker
+<span class="c-fn">docker</span> <span class="c-kw">info</span> | <span class="c-fn">grep</span> <span class="c-flag">-A</span> <span class="c-num">4</span> <span class="c-str">"Registry Mirrors"</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 镜像拉取受阻时的 3 种可靠备选方案</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
+        <li><strong>方案 ①（本机有代理）</strong>：注意终端里设 <code>export HTTPS_PROXY=...</code> 对 <code>docker pull</code> <strong>无效</strong>！因为真正发起网络下载的是后台 <code>dockerd</code> 守护进程，不是前台命令行。桌面端直接在 Docker Desktop / OrbStack 设置里开启系统代理即可秒拉；Linux 服务端配在 <code>/etc/systemd/system/docker.service.d/http-proxy.conf</code>。</li>
+        <li><strong>方案 ②（云厂商个人专属加速或 ACR 转存）</strong>：开通免费的阿里云容器镜像服务个人版，用 GitHub Actions 把常用基础镜像同步推一份到自己的私有仓库拉取，稳定不限速。</li>
+        <li><strong>方案 ③（离线导入导出）</strong>：在能联网的机器跑 <code>docker pull mysql:8.4 && docker save -o mysql84.tar mysql:8.4</code>，拷到目标内网机器执行 <code>docker load -i mysql84.tar</code> 即可离线加载。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 01.2 · 3 分钟跑通第一个容器完整闭环 -->
+<div class="wb-card" id="qs-first-run" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> 01.2 · 第一个动手实验：5 条命令走通 Nginx 容器启动、进入交互终端、查看日志与清理</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> 01.2 先用 5 条命令走通一个容器的完整一生</h3>
+
+  <div class="plop-code-box" style="margin-bottom:0;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> first_container.sh · 复制到终端逐条运行体验</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dk-first', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-dk-first"><code><span class="c-cm"># 第 1 步：后台启动一个轻量级 Nginx 网页服务器，把本机 8080 端口转发到容器里的 80 端口</span>
+<span class="c-fn">docker</span> <span class="c-kw">run</span> <span class="c-flag">-d</span> <span class="c-flag">--name</span> <span class="c-str">hello-web</span> <span class="c-flag">-p</span> <span class="c-num">8080:80</span> <span class="c-str">nginx:1.27-alpine</span>
+
+<span class="c-cm"># 第 2 步：在宿主机验证网页已跑通（或浏览器打开 http://localhost:8080）</span>
+<span class="c-fn">curl</span> <span class="c-flag">-I</span> http://127.0.0.1:8080
+
+<span class="c-cm"># 第 3 步：进入正在运行的容器内部，把默认首页改成我们自己的中文页面</span>
+<span class="c-fn">docker</span> <span class="c-kw">exec</span> <span class="c-flag">-it</span> hello-web <span class="c-fn">sh</span> <span class="c-flag">-c</span> <span class="c-str">"echo '&lt;h1&gt;Hello from Docker!&lt;/h1&gt;' &gt; /usr/share/nginx/html/index.html"</span>
+<span class="c-fn">curl</span> http://127.0.0.1:8080
+
+<span class="c-cm"># 第 4 步：查看容器刚才打印的访问日志</span>
+<span class="c-fn">docker</span> <span class="c-kw">logs</span> <span class="c-flag">--tail</span> <span class="c-num">10</span> hello-web
+
+<span class="c-cm"># 第 5 步：实验结束，停止并彻底删除该容器（宿主机干干净净，没有任何残留文件）</span>
+<span class="c-fn">docker</span> <span class="c-kw">rm</span> <span class="c-flag">-f</span> hello-web</code></pre>
+  </div>
+</div>
+
+<!-- 01.3 · 一张表拆透全站都在用的 docker run 参数 -->
+<div class="wb-card" id="qs-flags" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 01.3 · 命令活体解剖：一眼读懂 MySQL / Redis / Kafka 的 docker run 启动参数</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 01.3 拆解一条标准 <code>docker run</code> 命令的每个开关</h3>
+
+  <p>
+    回看我们在 <a href="../mysql/index.html#quickstart">MySQL 笔记 01.1</a> 里写的那行启动命令：<code>docker run -d --name mysql84 -p 3306:3306 -e MYSQL_ROOT_PASSWORD=Secret -v mysql84_data:/var/lib/mysql --restart unless-stopped mysql:8.4 --character-set-server=utf8mb4</code>。其实所有中间件启动命令都是由下面 <strong>7 个固定积木</strong>拼出来的：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">参数写法</th>
+          <th style="width:22%">英文原意</th>
+          <th>真实作用与新手最容易搞反的细节</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>-d</code></strong></td>
+          <td><code>--detach</code>（后台分离运行）</td>
+          <td>让容器在后台静默运行并返回容器 ID；如果不加 <code>-d</code>，容器日志会直接占住你当前的终端窗口，<code>Ctrl + C</code> 就可能把容器关掉。</td>
+        </tr>
+        <tr>
+          <td><strong><code>--name mysql84</code></strong></td>
+          <td>指定自定义容器名</td>
+          <td>给容器起个好记的唯一名字，后续 <code>docker stop / logs / exec</code> 直接填 <code>mysql84</code> 即可；不加则随机生成如 <code>quirky_darwin</code> 的名字。</td>
+        </tr>
+        <tr>
+          <td><strong><code>-p 8080:80</code></strong></td>
+          <td><code>--publish</code>（端口映射）</td>
+          <td><strong>左外右内：<code>宿主机端口 : 容器内监听端口</code></strong>（千万别写反！）。例如 <code>-p 13306:3306</code> 表示容器里面的 MySQL 依然监听 <code>3306</code>，但你在宿主机连接时填端口 <code>13306</code>，这样一台机器就能同时跑多个不同端口的 MySQL。</td>
+        </tr>
+        <tr>
+          <td><strong><code>-e KEY=VAL</code></strong></td>
+          <td><code>--env</code>（注入环境变量）</td>
+          <td>向容器内传入配置项（如数据库的 <code>MYSQL_ROOT_PASSWORD</code>、容器时区 <code>TZ=Asia/Shanghai</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>-v 卷名:/容器内路径</code></strong></td>
+          <td><code>--volume</code>（挂载持久化卷）</td>
+          <td><strong>同样是左外右内</strong>：把容器内 <code>/var/lib/mysql</code> 目录映射到宿主机管理的持久化卷 <code>mysql84_data</code> 上，保证删掉容器升级版本时数据一字不丢（详见 <a href="#volumes">03.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>--restart unless-stopped</code></strong></td>
+          <td>崩溃或开机自动重启策略</td>
+          <td>进程意外崩溃或宿主机断电重启后，Docker 自动帮你把该容器重新拉起来（除非你手动执行过 <code>docker stop</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>镜像名:标签</code> 及其后的参数</strong></td>
+          <td>位置分界线（非常关键）</td>
+          <td><strong>写在 <code>mysql:8.4</code> 前面的参数是传给 <code>docker run</code> 的；写在 <code>mysql:8.4</code> 后面的参数（如 <code>--character-set-server=utf8mb4</code>）是原样传给容器内启动程序 <code>mysqld</code> 的！</strong>把 <code>-p</code> 写到镜像名后面会直接报错。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 01.4 · 附录：macOS / Linux / Windows 安装与免 sudo 配置（默认折叠） -->
+<div class="wb-card" id="qs-appendix" style="background:var(--plop-paper);">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 01.4 · 选读附录：macOS / Linux / Windows 安装指引与 Linux 普通用户免 sudo 配置</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 01.4 附录：三大操作系统安装命令与排障（按需展开）</h3>
+
+  <details class="plop-drawer" id="docker-install" style="margin-bottom:16px;">
+    <summary><span class="plop-drawer-title">展开查看：macOS（OrbStack / Docker Desktop）、Linux（Ubuntu / Rocky）与 Windows（WSL2）安装指南</span></summary>
+    <div class="drawer-body">
+      <div class="wb-grid-2" style="margin-bottom:10px;">
+        <div class="plop-code-box">
+          <div class="plop-code-head">
+            <span>🍎 macOS 与 Windows 桌面端安装</span>
+            <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dk-mac', this)">复制命令</button>
+          </div>
+          <pre class="plop-code-pre" id="code-dk-mac"><code><span class="c-cm"># === macOS（推荐轻量化替代品 OrbStack：内存占用仅百 MB、启动仅 2 秒，完全兼容 docker / compose CLI）===</span>
+<span class="c-fn">brew</span> <span class="c-kw">install</span> <span class="c-flag">--cask</span> orbstack
+<span class="c-cm"># 或安装官方 Docker Desktop：</span>
+<span class="c-cm"># brew install --cask docker</span>
+
+<span class="c-cm"># === Windows 10/11（需先启用 WSL2 子系统，管理员 PowerShell 执行）===</span>
+<span class="c-fn">wsl</span> <span class="c-flag">--install</span>
+<span class="c-fn">winget</span> <span class="c-kw">install</span> Docker.DockerDesktop</code></pre>
+        </div>
+
+        <div class="plop-code-box">
+          <div class="plop-code-head">
+            <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cpu"></use></svg> Linux（Ubuntu / Debian）安装与免 sudo 配置</span>
+            <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dk-linux', this)">复制命令</button>
+          </div>
+          <pre class="plop-code-pre" id="code-dk-linux"><code><span class="c-cm"># 1. 使用官方安装脚本（国内可追加 --mirror Aliyun 使用阿里云软件源）</span>
+<span class="c-fn">curl</span> <span class="c-flag">-fsSL</span> https://get.docker.com | <span class="c-fn">sudo</span> <span class="c-fn">sh</span> <span class="c-flag">-s</span> docker <span class="c-flag">--mirror</span> Aliyun
+<span class="c-fn">sudo</span> <span class="c-fn">systemctl</span> <span class="c-kw">enable</span> <span class="c-flag">--now</span> docker
+
+<span class="c-cm"># 2. 解决普通用户敲 docker 报 permission denied while trying to connect to docker.sock：</span>
+<span class="c-fn">sudo</span> <span class="c-fn">usermod</span> <span class="c-flag">-aG</span> docker $USER
+<span class="c-fn">newgrp</span> docker  <span class="c-cm"># 立即刷新当前会话用户组，此后无需每次敲 sudo docker</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <h4 id="quiz-01" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 本机 <code>3306</code> 端口已经被以前装过的旧版 MySQL 占用了，我想用 Docker 再跑一个测试用的 MySQL 8.4，<code>-p</code> 参数该怎么写？</span></summary>
+    <div class="drawer-body">
+      <p>记住<strong>“左宿主机、右容器内”</strong>：写成 <strong><code>-p 3307:3306</code></strong>（或 <code>-p 13306:3306</code>）。容器里面的 MySQL 完全不用改配置，照常监听它自己的 <code>3306</code>；你在本机客户端（如 DBeaver 或 Go 代码）连 <code>127.0.0.1:3307</code> 即可，跟本机原有的 <code>3306</code> 互不冲突。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 新手写了 <code>docker run redis:7.2 -d -p 6379:6379</code>，为什么不仅没在后台跑，反而报 <code>Fatal error, can't open config file '-d'</code>？</span></summary>
+    <div class="drawer-body">
+      <p><strong>把 Docker 自身的参数写到了镜像名后面。</strong>命令行解析以镜像名 <code>redis:7.2</code> 为分界线：镜像名后面的 <code>-d -p 6379:6379</code> 被当成了传给容器内 <code>redis-server</code> 程序的启动参数，<code>redis-server</code> 不认识 <code>-d</code> 就当成配置文件路径报错退出了。调整顺序为 <code>docker run -d -p 6379:6379 redis:7.2</code> 即可。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 敲 <code>docker ps</code> 时报错 <code>Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?</code>，是什么原因？</span></summary>
+    <div class="drawer-body">
+      <p>Docker 采用客户端/服务端（C/S）分离架构：<code>docker</code> 命令行只是轻量客户端，真正干活的是后台守护进程 <code>dockerd</code>。出现该报错说明后台服务没启动（macOS/Windows 打开 OrbStack 或 Docker Desktop 图标；Linux 执行 <code>sudo systemctl start docker</code>）。</p>
+    </div>
+  </details>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>敲下 <code>docker run</code> 的那一秒，<code>docker</code> 客户端、<code>dockerd</code>、<code>containerd</code> 和 <code>runc</code> 之间经历了哪五步交接？可按需查阅 <a href="principles.html#runtime">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 04.1 OCI 运行时五级调用链》</a>。
+  </p>
+</div>

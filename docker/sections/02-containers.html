@@ -1,0 +1,202 @@
+<!-- ====================================================================
+     PART 02: 镜像与容器基本功 · 版本标签规范、基础镜像选型与排障命令速查
+     ==================================================================== -->
+<div class="wb-sec-header" id="containers" style="background:var(--plop-mint);">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">镜像与容器基本功：版本标签、基础镜像选型与日常排障</span>
+  <span class="plop-tag periwinkle">IMAGE TAGS × ALPINE VS SLIM × EXIT CODES × CLI CHEAT SHEET</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>看懂镜像命名与标签规范（避开 <code>:latest</code> 与 <code>alpine</code> 动态库不兼容坑），熟练用 5 条命令排查容器启动失败或卡顿，并随时查阅日常命令速查表。
+</div>
+
+<!-- 02.1 · 镜像命名结构、标签红线与三大基础镜像家族选型 -->
+<div class="wb-card" id="img-ops" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 02.1 · 镜像选型规范：完整镜像名三段结构、禁用裸 :latest 与 Alpine / Slim / Distroless 对比</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 02.1 镜像命名规范与基础镜像三大家族选型</h3>
+
+  <p>
+    一个完整的镜像标识由三段构成：<strong><code>[仓库域名]/[命名空间/镜像名]:[版本标签 Tag]</code></strong>。例如 <code>ghcr.io/org/api:v1.4.2</code>；当省略仓库域名与命名空间只写 <code>redis:7.2-alpine</code> 时，等价于从官方默认库拉取 <code>docker.io/library/redis:7.2-alpine</code>；当连冒号标签都省略（只写 <code>redis</code>）时，Docker 会自动补上 <strong><code>:latest</code></strong>。
+  </p>
+
+  <div class="plop-callout warn" style="margin-bottom:14px;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 工程规范：生产环境严禁裸写 <code>:latest</code> 标签</strong><br>
+    <code>:latest</code> 并不是“永远稳定兼容版”，而是镜像作者最后一次没带版本号推上去的浮动标签（可能昨天还是 MySQL 8.0，今天服务器扩容拉新节点就变成了不兼容的 MySQL 9.0）。无论是中间件还是自研应用，一律显式锁定版本号（如 <code>mysql:8.4.3</code>、<code>node:22-bookworm-slim</code>）。
+  </div>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">基础镜像变体后缀</th>
+          <th style="width:18%">典型基础体积</th>
+          <th style="width:24%">底层 C 标准库与包管理器</th>
+          <th>优势与选型避坑建议</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>标准完整版</strong><br>（如 <code>node:22</code>、<code>python:3.12</code>）</td>
+          <td><code>800 MB ~ 1.1 GB</code></td>
+          <td>Debian + <code>glibc</code> + <code>apt</code>（预装 git/gcc/curl 等大量编译工具）</td>
+          <td>适合作为多阶段构建的<strong>阶段一编译镜像（Builder）</strong>；直接拿来跑线上容器体积过大且攻击面广。</td>
+        </tr>
+        <tr>
+          <td><strong><code>-slim</code> 精简版（稳妥首选）</strong><br>（如 <code>node:22-bookworm-slim</code>）</td>
+          <td><code>150 ~ 220 MB</code></td>
+          <td>Debian + 标准 <strong><code>glibc</code></strong>（删掉了编译器和文档）</td>
+          <td><strong>Node.js / Python 生产运行首选</strong>！既有标准 <code>glibc</code> 100% 兼容各种 C++ 原生扩展（如 <code>sharp</code>、<code>bcrypt</code>、Prisma 引擎），体积又缩小了 75%。</td>
+        </tr>
+        <tr>
+          <td><strong><code>-alpine</code> 极小版</strong><br>（如 <code>nginx:1.27-alpine</code>）</td>
+          <td><code>7 ~ 50 MB</code></td>
+          <td>Alpine Linux + 轻量 <strong><code>musl libc</code></strong> + <code>apk</code></td>
+          <td><strong>Nginx / Redis / 纯静态编译 Go 二进制首选</strong>。<strong>常见坑</strong>：<code>musl libc</code> 与标准 <code>glibc</code> 二进制不兼容（若把未关 CGO 的 Go 程序或依赖 <code>glibc</code> 预编译包的 Python/Node 库放进 Alpine 会报 <code>not found</code>），且 DNS 解析偶有细微差异。</td>
+        </tr>
+        <tr>
+          <td><strong><code>distroless</code> / <code>scratch</code></strong><br>（Google 无发行版镜像）</td>
+          <td><code>2 ~ 20 MB</code></td>
+          <td><strong>连 Shell（<code>sh/bash</code>）和包管理器都没有</strong>，只含根证书与时区</td>
+          <td>金融/高安全要求下跑 Go / Rust 静态二进制最安全（黑客即使拿下应用漏洞也弹不出 Shell），缺点是线上不能 <code>docker exec</code> 进去敲命令排障。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 02.2 · 容器生命周期状态与线上排障五件套 -->
+<div class="wb-card" id="ctn-ops" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 02.2 · 容器排障基本功：容器退出码（0 / 1 / 137 / 139）一眼定因与排障五件套</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 02.2 容器秒退与卡死排查：看懂退出码与排障五件套</h3>
+
+  <p>
+    容器的核心规则是：<strong>「主进程（容器内的 <code>PID 1</code>）活着，容器就活着；主进程一旦退出，容器立刻变成 <code>Exited</code> 停止状态」</strong>。当你发现刚启动的容器在 <code>docker ps</code> 里找不到了，第一步是敲 <strong><code>docker ps -a</code></strong> 看它的 <code>STATUS</code> 退出码（Exit Code）：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> debug_five_tools.sh · 日常排障最高频的 5 条命令</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dk-debug', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-dk-debug"><code><span class="c-cm"># 1. 列出所有容器（含已崩溃停止的容器，看 STATUS 里的 Exited (code)）</span>
+<span class="c-fn">docker</span> <span class="c-kw">ps</span> <span class="c-flag">-a</span>
+
+<span class="c-cm"># 2. 实时追踪容器最后 100 行标准输出/报错日志（秒退容器也能照常看日志！）</span>
+<span class="c-fn">docker</span> <span class="c-kw">logs</span> <span class="c-flag">-f</span> <span class="c-flag">--tail</span> <span class="c-num">100</span> my-app
+
+<span class="c-cm"># 3. 进入正在运行的容器交互式终端（Alpine 镜像没有 bash，把 bash 换成 sh）</span>
+<span class="c-fn">docker</span> <span class="c-kw">exec</span> <span class="c-flag">-it</span> my-app <span class="c-fn">sh</span>
+
+<span class="c-cm"># 4. 查看容器详细底层配置（如查是否因 OOM 内存超限被杀、挂载路径、内网 IP）</span>
+<span class="c-fn">docker</span> <span class="c-kw">inspect</span> my-app <span class="c-flag">--format</span> <span class="c-str">'OOMKilled={{.State.OOMKilled}} Exit={{.State.ExitCode}}'</span>
+
+<span class="c-cm"># 5. 像 Linux top 一样实时监控全机所有容器的 CPU%、内存占用与网络流量</span>
+<span class="c-fn">docker</span> <span class="c-kw">stats</span></code></pre>
+    </div>
+
+    <div>
+      <div class="table-wrap">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:28%">常见退出状态码</th>
+              <th>故障根因与第一排查动作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong><code>Exited (0)</code></strong></td>
+              <td><strong>正常结束退出</strong>。最常见于跑了个后台脚本或误用了 <code>docker run ubuntu</code>（没前台常驻进程，跑完即退）。</td>
+            </tr>
+            <tr>
+              <td><strong><code>Exited (1)</code></strong></td>
+              <td><strong>业务代码自身报错崩溃</strong>（如缺配置文件、连不上数据库抛未捕获异常）。立刻敲 <code>docker logs my-app</code> 看报错堆栈。</td>
+            </tr>
+            <tr>
+              <td><strong><code>Exited (126 / 127)</code></strong></td>
+              <td><code>126</code> 为启动脚本无可执行权限（需 <code>chmod +x</code>）；<code>127</code> 为找不到启动命令（命令拼错或动态链接库缺失）。</td>
+            </tr>
+            <tr>
+              <td><strong><code>Exited (137)</code></strong><br><span style="font-size:11px; color:var(--plop-tomato);">(<code>128 + 9 SIGKILL</code>)</span></td>
+              <td>进程被强制信号 <code>SIGKILL(9)</code> 杀死：要么是<strong>容器内存超限触发内核 OOM Killer（<code>OOMKilled=true</code>）</strong>，要么是 <code>docker stop</code> 超 10 秒未退被强杀。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 02.3 · 日常镜像与容器操作速查表 -->
+<div class="wb-card" id="cmd-cheatsheet" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 02.3 · 日常操作速查卡：「我想做什么 → 敲哪条 Docker 命令」对照表</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 02.3 「日常需求 → 敲什么命令」一屏速查表</h3>
+
+  <div class="table-wrap" style="margin-bottom:16px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:32%">日常操作需求</th>
+          <th style="width:38%">标准推荐命令</th>
+          <th>注意事项</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>查看本机已下载的所有镜像及体积</td>
+          <td><code>docker images</code></td>
+          <td>仓库与标签显示为 <code>&lt;none&gt;</code> 的叫悬空镜像（Dangling Image）</td>
+        </tr>
+        <tr>
+          <td>一键清理无用的悬空镜像与停止容器</td>
+          <td><code>docker image prune -f</code> / <code>docker container prune -f</code></td>
+          <td>慎加 <code>-a</code>（<code>docker system prune -a</code> 会把所有当前没跑容器的备用镜像也删光）</td>
+        </tr>
+        <tr>
+          <td>在宿主机与容器之间双向拷贝单个文件</td>
+          <td><code>docker cp my-app:/app/app.log ./app.log</code></td>
+          <td>容器处于 <code>Exited</code> 停止状态时 <code>docker cp</code> 依然能把里面的配置或日志拷出来急救！</td>
+        </tr>
+        <tr>
+          <td>优雅停止 / 重启 / 强制删除容器</td>
+          <td><code>docker stop app</code> / <code>docker restart app</code> / <code>docker rm -f app</code></td>
+          <td><code>stop</code> 先发温和的 <code>SIGTERM</code> 给应用收尾，等 10 秒不退才发 <code>SIGKILL</code></td>
+        </tr>
+        <tr>
+          <td>查看 Docker 总共占了宿主机多少磁盘</td>
+          <td><code>docker system df</code></td>
+          <td>按 Images、Containers、Local Volumes、Build Cache 四类清晰列出可回收空间</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 id="quiz-02" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 容器刚启动 3 秒就挂了，想进去看一眼报错日志，敲 <code>docker exec -it my-app sh</code> 却提示 <code>Container is not running</code>，该怎么查原因？</span></summary>
+    <div class="drawer-body">
+      <p>容器停止后里面已经没有活着的进程空间了，所以不能 <code>exec</code> 进去；但<strong>停止的容器并没有被删除，它的标准输出日志和内部文件都完好无损</strong>！直接敲 <strong><code>docker logs --tail 100 my-app</code></strong> 就能看到崩溃报错；如果想看它里面的某个日志文件，用 <code>docker cp my-app:/path/err.log .</code> 拷出来即可。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 线上监控报警某个 Node.js 容器每隔半天就自动重启一次，<code>docker ps -a</code> 看到上一次退出状态是 <code>Exited (137)</code>，第一步怀疑什么？</span></summary>
+    <div class="drawer-body">
+      <p><code>137 = 128 + 9</code>，代表进程收到了不可捕获的强制杀死信号 <code>SIGKILL(9)</code>。排除人为敲 <code>docker kill</code> 后，95% 是因为<strong>代码内存泄漏或突发大文件加载超出了容器的内存上限，被 Linux 内核 OOM Killer 直接击毙</strong>。执行 <code>docker inspect my-app --format '{{.State.OOMKilled}}'</code> 返回 <code>true</code> 即可实锤。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 为什么本机下载了 <code>node:22-bookworm-slim</code>（200MB）后，再下载另一个同样基于 <code>bookworm-slim</code> 的自研镜像时，前面那 200MB 瞬间显示 <code>Already exists</code> 秒下完？</span></summary>
+    <div class="drawer-body">
+      <p>因为 Docker 镜像采用<strong>分层只读内容寻址存储</strong>。不同镜像只要共享相同的基础镜像层（SHA256 摘要相同），宿主机磁盘和内存里只存唯一一份副本，拉取和存储时直接复用已有底层。</p>
+    </div>
+  </details>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>多容器共享同一份只读镜像层、各自改动又互不污染是怎么做到的？以及 <code>Exit 137</code> 在内核里是怎么判定的？可查阅 <a href="principles.html#overlayfs">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 02 Overlay2 联合文件系统》</a> 与 <a href="principles.html#cgroups">《01 Cgroups 内存 OOM 机制》</a>。
+  </p>
+</div>

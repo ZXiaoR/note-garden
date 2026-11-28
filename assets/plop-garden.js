@@ -28,6 +28,7 @@
     { path: 'go/index.html', aliases: ['go/principles.html', 'go/principles'], icon: 'plop-ico-code', title: 'Go 语言与原理', dot: 'mustard', group: 'sys' },
     { path: 'node/index.html', aliases: ['node/principles.html', 'node/principles'], icon: 'plop-ico-hex', title: 'Node.js 基础与原理', dot: 'mint', group: 'sys' },
     { path: 'os/index.html', aliases: ['os/principles.html', 'os/principles'], icon: 'plop-ico-cpu', title: 'Linux 操作系统', dot: 'mint', group: 'sys' },
+    { path: 'docker/index.html', aliases: ['docker/principles.html', 'docker/principles'], icon: 'plop-ico-box', title: 'Docker 容器与原理', dot: 'periwinkle', group: 'sys', recent: true },
     { path: 'mq/index.html', aliases: ['mq/principles.html', 'mq/principles'], icon: 'plop-ico-mq', title: '消息队列基础与原理', dot: '', group: 'sys' },
     { path: 'backend/reliability.html', icon: 'plop-ico-shield', title: '稳定性七件套与防线', dot: 'tomato', group: 'sys', recent: true },
     { path: 'browser/index.html', aliases: ['browser/principles.html', 'browser/principles'], icon: 'plop-ico-globe', title: '浏览器工作原理', dot: 'periwinkle', group: 'sys' },
@@ -559,6 +560,26 @@
       const isGoPage = curPath.includes('/go/');
       const isNodePage = curPath.includes('/node/');
       const isMysqlPage = curPath.includes('/mysql/');
+      const isDockerPage = curPath.includes('/docker/');
+      const dockerToPrinciplesMap = {
+        overview: 'why',
+        quickstart: 'why',
+        containers: 'overlayfs',
+        'volume-net': 'net-kernel',
+        dockerfile: 'overlayfs',
+        compose: 'runtime',
+        scenarios: 'runtime',
+        production: 'cgroups',
+        quiz: 'kernel-quiz'
+      };
+      const dockerToPracticeMap = {
+        why: 'overview',
+        cgroups: 'production',
+        overlayfs: 'dockerfile',
+        'net-kernel': 'volume-net',
+        runtime: 'quickstart',
+        'kernel-quiz': 'quiz'
+      };
       const mysqlToPrinciplesMap = {
         overview: 'why',
         quickstart: 'why',
@@ -682,6 +703,12 @@
           } else if (base.includes('index.html') && mysqlToPracticeMap[currentId]) {
             targetHash = mysqlToPracticeMap[currentId];
           }
+        } else if (isDockerPage) {
+          if (base.includes('principles.html') && dockerToPrinciplesMap[currentId]) {
+            targetHash = dockerToPrinciplesMap[currentId];
+          } else if (base.includes('index.html') && dockerToPracticeMap[currentId]) {
+            targetHash = dockerToPracticeMap[currentId];
+          }
         } else if (base.includes('principles.html') && principlesAnchorMap[currentId]) {
           targetHash = principlesAnchorMap[currentId];
         } else if (base.includes('index.html') && curPath.includes('/redis/') && practiceAnchorMap[currentId]) {
@@ -699,7 +726,7 @@
   }
 
   // 10. 自动并行加载拆分的纯 HTML 章节子文件 ([data-plop-section="sections/01-xxx.html"])
-  const SECTION_CACHE_PREFIX = 'plop-sec-v18:';
+  const SECTION_CACHE_PREFIX = 'plop-sec-v21:';
 
   const EMOJI_TO_PLOP_ICON = {
     '🌱': 'plop-ico-sprout',

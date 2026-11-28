@@ -1,0 +1,207 @@
+<!-- ====================================================================
+     PART 04: Dockerfile 实战 · 核心指令、分层缓存加速与多阶段构建瘦身
+     ==================================================================== -->
+<div class="wb-sec-header" id="dockerfile" style="background:var(--plop-bubblegum);">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">Dockerfile 实战：核心指令、分层缓存加速与多阶段瘦身</span>
+  <span class="plop-tag periwinkle">DIRECTIVES × LAYER CACHE × .DOCKERIGNORE × MULTI-STAGE BUILD</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>独立写出规范安全的 <code>Dockerfile</code> 与 <code>.dockerignore</code>，利用分层缓存把改代码重打镜像的速度从几分钟压到 2 秒，并用多阶段构建把镜像体积缩小 80% 以上。
+</div>
+
+<!-- 04.1 · Dockerfile 核心指令与三组高频易混辨析 -->
+<div class="wb-card" id="df-directives" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 04.1 · 指令语法拆解：COPY vs ADD、ARG vs ENV、ENTRYPOINT vs CMD 与 Exec 数组格式</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 04.1 <code>Dockerfile</code> 核心指令与三组必知辨析</h3>
+
+  <p>
+    <code>Dockerfile</code> 是一份纯文本构建食谱：从第一行 <code>FROM</code> 选定基础镜像底盘开始，后续每一条 <code>RUN / COPY</code> 指令都会在上一层之上叠出一个新的只读镜像层。日常写配置最容易混淆的是以下三组指令：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">易混指令组</th>
+          <th style="width:38%">本质区别</th>
+          <th>工程编写准则</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>COPY</code> vs <code>ADD</code></strong></td>
+          <td><code>COPY</code> 只做诚实透明的本地文件拷贝；<code>ADD</code> 遇到本地 <code>.tar.gz</code> 会<strong>自动解压</strong>，且支持填远程 URL。</td>
+          <td><strong>99% 场景一律用 <code>COPY</code></strong>，意图明确不产生意外解压行为。</td>
+        </tr>
+        <tr>
+          <td><strong><code>ARG</code> vs <code>ENV</code></strong></td>
+          <td><strong><code>ARG</code> 仅在构建期（<code>docker build --build-arg</code>）有效</strong>，容器跑起来后消失；<strong><code>ENV</code> 会永久写进镜像并带入运行期容器环境变量</strong>。</td>
+          <td>构建版本号、编译代理地址用 <code>ARG</code>；运行期时区 <code>TZ</code>、<code>NODE_ENV=production</code> 用 <code>ENV</code>。注意：<strong>密码密钥绝不要写进 <code>ARG</code> 或 <code>ENV</code></strong>（用 <code>docker history</code> 能明文看到）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>ENTRYPOINT</code> vs <code>CMD</code></strong></td>
+          <td><code>ENTRYPOINT</code> 定义容器固定的<strong>主可执行程序</strong>；<code>CMD</code> 提供<strong>默认参数</strong>（若 <code>docker run</code> 末尾传了新参数，会把 <code>CMD</code> 替换掉）。</td>
+          <td><strong>启动命令务必写 JSON 数组 Exec 格式（<code>CMD ["node", "dist/server.js"]</code>）</strong>！若写成裸字符串 Shell 格式（<code>CMD node dist/server.js</code>），Docker 会包一层 <code>/bin/sh -c</code> 充当 <code>PID 1</code>，导致业务进程收不到 <code>docker stop</code> 的优雅退出信号。</td>
+        </tr>
+        <tr>
+          <td><strong><code>EXPOSE 8080</code> 的真相</strong></td>
+          <td><strong>仅仅是一句声明文档</strong>（告诉使用者该镜像内部默认监听 8080 端口），<strong>并不会自动打开宿主机端口</strong>！</td>
+          <td>宿主机想访问它，启动时仍然必须显式写 <code>-p 宿主机端口:8080</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 04.2 · 构建缓存（Build Cache）命中法则与 .dockerignore -->
+<div class="wb-card" id="df-cache" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 04.2 · 构建提速 50 倍：层缓存失效连锁反应、「先拷依赖清单再拷源码」与 .dockerignore</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 04.2 分层缓存加速法则与必配的 <code>.dockerignore</code></h3>
+
+  <p>
+    现代 Docker 默认使用 <strong>BuildKit</strong> 构建引擎，它会逐行检查指令与所拷文件的哈希校验和：<strong>一旦某一层的文件发生了哪怕 1 个字节的变化，从这一层往下的所有后续指令缓存全部连带失效，必须重新执行</strong>。
+  </p>
+  <p>
+    因此黄金排序法则是：<strong>「越不常变的内容放越上面，最常修改的业务源码放最下面」</strong>——先只拷贝依赖描述文件（<code>go.mod / go.sum</code> 或 <code>package.json / package-lock.json</code>）执行下载安装，最后再 <code>COPY . .</code> 拷贝业务源码。只要你没增删第三方库，平时改业务代码重打镜像直接秒跳过依赖下载：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> Dockerfile · 反例（每次重装依赖）vs 正例（命中层缓存）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-df-cache', this)">复制示例</button>
+      </div>
+      <pre class="plop-code-pre" id="code-df-cache"><code><span class="c-cm"># ❌ 反例：一上来先把整个项目拷进去</span>
+<span class="c-cm"># 只要改了一行 controller 代码，COPY . . 层变化，导致下一行 npm ci 每次都重跑 2 分钟！</span>
+<span class="c-kw">WORKDIR</span> /app
+<span class="c-kw">COPY</span> . .
+<span class="c-kw">RUN</span> npm ci
+
+<span class="c-cm"># ============================================================</span>
+<span class="c-cm"># ✅ 正例：先单独拷依赖锁文件装包，最后再拷业务源码</span>
+<span class="c-kw">WORKDIR</span> /app
+<span class="c-cm"># 1. 只要 package*.json 没变，下面这步构建永远 0.1 秒直接命中 CACHED！</span>
+<span class="c-kw">COPY</span> package.json package-lock.json ./
+<span class="c-kw">RUN</span> npm ci --omit=dev &amp;&amp; npm cache clean --force
+
+<span class="c-cm"># 2. 频繁修改的业务源码放在最后拷贝</span>
+<span class="c-kw">COPY</span> . .
+<span class="c-kw">CMD</span> [<span class="c-str">"node"</span>, <span class="c-str">"src/index.js"</span>]</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> .dockerignore · 放在项目根目录（防泄漏密钥与加速构建上下文）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dockerignore', this)">复制配置</button>
+      </div>
+      <pre class="plop-code-pre" id="code-dockerignore"><code><span class="c-cm"># 1. 排除巨型本地依赖与构建产物（防止把本机 800MB node_modules 传给守护进程）</span>
+node_modules
+dist
+build
+vendor
+
+<span class="c-cm"># 2. 排除版本控制与本地 IDE 目录（防 .git 变动无故击穿 COPY . . 缓存）</span>
+.git
+.gitignore
+.vscode
+.idea
+
+<span class="c-cm"># 3. 【安全红线】严禁将本地 .env 私钥证书随 COPY . . 打进镜像层！</span>
+.env
+.env.*
+*.pem
+*.key</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 04.3 · 多阶段构建（Multi-stage Build）瘦身实战 -->
+<div class="wb-card" id="df-multistage" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> 04.3 · 镜像体积从 900MB 压到 20MB：多阶段构建（Multi-stage Build）原理与模板</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> 04.3 多阶段构建：编译环境与运行环境彻底分离</h3>
+
+  <p>
+    编译 Go、TypeScript 或前端 React/Vue 项目时，我们需要庞大臃肿的编译器、SDK 和全量开发依赖（动辄 <code>800 MB ~ 1.2 GB</code>）；但线上真正运行的时候，其实只需要编译出来的那一个<strong>十几 MB 的二进制文件或 <code>dist/</code> 静态文件夹</strong>。在同一个 <code>Dockerfile</code> 里写多个 <code>FROM ... AS 阶段名</code>，用 <strong><code>COPY --from=builder</code></strong> 只把最终产物挑进一个极小的运行底盘里，前面的编译阶段就会被自动丢弃，不会进入最终镜像：
+  </p>
+
+  <!-- Editorial SVG: Multi-stage Build Slimming Flow -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 860 220" style="width:100%; min-width:800px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="dk-ms-title dk-ms-desc">
+        <title id="dk-ms-title">Dockerfile 多阶段构建将编译环境与轻量运行镜像分离的瘦身流程</title>
+        <desc id="dk-ms-desc">第一阶段 builder 基于 860MB 的 golang:1.23 编译源码生成二进制文件 app，构建结束后整个第一阶段被丢弃；第二阶段基于 18MB 的 alpine:3.20 仅通过 COPY --from=builder 拷入单个二进制产物生成约 28MB 的最终安全镜像。</desc>
+        <defs>
+          <marker id="dk-ms-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Connector (drawn BEFORE boxes) -->
+        <line x1="364" y1="104" x2="516" y2="104" stroke="#bf4520" stroke-width="1.8" marker-end="url(#dk-ms-arr-accent)"/>
+        <rect x="374" y="80" width="132" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="440" y="91" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="8.5" font-weight="600" fill="#bf4520">COPY --from=builder</text>
+        <rect x="382" y="112" width="116" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="440" y="124" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">只取单个编译产物</text>
+
+        <!-- Stage 1: Builder (Discarded after build) -->
+        <rect x="28" y="32" width="336" height="148" rx="8" fill="rgba(45,49,66,0.04)" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="6,4"/>
+        <text x="196" y="58" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#2d3142">阶段一：AS builder（约 860 MB）</text>
+        <text x="196" y="82" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#4f5d75">FROM golang:1.23-bookworm</text>
+        <text x="196" y="106" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">包含 Go 编译器 · Git · 全量源码 · 编译缓存</text>
+        <rect x="76" y="124" width="240" height="36" rx="4" fill="#FFFFFF" stroke="#4f5d75" stroke-width="1"/>
+        <text x="196" y="146" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">构建完毕后整层自动丢弃，不进成品</text>
+
+        <!-- Stage 2: Final Runtime Image (Focal) -->
+        <rect x="516" y="32" width="316" height="148" rx="8" fill="#FFFDF7"/>
+        <rect x="516" y="32" width="316" height="148" rx="8" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="674" y="58" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13.5" font-weight="800" fill="#bf4520">阶段二：最终运行镜像（仅 ~25 MB）</text>
+        <text x="674" y="82" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#bf4520">FROM alpine:3.20</text>
+        <text x="674" y="106" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#2d3142">仅含 /app/server + HTTPS 根证书 + 时区</text>
+        <rect x="542" y="124" width="264" height="36" rx="4" fill="#FFFFFF" stroke="#bf4520" stroke-width="1.2"/>
+        <text x="674" y="146" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="11.5" font-weight="700" fill="#bf4520">拉取快 30 倍 · 无源码泄漏 · 攻击面小</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="plop-code-box" style="margin-bottom:16px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> build_cmd.sh · 执行构建并检查最终镜像体积</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-df-build', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-df-build"><code><span class="c-cm"># 在包含 Dockerfile 的项目根目录执行（注意末尾的 . 代表将当前目录作为构建上下文）</span>
+<span class="c-fn">docker</span> <span class="c-kw">build</span> <span class="c-flag">-t</span> <span class="c-str">my-order-api:v1.0.0</span> .
+
+<span class="c-cm"># 查看构建出的镜像体积与每一层的大小明细（Go / Node / 前端完整生产级 Dockerfile 见第 06 章）</span>
+<span class="c-fn">docker</span> <span class="c-kw">images</span> my-order-api:v1.0.0
+<span class="c-fn">docker</span> <span class="c-kw">history</span> my-order-api:v1.0.0</code></pre>
+  </div>
+
+  <h4 id="quiz-04" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 同事为了清理安装包节省镜像体积，分两行写了 <code>RUN apt-get update &amp;&amp; apt-get install -y curl</code> 和第二行 <code>RUN rm -rf /var/lib/apt/lists/*</code>，第二行的删除真的减小最终镜像体积了吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>完全没有减小，甚至还多叠了一层元数据！</strong>因为每一条 <code>RUN</code> 都会固化为一个不可修改的只读层：第一条 <code>RUN</code> 产生的几十 MB 缓存文件已经永久冻结在上一层里了，第二条 <code>RUN rm</code> 只是在新的一层打上了“隐藏标记（Whiteout）”。<strong>必须在同一条 <code>RUN</code> 指令内用 <code>&&</code> 把安装和清理连起来写完</strong>，才不会把垃圾带进该层快照。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 新手在桌面目录 <code>~/Desktop</code>（里面有 15 GB 电影和照片）建了个小项目跑 <code>docker build -t demo .</code>，为什么刚敲回车还没跑第一行指令就卡住转圈好几分钟？</span></summary>
+    <div class="drawer-body">
+      <p>命令末尾那个不起眼的 <code>.</code> 代表<strong>构建上下文（Build Context）目录</strong>。<code>docker</code> 客户端在开始构建前，默认会把 <code>.</code> 目录下的所有子文件打包发给后台 <code>dockerd</code> 守护进程——把 15 GB 无关文件全扫了一遍！务必在独立的空项目文件夹内构建，并配好 <code>.dockerignore</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 为了安全不想把数据库密码明文写在代码里，同事在 Dockerfile 里写了 <code>ARG DB_PASS</code> 在构建时传入，构建完再 <code>RUN unset DB_PASS</code>，这样镜像推上仓库后别人就看不到密码了吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>别人敲一行 <code>docker history --no-trunc 镜像名</code> 就能把密码看得清清楚楚！</strong>所有构建历史指令与 <code>ARG</code> 取值都会记录在镜像元数据中。任何数据库密码、JWT 私钥、API Key <strong>一律不在构建期传入</strong>，而是在容器启动运行期通过 <code>-e</code>、<code>--env-file</code> 或挂载 Secret 文件动态注入。</p>
+    </div>
+  </details>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>为什么下一层 <code>rm</code> 删不掉上一层的磁盘占用？BuildKit 又是怎么并行构建多阶段的？可查阅 <a href="principles.html#overlayfs">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 02 Overlay2 Whiteout 遮罩与 BuildKit DAG》</a>。
+  </p>
+</div>

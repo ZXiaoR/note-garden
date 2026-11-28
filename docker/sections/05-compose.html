@@ -1,0 +1,158 @@
+<!-- ====================================================================
+     PART 05: Docker Compose 多容器编排 · 声明式配置、健康检查等待与生命周期
+     ==================================================================== -->
+<div class="wb-sec-header" id="compose" style="background:var(--plop-periwinkle);">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">Docker Compose 多容器编排：声明式配置与健康检查等待</span>
+  <span class="plop-tag mint">COMPOSE.YAML × SERVICE_HEALTHY × ENV_FILE × UP &amp; DOWN</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>把杂乱的多条 <code>docker run</code> 收敛成一份可进 Git 的 <code>compose.yaml</code>，用健康检查彻底消灭“应用抢跑连不上刚启动的数据库”，并分清安全停服与危险删卷命令。
+</div>
+
+<!-- 05.1 · 为什么要用 Compose + 标准 compose.yaml 结构拆解 -->
+<div class="wb-card" id="compose-yaml" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 05.1 · 声明式编排：Compose V2 标准文件名、自动创建专属网桥与核心字段全景</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 05.1 用一份 <code>compose.yaml</code> 管好整套后端服务</h3>
+
+  <p>
+    当一个项目同时包含后端 API、MySQL 和 Redis 时，手敲 3 条带十几项参数的 <code>docker run</code> 既难记又没法提交 Git 共享给队友。<strong>Docker Compose</strong>（现已内置为官方子命令 <code>docker compose</code>，中间是空格，不再是旧版带横杠的独立脚本 <code>docker-compose</code>）让你把所有容器、数据卷和网络声明在一份 <strong><code>compose.yaml</code></strong> 文件里（注：Compose V2 规范已废弃顶层的 <code>version: '3.8'</code> 字段，直接从 <code>services:</code> 开始写即可）。
+  </p>
+  <p>
+    更省心的是：执行 <code>docker compose up -d</code> 时，它会自动为当前项目创建一个<strong>专属自定义网桥</strong>，同一文件下的所有服务天然支持<strong>直接用服务名（如 <code>mysql:3306</code>、<code>redis:6379</code>）互相访问</strong>！
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:0;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> compose.yaml · 含健康检查等待（service_healthy）的应用 + MySQL + Redis 标准编排模板</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-compose-std', this)">复制 YAML</button>
+    </div>
+    <pre class="plop-code-pre" id="code-compose-std"><code><span class="c-kw">services:</span>
+  <span class="c-cm"># 1. 自研后端服务：自动先构建当前目录 Dockerfile，等数据库真正就绪后再启动</span>
+  <span class="c-fn">api:</span>
+    <span class="c-kw">build:</span> .
+    <span class="c-kw">image:</span> <span class="c-str">shop-api:v1.0.0</span>
+    <span class="c-kw">ports:</span>
+      - <span class="c-str">"8080:8080"</span>
+    <span class="c-kw">env_file:</span>
+      - <span class="c-str">.env</span>                     <span class="c-cm"># 从本地 .env 读取密码配置，不把密钥硬编码进 YAML</span>
+    <span class="c-kw">environment:</span>
+      <span class="c-fn">DB_HOST:</span> <span class="c-str">mysql</span>             <span class="c-cm"># 直接填下方服务名 mysql，内置 DNS 自动解析</span>
+      <span class="c-fn">REDIS_ADDR:</span> <span class="c-str">redis:6379</span>
+    <span class="c-kw">depends_on:</span>
+      <span class="c-fn">mysql:</span>
+        <span class="c-kw">condition:</span> <span class="c-str">service_healthy</span>  <span class="c-cm"># 关键！等 mysql 通过健康检查才启动 api</span>
+      <span class="c-fn">redis:</span>
+        <span class="c-kw">condition:</span> <span class="c-str">service_healthy</span>
+    <span class="c-kw">restart:</span> <span class="c-str">unless-stopped</span>
+
+  <span class="c-cm"># 2. MySQL 8.4 数据库服务（配 mysqladmin ping 健康探针）</span>
+  <span class="c-fn">mysql:</span>
+    <span class="c-kw">image:</span> <span class="c-str">mysql:8.4</span>
+    <span class="c-kw">environment:</span>
+      <span class="c-fn">MYSQL_ROOT_PASSWORD:</span> <span class="c-str">${MYSQL_ROOT_PASSWORD:-Secret_2026}</span>
+      <span class="c-fn">MYSQL_DATABASE:</span> <span class="c-str">shop_db</span>
+      <span class="c-fn">TZ:</span> <span class="c-str">Asia/Shanghai</span>
+    <span class="c-kw">volumes:</span>
+      - <span class="c-str">mysql_data:/var/lib/mysql</span>
+    <span class="c-kw">healthcheck:</span>
+      <span class="c-fn">test:</span> [<span class="c-str">"CMD"</span>, <span class="c-str">"mysqladmin"</span>, <span class="c-str">"ping"</span>, <span class="c-str">"-h"</span>, <span class="c-str">"127.0.0.1"</span>, <span class="c-str">"-uroot"</span>, <span class="c-str">"-p$${MYSQL_ROOT_PASSWORD}"</span>]
+      <span class="c-fn">interval:</span> <span class="c-num">5s</span>
+      <span class="c-fn">timeout:</span> <span class="c-num">3s</span>
+      <span class="c-fn">retries:</span> <span class="c-num">10</span>
+      <span class="c-fn">start_period:</span> <span class="c-num">15s</span>
+
+  <span class="c-cm"># 3. Redis 7.2 缓存服务</span>
+  <span class="c-fn">redis:</span>
+    <span class="c-kw">image:</span> <span class="c-str">redis:7.2-alpine</span>
+    <span class="c-kw">command:</span> [<span class="c-str">"redis-server"</span>, <span class="c-str">"--appendonly"</span>, <span class="c-str">"yes"</span>]
+    <span class="c-kw">volumes:</span>
+      - <span class="c-str">redis_data:/data</span>
+    <span class="c-kw">healthcheck:</span>
+      <span class="c-fn">test:</span> [<span class="c-str">"CMD"</span>, <span class="c-str">"redis-cli"</span>, <span class="c-str">"ping"</span>]
+      <span class="c-fn">interval:</span> <span class="c-num">5s</span>
+      <span class="c-fn">timeout:</span> <span class="c-num">3s</span>
+      <span class="c-fn">retries:</span> <span class="c-num">5</span>
+
+<span class="c-cm"># 顶层声明命名数据卷（容器重建时数据永久保留）</span>
+<span class="c-kw">volumes:</span>
+  <span class="c-fn">mysql_data:</span>
+  <span class="c-fn">redis_data:</span></code></pre>
+  </div>
+</div>
+
+<!-- 05.2 · 重点避坑：为什么只写 depends_on: [mysql] 还是会连库失败？ -->
+<div class="wb-card" id="compose-healthcheck" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 05.2 · 解决启动抢跑报错：「容器已启动 Started」不等于「数据库已就绪 Healthy」</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 05.2 启动顺序控制：<code>depends_on</code> 与 <code>service_healthy</code> 健康检查</h3>
+
+  <p>
+    很多开发者写了简单的列表格式 <code>depends_on: - mysql</code>，结果第一次执行 <code>docker compose up -d</code> 时，<code>api</code> 容器还是秒崩报 <code>Connection refused</code>。原因是：<strong>默认的 <code>depends_on</code> 只管“把 <code>mysql</code> 容器进程拉起来（<code>service_started</code>）”就立刻启动 <code>api</code>；但 MySQL 首次初始化系统表空间往往需要 8~15 秒才能真正开口监听 3306 端口！</strong>
+  </p>
+  <p>
+    两道防护配合最稳妥：① 在 <code>compose.yaml</code> 中像上面模板那样给数据库配 <code>healthcheck</code> 并声明 <strong><code>condition: service_healthy</code></strong>；② 后端代码自身的数据库连接池初始化也保留 3~5 次指数退避重试，应对云数据库网络闪断。
+  </p>
+</div>
+
+<!-- 05.3 · Compose 日常运维命令速查与高危红线 -->
+<div class="wb-card" id="compose-cli" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 05.3 · 日常编排指令与删库红线：up -d --build、单服务滚动更新与严禁误敲 down -v</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 05.3 Compose 日常高频命令与 <code>down -v</code> 删库红线</h3>
+
+  <div class="table-wrap" style="margin-bottom:16px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:36%">Compose 高频命令</th>
+          <th>真实行为与线上安全提示</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>docker compose up -d --build</code></td>
+          <td>改完业务代码后最常用的一条命令：重新构建发生变动的镜像，并<strong>只重建配置或镜像变了的那个容器</strong>（没变的 MySQL/Redis 保持原样不中断）。</td>
+        </tr>
+        <tr>
+          <td><code>docker compose ps</code> / <code>docker compose logs -f api</code></td>
+          <td>查看当前项目所有容器的健康状态（<code>healthy</code>）/ 仅实时追踪 <code>api</code> 服务的日志。</td>
+        </tr>
+        <tr>
+          <td><code>docker compose exec mysql mysql -uroot -p</code></td>
+          <td>直接按服务名 <code>mysql</code> 进入数据库容器终端，连具体容器名叫什么都不用关心。</td>
+        </tr>
+        <tr>
+          <td><strong><code>docker compose down</code>（安全停服）</strong></td>
+          <td>停止并移除当前项目的容器与网络，但<strong>完整保留 <code>volumes:</code> 里的所有命名数据卷</strong>，下次 <code>up -d</code> 数据原封不动恢复。</td>
+        </tr>
+        <tr>
+          <td><strong style="color:var(--plop-tomato);"><code>docker compose down -v</code>（高危清库！）</strong></td>
+          <td>多了一个 <code>-v</code>（<code>--volumes</code>），会<strong>把当前项目声明的所有命名数据卷（包括 <code>mysql_data</code> 数据库文件）一并物理删除</strong>！仅限本地想彻底重置干净测试库时使用，生产服务器严禁敲 <code>-v</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 id="quiz-05" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 我只修改了 <code>compose.yaml</code> 里 <code>api</code> 服务的某一个环境变量，没有停整个项目，直接再敲一次 <code>docker compose up -d</code>，旁边的 <code>mysql</code> 容器会被重启吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>不会重启。</strong>Docker Compose 采用声明式状态比对（Reconciliation）：它会对比当前运行容器与最新 <code>compose.yaml</code> 的配置哈希，发现 <code>mysql</code> 没有任何变更就会显示 <code>Running</code> 原地跳过，只精准重建 <code>api</code> 一个容器。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 在 <code>compose.yaml</code> 的 <code>healthcheck.test</code> 命令字符串里为什么要写成双美元符号 <code>$${MYSQL_ROOT_PASSWORD}</code> 而不是单 <code>$</code>？</span></summary>
+    <div class="drawer-body">
+      <p>如果只写单 <code>$MYSQL_ROOT_PASSWORD</code>，<code>docker compose</code> 在宿主机解析 YAML 文件时就会尝试用<strong>宿主机终端</strong>的同名变量去替换它（若宿主机没设该变量就会被替换成空字符串）；写成 <code>$$</code> 则会转义保留一个 <code>$</code> 传进<strong>容器内部 Shell</strong>，去读取容器自身的环境变量。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 同一台开发机上有两个不同文件夹的项目，各自的 <code>compose.yaml</code> 里都有一个服务叫 <code>mysql</code>、数据卷叫 <code>mysql_data</code>，同时跑起来会互相冲突覆盖吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>默认不会冲突（只要注意宿主机映射端口 <code>-p</code> 不同即可）。</strong>因为 Compose 会自动拿<strong>所在文件夹的名字作为项目前缀（Project Name）</strong>，分别创建 <code>proj_a_mysql_data</code> 和 <code>proj_b_mysql_data</code> 两个完全隔离的数据卷与专属网络（也可通过顶层 <code>name: my-shop</code> 显式固定项目前缀）。</p>
+    </div>
+  </details>
+</div>

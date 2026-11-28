@@ -1,0 +1,135 @@
+<!-- ====================================================================
+     PART 02: Overlay2 联合文件系统：写时复制、Whiteout 遮罩与 OCI 寻址
+     ==================================================================== -->
+<div class="wb-sec-header" id="overlayfs" style="background:var(--plop-mint);">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">Overlay2 联合文件系统：写时复制、Whiteout 遮罩与 OCI 寻址</span>
+  <span class="plop-tag tomato">LOWER/UPPER/MERGED × COPY-UP × WHITEOUT × OCI MANIFEST</span>
+</div>
+
+<!-- 02.1 · Overlay2 四层目录结构、CoW 写时复制与 Whiteout 删除遮罩 -->
+<div class="wb-card" id="overlay2-cow" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-layers"></use></svg> 02.1 · 叠层挂载：10 个 Nginx 容器如何共享同一份磁盘文件？为什么下层 rm 减不了镜像体积？</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-layers"></use></svg> 02.1 Overlay2 四目录联合挂载、Copy-on-Write 与 Whiteout 机制 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#img-ops">实战篇 02.1</a>、<a href="index.html#volumes">03.1</a> 与 <a href="index.html#df-multistage">04.3</a> —— 为什么用同一个 200MB 镜像启动 20 个容器不会占满 4GB 磁盘？为什么数据库文件绝不能直接写在容器层里？以及为什么 Dockerfile 里跨 <code>RUN</code> 指令删除临时文件完全省不了体积？
+  </p>
+
+  <p>
+    Docker 默认使用的存储驱动是 Linux 内核原生的 <strong><code>overlay2</code>（基于 <code>OverlayFS</code>，Overlay Filesystem，叠层联合文件系统）</strong>。它的核心思想就像把多张半透明胶片叠在一起从顶部往下看：底下几张胶片是<strong>所有容器共享、绝对只读的镜像层（<code>lowerdir</code>）</strong>，只有最上面薄薄一张胶片是<strong>当前容器独占的可写层（<code>upperdir</code>）</strong>，内核将它们合并挂载成容器看到的统一根目录视图（<code>merged</code>）：
+  </p>
+
+  <figure style="margin:14px 0 16px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 320" style="width:100%; min-width:780px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="ovl-title ovl-desc">
+        <title id="ovl-title">Overlay2 四目录联合挂载与 Copy-on-Write 写时复制原理图</title>
+        <desc id="ovl-desc">自下而上展示只读镜像层 lowerdir、容器可写层 upperdir 与原子工作目录 workdir，合并为容器根目录视图 merged，右侧标注首次修改触发 copy_up 整文件复制与删除产生 Whiteout 遮罩文件的过程。</desc>
+        <defs>
+          <marker id="ovl-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+          </marker>
+          <marker id="ovl-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- 连接线（先于框绘制） -->
+        <!-- merged 向上汇聚线 -->
+        <line x1="270" y1="116" x2="270" y2="86" stroke="#1F1F23" stroke-width="2" marker-end="url(#ovl-ink)"/>
+        <!-- copy_up 虚线箭头（从 lowerdir 右侧经右侧通道指向 upperdir 右侧） -->
+        <path d="M 520,248 L 560,248 Q 568,248 568,240 L 568,156 Q 568,148 560,148 L 522,148" fill="none" stroke="#bf4520" stroke-width="2.2" stroke-dasharray="5 3" marker-end="url(#ovl-coral)"/>
+        <rect x="536" y="188" width="66" height="18" rx="3" fill="#FFFDF7"/>
+        <text x="569" y="200" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" font-weight="700" fill="#bf4520">copy_up</text>
+
+        <!-- 顶部：merged 统一挂载视图 -->
+        <rect x="32" y="24" width="488" height="60" rx="8" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
+        <text x="276" y="47" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="12" font-weight="800" fill="#1b5e20">merged（容器看到的统一根目录 / · 联合视图）</text>
+        <text x="276" y="68" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" fill="#1F1F23">同名文件优先取 upperdir；遇 Whiteout 遮罩则对容器隐藏下层同名文件</text>
+
+        <!-- 中层：upperdir + workdir（容器层，删容器即销毁） -->
+        <rect x="32" y="118" width="348" height="66" rx="8" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="206" y="142" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="11.5" font-weight="800" fill="#bf4520">upperdir（容器独占可写层 · 读写）</text>
+        <text x="206" y="165" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" fill="#1F1F23">存放新增文件、copy_up 副本与 Whiteout 遮罩</text>
+
+        <rect x="396" y="118" width="124" height="66" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="458" y="142" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="11" font-weight="700" fill="#1F1F23">workdir</text>
+        <text x="458" y="165" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" fill="#5A5860">内核原子中转</text>
+
+        <!-- 底层：lowerdir 只读镜像层栈 -->
+        <rect x="32" y="206" width="488" height="90" rx="8" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+        <text x="276" y="228" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="11.5" font-weight="800" fill="#1F1F23">lowerdir（多层只读镜像层栈 · 跨容器共享 Page Cache）</text>
+        <rect x="52" y="240" width="140" height="42" rx="6" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.5"/>
+        <text x="122" y="265" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" font-weight="700" fill="#1F1F23">L3: 业务二进制层</text>
+        <rect x="206" y="240" width="140" height="42" rx="6" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.5"/>
+        <text x="276" y="265" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" font-weight="700" fill="#1F1F23">L2: 运行时依赖层</text>
+        <rect x="360" y="240" width="140" height="42" rx="6" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.5"/>
+        <text x="430" y="265" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" font-weight="700" fill="#1F1F23">L1: 基础 OS 文件层</text>
+
+        <!-- 右侧说明卡片：三大读写规则 -->
+        <rect x="612" y="24" width="280" height="272" rx="10" fill="#FFFDF7" stroke="#1F1F23" stroke-width="2"/>
+        <text x="752" y="50" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="12.5" font-weight="800" fill="#1F1F23">Overlay2 读 · 改 · 删 三条规则</text>
+
+        <rect x="628" y="64" width="248" height="62" rx="6" fill="#E8F5E9" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="640" y="84" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1b5e20">① 只读文件：零拷贝直读下层</text>
+        <text x="640" y="104" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" fill="#1F1F23">多容器共享同一 inode 与内核缓存</text>
+
+        <rect x="628" y="138" width="248" height="70" rx="6" fill="#FBE9E7" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="640" y="158" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#bf4520">② 修改旧文件：整文件 copy_up</text>
+        <text x="640" y="178" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" fill="#1F1F23">改 1 字节也要把整个下层大文件</text>
+        <text x="640" y="196" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" fill="#1F1F23">完整拷贝到 upperdir，写放大显著</text>
+
+        <rect x="628" y="220" width="248" height="62" rx="6" fill="#F4EFE6" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="640" y="240" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1F1F23">③ 删除旧文件：写 Whiteout 遮罩</text>
+        <text x="640" y="260" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" fill="#5A5860">下层原文件丝毫未删，仅上层遮挡</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p>
+    看懂这张图，实战篇里的三个高频困惑就迎刃而解了：
+  </p>
+  <ol>
+    <li><strong>为什么多容器极省磁盘与内存？</strong>不仅磁盘上的 <code>lowerdir</code> 只存一份，更重要的是因为不同容器读取同一个镜像层里的动态链接库（比如 <code>libc.so.6</code> 或 <code>node</code> 二进制）时指向宿主机磁盘上的<strong>同一个 <code>inode</code></strong>，Linux 内核连内存里的 <strong>Page Cache 代码页都是跨容器共享一份的</strong>！</li>
+    <li><strong>为什么 MySQL / Redis 数据目录必须挂载 Volume 绕开 <code>overlay2</code>？</strong>因为 <strong><code>CoW（Copy-on-Write，写时复制）</code> 是“文件级”而非“块级”复制</strong>！假如镜像下层有一个 <code>1GB</code> 的数据文件，容器启动后哪怕只调用 <code>write()</code> 修改其中 <code>4KB</code> 的一个页，<code>overlay2</code> 在 <code>open(O_WRONLY)</code> 阶段也必须阻塞住进程，先把整个 <code>1GB</code> 文件从 <code>lowerdir</code> 完整拷贝（<code>copy_up</code>）到 <code>upperdir</code> 后才能落盘，首次写延迟高达数秒且磁盘占用瞬间翻倍。而 <strong>Docker Volume 本质上是宿主机原生文件系统（<code>ext4 / xfs</code>）子目录的 Bind Mount</strong>，读写直通底层块设备，彻底绕开 <code>overlay2</code>。</li>
+    <li><strong>为什么下一条 <code>RUN rm -rf /var/lib/apt/lists/*</code> 减不了上一层的体积？</strong>因为 <code>lowerdir</code> 是不可变的（Immutable）。当你在新的一层删除下层已存在的文件 <code>foo.tar.gz</code> 时，<code>overlay2</code> 只能在当前层的 <code>upperdir</code> 里创建一个主次设备号均为 <code>0, 0</code> 的特殊字符设备文件（即 <strong><code>Whiteout</code> 涂白遮罩文件</strong>），告诉 <code>merged</code> 视图“别把这个名字露出来”——底下那层 <code>200MB</code> 的 <code>foo.tar.gz</code> 依然原封不动地躺着并随镜像一起推送下载！所以清理缓存必须用 <code>&amp;&amp;</code> 合并在同一条 <code>RUN</code> 指令内，或者直接用多阶段构建只 <code>COPY --from=builder</code> 最终产物。</li>
+  </ol>
+
+  <div class="code-block" style="margin:12px 0 0;">
+    <div class="code-header">
+      <span class="code-lang">bash · 查看容器真实的 overlay2 四目录挂载路径</span>
+      <button class="copy-btn" onclick="copyText('code-ovl-inspect', this)">复制</button>
+    </div>
+    <pre id="code-ovl-inspect"><code># 查看任意容器在 /var/lib/docker/overlay2/ 下的 LowerDir / UpperDir / MergedDir
+docker inspect -f '{{json .GraphDriver.Data}}' my-nginx | jq .</code></pre>
+  </div>
+</div>
+
+<!-- 02.2 · OCI 镜像寻址规范（Manifest List）与 BuildKit 并行 DAG 原理 -->
+<div class="wb-card" id="oci-buildkit" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 02.2 · 内容寻址与构建引擎：同一个 nginx:1.27 标签为什么 Mac 和 Linux 拉下来都能跑？</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 02.2 OCI 镜像四元组结构、SHA256 寻址与 BuildKit 并行 DAG <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#df-cache">实战篇 04.2</a> 与 <a href="index.html#sc-multiarch">06.6</a> —— 为什么官方镜像敲同一个 <code>docker pull redis:7.2</code> 在 Apple M 系列芯片和云端 x86 服务器上能自动拉对架构，以及现代 <code>BuildKit</code> 比老式串行构建快在哪里？
+  </p>
+
+  <p>
+    按照 <strong>OCI Image Spec</strong>，镜像在远端 Registry 仓库里并非一个孤立的大压缩包，而是基于 <strong>内容可寻址存储（Content-Addressable Storage，所有对象均以其内容的 <code>sha256</code> 哈希摘要唯一定位）</strong> 组织的四级树状索引：
+  </p>
+  <ol>
+    <li><strong>Image Index（又称 Manifest List，多架构总目录）</strong>：当你拉取 <code>redis:7.2</code> 时，客户端最先下载的是一份只有几 KB 的 JSON 索引清单，里面按 <code>os + architecture</code> 列出了 <code>linux/amd64</code>、<code>linux/arm64/v8</code> 等各架构对应的具体 Manifest <code>sha256</code> 地址。<code>containerd</code> 匹配本机 CPU 架构后，才会去下载匹配的那一支——假如你本地在 Apple Silicon 上直接 <code>docker build</code> 没有用 <code>buildx --platform</code> 生成这份多架构索引，推上去就只有单一的 <code>arm64</code> 分支，Linux <code>amd64</code> 服务器拉下来启动便会立即报 <code>exec format error</code>。</li>
+    <li><strong>Image Manifest（单架构配置与层清单）</strong>：记录该架构镜像对应的 1 个 <code>Config</code> 摘要，以及按顺序排列的 N 个只读层 <code>Layer Blob</code> 摘要。</li>
+    <li><strong>Image Config（镜像元数据 JSON）</strong>：存放 <code>ENV</code> 环境变量、<code>WORKDIR</code>、<code>ENTRYPOINT / CMD</code>、<code>USER</code> 以及每一层解压后的校验和（<code>diff_ids</code>）——这就是为什么 Dockerfile 里的 <code>ENV / CMD / EXPOSE</code> 指令并不生成新的文件系统 <code>tar.gz</code> 大层，只是更新这份几 KB 的配置 JSON。</li>
+    <li><strong>Layer Blobs（文件系统增量压缩包）</strong>：每一层是一个 <code>tar+gzip</code>（或更快的 <code>zstd</code>）压缩包。两个毫无关系的业务镜像只要都基于 <code>debian:bookworm-slim</code>，底层基础层的 <code>sha256</code> 完全一致，拉取和推送时自动跳过已有层（显示 <code>Already exists / Layer already exists</code>）。</li>
+  </ol>
+
+  <p>
+    自 Docker 23.0 起默认启用的新一代构建引擎 <strong><code>BuildKit</code></strong>，将传统的“从上往下逐行串行执行 Dockerfile”改造为编译器式的 <strong><code>LLB（Low-Level Builder，底层构建中间表示）</code> 有向无环图（<code>DAG，Directed Acyclic Graph</code>）</strong>：
+  </p>
+  <ul>
+    <li><strong>互不依赖的阶段自动并行构建</strong>：在包含“前端构建阶段 + 后端编译阶段 + 最终运行阶段”的多阶段 Dockerfile 中，BuildKit 分析依赖图后会<strong>同时并行跑前端打包与后端编译</strong>；甚至如果某个中间阶段在最终 <code>FROM</code> 阶段根本没被引用，BuildKit 会直接跳过不执行它。</li>
+    <li><strong>按需传输构建上下文与跨次缓存挂载</strong>：传统引擎每次构建先把整个项目目录打包发给守护进程，而 BuildKit 只增量同步真正被 <code>COPY</code> 引用的变更文件，并新增了不打入镜像层的专用编译缓存挂载（如 <code>RUN --mount=type=cache,target=/go/pkg/mod go build ...</code>）和安全密钥挂载（<code>RUN --mount=type=secret,id=npmrc ...</code>，私钥永不落入任何镜像层历史）。</li>
+  </ul>
+</div>

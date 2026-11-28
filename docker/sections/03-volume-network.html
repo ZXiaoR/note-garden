@@ -1,0 +1,208 @@
+<!-- ====================================================================
+     PART 03: 数据持久化与网络通信 · 命名卷、绑定挂载与跨容器 DNS 互通
+     ==================================================================== -->
+<div class="wb-sec-header" id="volume-net" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">数据持久化与网络通信：数据卷选型与跨容器 DNS 互通</span>
+  <span class="plop-tag tomato">NAMED VOLUME × BIND MOUNT × BRIDGE DNS × HOST.DOCKER.INTERNAL</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>选对 Volume 与 Bind Mount 确保数据库升级重装永不丢数据，并彻底搞懂为什么容器里连 <code>127.0.0.1</code> 连不上旁边的数据库、怎么用自定义网桥实现按容器名直连。
+</div>
+
+<!-- 03.1 · 数据持久化：命名卷（Named Volume）vs 绑定挂载（Bind Mount） -->
+<div class="wb-card" id="volumes" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 03.1 · 告别删容器丢数据：容器可写层的临时性与三种持久化挂载选型速查</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 03.1 数据持久化：命名卷（Volume）与绑定挂载（Bind Mount）怎么选</h3>
+
+  <p>
+    每个容器启动时，Docker 只是在只读镜像层顶上薄薄盖了一层<strong>「容器可写层（Writable Layer）」</strong>。一旦你为了改端口或升小版本执行了 <code>docker rm mysql84</code>，这层可写层会连同容器一起被彻底销毁，里面没挂载出来的表数据瞬间清零。要想让数据脱离容器生命周期永久留存，必须把容器内的关键目录挂载到宿主机磁盘上，日常主要分两种方式：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">挂载类型</th>
+          <th style="width:30%">语法特征（注意冒号左侧）</th>
+          <th style="width:26%">最佳适用场景</th>
+          <th>核心特性与避坑细节</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 命名数据卷<br>（Named Volume）</strong></td>
+          <td>左侧是<strong>纯名字</strong>（不带 <code>/</code> 或 <code>./</code>）：<br><code>-v mysql_data:/var/lib/mysql</code></td>
+          <td><strong>MySQL / PostgreSQL / Redis / Kafka 的数据存储目录首选</strong></td>
+          <td>由 Docker 统一托管在 <code>/var/lib/docker/volumes/</code> 下：① 跨平台文件 I/O 性能最好（尤其在 macOS/Windows 上远快于绑目录）；② 若目标卷为空，首次启动会自动把镜像内该目录自带的初始文件拷进去。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 绑定挂载<br>（Bind Mount）</strong></td>
+          <td>左侧是<strong>宿主机路径</strong>（以 <code>/</code> 或 <code>./</code> 开头）：<br><code>-v ./my.cnf:/etc/mysql/conf.d/my.cnf:ro</code></td>
+          <td><strong>向容器注入配置文件（<code>nginx.conf</code> / <code>my.cnf</code>）、本地开发挂载源码热更新</strong></td>
+          <td>宿主机目录有啥，容器里就实时看到啥。<strong>防坑提醒</strong>：如果宿主机 <code>./conf</code> 是个空文件夹，直接绑到容器 <code>/etc/nginx</code> 上会<strong>把容器原有的默认配置全部遮盖清空导致启动报错</strong>！配置文件推荐单文件挂载并加 <code>:ro</code>（只读）。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 内存临时盘<br>（<code>tmpfs</code>）</strong></td>
+          <td><code>--tmpfs /app/tmp:rw,size=64m</code></td>
+          <td>存放解密后的临时密钥或高速缓存中间文件</td>
+          <td>只存于宿主机物理内存中，永不落磁盘，容器停止立刻挥发。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box" style="margin-bottom:0;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> volume_ops.sh · 命名数据卷管理与组合挂载标准写法</span>
+      <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dk-vol', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-dk-vol"><code><span class="c-cm"># 同时组合两种挂载：数据目录用「命名卷」保安全高性能，自定义配置用「只读绑定挂载」方便编辑</span>
+<span class="c-fn">docker</span> <span class="c-kw">run</span> <span class="c-flag">-d</span> <span class="c-flag">--name</span> <span class="c-str">mysql84</span> <span class="c-flag">-p</span> <span class="c-num">3306:3306</span> \
+  <span class="c-flag">-e</span> <span class="c-kw">MYSQL_ROOT_PASSWORD</span>=<span class="c-str">Secret_2026</span> \
+  <span class="c-flag">-v</span> <span class="c-str">mysql84_data:/var/lib/mysql</span> \
+  <span class="c-flag">-v</span> <span class="c-str">$(pwd)/my.cnf:/etc/mysql/conf.d/custom.cnf:ro</span> \
+  <span class="c-str">mysql:8.4</span>
+
+<span class="c-cm"># 查看本机所有数据卷及具体存放在宿主机的哪个目录</span>
+<span class="c-fn">docker</span> <span class="c-kw">volume ls</span>
+<span class="c-fn">docker</span> <span class="c-kw">volume inspect</span> mysql84_data</code></pre>
+  </div>
+</div>
+
+<!-- 03.2 · 容器网络通信：为什么连 127.0.0.1 连不上数据库？ -->
+<div class="wb-card" id="networks" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 03.2 · 破解网络头号误区：容器独立 localhost 边界、自定义 Bridge 自动 DNS 与连接宿主机</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 03.2 容器网络通信：独立回环地址边界与自定义网桥 DNS 互通</h3>
+
+  <p>
+    新手把后端项目打成容器后，十有八九会撞上同一个报错：<code>connect ECONNREFUSED 127.0.0.1:3306</code>。明明 MySQL 容器已经映射了 <code>-p 3306:3306</code>，在宿主机用 DBeaver 连 <code>127.0.0.1:3306</code> 好好的，为什么放进业务容器就死活连不上了？
+  </p>
+  <p>
+    答案看一眼下图就全通了：<strong>每个容器都有自己独立隔离的虚拟网卡和回环地址——在 <code>go-api</code> 容器里面写 <code>127.0.0.1</code>，访问的是 <code>go-api</code> 容器它自己（里面当然没装 MySQL），根本没有出容器门！</strong> 正确的做法是创建一个<strong>自定义 Bridge（网桥）网络</strong>，把两个容器放进同一个网桥里，Docker 内置 DNS 就会自动把<strong>容器名（如 <code>mysql84</code>）解析成它的容器内网 IP</strong>，代码连接串直接填 <code>mysql84:3306</code> 即可：
+  </p>
+
+  <!-- Editorial SVG: Container isolated localhost vs Custom Bridge DNS & host.docker.internal -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 860 264" style="width:100%; min-width:800px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="dk-net-title dk-net-desc">
+        <title id="dk-net-title">Docker 自定义网桥内按容器名 DNS 互通与容器独立 localhost 对比图</title>
+        <desc id="dk-net-desc">在自定义网络 app-net 中，go-api 容器若连 127.0.0.1 只会指向自身内部失败；通过容器名 mysql84:3306 可经内置 DNS 直接连通右侧 mysql84 容器；若需访问宿主机直接运行的进程则使用 host.docker.internal。</desc>
+        <defs>
+          <marker id="dk-nt-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="dk-nt-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="dk-nt-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Zone: Custom Bridge Network app-net -->
+        <rect x="24" y="16" width="584" height="196" rx="8" fill="rgba(45,49,66,0.02)" stroke="#2d3142" stroke-width="1.2" stroke-dasharray="6,4"/>
+        <rect x="40" y="20" width="228" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="154" y="32" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">自定义网桥 app-net（内置 DNS）</text>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <!-- 1. Self-loop on App Container: 127.0.0.1 hits itself! -->
+        <path d="M 96,76 V 56 Q 96,48 104,48 H 164 Q 172,48 172,56 V 76" fill="none" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="4,3" marker-end="url(#dk-nt-arr-muted)"/>
+        <rect x="64" y="26" width="144" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="136" y="38" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">❌ 127.0.0.1 指容器自身</text>
+
+        <!-- 2. App Container (228,116) -> MySQL Container (396,116) [Focal DNS Path] -->
+        <line x1="228" y1="116" x2="396" y2="116" stroke="#bf4520" stroke-width="1.8" marker-end="url(#dk-nt-arr-accent)"/>
+        <rect x="244" y="92" width="136" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="312" y="103" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="8.5" font-weight="600" fill="#bf4520">mysql84:3306 (DNS)</text>
+
+        <!-- 3. App Container bottom (140,164) -> Host Process (656,116) -->
+        <path d="M 140,164 V 184 Q 140,192 148,192 H 620 Q 628,192 628,184 V 124 Q 628,116 636,116 H 656" fill="none" stroke="#2e5aa8" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#dk-nt-arr-link)"/>
+        <rect x="256" y="168" width="168" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="340" y="179" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="8.5" fill="#2e5aa8">host.docker.internal</text>
+
+        <!-- Node 1: App Container -->
+        <rect x="52" y="76" width="176" height="88" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="140" y="106" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#2d3142">业务容器 go-api</text>
+        <text x="140" y="128" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#4f5d75">172.18.0.3</text>
+        <text x="140" y="148" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">独立网络空间</text>
+
+        <!-- Node 2: MySQL Container (Focal) -->
+        <rect x="396" y="76" width="184" height="88" rx="6" fill="#FFFDF7"/>
+        <rect x="396" y="76" width="184" height="88" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="488" y="106" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#bf4520">数据库容器 mysql84</text>
+        <text x="488" y="128" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#bf4520">172.18.0.2 : 3306</text>
+        <text x="488" y="148" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#2d3142">无需暴露宿主机即可互通</text>
+
+        <!-- Node 3: Host Machine Service -->
+        <rect x="656" y="76" width="180" height="88" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="746" y="106" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="600" fill="#2d3142">宿主机原生服务</text>
+        <text x="746" y="128" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">未容器化的本地进程</text>
+        <text x="746" y="148" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#2e5aa8">Host OS</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="24" y1="224" x2="836" y2="224" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="24" y="236" width="16" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="48" y="245" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">推荐：同自定义网桥按容器名直连（容器内部原始端口）</text>
+        <line x1="380" y1="241" x2="408" y2="241" stroke="#2e5aa8" stroke-width="1.4" stroke-dasharray="5,4"/>
+        <text x="416" y="245" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">容器反调宿主机进程（Linux 需加 --add-host=host.docker.internal:host-gateway）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="wb-grid-2" style="margin-bottom:16px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> custom_network.sh · 创建自定义网桥并让应用按容器名连 MySQL</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dk-net', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-dk-net"><code><span class="c-cm"># 1. 创建一个自定义网桥（注意：Docker 默认自带的 bridge 网桥不支持按容器名 DNS 解析！</span>
+<span class="c-cm">#    必须自己建一个网桥，或使用下一章的 Docker Compose 自动创建专属网桥）</span>
+<span class="c-fn">docker</span> <span class="c-kw">network create</span> app-net
+
+<span class="c-cm"># 2. 启动 MySQL 加入 app-net（若宿主机不需要连它，甚至连 -p 3306:3306 都不用写）</span>
+<span class="c-fn">docker</span> <span class="c-kw">run</span> <span class="c-flag">-d</span> <span class="c-flag">--name</span> <span class="c-str">mysql84</span> <span class="c-flag">--network</span> <span class="c-str">app-net</span> \
+  <span class="c-flag">-e</span> <span class="c-kw">MYSQL_ROOT_PASSWORD</span>=<span class="c-str">Secret_2026</span> <span class="c-str">mysql:8.4</span>
+
+<span class="c-cm"># 3. 启动业务容器加入同一个 app-net，数据库地址直接写 mysql84:3306 即可连通！</span>
+<span class="c-fn">docker</span> <span class="c-kw">run</span> <span class="c-flag">-d</span> <span class="c-flag">--name</span> <span class="c-str">go-api</span> <span class="c-flag">--network</span> <span class="c-str">app-net</span> <span class="c-flag">-p</span> <span class="c-num">8080:8080</span> \
+  <span class="c-flag">-e</span> <span class="c-kw">DB_HOST</span>=<span class="c-str">mysql84</span> <span class="c-flag">-e</span> <span class="c-kw">DB_PORT</span>=<span class="c-str">3306</span> <span class="c-str">my-go-api:v1.0.0</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 三种常见互通场景速查</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong>容器 A 访问容器 B（最常用）</strong>：放进同一个自定义 Bridge 网络，填 <strong><code>容器名:容器内部原始端口</code></strong>（注意：哪怕 MySQL 映射了 <code>-p 13306:3306</code>，容器之间内网直连依然填 <strong><code>mysql84:3306</code></strong> 而非 <code>13306</code>！）。</li>
+        <li><strong>容器内访问宿主机上裸跑的服务</strong>：macOS / Windows 直接连域名 <strong><code>host.docker.internal:端口</code></strong>；Linux 服务端在 <code>docker run</code> 时补加参数 <code>--add-host=host.docker.internal:host-gateway</code> 即可使用同一域名。</li>
+        <li><strong><code>--network host</code>（共享宿主机网络）</strong>：仅在 Linux 上完全生效，容器不再隔离端口、直接占用宿主机网卡，仅用于极致网络性能网关或抓包工具。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h4 id="quiz-03" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. Redis 容器启动命令写了 <code>-p 16379:6379 --name redis7 --network app-net</code>，同一个 <code>app-net</code> 里的 Node.js 容器去连 Redis 时，端口该填 <code>16379</code> 还是 <code>6379</code>？</span></summary>
+    <div class="drawer-body">
+      <p><strong>必须填 <code>redis7:6379</code>。</strong><code>-p 16379:6379</code> 只是给容器外面的宿主机开的转发入口；处在同一个 <code>app-net</code> 二层虚拟网桥内的两个容器是直接点对点通信的，访问的是 <code>redis7</code> 容器内部真正监听的原始端口 <code>6379</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 两个容器启动时都没写 <code>--network</code>（默认都在自带的 <code>bridge</code> 网络里），为什么在容器 A 里 <code>ping 172.17.0.2</code> 能通，但 <code>ping mysql84</code> 却报 <code>bad address</code>？</span></summary>
+    <div class="drawer-body">
+      <p>出于历史向后兼容原因，Docker 安装后自带的那个默认 <code>bridge</code>（<code>docker0</code>）网桥<strong>不开启自动容器名 DNS 解析</strong>；只有你通过 <code>docker network create</code> 自建的网桥（或用 <code>docker compose</code> 自动创建的项目专属网桥）才内置了 <code>127.0.0.11</code> 动态 DNS 服务器，支持直接按容器名互访。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 本地开发前端项目跑了 <code>docker run -v $(pwd):/app my-web</code>，为什么容器启动后突然报 <code>Cannot find module 'vite'</code>，明明打镜像时已经 <code>npm install</code> 过了？</span></summary>
+    <div class="drawer-body">
+      <p><strong>宿主机当前目录覆盖了容器内的 <code>/app</code>。</strong>如果宿主机目录里还没装依赖（或者装的是 macOS 架构的 <code>node_modules</code>），Bind Mount 挂载上去就会把打镜像时存放在 <code>/app/node_modules</code> 里的 Linux 依赖全部遮挡或搞坏。可在启动时额外加一个匿名卷 <code>-v /app/node_modules</code> 保护容器内的依赖目录不被宿主机覆盖。</p>
+    </div>
+  </details>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>数据包是怎么穿过虚拟网线 <code>veth pair</code> 进出容器的，以及 <code>-p</code> 端口映射为什么会绕过 Linux 的 <code>ufw</code> 防火墙导致数据库裸奔公网？可查阅 <a href="principles.html#net-kernel">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 03 容器虚拟网络与 iptables NAT》</a>。
+  </p>
+</div>

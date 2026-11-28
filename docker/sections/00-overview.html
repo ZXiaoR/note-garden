@@ -1,0 +1,269 @@
+<!-- ====================================================================
+     PART 00: 全景科普 · Docker 解决什么问题、三大核心概念与选型边界
+     ==================================================================== -->
+<div class="wb-sec-header" id="overview" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">全景科普：Docker 解决什么问题、三大核心概念与选型边界</span>
+  <span class="plop-tag tomato">OVERVIEW · IMAGE &amp; CONTAINER · VM VS DOCKER VS K8S · ROADMAP</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>用一句话讲清为什么本地装环境与线上发版都在用 Docker，分清镜像、容器与仓库三者的关系，以及什么时候单机 Docker Compose 就够用、什么时候才需要上 Kubernetes。
+</div>
+
+<!-- 00.1 · 一句话定义、核心三概念与开发发版链路图 -->
+<div class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 00.1 · 核心定位：容器化引擎的一句话定义、「镜像 / 容器 / 仓库」关系与开发交付全景</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 00.1 Docker 是什么，以及它在研发流程里的位置</h3>
+
+  <p>
+    <strong>一句话定义：Docker 是一个开源的应用容器引擎，它把应用程序代码连同运行所需的系统库、依赖包和默认配置一起打包成标准的只读镜像（Image），在任何机器上都能秒级启动彼此隔离的容器（Container）进程。</strong>
+  </p>
+  <p>
+    没有 Docker 之前，你在花园其他笔记里装一套本地环境要装 <a href="../mysql/index.html#quickstart">MySQL 8.4</a>、<a href="../redis/index.html#quickstart">Redis 7.2</a>、<a href="../mq/index.html#quickstart">Kafka</a>，不同操作系统命令不同、动态库版本冲突，项目上线时经常遇到“我电脑上明明能跑，放到服务器上就报错”。有了 Docker 之后，无论是官方中间件还是你自己写的 <a href="../go/index.html">Go</a> / <a href="../node/index.html">Node.js</a> 服务，都变成了统一的“集装箱”交付。先记住贯穿全文的<strong>三个核心概念</strong>：
+  </p>
+
+  <ul>
+    <li><strong>镜像（Image）≈ 只读安装包 / 模具</strong>：由多层只读文件叠成（例如 <code>mysql:8.4</code> 镜像里装好了 Linux 基础库与 MySQL 服务端程序），自身静态不运行，一份镜像可以启动任意多个容器。</li>
+    <li><strong>容器（Container）≈ 正在运行的进程实例</strong>：用镜像作为模板启动出来的隔离运行环境（等价于面向对象里“类 Class”实例化出的“对象 Object”），拥有自己独立的网络端口视角与可写临时层。</li>
+    <li><strong>镜像仓库（Registry）≈ 存放镜像的应用商店</strong>：用来上传（<code>push</code>）和下载（<code>pull</code>）镜像的远端服务，公开最常用的是官方 <strong>Docker Hub</strong>，企业内部私服常用阿里云 ACR（Container Registry，容器镜像服务）、Harbor 或 GitHub Container Registry（<code>ghcr.io</code>）。</li>
+  </ul>
+
+  <!-- Editorial SVG: Build -> Push/Pull -> Run Architecture -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 860 256" style="width:100%; min-width:800px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="dk-ov-flow-title dk-ov-flow-desc">
+        <title id="dk-ov-flow-title">Docker 从源码构建镜像、推送仓库到多环境运行容器的完整链路</title>
+        <desc id="dk-ov-flow-desc">开发者编写应用代码与 Dockerfile 执行 docker build 生成只读镜像 Image，经 docker push 上传至镜像仓库 Registry；本地开发机或线上服务器执行 docker pull / run 从镜像秒级启动隔离的业务与数据库容器。</desc>
+        <defs>
+          <marker id="dk-ov-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="dk-ov-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="dk-ov-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Zone: Runtime Host (drawn BEFORE connectors and boxes) -->
+        <rect x="628" y="16" width="208" height="188" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="644" y="20" width="144" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="716" y="32" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">开发机 / 生产宿主机</text>
+
+        <!-- Connectors (drawn BEFORE boxes, orthogonal r=8, 8px label gap) -->
+        <!-- 1. Dockerfile (156,116) -> Image (236,116) -->
+        <line x1="156" y1="116" x2="236" y2="116" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#dk-ov-arr-muted)"/>
+        <rect x="166" y="92" width="60" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="196" y="103" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="8.5" fill="#4f5d75">build</text>
+
+        <!-- 2. Image (380,116) -> Registry (460,116) -->
+        <line x1="380" y1="116" x2="460" y2="116" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#dk-ov-arr-link)"/>
+        <rect x="392" y="92" width="56" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="420" y="103" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="8.5" fill="#2e5aa8">push</text>
+
+        <!-- 3. Registry top-right (596,100) -> Container 1 left (644,76) -->
+        <path d="M 596,100 H 604 Q 612,100 612,92 V 84 Q 612,76 620,76 H 644" fill="none" stroke="#bf4520" stroke-width="1.8" marker-end="url(#dk-ov-arr-accent)"/>
+        <rect x="592" y="52" width="32" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="608" y="63" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="8.5" font-weight="600" fill="#bf4520">run</text>
+
+        <!-- 4. Registry bottom-right (596,132) -> Container 2 left (644,156) -->
+        <path d="M 596,132 H 604 Q 612,132 612,140 V 148 Q 612,156 620,156 H 644" fill="none" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#dk-ov-arr-muted)"/>
+        <rect x="590" y="164" width="36" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="608" y="175" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="8.5" fill="#4f5d75">pull</text>
+
+        <!-- Node 1: Code + Dockerfile -->
+        <rect x="24" y="84" width="132" height="64" rx="6" fill="#FFFDF7"/>
+        <rect x="24" y="84" width="132" height="64" rx="6" fill="rgba(79,93,117,0.08)" stroke="#5a6580" stroke-width="1.2"/>
+        <text x="90" y="110" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="600" fill="#2d3142">代码与配置清单</text>
+        <text x="90" y="130" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#4f5d75">Dockerfile</text>
+
+        <!-- Node 2: Image (Focal 1) -->
+        <rect x="236" y="80" width="144" height="72" rx="6" fill="#FFFDF7"/>
+        <rect x="236" y="80" width="144" height="72" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="308" y="108" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#bf4520">只读镜像 Image</text>
+        <text x="308" y="130" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#2d3142">app:v1.2.0</text>
+
+        <!-- Node 3: Registry -->
+        <rect x="460" y="80" width="136" height="72" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="528" y="108" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="600" fill="#2d3142">镜像仓库</text>
+        <text x="528" y="130" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#4f5d75">Hub / ACR / GHCR</text>
+
+        <!-- Node 4: App Container (Focal 2) -->
+        <rect x="644" y="48" width="176" height="56" rx="6" fill="#FFFDF7"/>
+        <rect x="644" y="48" width="176" height="56" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="732" y="72" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#bf4520">业务应用容器</text>
+        <text x="732" y="92" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#2d3142">go-api / node-web</text>
+
+        <!-- Node 5: Infra Containers -->
+        <rect x="644" y="128" width="176" height="56" rx="6" fill="#FFFFFF" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="732" y="152" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="600" fill="#2d3142">官方中间件容器</text>
+        <text x="732" y="172" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#4f5d75">mysql:8.4 · redis:7.2</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="24" y1="218" x2="836" y2="218" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="24" y="230" width="16" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="48" y="239" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">自研服务打包与交付主线（一次构建，到处一致运行）</text>
+        <line x1="368" y1="235" x2="396" y2="235" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4"/>
+        <text x="404" y="239" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">直接拉取官方现成镜像（免去繁琐装库配环境）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin-bottom:0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>容器没有安装完整的客户机操作系统，为什么里面的进程却以为自己独占了一台干净的 Linux 机器？可按需查阅 <a href="principles.html#why">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 00.1 容器 vs 虚拟机与 Linux Namespace 隔离》</a>。
+  </p>
+</div>
+
+<!-- 00.2 · 什么时候用 Docker，什么时候用虚拟机 / Compose / K8s -->
+<div class="wb-card" id="compare" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 00.2 · 横向选型边界：裸机安装 vs 虚拟机（VM）vs Docker vs Compose vs Kubernetes</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 00.2 什么时候用 Docker，什么时候选虚拟机或 Kubernetes</h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">运行与编排方式</th>
+          <th style="width:20%">隔离粒度与启动速度</th>
+          <th style="width:22%">资源额外损耗</th>
+          <th style="width:24%">最适合的实际场景</th>
+          <th>什么时候不合适</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>裸机直接安装</strong><br><span style="font-size:11px;">(apt / brew / msi)</span></td>
+          <td>无隔离，共用宿主机全局目录与端口</td>
+          <td><strong>零损耗</strong>（直接调物理硬件）</td>
+          <td>极致磁盘 I/O 敏感的超大型生产数据库专机、硬件驱动服务</td>
+          <td>一台机器同时跑 Node 18 与 Node 22 项目、频繁重装测试多版本中间件</td>
+        </tr>
+        <tr>
+          <td><strong>传统虚拟机（VM）</strong><br><span style="font-size:11px;">(VMware / 云 ECS)</span></td>
+          <td>硬件级强隔离（独立完整 Guest OS 内核），启动需<strong>数十秒~几分钟</strong></td>
+          <td><strong>高</strong>（每台 VM 独占数 GB 内存与完整系统盘）</td>
+          <td>跨不同操作系统内核（如 Linux 宿主机跑 Windows）、多租户公有云强安全隔离</td>
+          <td>为了隔离十几个微服务各自开十几台虚拟机，内存与运维成本过高</td>
+        </tr>
+        <tr>
+          <td><strong>Docker 单容器</strong><br><span style="font-size:11px;">(<code>docker run</code>)</span></td>
+          <td>进程级隔离（共享宿主机 Linux 内核），<strong>百毫秒~秒级启动</strong></td>
+          <td><strong>极低</strong>（本质就是宿主机上的一个普通受限进程）</td>
+          <td>临时拉起单个 <a href="../mysql/index.html#quickstart">MySQL</a> / <a href="../redis/index.html#quickstart">Redis</a> 调试、跑一次性构建或命令行脚本</td>
+          <td>同时管理 5 个相互依赖的容器，手敲几十行命令行参数极易出错</td>
+        </tr>
+        <tr>
+          <td><strong>Docker Compose</strong><br><span style="font-size:11px;">(<code>compose.yaml</code>)</span></td>
+          <td>单机多容器编排，一键启停整套应用栈</td>
+          <td>极低（自带内网 DNS 与启动顺序控制）</td>
+          <td><strong>本地全栈开发环境、中小型项目单机生产部署（1~3 台服务器以内首选）</strong></td>
+          <td>无法自动跨 20 台服务器做故障漂移、自动弹性扩缩容与跨机负载均衡</td>
+        </tr>
+        <tr>
+          <td><strong>Kubernetes（K8s）</strong></td>
+          <td>跨多台机器的集群容器编排系统</td>
+          <td>控制平面与网络插件本身需额外消耗数核 CPU 与内存</td>
+          <td>数十个微服务、多台服务器集群高可用自愈、流量洪峰自动水平扩容</td>
+          <td>只有一两台机器的个人项目或早期创业团队——过早上 K8s 运维负担远超收益</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.3 · 本笔记知识地图 -->
+<div class="wb-card" id="knowledge-map" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 00.3 · 学习路线图：从拉别人的镜像、打自己的镜像到上线排障与 Linux 内核原理</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 00.3 本笔记知识地图</h3>
+
+  <p>
+    整份笔记顺着日常真实进阶路线推进：先<strong>「把官方镜像稳稳跑起来（00~03）」</strong>，再<strong>「把自己的项目优雅打包编排起来（04~06）」</strong>，最后<strong>「补齐生产安全防线与 Linux 容器内核原理（07~08 + 原理篇）」</strong>：
+  </p>
+
+  <figure style="margin:14px 0 16px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 860 244" style="width:100%; min-width:800px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="dk-kmap-title dk-kmap-desc">
+        <title id="dk-kmap-title">Docker 学习笔记全篇知识地图与四阶段进阶路径</title>
+        <desc id="dk-kmap-desc">从左到右依次为第一阶段全景与跑起来（00至01章）、第二阶段容器数据卷与网络基本功（02至03章）、第三阶段打包编排与八大场景（04至06章重点）、第四阶段上线必知与自测（07至08章），底部虚线联动核心原理篇。</desc>
+        <defs>
+          <marker id="dk-km-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="dk-km-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="dk-km-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <line x1="192" y1="86" x2="224" y2="86" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#dk-km-arr-muted)"/>
+        <line x1="416" y1="86" x2="448" y2="86" stroke="#bf4520" stroke-width="1.6" marker-end="url(#dk-km-arr-accent)"/>
+        <line x1="652" y1="86" x2="684" y2="86" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#dk-km-arr-muted)"/>
+
+        <line x1="320" y1="148" x2="320" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#dk-km-arr-link)"/>
+        <line x1="550" y1="148" x2="550" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#dk-km-arr-link)"/>
+        <line x1="760" y1="148" x2="760" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#dk-km-arr-link)"/>
+
+        <!-- Stage 1 -->
+        <rect x="24" y="24" width="168" height="124" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.3"/>
+        <text x="108" y="48" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">① 认知与跑起来</text>
+        <text x="108" y="74" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">00 三概念与选型</text>
+        <text x="108" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">01 加速与参数拆解</text>
+        <text x="108" y="122" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#4f5d75">-d · -p · -e · -v</text>
+
+        <!-- Stage 2 -->
+        <rect x="224" y="24" width="192" height="124" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.3"/>
+        <text x="320" y="48" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">② 管容器与连网络</text>
+        <text x="320" y="74" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">02 镜像标签与排障</text>
+        <text x="320" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">03 数据卷与网桥互通</text>
+        <text x="320" y="122" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#4f5d75">Volume · Bridge DNS</text>
+
+        <!-- Stage 3 (Focal) -->
+        <rect x="448" y="24" width="204" height="124" rx="6" fill="#FFFDF7"/>
+        <rect x="448" y="24" width="204" height="124" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="550" y="48" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">③ 打包编排与实战（重点）</text>
+        <text x="550" y="74" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#2d3142">04 多阶段 Dockerfile</text>
+        <text x="550" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#2d3142">05 Compose 多容器编排</text>
+        <text x="550" y="122" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#bf4520">06 八大真实项目场景</text>
+
+        <!-- Stage 4 -->
+        <rect x="684" y="24" width="152" height="124" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="760" y="48" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">④ 上线与检验</text>
+        <text x="760" y="74" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">07 上线前必知</text>
+        <text x="760" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">安全·限额·日志</text>
+        <text x="760" y="122" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">08 10题自测+速记</text>
+
+        <!-- Bottom Principles Bar -->
+        <rect x="24" y="180" width="812" height="44" rx="6" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1.3"/>
+        <text x="430" y="207" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#2e5aa8">核心原理篇（按需跳入：Namespace 隔离 · Cgroups 限额 · Overlay2 · veth+NAT · containerd-shim）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4 id="quiz-00" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 同事跑了 <code>docker rm mysql84</code> 把容器删掉了，他担心地问：“是不是刚下载了 5 分钟的 <code>mysql:8.4</code> 镜像也被删没了，下次还得重下？”</span></summary>
+    <div class="drawer-body">
+      <p><strong>镜像还在本机，不需要重新下载。</strong>“镜像（Image）”是只读模板，“容器（Container）”是用镜像跑起来的实例；<code>docker rm</code> 只删除容器实例，只要没执行 <code>docker rmi mysql:8.4</code>，下次再跑 <code>docker run</code> 1 秒内就能直接用本地镜像拉起新容器（注：但若没挂载数据卷，旧容器里新建的表数据会随容器删除而丢失，详见 <a href="#volumes">03.1</a>）。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 团队只有一个 4 核 8G 云服务器，上面跑着 Nginx、Go 后端、MySQL 和 Redis 共 4 个服务，有必要为了用容器而搭一套 Kubernetes（K8s）集群吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>完全没必要，甚至会白白吃掉近一半内存。</strong>K8s 自身的控制面组件就会常驻消耗 2GB+ 内存和大量运维精力。1~2 台服务器的项目直接用一份 <strong>Docker Compose（<code>compose.yaml</code>）</strong> 就能优雅搞定一键编排、内网隔离与自动重启，等未来业务增长到多机集群弹性扩缩容时再迁移 K8s 也完全平滑（因为镜像是通用的）。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 我有一台 Ubuntu Linux 云服务器，能在它上面直接用 Docker 运行一个原生的 Windows <code>.exe</code> 桌面程序容器吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>不能。</strong>Docker 容器不像虚拟机那样自带独立操作系统内核，而是直接共享宿主机的内核——Linux 宿主机上的容器只能运行调用 Linux 内核系统调用的程序（注：之所以在 macOS 和 Windows 电脑上能跑 Linux 容器，是因为 Docker Desktop / OrbStack 在后台悄悄起了一个极轻量的 Linux 虚拟机充当宿主机）。</p>
+    </div>
+  </details>
+</div>

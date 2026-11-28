@@ -1,0 +1,106 @@
+<!-- ====================================================================
+     PART 05: 内核原理闭卷自测：12 道高频容器底层机制问答
+     ==================================================================== -->
+<div class="wb-sec-header" id="kernel-quiz" style="background:var(--plop-periwinkle);">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">内核原理闭卷自测：12 道高频容器底层机制问答</span>
+  <span class="plop-tag tomato">12 KERNEL SELF-CHECK QUESTIONS</span>
+</div>
+
+<div class="wb-card" id="docker-kernel-test" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 05.1 · 闭卷核对：不看正文，用自己的话把下面 12 个内核机制讲清楚</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 05.1 12 道 Docker 与容器运行时内核自测题</h3>
+
+  <p style="margin-top:0;">
+    先合上笔记在脑海里组织答案，再点开折叠面板核对关键点与跳回对应小节：
+  </p>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q01 · 一句话区分 Linux Namespace 与 Cgroups 的职责边界，并说出 Docker 默认使用了哪几类 Namespace？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong><code>Namespace</code> 负责<strong>“能看见什么”的资源视图隔离</strong>，<code>Cgroups</code> 负责<strong>“最多能用多少”的硬件配额计量与限流</strong>。Docker 默认启用 <code>Mount (mnt)</code>、<code>PID</code>、<code>Network (net)</code>、<code>IPC</code>、<code>UTS</code> 与 <code>Cgroup</code> 命名空间（开启 Rootless 时额外启用 <code>User</code> 命名空间）。详见 <a href="#six-namespaces">00.2 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q02 · 执行 docker exec -it app sh 时，内核调用的是哪一个系统调用？为什么敲 exit 退出不会把容器停掉？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong>调用的是 <strong><code>setns()</code></strong> 系统调用——打开目标容器主进程在 <code>/proc/&lt;pid&gt;/ns/</code> 下的命名空间文件描述符，将新建的 <code>sh</code> 子进程加入到该容器已有的 Namespace 与 Cgroups 中。因为容器生命周期绑定在容器的 <code>PID 1</code> 主进程上，<code>exec</code> 进去的 <code>sh</code> 只是普通旁路进程（如容器内 PID 18），它退出丝毫不影响 PID 1。详见 <a href="#vm-vs-container">00.1 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q03 · 为什么容器里用 Shell 模式启动进程（CMD "node app.js"）会导致 docker stop 卡满 10 秒才被强杀？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong>两层原因叠加：① Shell 格式会让 <code>/bin/sh -c</code> 成为容器 <code>PID 1</code>，而 <code>/bin/sh</code> 不会把收到的 <code>SIGTERM</code> 转发给子进程 <code>node</code>；② Linux 内核为每个 PID Namespace 的 <code>PID 1</code> 打上了 <code>SIGNAL_UNKILLABLE</code> 标记，默认忽略一切未显式注册 Signal Handler 的信号（包括 <code>SIGTERM</code>）。等待 10 秒宽限期超时后，宿主机只能从父 PID Namespace 发送不可豁免的 <code>SIGKILL (9)</code> 强杀。详见 <a href="#six-namespaces">00.2 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q04 · 给容器配了 --cpus="2.0"，监控显示每分钟平均 CPU 利用率仅 40%，为什么接口 P99 延迟却出现近 80ms 的周期毛刺？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong><code>--cpus="2.0"</code> 底层是 CFS 带宽控制：每 <code>100ms</code>（<code>cfs_period_us</code>）发放 <code>200ms</code>（<code>cfs_quota_us</code>）CPU 时间预算。若应用内部唤醒了 8 个并发线程同时跑在 8 颗核上，仅需 <code>200ms ÷ 8 = 25ms</code> 墙钟时间就把 200ms 配额透支殆尽，随后该容器所有线程在剩余 <code>75ms</code> 内被内核强制冻结（Throttled），导致落在该窗口的请求平白卡顿 75ms。可通过检查 <code>/sys/fs/cgroup/cpu.stat</code> 中的 <code>nr_throttled</code> 验证，并调优容器工作线程数（如收敛 <code>GOMAXPROCS</code>）或适度放宽 CPU 上限。详见 <a href="#cfs-oom">01.1 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q05 · 容器读写大文件导致 Page Cache 塞满内存限额（如 512MB）时，会直接触发 OOM Killer（Exit 137）吗？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong><strong>不会直接 OOM</strong>。Cgroups 内存账本虽同时统计文件缓存（Page Cache）与进程匿名堆内存（RSS），但当总用量触碰 <code>memory.max</code> 时，内核内存回收机制会优先自动丢弃或回写可回收的 Page Cache；只有当不可丢弃的匿名页（堆栈内存泄漏或并发大对象）自身撑满 512MB 且无处回收时，才会触发 Cgroup OOM Killer 发送 <code>SIGKILL (128+9=137)</code>。详见 <a href="#cfs-oom">01.1 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q06 · 为什么在容器内读取 /proc/meminfo 或旧版语言的 CPU 核数接口会拿到宿主机的 64 核与 128GB？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong>因为 Linux 内核没有专门针对 <code>/proc</code> 硬件统计文件的 Namespace，容器内的 <code>/proc/cpuinfo</code> 与 <code>/proc/meminfo</code> 默认直接反映宿主机全局视图。必须由语言运行时主动读取 <code>/sys/fs/cgroup/cpu.max</code> 与 <code>memory.max</code>（如 Go 1.25+ 原生容器感知 <code>GOMAXPROCS</code>、JDK 11+ <code>UseContainerSupport</code>、Node.js 20+）或显式传入环境变量限制线程数与堆上限。详见 <a href="#cgroups-v2">01.2 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q07 · 解释 Overlay2 的 lowerdir / upperdir / merged 关系，以及为什么数据库绝不能直接把数据写在容器层里？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong><code>lowerdir</code> 是多容器共享的只读镜像层，<code>upperdir</code> 是单容器独占的可写层，<code>merged</code> 是对容器呈现的联合挂载根视图。当容器首次修改 <code>lowerdir</code> 中的文件时，Overlay2 触发<strong>文件级</strong> <code>Copy-on-Write (copy_up)</code>——哪怕只改 1 个字节，也必须把整个大文件从 <code>lowerdir</code> 完整拷贝到 <code>upperdir</code>，产生严重的写放大与阻塞延迟，且删容器即丢失；而 Docker Volume 直接 Bind Mount 宿主机原生文件系统目录，彻底绕过 Overlay2。详见 <a href="#overlay2-cow">02.1 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q08 · 在 Dockerfile 第 3 层下载了 300MB 安装包，在第 4 层写了 RUN rm -f pkg.tar.gz，为什么最终镜像一分钱都没变小？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong>因为第 3 层已经成为不可变的只读 <code>lowerdir</code> 层。第 4 层执行 <code>rm</code> 时，Overlay2 只是在第 4 层写入一个主次设备号为 <code>0,0</code> 的 <strong>Whiteout 字符设备遮罩文件</strong>，在最终 <code>merged</code> 视图里把该名字藏起来，但第 3 层那 300MB 的 <code>tar.gz</code> 数据块依然随镜像一起分发。必须在同一条 <code>RUN</code> 里下载安装完立刻 <code>&amp;&amp; rm</code>，或使用多阶段构建。详见 <a href="#overlay2-cow">02.1 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q09 · 同一自定义网桥下的两个容器互访时，数据包经过哪几类内核虚拟网络设备？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong>从源容器 Network Namespace 内的虚拟网卡 <code>eth0</code> 发出，穿过跨命名空间的虚拟跳线 <strong><code>veth pair</code></strong> 到达宿主机根命名空间，进入内核二层虚拟交换机 <strong><code>Linux Bridge（br-xxx）</code></strong>，网桥按 MAC 转发表直接从目标容器对应的另一根 <code>veth pair</code> 送入目标容器的 <code>eth0</code>，全程同网段二层转发。详见 <a href="#veth-bridge">03.1 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q10 · 为什么云服务器开了 ufw 防火墙封禁 6379 端口，执行 docker run -p 6379:6379 redis 后公网依然能直连进去？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong><code>-p 6379:6379</code> 在 Netfilter 最前端的 <code>nat</code> 表 <strong><code>PREROUTING</code></strong> 链插入了 <code>DNAT</code> 规则，入站包在路由判决前目的 IP 就已被改写为容器私网 IP（如 <code>172.17.0.2</code>），随后走内核 <strong><code>FORWARD</code></strong> 转发链直通容器，<strong>完全绕过了 <code>ufw</code> 默认把守的本机 <code>INPUT</code> 链</strong>。应改为 <code>-p 127.0.0.1:6379:6379</code>、不映射端口走容器内网，或在 <code>DOCKER-USER</code> 链/云安全组设防。详见 <a href="#iptables-nat">03.2 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:10px;">
+    <summary><span class="plop-drawer-title">Q11 · 为什么 runc 创建完容器就立刻退出，而每个容器头顶都要留一个常驻的 containerd-shim 进程？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong>让 <code>runc</code> 跑完即退可省去大量容器重复驻留完整运行时内存；而轻量的 <code>containerd-shim</code> 承担三件事：① 持续持有后台容器的 <code>stdin/stdout/stderr</code> 文件句柄，确保重启升级 <code>dockerd / containerd</code> 时容器不会因管道断开（<code>SIGPIPE</code>）崩溃；② 担任子进程收割者回收孤儿进程；③ 捕获容器主进程退出码并异步回报给 <code>containerd</code>。详见 <a href="#shim-runc">04.1 节</a>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer" style="margin-bottom:14px;">
+    <summary><span class="plop-drawer-title">Q12 · 为什么严禁在生产环境随意加 --privileged？它究竟拆掉了哪几道内核安全防线？</span></summary>
+    <div class="drawer-body">
+      <p style="margin:0;"><strong>答：</strong>默认容器受三道安全闸保护（<code>pivot_root</code> 卸载宿主机根 + 剥夺 <code>CAP_SYS_ADMIN / CAP_SYS_MODULE</code> 等高危 Linux Capabilities + <code>Seccomp</code> BPF 拦截 40 余个高危系统调用）。一旦加上 <code>--privileged</code>，会赋予容器全部 40+ 项 Capabilities、关闭 Seccomp 与 AppArmor，并将宿主机所有物理磁盘设备（如 <code>/dev/sda1</code>）暴露进容器 <code>/dev</code>，攻击者在容器内一行 <code>mount</code> 命令即可直接读写篡改宿主机根磁盘完成逃逸。详见 <a href="#seccomp-caps">04.2 节</a>。</p>
+    </div>
+  </details>
+
+  <div class="plop-callout tip" style="margin:16px 0 0;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 双篇闭环导览：</strong>到这里，Docker 的《🌱 基础与实战篇》与《📘 核心原理篇》已全部串成闭环。日常查命令、抄多阶段 Dockerfile 与 Compose 模板请随时切回 <a href="index.html">《基础与实战篇》</a>；继续拓展系统与中间件栈，推荐联动阅读花园内的 <a href="../os/index.html">《操作系统与 Linux》</a>、<a href="../mysql/index.html">《MySQL 双篇笔记》</a>、<a href="../redis/index.html">《Redis 双篇笔记》</a> 与 <a href="../mq/index.html">《消息队列双篇笔记》</a>。
+  </div>
+</div>
