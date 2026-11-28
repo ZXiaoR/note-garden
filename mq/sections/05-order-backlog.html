@@ -1,0 +1,263 @@
+<!-- ====================================================================
+     PART 05: 顺序与积压 · 同订单号局部保序代码与线上积压排障命令
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="order">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">顺序与积压：同单号局部保序代码与线上积压排障命令</span>
+  <span class="plop-tag tomato">PARTITION ORDER · KEY HASH · LAG TROUBLESHOOTING · SCALE OUT</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>用业务单号作 Key 写出保证同一笔订单状态严格按序流转的代码；遇到线上消息积压告警时，敲出排障命令在 5 分钟内分清是消费挂了还是消费慢，并按标准流程扩容恢复。
+</div>
+
+<!-- 05.1 · 同一订单号作 Key 保证局部有序 -->
+<div class="wb-card" id="partition-order" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">📏 05.1 · 局部顺序保证：为什么会乱序，以及用同一订单号作 Key 的保序代码</div>
+  <h3>📏 05.1 同一订单号作 Key 保证局部有序</h3>
+
+  <p>
+    同一笔订单依次产生 <code>创建 → 支付 → 发货</code> 三条事件，或数据库同步依次产生 <code>INSERT → UPDATE → DELETE</code>，一旦下游先执行了后一条就会把状态冲乱。先看清哪 3 个环节会把顺序打乱，再逐一锁住：
+  </p>
+
+  <div class="wb-grid-3" style="margin:12px 0;">
+    <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:10px 12px; font-size:12.8px; line-height:1.55;">
+      <strong style="color:var(--plop-tomato);">乱序点 ①：无 Key 轮询进不同分区</strong><br>
+      <code>创建</code> 进了 P0、<code>支付</code> 进了 P1，两个消费者各自拉取，快慢不一必然乱序。<br>
+      ✅ <strong>解法：指定 <code>Key = orderNo</code> 哈希进同一分区。</strong>
+    </div>
+    <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:10px 12px; font-size:12.8px; line-height:1.55;">
+      <strong style="color:var(--plop-tomato);">乱序点 ②：异步管道重试超车</strong><br>
+      第 1 条网络超时准备重发时，同一连接上的第 2 条先写成功了。<br>
+      ✅ <strong>解法：同步按序发送，或开启幂等生产者（<code>in.flight &lt;= 5</code>）。</strong>
+    </div>
+    <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:10px 12px; font-size:12.8px; line-height:1.55;">
+      <strong style="color:var(--plop-tomato);">乱序点 ③：消费端丢进无序协程池</strong><br>
+      从同一分区按序拉出两条消息，却起两个无序 <code>goroutine</code> 并发跑。<br>
+      ✅ <strong>解法：单分区单协程串行，或按 <code>orderNo</code> 哈希到固定内存单队列。</strong>
+    </div>
+  </div>
+
+  <p style="font-size:13.3px;">
+    <strong>为什么不做「全局有序」？</strong>想让整个 Topic 所有订单严格全局有序，只能把 Topic 设为 <code>1 个分区 + 1 台消费者</code>，吞吐直接退化回单机。而实际业务里<strong>订单 A 和订单 B 谁先处理互不影响，只需同一笔 <code>orderNo</code> 内部有序</strong>——这就是兼顾多分区高并发与业务正确性的<strong>局部有序（Partition Order）</strong>：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 order_sequence.go · 生产端指定 orderNo 作 Key + 消费端单分区严格按序执行 [Go · kafka-go v0.4.47]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ord-seq', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-ord-seq"><code><span class="c-cm">// 1. 生产端：Balancer 必须使用 &amp;kafka.Hash{}（对 Key 计算哈希取模，保证相同 orderNo 100% 落入同一分区）</span>
+<span class="c-kw">func</span> NewOrderSequenceWriter(brokers []<span class="c-kw">string</span>) *kafka.Writer {
+    <span class="c-kw">return</span> &amp;kafka.Writer{
+        Addr:         kafka.TCP(brokers...),
+        Topic:        <span class="c-str">"trade.order.lifecycle"</span>,
+        Balancer:     &amp;kafka.Hash{},    <span class="c-cm">// 关键！相同 Key 固定路由至同一 Partition</span>
+        RequiredAcks: kafka.RequireAll,
+        Async:        <span class="c-kw">false</span>,            <span class="c-cm">// 同步顺序发送，前一条确认成功后再发下一条，杜绝重试超车</span>
+    }
+}
+
+<span class="c-kw">func</span> SendOrderStep(ctx context.Context, w *kafka.Writer, orderNo, step <span class="c-kw">string</span>) <span class="c-kw">error</span> {
+    body := []<span class="c-kw">byte</span>(fmt.Sprintf(<span class="c-str">`{"orderNo":%q,"step":%q}`</span>, orderNo, step))
+    <span class="c-kw">return</span> w.WriteMessages(ctx, kafka.Message{
+        Key:   []<span class="c-kw">byte</span>(orderNo), <span class="c-cm">// 同一笔订单的 CREATED / PAID / SHIPPED 全部传同一个 orderNo</span>
+        Value: body,
+    })
+}
+
+<span class="c-cm">// 2. 消费端：单 Reader 串行处理分配给自己的分区，不启动无序 goroutine，处理完前一条再拉下一条</span>
+<span class="c-kw">func</span> ConsumeOrderInSequence(ctx context.Context, brokers []<span class="c-kw">string</span>, applyStep <span class="c-kw">func</span>(context.Context, []<span class="c-kw">byte</span>) <span class="c-kw">error</span>) {
+    r := kafka.NewReader(kafka.ReaderConfig{
+        Brokers: brokers,
+        Topic:   <span class="c-str">"trade.order.lifecycle"</span>,
+        GroupID: <span class="c-str">"order-state-sync-grp"</span>,
+    })
+    <span class="c-kw">defer</span> r.Close()
+
+    <span class="c-kw">for</span> {
+        msg, err := r.FetchMessage(ctx)
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span>
+        }
+        <span class="c-cm">// 同步串行处理（若单协程不够快，可开 8 个固定 chan，按 hash(orderNo)%8 分发保证同单仍在同一 chan，但须待批次内全部完成后再统一提交最大连续 Offset）</span>
+        <span class="c-kw">for</span> attempt := 1; attempt &lt;= 5; attempt++ {
+            <span class="c-kw">if</span> err = applyStep(ctx, msg.Value); err == <span class="c-kw">nil</span> {
+                <span class="c-kw">break</span>
+            }
+            time.Sleep(time.Duration(attempt) * 200 * time.Millisecond)
+        }
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-cm">// ⚠️ 顺序消费队头阻塞兜底：5 次仍失败则将该 orderNo 记入数据库异常冻结表拦截同单后续事件并告警，防止卡死整个分区</span>
+            recordFrozenOrder(ctx, <span class="c-kw">string</span>(msg.Key), msg.Value, err)
+        }
+        _ = r.CommitMessages(ctx, msg)
+    }
+}</code></pre>
+  </div>
+
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
+    💡 <strong>背后的原理：</strong>如果这个顺序 Topic 运行半年后流量翻倍，运维在线把分区数从 <code>6</code> 扩到了 <code>12</code>，为什么那一瞬间正在流转的旧订单会短暂乱序？怎么平滑过渡？详见 <a href="principles.html#expand-drift">《📘 核心原理篇 · 06.1 顺序消息扩分区哈希漂移》</a>。
+  </p>
+</div>
+
+<!-- 05.2 · 积压排查：怎么看 Lag、怎么判断慢还是挂、怎么扩容 -->
+<div class="wb-card" id="backlog" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🚒 05.2 · 线上积压排障：查看 Lag 命令、定因诊断表与 10 倍分区紧急泄洪</div>
+  <h3>🚒 05.2 积压排查：看 Lag、定病根、扩容恢复</h3>
+
+  <p>
+    <strong>消费积压量 <code>Lag = 分区最新写入位置（LOG-END-OFFSET） − 消费组已提交位置（CURRENT-OFFSET）</code></strong>。收到积压告警时别急着盲目重启，先敲下面第 ① 条命令看现场，对照诊断表 3 分钟定位根因：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span>🔎 mq_ops_troubleshooting.sh · 查看 Lag、扩分区与按时间点重置 Offset 排障命令 [Kafka 3.x / 4.0]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mq-ops', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-mq-ops"><code><span class="c-cm"># ① 第一时间执行：查看消费组每个分区的 CURRENT-OFFSET、LOG-END-OFFSET、LAG 与当前挂载的 CONSUMER-ID</span>
+/opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server broker1:9092 \
+  --describe --group order-state-sync-grp
+
+<span class="c-cm"># 典型输出解读：</span>
+<span class="c-cm"># GROUP                 TOPIC            PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG     CONSUMER-ID</span>
+<span class="c-cm"># order-state-sync-grp  trade.order.paid 0          120500          120502          2       consumer-1-8a9f...</span>
+<span class="c-cm"># order-state-sync-grp  trade.order.paid 1          118000          698000          580000  consumer-2-3b1c...</span>
+
+<span class="c-cm"># ② 列出消费组当前状态（Stable=正常消费中 | PreparingRebalance=正在重平衡卡顿 | Empty=消费者全挂了！）</span>
+/opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server broker1:9092 \
+  --describe --group order-state-sync-grp --state
+
+<span class="c-cm"># ③ 在线扩容 Topic 分区数（如从 6 扩到 24；注意：Kafka 分区数只能增加，不能减少！）</span>
+/opt/kafka/bin/kafka-topics.sh --bootstrap-server broker1:9092 \
+  --alter --topic trade.order.paid --partitions 24
+
+<span class="c-cm"># ④ 故障修复后按时间回溯重放（需先停掉该组消费者；先用 --dry-run 预览目标 Offset，核对无误再换 --execute）</span>
+/opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server broker1:9092 \
+  --group order-state-sync-grp --topic trade.order.paid \
+  --reset-offsets --to-datetime 2026-11-28T14:00:00.000 --dry-run</code></pre>
+  </div>
+
+  <h4>🩺 第二步：怎么一眼分清是「消费挂了」还是「消费太慢」？</h4>
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:26%"><code>--describe</code> 看到的现象</th>
+          <th style="width:32%">真实根因判断</th>
+          <th>立刻执行的恢复动作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>现象 A：<code>CONSUMER-ID</code> 全是 <code>-</code>，状态为 <code>Empty</code>，且 <code>CURRENT-OFFSET</code> 一动不动</strong></td>
+          <td><strong>消费者进程全挂了</strong>（发版启动失败、配置连错集群或容器反复 CrashLoop）。</td>
+          <td>看容器启动日志与崩溃堆栈，修复后拉起消费者实例即可开始追赶。</td>
+        </tr>
+        <tr>
+          <td><strong>现象 B：状态一直在 <code>PreparingRebalance</code> 来回跳，Offset 极慢推进且日志重复</strong></td>
+          <td><strong>单批处理超时被反复踢出消费组</strong>（超过 <code>max.poll.interval.ms</code> 陷入重平衡死循环）。</td>
+          <td>调小单次拉取条数、给慢 HTTP/SQL 加超时或临时降级非核心调用（详见 <a href="#rebalance-tuning">07.3</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>现象 C：5 个分区 <code>LAG=0</code>，唯独 <code>Partition 1</code> 单边暴涨几十万</strong></td>
+          <td><strong>消息 Key 数据倾斜（热 Key）</strong>（如所有游客订单的 Key 都传了空串 <code>"guest"</code> 挤进同一分区），或负责 P1 的那台机器网卡/CPU 异常。</td>
+          <td>排查该台消费者宿主机监控；若是 Key 倾斜，给无单号数据拼上随机后缀打散。</td>
+        </tr>
+        <tr>
+          <td><strong>现象 D：所有分区 <code>LAG</code> 均匀上涨，<code>CURRENT-OFFSET</code> 在走但追不上写入</strong></td>
+          <td><strong>纯粹的消费速率 &lt; 生产速率</strong>（大促流量翻倍，或下游 MySQL 缺索引变慢）。</td>
+          <td>先排查下游慢 SQL 并将单条插入改为<strong>批量写库（Batch Insert）</strong>，再按下述扩容方案加并发。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>🚀 第三步：怎么扩容把积压快速清零？</h4>
+  <p style="font-size:13.3px;">
+    根据第 01 章学过的「同一消费组有效消费者数 ≤ 分区数」，分两种情况处理：
+  </p>
+  <ul>
+    <li><strong>常规积压（当前消费者实例数 &lt; 分区数，如 24 个分区只跑了 4 台消费者）</strong>：直接把消费者容器扩容到 <strong>24 台</strong>（1 台吃 1 个分区），吞吐立刻翻 6 倍。</li>
+    <li><strong>极端积压（原来只有 4 个分区 + 4 台消费者，老分区里已经积压了 3,000 万条，要求半小时内追平）</strong>：此时光加消费者没用（第 5 台分不到分区），光给原 Topic 扩分区也没法把<strong>已经写进老 4 个分区的旧积压数据</strong>挪走。标准应急方案是<strong>「新建 10 倍分区的临时 Topic 中转泄洪」</strong>：</li>
+  </ul>
+
+  <!-- Editorial SVG: 10x Partition Temp Topic Backlog Rescue -->
+  <figure style="margin:12px 0 14px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 216" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mq-rescue-title mq-rescue-desc">
+        <title id="mq-rescue-title">老分区千万级消息积压通过10倍分区临时主题中转泄洪架构</title>
+        <desc id="mq-rescue-desc">将原4分区主题挂载的4台消费者临时改为纯内存转发程序，高速搬运积压消息打散写入新建的40分区临时主题，同时拉起40台消费者并发消费快速清零积压。</desc>
+        <defs>
+          <marker id="mq-rs-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="mq-rs-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <line x1="180" y1="88" x2="244" y2="88" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#mq-rs-arr-muted)"/>
+        <rect x="188" y="64" width="48" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="212" y="75" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">PULL</text>
+
+        <line x1="392" y1="88" x2="460" y2="88" stroke="#bf4520" stroke-width="1.6" marker-end="url(#mq-rs-arr-accent)"/>
+        <rect x="398" y="64" width="56" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="426" y="76" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#bf4520">10x 分流</text>
+
+        <line x1="616" y1="88" x2="676" y2="88" stroke="#bf4520" stroke-width="1.6" marker-end="url(#mq-rs-arr-accent)"/>
+        <rect x="622" y="64" width="48" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="646" y="75" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#bf4520">40 PODS</text>
+
+        <!-- Node 1 -->
+        <rect x="24" y="52" width="156" height="72" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.3"/>
+        <text x="102" y="80" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">原 Topic（仅 4 分区）</text>
+        <text x="102" y="102" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#bf4520">旧积压 30,000,000 条</text>
+
+        <!-- Node 2 -->
+        <rect x="244" y="52" width="148" height="72" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="318" y="80" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">4 台纯内存搬运工</text>
+        <text x="318" y="102" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">不查库 · 原样极速转发</text>
+
+        <!-- Node 3 (Focal) -->
+        <rect x="460" y="48" width="156" height="80" rx="6" fill="#FFFDF7"/>
+        <rect x="460" y="48" width="156" height="80" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="538" y="78" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#bf4520">临时 Topic（40 分区）</text>
+        <text x="538" y="102" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#1F1F23">order.temp.40p</text>
+
+        <!-- Node 4 -->
+        <rect x="676" y="52" width="140" height="72" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="746" y="80" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">40 台消费者实例</text>
+        <text x="746" y="102" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">10 倍车道并发消化</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="24" y1="156" x2="816" y2="156" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="24" y="168" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="44" y="177" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">大积压期间注意检查 Broker 磁盘水位并临时调大 log.retention.hours，防止未消费的日志段被到期自动清理</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4 id="quiz-05" style="margin:0 0 8px;">☑️ 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 生产端已经用 <code>orderNo</code> 作 Key 写进了同一个分区，为什么线上偶尔还是出现同一笔订单「先收到发货、后收到支付」？</span></summary>
+    <div class="drawer-body">
+      <p>重点查两处：① <strong>消费端代码内部开了无序并发协程池</strong>（最常见，从分区顺序拉出两条消息后同时起了两个 <code>go func()</code>，发货协程跑得更快先落库了）；② <strong>生产端开启了异步无幂等并发重发</strong>（前一条支付消息遇到网络超时在后台等重试时，后一条发货消息先写入了分区）。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 执行 <code>kafka-consumer-groups.sh --describe</code> 时看到 8 个分区里有 7 个 <code>LAG = 0</code>，只有 <code>Partition 3</code> 的 <code>LAG = 450,000</code>，为什么加消费者实例完全解决不了？</span></summary>
+    <div class="drawer-body">
+      <p>因为 1 个分区最多只能被组内 1 台消费者消费，哪怕加到 100 台机器，<code>Partition 3</code> 依然只有 1 台机器在跑。这是典型的<strong>热点 Key 倾斜</strong>（大量消息带了相同的默认 Key 如空字符串或同一个大商户 ID 全部哈希到了 P3），应当打散热点 Key 或在消费 P3 的实例内做批量写库加速。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 周末某非核心消费组挂了两天没人发现，Broker 配的保留时间 <code>retention.hours=24</code>，周一修好启动后那两天的部分老消息已经被磁盘过期清理掉了，怎么补救？</span></summary>
+    <div class="drawer-body">
+      <p>已经被清理的日志段无法在 Kafka 里找回。等业务低峰期，根据丢失的时间段去<strong>上游源头数据库</strong>（如查询周六至周日创建但下游积分表缺失记录的订单），跑一个一次性补偿脚本把漏掉的事件重新投递进 Topic 即可（因为消费端有幂等，不怕时间范围稍微重叠）。</p>
+    </div>
+  </details>
+</div>

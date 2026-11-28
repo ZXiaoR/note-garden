@@ -1,0 +1,108 @@
+<!-- ====================================================================
+     PART 06 (PRINCIPLES): 进阶抽屉与深度自测 · 扩分区漂移、KRaft 与存算分离
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="advanced">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">进阶抽屉与深度自测：扩分区哈希漂移、KRaft 共识与存算分离</span>
+  <span class="plop-tag periwinkle">HASH DRIFT · KRAFT METADATA · TIERED STORAGE · KERNEL QUIZ</span>
+</div>
+
+<!-- 06.1 · 顺序消息动态扩分区哈希漂移 -->
+<div class="wb-card" id="expand-drift" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">⚠️ 06.1 · 顺序消息边界条件：在线动态扩分区引发的同 Key 哈希漂移与过渡方案</div>
+  <h3>⚠️ 06.1 顺序消息遇到「在线扩分区」为什么会短暂乱序 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#partition-order">实战篇 05.1 局部顺序保证</a> —— 既然相同 <code>orderNo</code> 按哈希取模落入同一分区，为什么对强顺序 Topic 执行在线扩分区时会出现短暂乱序窗口？
+  </p>
+
+  <p style="font-size:13.3px;">
+    假设原 Topic 有 <code>4</code> 个分区，订单 <code>ORD_9</code> 的哈希值为 <code>5</code>，原本它的「已创建」消息按 <code>5 % 4 = 1</code> 落在了 <strong><code>Partition-1</code></strong> 里排队等待消费；此时运维执行命令把分区扩到了 <code>8</code> 个，紧接着到达的「已支付」消息按新分区数计算 <code>5 % 8 = 5</code> 落进了全新的 <strong><code>Partition-5</code></strong>。由于新分区没有任何积压，<code>Partition-5</code> 的消费者瞬间跑完了「已支付」，而 <code>Partition-1</code> 里的「已创建」还在排队——这就造成了扩分区切换窗口内的超车乱序。
+  </p>
+  <p style="font-size:13.3px; margin-bottom:0;">
+    <strong>三种生产应对策略</strong>：<br>
+    ① <strong>容量预留法（最省心常用）</strong>：对有严格局部顺序诉求的核心 Topic，立项时直接预留充足分区数（如 <code>24</code> 或 <code>32</code> 个），业务生命周期内只扩消费者实例而不改分区数；<br>
+    ② <strong>双 Topic 排空切换法</strong>：新建好扩容后的 <code>v2</code> Topic，先让消费者同时订阅旧 Topic 与 <code>v2</code>（但在旧 Topic <code>Lag</code> 清零前暂停 <code>v2</code> 拉取），然后切生产者写 <code>v2</code>，几秒钟等旧分区存量排空后恢复 <code>v2</code> 消费，全程零乱序；<br>
+    ③ <strong>服务端逻辑队列锁（如 RocketMQ 5.0 顺序逻辑队列）</strong>：扩缩容时在元数据层记录旧物理分片尚未消费完的前驱依赖，待前驱分片位点追平后才向消费者暴露新分片消息。
+  </p>
+</div>
+
+<!-- 06.2 · KRaft 去 ZooKeeper 与存算分离演进 -->
+<div class="wb-card" id="kraft" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">☁️ 06.2 · 现代架构演进：Kafka KRaft 元数据事件流与 Pulsar / AutoMQ 存算分离</div>
+  <h3>☁️ 06.2 为什么抛弃 ZooKeeper 改用 KRaft，以及存算分离趋势 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#qs-docker">实战篇 02.1 KRaft 启动配置</a> 与 <a href="index.html#three">06.1 架构基因</a> —— 为什么 Kafka 4.0 彻底移除了陪伴十年的 ZooKeeper？传统 Broker 扩容慢又是如何被新一代存算分离架构解决的？
+  </p>
+
+  <div class="wb-grid-2">
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:13px 15px; font-size:13.1px; line-height:1.6;">
+      <div style="font-weight:900; color:var(--plop-ink); margin-bottom:6px;">① KRaft：把集群元数据自身也变成一条事件日志</div>
+      <ul style="margin:0; padding-left:18px;">
+        <li><strong>旧版 ZooKeeper 的性能天花板</strong>：不仅需要双组件运维，更棘手的是当旧版 Controller 节点宕机切换时，新当选的 Controller 必须从 ZooKeeper 同步拉取全量几万个分区的状态，再通过 RPC 逐台全量推送给所有 Broker——大集群切主会卡顿数十秒甚至数分钟。</li>
+        <li><strong>KRaft 的本质突破</strong>：挑选 3 或 5 台节点组成内置 Raft 控制器组，将所有 Topic/分区/ISR 变更作为有序事件写入内部日志 <strong><code>__cluster_metadata</code></strong>。备用 Controller 平时就像普通 Follower 一样实时重放该日志在内存中保持热备状态——<strong>切主耗时从分钟级直接降到毫秒级</strong>，单集群可支撑百万级分区。</li>
+      </ul>
+    </div>
+
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:13px 15px; font-size:13.1px; line-height:1.6;">
+      <div style="font-weight:900; color:#2e5aa8; margin-bottom:6px;">② 存算分离：告别扩容时几百 GB 的历史数据搬迁</div>
+      <ul style="margin:0; padding-left:18px;">
+        <li><strong>传统存算一体痛点</strong>：经典 Kafka 的 Broker 同时承担网络收发计算与本地磁盘存储。大促临时新加 2 台空 Broker 时，它们上面没有任何分区，必须执行 <code>kafka-reassign-partitions</code> 跨网卡复制几百 GB 文件才能分担流量，耗时极长且抢占业务带宽。</li>
+        <li><strong>存算分离架构（Pulsar + BookKeeper / Kafka Tiered Storage 分层存储 / AutoMQ 基于 S3）</strong>：将上层 Broker 变为<strong>完全无状态的计算代理节点</strong>（秒级扩缩容、挂机零数据迁移），把持久化的日志段切碎下沉到分布式存储池或云对象存储中。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 06.3 · 核心原理深度自测 6 题（从原 08.3b 拆分归位） -->
+<div class="wb-card" id="kernel-quiz" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">☑️ 06.3 · 内核深度自测：6 道高频底层机制追问题（点击题目展开解析）</div>
+  <h3>☑️ 06.3 核心原理深度自测 6 题</h3>
+
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 为什么 Kafka 消费读取选 <code>sendfile</code>，而 RocketMQ 选 <code>mmap</code>？如果 Kafka 开启了 SSL/TLS 加密传输，零拷贝还生效吗？</span></summary>
+    <div class="drawer-body">
+      <p><code>sendfile</code> 在内核态直接把 <code>PageCache</code> 数据经 SG-DMA 推向网卡（0 次 CPU 拷贝），只返回发送字节数，JVM 用户态拿不到消息内容，契合 Kafka 原样转发分区字节流；RocketMQ 所有 Topic 混写在 <code>CommitLog</code> 且需在用户态读取属性做 Tag/SQL 过滤与内存预热，因此用虚拟地址映射 <code>mmap</code>（1 次 CPU 拷贝）。<br>
+      若 Kafka 开启了 SSL/TLS，因为加密计算必须在用户态内存读取明文再输出密文，<strong>内核直传的 <code>sendfile</code> 零拷贝会自动退化失效</strong>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 为什么当业务 Topic 数量膨胀到 5,000 个以上时，RocketMQ 的写入吞吐比传统 Kafka 更稳定？</span></summary>
+    <div class="drawer-body">
+      <p>Kafka 每个 Partition 对应独立的物理 <code>.log</code> 文件，5,000 个 Topic 意味着上万个文件在同一块磁盘上并发追加写，磁头/块分配层面退化为<strong>随机写</strong>；而 RocketMQ 整台机器所有 Topic 汇聚顺序追加进<strong>唯一一个 <code>CommitLog</code> 文件</strong>，再异步构建定长 20 字节的 <code>ConsumeQueue</code> 索引，因此 Topic 数量再多也能维持纯粹的单流顺序写。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. RocketMQ 事务消息里，如果生产者在执行完本地 MySQL 提交后、发出二阶段 Commit 指令前断电了，这条半消息最终怎么投递出去？</span></summary>
+    <div class="drawer-body">
+      <p>靠 <strong>Broker 定时事务反查机制</strong>兜底。半消息最初写在内部隐身主题 <code>RMQ_SYS_TRANS_HALF_TOPIC</code> 中；Broker 后台扫描发现它超时未在 <code>OP</code> 表出现完结标记，就会向同一生产者组的任一存活实例发送反查请求回调 <code>checkLocalTransaction</code>；该实例查询 MySQL 确认订单已是已支付状态，返回 <code>COMMIT</code>，Broker 随即把消息还原至真实业务 Topic 对下游可见。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">4. 简述高水位 <code>HW</code> 与 <code>LEO</code> 的含义，并说明为什么光靠本地 <code>HW</code> 在重启截断日志时会丢已提交数据？</span></summary>
+    <div class="drawer-body">
+      <p><code>LEO</code> 是副本下一条待写入位置，<code>HW</code> 是 <code>ISR</code> 集合中最小的 <code>LEO</code>（即消费者可见上限）。因为 Follower 的 <code>HW</code> 要等<strong>下一轮 Fetch 响应</strong>才会追平 Leader，存在一轮 RPC 滞后：若 Follower 已写完最新已提交消息但本地 <code>HW</code> 还没更新，此时重启按滞后的本地 <code>HW</code> 截断删掉了该消息，紧接着老 Leader 断电、该 Follower 升任新主，已提交数据就丢失了。引入 <code>Leader Epoch</code> 后重启先向 Leader 查询任期真实末端再截断，填平了该时间差。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">5. 为什么 Kafka 重平衡时不由服务端的 <code>GroupCoordinator</code> 直接算好分区分配表，而要选一个客户端消费者当班长来算？</span></summary>
+    <div class="drawer-body">
+      <p>两个架构好处：① 把成百上千个消费组的分配计算开销分摊到客户端，减轻 Broker CPU 压力；② 解耦服务端与分配算法——业务客户端可以自行升级或自定义机房亲和、权重分配策略（实现 <code>ConsumerPartitionAssignor</code> 接口），全程无需升级重启 Kafka 服务端集群。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">6. RocketMQ 5.0 的分层时间轮相比 4.x 的 18 个固定延迟队列解决了什么问题？时间复杂度是多少？</span></summary>
+    <div class="drawer-body">
+      <p>4.x 只能选预设好的 18 个固定时长（无法自定义任意秒级触发时刻）；5.0 引入环形槽位数组 <code>TimerWheel</code> 配合顺序追加文件 <code>TimerLog</code>，任意到期时刻的消息直接按取模 <code>O(1)</code> 定位槽位并顺序写盘，秒针逐格推进捞出链表投递，在无需全局排序的前提下实现了任意秒/毫秒级高精度定时消息。</p>
+    </div>
+  </details>
+</div>

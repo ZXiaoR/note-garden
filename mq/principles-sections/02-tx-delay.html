@@ -1,0 +1,105 @@
+<!-- ====================================================================
+     PART 02 (PRINCIPLES): 事务消息与延迟消息的实现 · 半消息反查与分层时间轮
+     ==================================================================== -->
+<div class="wb-sec-header" id="tx-delay">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">事务消息与延迟消息的实现：半消息反查机制与分层时间轮</span>
+  <span class="plop-tag mint">HALF MESSAGE · TX CHECKBACK · 18 LEVELS · TIMING WHEEL</span>
+</div>
+
+<!-- 02.1 · RocketMQ 事务消息实现：半消息 + 反查 -->
+<div class="wb-card" id="tx-msg" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🤝 02.1 · 分布式事务消息内核：RocketMQ 半消息暂存转发与 Broker 定时状态反查</div>
+  <h3>🤝 02.1 RocketMQ 事务消息：两阶段半消息与反查实现 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-tx">实战篇 03.5 下单与发消息的一致性</a> —— 如果不想在业务 MySQL 里建 <code>outbox_messages</code> 本地消息表，RocketMQ 在 Broker 内部是如何实现「先发消息暂存隐身，等本地数据库提交后再放行」的？
+  </p>
+
+  <p>
+    因为磁盘日志一旦写入目标队列被消费者拉走就无法撤回，RocketMQ 采用<strong>「狸猫换太子（偷换 Topic 暂存）+ 二阶段确认/定时反查」</strong>四步闭环解决了跨库与发消息的原子性问题：
+  </p>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px; margin:14px 0;">
+    <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px; font-size:12.8px; line-height:1.55;">
+      <div style="font-weight:900; color:var(--plop-ink-text); margin-bottom:4px;">Step ①：发送半消息（隐身暂存）</div>
+      Producer 发送事务消息给 Broker。Broker 将原目标 Topic 与队列号备份到扩展属性里，把 Topic 改写为内部系统主题 <strong><code>RMQ_SYS_TRANS_HALF_TOPIC</code></strong> 顺序落盘——<strong>下游业务消费者没有订阅该内部主题，因此完全不可见</strong>。
+    </div>
+    <div style="background:#FFFFFF; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px; font-size:12.8px; line-height:1.55;">
+      <div style="font-weight:900; color:var(--plop-ink-text); margin-bottom:4px;">Step ②：执行本地 DB 事务</div>
+      收到半消息落盘成功 ACK 后（若连半消息都写不进 MQ，直接放弃不改数据库），Producer 回调本地 <code>executeLocalTransaction</code> 执行数据库订单扣款事务。
+    </div>
+    <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px; font-size:12.8px; line-height:1.55;">
+      <div style="font-weight:900; color:var(--plop-ink-text); margin-bottom:4px;">Step ③：Commit / Rollback</div>
+      • 本地事务提交成功 👉 发 <code>COMMIT</code>：Broker 从半消息主题读出原消息，恢复真实业务 Topic 重新追加写入 <code>CommitLog</code>（消费者立即可见），并向 <code>RMQ_SYS_TRANS_OP_HALF_TOPIC</code> 写一条 <code>d</code> 删除标记。<br>
+      • 本地事务回滚 👉 发 <code>ROLLBACK</code>：只写 <code>d</code> 删除标记丢弃半消息。
+    </div>
+    <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px; font-size:12.8px; line-height:1.55;">
+      <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:4px;">Step ④：超时事务状态反查</div>
+      万一 Step ② 刚提交完数据库就断电、没发出 Step ③ 怎么办？Broker 后台定时对比半消息表与 Op 标记表，挑出超时未决的半消息，主动向同一生产者组任一存活实例发起 <code>checkLocalTransaction</code> 反查数据库真实订单状态补齐 Commit 或 Rollback（默认最多反查 15 次）。
+    </div>
+  </div>
+
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">📄 附：RocketMQ 事务消息生产者回调接口参考代码（Java SDK 标准形态）</span></summary>
+    <div class="drawer-body">
+      <div class="plop-code-box" style="margin:6px 0 0;">
+        <div class="plop-code-head">
+          <span>☕ RocketMQTxDemo.java · executeLocalTransaction 与 checkLocalTransaction 接口闭环</span>
+          <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-rmq-tx-prin', this)">复制代码</button>
+        </div>
+        <pre class="plop-code-pre" id="code-rmq-tx-prin"><code>TransactionMQProducer txProducer = <span class="c-kw">new</span> TransactionMQProducer(<span class="c-str">"tx-order-producer-grp"</span>);
+txProducer.setTransactionListener(<span class="c-kw">new</span> TransactionListener() {
+    @Override
+    <span class="c-kw">public</span> LocalTransactionState <span class="c-fn">executeLocalTransaction</span>(Message msg, Object arg) {
+        <span class="c-kw">try</span> {
+            orderRepo.markPaidInDB(msg.getKeys());        <span class="c-cm">// Step ②：改本地 MySQL</span>
+            <span class="c-kw">return</span> LocalTransactionState.COMMIT_MESSAGE;  <span class="c-cm">// Step ③：通知转正</span>
+        } <span class="c-kw">catch</span> (Exception e) {
+            <span class="c-kw">return</span> LocalTransactionState.ROLLBACK_MESSAGE;
+        }
+    }
+    @Override
+    <span class="c-kw">public</span> LocalTransactionState <span class="c-fn">checkLocalTransaction</span>(MessageExt msg) {
+        <span class="c-cm">// Step ④：网络闪断未收到二阶段指令时，Broker 回调此方法查 DB 订单状态兜底</span>
+        <span class="c-kw">return</span> orderRepo.isOrderPaid(msg.getKeys())
+            ? LocalTransactionState.COMMIT_MESSAGE : LocalTransactionState.ROLLBACK_MESSAGE;
+    }
+});</code></pre>
+      </div>
+    </div>
+  </details>
+</div>
+
+<!-- 02.2 · 延迟消息实现：18 级定时队列 vs 分层时间轮 -->
+<div class="wb-card" id="timing-wheel" style="background:var(--plop-paper);">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">⏱️ 02.2 · 定时引擎内核：从 18 个固定延迟等级队列到分层时间轮（Timing Wheel）</div>
+  <h3>⏱️ 02.2 延迟消息底层是如何避免百万消息全局排序的 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-delay">实战篇 03.6 延迟任务</a> —— 如果每秒涌入上万笔任意时刻到期的定时消息，直接塞进小顶堆（<code>O(log N)</code>）或数据库排序会把内存与磁盘随机 I/O 拖垮，现代 MQ 内部是怎么做到 <code>O(1)</code> 写入与准点触发的？
+  </p>
+
+  <div class="wb-grid-2">
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:13px 15px; font-size:13.2px; line-height:1.6;">
+      <div style="font-weight:900; color:var(--plop-ink); margin-bottom:6px;">① 一代方案：RocketMQ 4.x 的 18 级固定队列</div>
+      <p style="margin:0;">
+        为了规避全局排序，4.x 硬性规定只开放 <strong>18 个固定延迟档位</strong>（<code>1s / 5s / 10s / 30s / 1m ... 30m / 2h</code>），在内部主题 <code>SCHEDULE_TOPIC_XXXX</code> 下建 18 个独立队列。<br>
+        • <strong>为什么不用排序？</strong>因为进入第 16 号队列的所有消息延迟时长<strong>全都是固定的 30 分钟</strong>——先写进去的一定先到期！后台每个队列只需配 1 个定时任务顺序盯住队列头部，到期后还原真实 Topic 写回 <code>CommitLog</code> 即可。<br>
+        • <strong>局限</strong>：不支持自定义任意时刻（如“明天上午 9:17:00 准时开售通知”）。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:13px 15px; font-size:13.2px; line-height:1.6;">
+      <div style="font-weight:900; color:#15803d; margin-bottom:6px;">② 二代方案：RocketMQ 5.0 <code>TimerWheel + TimerLog</code> 时间轮</div>
+      <p style="margin:0;">
+        时间轮（Timing Wheel，同样用于 Kafka 内部 <code>Purgatory</code> 超时管理与 Netty 定时器）把时间映射成一个<strong>环形钟表数组</strong>：<br>
+        • 表盘固定划分如 <code>7200</code> 个秒级槽位（<code>Slot</code>，定长数组常驻内存），每个槽位只存一个<strong>指向磁盘追加文件 <code>TimerLog</code> 最新一条记录的尾指针</strong>。<br>
+        • <strong>写入 <code>O(1)</code> 且纯顺序 I/O</strong>：收到 30 分钟后到期的消息，直接算出目标槽位下标，在 <code>TimerLog</code> 末尾顺序追加一条记录（内含指向上一条同槽记录的物理偏移指针，构成磁盘单向链表），再更新槽位头指针。<br>
+        • <strong>触发与跨圈滚动</strong>：后台秒针每秒往前走一格，顺着当前槽位的指针链把该秒所有到期消息捞出来投递（超出单圈跨度的长延迟消息在到期扫描时减去一圈时长重新挂入下层槽位，即<strong>分层/卷动时间轮</strong>）。
+      </p>
+    </div>
+  </div>
+</div>

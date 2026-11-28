@@ -1,0 +1,374 @@
+<!-- ====================================================================
+     PART 00: 全景科普 · 消息队列架构定位、场景地图与选型边界
+     ==================================================================== -->
+<div class="wb-sec-header" id="overview" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">全景科普：消息队列架构定位、场景地图与适用边界</span>
+  <span class="plop-tag tomato">OVERVIEW · BENEFITS · SCENE MAP · TRADE-OFFS</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>用一句话向同事讲清消息队列是什么、为什么服务之间不能全靠直接调用、日常开发哪 7 类需求适合引入消息队列，以及哪 3 类情况不该强行使用它。
+</div>
+
+<!-- 00.1 · 一屏全景：一句话定义、快递驿站类比与下单前后对比图 -->
+<div class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧭 00.1 · 一屏看懂定位：消息队列的定义、快递驿站类比与同步调用三大痛点</div>
+  <h3>🧭 00.1 消息队列是什么，以及它解决什么问题</h3>
+
+  <p>
+    <strong>一句话定义：MQ（Message Queue，消息队列）是部署在后端服务之间的异步消息中转组件——上游服务把任务或事件作为一条「消息」写进队列即可立即返回，下游服务再按自己的处理节奏从队列中取出执行。</strong>
+  </p>
+  <p>
+    用日常生活里的<strong>小区快递驿站</strong>打个比方：如果没有驿站，快递员每送一件包裹都必须站在楼下打电话，等收件人下楼签收后才能去送下一单（这就是<strong>同步直接调用</strong>）；有了快递驿站后，快递员把包裹放上驿站货架就能立刻骑车去跑下一单，收件人下班回家再按取件码慢慢拿（这就是<strong>经过消息队列的异步流转</strong>）。
+  </p>
+  <p>
+    放到真实的「电商用户下单」链路里看：如果订单服务用 RPC（Remote Procedure Call，远程过程调用）或 HTTP 同步依次调用积分、短信、物流服务，会同时遇到<strong>代码强耦合</strong>（加一个发券服务就得改订单代码）、<strong>接口响应慢</strong>（串行累加几百毫秒）和<strong>突发洪峰冲垮数据库</strong>三个痛点；在应用服务之间加一层 MQ，就能一次性获得<strong>解耦、异步、削峰</strong>三项核心收益：
+  </p>
+
+  <!-- Editorial SVG: Before vs After MQ on E-Commerce Order Flow -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 392" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mq-ov-cmp-title mq-ov-cmp-desc">
+        <title id="mq-ov-cmp-title">电商下单链路引入消息队列前后的架构与耗时对比</title>
+        <desc id="mq-ov-cmp-desc">上半部分展示纯同步串行调用订单、积分、短信和物流服务导致耦合重且耗时累加至470毫秒；下半部分展示订单写库后仅花5毫秒入队消息队列立即返回，下游各消费组异步解耦并匀速削峰处理。</desc>
+        <defs>
+          <marker id="mq-ov-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="mq-ov-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="mq-ov-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Zone 1: Before MQ (Synchronous Chain) -->
+        <rect x="24" y="16" width="792" height="136" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="40" y="20" width="380" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="230" y="32" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">改造前：纯同步串行调用（总耗时 ≈ 470ms · 任一下游故障连累下单失败）</text>
+
+        <!-- Zone 2: After MQ (Async + Decoupled + Peak Shaving) -->
+        <rect x="24" y="168" width="792" height="168" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="40" y="172" width="408" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="244" y="184" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">改造后：引入 MQ 异步解耦与削峰（主链路 ≈ 25ms 返回 · 下游按能力拉取）</text>
+
+        <!-- Connectors: Zone 1 (drawn BEFORE boxes) -->
+        <line x1="188" y1="92" x2="252" y2="92" stroke="#4f5d75" stroke-width="1.3" marker-end="url(#mq-ov-arr-muted)"/>
+        <rect x="196" y="68" width="48" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="220" y="79" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">SYNC 1</text>
+
+        <line x1="396" y1="92" x2="460" y2="92" stroke="#4f5d75" stroke-width="1.3" marker-end="url(#mq-ov-arr-muted)"/>
+        <rect x="404" y="68" width="48" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="428" y="79" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">SYNC 2</text>
+
+        <line x1="604" y1="92" x2="668" y2="92" stroke="#4f5d75" stroke-width="1.3" marker-end="url(#mq-ov-arr-muted)"/>
+        <rect x="612" y="68" width="48" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="636" y="79" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">SYNC 3</text>
+
+        <!-- Connectors: Zone 2 (drawn BEFORE boxes, strictly orthogonal r=8) -->
+        <!-- Order Service (204,260) -> MQ Broker (296,260) -->
+        <line x1="204" y1="260" x2="296" y2="260" stroke="#bf4520" stroke-width="1.6" marker-end="url(#mq-ov-arr-accent)"/>
+        <rect x="216" y="236" width="68" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="250" y="248" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#bf4520">入队 5ms</text>
+
+        <!-- MQ Broker right-top port (492,244) -> Points/Coupon Consumer (600,226) -->
+        <path d="M 492,244 H 536 Q 544,244 544,236 V 234 Q 544,226 552,226 H 600" fill="none" stroke="#2e5aa8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#mq-ov-arr-link)"/>
+        <rect x="548" y="202" width="44" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="570" y="213" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#2e5aa8">PULL</text>
+
+        <!-- MQ Broker right-bottom port (492,276) -> SMS/Logistics Consumer (600,294) -->
+        <path d="M 492,276 H 536 Q 544,276 544,284 V 286 Q 544,294 552,294 H 600" fill="none" stroke="#2e5aa8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#mq-ov-arr-link)"/>
+
+        <!-- Nodes: Zone 1 -->
+        <rect x="44" y="60" width="144" height="64" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="116" y="88" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">订单服务写库</text>
+        <text x="116" y="108" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">MySQL · 20ms</text>
+
+        <rect x="252" y="60" width="144" height="64" rx="6" fill="#FFFFFF" stroke="#4f5d75" stroke-width="1.1"/>
+        <text x="324" y="88" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="600" fill="#1F1F23">积分服务</text>
+        <text x="324" y="108" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">+50ms 串行等待</text>
+
+        <rect x="460" y="60" width="144" height="64" rx="6" fill="#FFFFFF" stroke="#4f5d75" stroke-width="1.1"/>
+        <text x="532" y="88" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="600" fill="#1F1F23">短信网关</text>
+        <text x="532" y="108" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">+300ms 外部慢调</text>
+
+        <rect x="668" y="60" width="132" height="64" rx="6" fill="#FFFFFF" stroke="#4f5d75" stroke-width="1.1"/>
+        <text x="734" y="88" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="600" fill="#1F1F23">物流通知</text>
+        <text x="734" y="108" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">+100ms 强绑定</text>
+
+        <!-- Nodes: Zone 2 -->
+        <rect x="44" y="228" width="160" height="64" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="124" y="256" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">订单服务写库</text>
+        <text x="124" y="276" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">20ms + 5ms 立即返回</text>
+
+        <rect x="296" y="220" width="196" height="80" rx="6" fill="#FFFDF7"/>
+        <rect x="296" y="220" width="196" height="80" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="394" y="248" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13.5" font-weight="800" fill="#bf4520">MQ 消息队列（驿站）</text>
+        <text x="394" y="270" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#1F1F23">解耦上下游 · 缓冲秒杀洪峰</text>
+        <text x="394" y="288" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">Topic: order.paid</text>
+
+        <rect x="600" y="200" width="196" height="52" rx="6" fill="#FFFDF7"/>
+        <rect x="600" y="200" width="196" height="52" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="698" y="222" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">发券 / 积分消费组</text>
+        <text x="698" y="240" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">异步独立消费 · 扩缩自如</text>
+
+        <rect x="600" y="268" width="196" height="52" rx="6" fill="#FFFDF7"/>
+        <rect x="600" y="268" width="196" height="52" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="698" y="290" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">短信 / 物流消费组</text>
+        <text x="698" y="308" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">匀速拉取 · 不压垮数据库</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="24" y1="352" x2="816" y2="352" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="24" y="364" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="44" y="373" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">核心异步入队路径（主接口仅等写库 + 入队）</text>
+        <line x1="328" y1="369" x2="356" y2="369" stroke="#2e5aa8" stroke-width="1.3" stroke-dasharray="5,4"/>
+        <text x="364" y="373" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">下游各业务组按自身能力异步拉取（解耦 + 削峰）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <ul style="margin:10px 0 0;">
+    <li><strong>解耦（Decoupling，看架构依赖）</strong>：订单服务只管往 <code>order.paid</code> 发一条「订单已支付」事件；明天新增「大数据画像」或「发新人券」服务，直接自行订阅即可，订单服务一行代码不用改，短信网关短暂抖动也不会拖垮下单。</li>
+    <li><strong>异步（Asynchronization，看接口响应耗时）</strong>：把发短信、加积分等无需用户当场等待的支线剥离到后台，接口耗时从 <code>470ms</code> 降到 <code>25ms</code>。</li>
+    <li><strong>削峰填谷（Peak Shaving，看突发流量保护）</strong>：秒杀瞬时涌入 <code>10,000 QPS（Queries Per Second，每秒查询率）</code>，MQ 先把请求悉数接住暂存，下游消费者按 MySQL 能承受的 <code>2,000 QPS</code> 匀速拉取落库，5 秒消化完毕而不宕机。</li>
+  </ul>
+</div>
+
+<!-- 00.2 · 通用业务场景地图（7 项直链后文） -->
+<div class="wb-card" id="scene-map" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🗺️ 00.2 · 业务场景地图：实际开发中哪 7 类需求最常使用消息队列</div>
+  <h3>🗺️ 00.2 实际开发中的 7 大高频场景地图</h3>
+
+  <p>
+    后续遇到下面这些典型业务需求时，可以直接按表格跳转到第 03 章查看对应的 Topic 设计与可运行 Go 代码：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:23%">业务需求场景</th>
+          <th style="width:37%">用 MQ 解决的核心问题</th>
+          <th style="width:24%">关键实现要点</th>
+          <th>实战跳转</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 下单/注册后发券、发通知</strong></td>
+          <td>一份业务事件同时触发发优惠券、发短信、加积分等多个独立系统</td>
+          <td>同一 Topic + 多个不同 <code>Consumer Group</code> 各自消费一份</td>
+          <td><a href="#sc-fanout">03.1 异步广播</a></td>
+        </tr>
+        <tr>
+          <td><strong>② 秒杀与大促流量削峰</strong></td>
+          <td>瞬时几万并发写请求远超数据库承载上限，直接落库会打挂 MySQL</td>
+          <td>网关快速校验后入队返回“排队中”，消费端限速匀速写库</td>
+          <td><a href="#sc-peak">03.2 秒杀削峰</a></td>
+        </tr>
+        <tr>
+          <td><strong>③ 日志与埋点采集</strong></td>
+          <td>全站每秒数十万条点击埋点与应用日志需要低开销汇聚到检索/数仓</td>
+          <td>生产端攒批发送（<code>Batch</code>）+ <code>LZ4/Snappy</code> 压缩换高吞吐</td>
+          <td><a href="#sc-log">03.3 日志采集</a></td>
+        </tr>
+        <tr>
+          <td><strong>④ 数据库异构数据同步</strong></td>
+          <td>商品改价或订单变更后，需要同步刷新 Elasticsearch 搜索索引或删缓存</td>
+          <td>数据库变更事件按主键做 <code>Key</code> 保序投递，下游幂等更新</td>
+          <td><a href="#sc-sync">03.4 数据同步</a></td>
+        </tr>
+        <tr>
+          <td><strong>⑤ 耗时任务异步排队</strong></td>
+          <td>导出百万行财务 Excel、生成 PDF、音视频转码等跑几十秒会令 HTTP 超时</td>
+          <td>创建任务记录并入队立即返回 <code>taskId</code>，后台 Worker 排队执行</td>
+          <td><a href="#sc-async-job">03.2 耗时排队</a></td>
+        </tr>
+        <tr>
+          <td><strong>⑥ 延迟任务（超时关单）</strong></td>
+          <td>用户下单 30 分钟未支付自动取消并回滚库存，避免每分钟全表扫描订单表</td>
+          <td>对比 RocketMQ 定时消息、RabbitMQ 延迟方案与 Redis <code>ZSet</code></td>
+          <td><a href="#sc-delay">03.6 延迟任务</a></td>
+        </tr>
+        <tr>
+          <td><strong>⑦ 失败重试与死信兜底</strong></td>
+          <td>下游第三方接口短暂抖动报错时，不能丢消息，也不能原地死循环卡死分区</td>
+          <td>阶梯退避重试 Topic + 超限转入 <code>DLQ（Dead Letter Queue，死信队列）</code></td>
+          <td><a href="#sc-dlq">03.7 重试死信</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.3 · 什么时候不该用、三大代价、横向对比表与三大 MQ 一句话定位 -->
+<div class="wb-card" id="tradeoffs" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">⚖️ 00.3 · 选型边界：什么时候不该用 MQ、引入的三大代价与四方方案对比</div>
+  <h3>⚖️ 00.3 什么时候不该用 MQ，以及它与其他方案的边界</h3>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:11px; padding:12px 14px; font-size:13.2px; line-height:1.6;">
+      <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:6px;">🚫 三种明确「不该用 MQ」的场景</div>
+      <ol style="margin:0; padding-left:18px;">
+        <li><strong>调用方需要立刻拿到确定结果</strong>：例如用户登录校验密码、收银台同步扣减账户余额——用户正盯着屏幕等成功还是失败，必须同步调用直接返回。</li>
+        <li><strong>系统很小、流量很低</strong>：内部管理后台日均几百单，直接调函数或单库事务清清楚楚，硬加一套 Kafka 集群纯属徒增运维负担。</li>
+        <li><strong>要求跨系统实时强一致</strong>：MQ 天生只能做到「几毫秒到几秒后的最终一致」，不能替代单库 ACID（Atomicity, Consistency, Isolation, Durability，原子性、一致性、隔离性、持久性）强事务。</li>
+      </ol>
+    </div>
+
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:12px 14px; font-size:13.2px; line-height:1.6;">
+      <div style="font-weight:900; color:var(--plop-ink); margin-bottom:6px;">⚠️ 引入 MQ 必须承担的「三大代价」</div>
+      <ol style="margin:0; padding-left:18px;">
+        <li><strong>系统可用性依赖增加</strong>：链路中间多了一层基础设施，一旦 MQ 集群故障且未做高可用，整条异步业务都会停摆（见 <a href="#lost">04.1</a> 与原理篇多副本机制）。</li>
+        <li><strong>工程复杂度上升</strong>：原本一次函数调用只有成功或报错，换成发消息后必须处理<strong>消息丢失、重复消费、顺序错乱、消息积压</strong>四个新问题（见 <a href="#reliable">04</a>–<a href="#order">05</a> 章）。</li>
+        <li><strong>数据一致性挑战</strong>：本地数据库改成功了但消息没发出去怎么办？需要用本地消息表或事务消息兜底（见 <a href="#sc-tx">03.5</a>）。</li>
+      </ol>
+    </div>
+  </div>
+
+  <h4>📊 直接 RPC vs 定时任务 vs Redis Stream vs 专业 MQ 对比表</h4>
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">方案</th>
+          <th style="width:24%">实时性与吞吐</th>
+          <th style="width:28%">可靠性与堆积能力</th>
+          <th>最适合什么场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>直接 RPC / HTTP</strong></td>
+          <td>实时同步返回（毫秒级），受最慢下游拖累</td>
+          <td>无中间缓冲，下游挂机直接报错，无法削峰</td>
+          <td>登录鉴权、查询详情、实时扣款等<strong>必须当场拿到返回值</strong>的主链路操作。</td>
+        </tr>
+        <tr>
+          <td><strong>定时任务（Cron 扫表）</strong></td>
+          <td>分钟级延迟，高频扫大表消耗数据库 I/O</td>
+          <td>数据本来就在数据库里，不额外丢数据</td>
+          <td>每日凌晨财务对账、低频兜底补偿扫描（不适合高实时事件触发）。</td>
+        </tr>
+        <tr>
+          <td><strong><a href="../redis/index.html#sc-mq">Redis Stream</a></strong></td>
+          <td>亚毫秒级极快，单核数万 QPS</td>
+          <td>纯内存存储成本高，<strong>不适合百万级以上堆积</strong>；AOF 秒级刷盘极端断电可能丢 1 秒数据</td>
+          <td>已有 Redis 的中小型项目、日消息百万级以内、不想额外维护一套重型 MQ 组件（详见 <a href="../redis/index.html#sc-mq">Redis 笔记 04.9</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>专业 MQ（Kafka 等）</strong></td>
+          <td>毫秒级异步投递，单机十万至百万 TPS（Transactions Per Second，每秒事务/消息数）</td>
+          <td>磁盘顺序持久化 + 多副本同步，<strong>支持 GB~TB 级海量堆积与历史回溯</strong></td>
+          <td>核心业务异步解耦、高并发秒杀削峰、全站日志埋点管道、跨系统可靠事件同步。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout info" style="margin-top:12px; margin-bottom:0;">
+    <strong>🧭 市面三大主流 MQ 各一句话定位（本篇主线使用 Kafka，详细对比见 <a href="#arch">06 · 三大 MQ 选型</a>）：</strong><br>
+    • <strong>Apache Kafka</strong>：为<strong>百万级高吞吐、TB 级磁盘堆积与日志/大数据流管道</strong>而生，生态最广。<br>
+    • <strong>Apache RocketMQ</strong>：为<strong>核心电商金融交易</strong>而生，原生内置事务消息、任意定时消息与重试死信队列。<br>
+    • <strong>RabbitMQ</strong>：为<strong>微秒级超低延迟与复杂通配符路由</strong>而生，中小型微服务开箱即用。
+  </div>
+</div>
+
+<!-- 00.4 · 本笔记知识地图 + 本章场景小测 -->
+<div class="wb-card" id="knowledge-map" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🧭 00.4 · 阅读路线图与自测：9 章实战学习弧线与本章即时小测</div>
+  <h3>🧭 00.4 本笔记知识地图</h3>
+
+  <p>
+    整份笔记按照「全景定位 → 核心积木与跑通代码 → 七大真实业务场景 → 可靠保序与上线规范」层层推进，涉及底层内核原理时再按需从各节末尾跳入《📘 核心原理篇》：
+  </p>
+
+  <!-- Editorial SVG: MQ Note Knowledge Map -->
+  <figure style="margin:14px 0 16px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 248" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mq-kmap-title mq-kmap-desc">
+        <title id="mq-kmap-title">消息队列学习笔记全篇知识地图与双篇联动路径</title>
+        <desc id="mq-kmap-desc">从左至右分为四站：第一站认知与跑起来（00全景、01核心概念、02本地跑通），第二站核心业务落地（03七大常见实战场景），第三站生产防线与选型（04不丢幂等、05顺序积压、06选型与07上线必知），第四站08综合场景自测，底部联动核心原理篇。</desc>
+        <defs>
+          <marker id="mq-km-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="mq-km-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="mq-km-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <line x1="200" y1="86" x2="232" y2="86" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#mq-km-arr-muted)"/>
+        <line x1="432" y1="86" x2="464" y2="86" stroke="#bf4520" stroke-width="1.6" marker-end="url(#mq-km-arr-accent)"/>
+        <line x1="660" y1="86" x2="692" y2="86" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#mq-km-arr-muted)"/>
+
+        <!-- Vertical dashed links down to Principles Bar -->
+        <line x1="112" y1="148" x2="112" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#mq-km-arr-link)"/>
+        <line x1="332" y1="148" x2="332" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#mq-km-arr-link)"/>
+        <line x1="562" y1="148" x2="562" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#mq-km-arr-link)"/>
+
+        <!-- Stage 1 -->
+        <rect x="24" y="24" width="176" height="124" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="112" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">① 认知与跑起来</text>
+        <text x="112" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">00 全景定位与边界</text>
+        <text x="112" y="96" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">01 六大核心概念</text>
+        <text x="112" y="120" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">02 Docker 与 Go 上手</text>
+
+        <!-- Stage 2 (Focal) -->
+        <rect x="232" y="24" width="200" height="124" rx="6" fill="#FFFDF7"/>
+        <rect x="232" y="24" width="200" height="124" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="332" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">② 业务场景落地（重点）</text>
+        <text x="332" y="76" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#bf4520">03 七大常见实战场景</text>
+        <text x="332" y="100" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#1F1F23">发券 · 削峰 · 日志 · 同步</text>
+        <text x="332" y="122" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">本地消息表 · 延迟 · 死信</text>
+
+        <!-- Stage 3 -->
+        <rect x="464" y="24" width="196" height="124" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="562" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">③ 可靠性、选型与上线</text>
+        <text x="562" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">04 三段防丢与消费幂等</text>
+        <text x="562" y="96" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">05 同单保序与积压排障</text>
+        <text x="562" y="120" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">06 选型 · 07 上线前必知</text>
+
+        <!-- Stage 4 -->
+        <rect x="692" y="24" width="124" height="124" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="754" y="56" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">④ 实战检验</text>
+        <text x="754" y="84" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">08 场景自测</text>
+        <text x="754" y="108" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">7步一生 · 10道排障</text>
+
+        <!-- Bottom Principles Bar -->
+        <rect x="24" y="180" width="792" height="44" rx="6" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1.3"/>
+        <text x="420" y="207" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2e5aa8">📘 核心原理篇（按需跳入：Pull+长轮询 · PID+Seq · 半消息与时间轮 · 顺序写与零拷贝 · ISR/Epoch · Rebalance）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4 id="quiz-00" style="margin:0 0 8px;">☑️ 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 用户在下单页点击「立即支付」，订单服务需要校验优惠券是否有效并锁定库存，这一步该放进 MQ 异步做吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>不该。</strong>校验优惠券有效性和锁定商品库存直接决定「这笔订单能不能成功生成、应付多少钱」，用户正在前端等待确切结果，必须走<strong>同步调用或本地事务</strong>当场完成；只有下单成功后的「发短信通知、增加会员成长值、推送数仓」这类允许晚几秒完成的支线逻辑，才适合放进 MQ 异步解耦。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 一个内部审批系统每天只产生约 3,000 条站内信通知，团队目前只用了 MySQL 和 Redis，值得专门部署一套 Kafka 集群吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>不值得。</strong>日均几千条消息没有高并发吞吐和海量磁盘堆积诉求，额外部署和监控一套 Kafka 集群运维成本过高。如果仅需异步重试，直接复用现有的 <strong><a href="../redis/index.html#sc-mq">Redis Stream</a></strong>（支持消费组与 <code>XACK</code> 确认）甚至数据库任务表配轻量轮询就已经完全够用。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 同事说：“把下游调用全改成发 MQ 就高枕无忧了，系统复杂度反而更低。”这句话忽略了哪些工程代价？</span></summary>
+    <div class="drawer-body">
+      <p>忽略了引入 MQ 的三大固有代价：① <strong>基础设施单点风险</strong>（MQ 挂了整条异步链路中断）；② <strong>消息传递不确定性</strong>（网络重试会带来重复消息、多分区并发会打乱顺序、下游变慢会造成积压）；③ <strong>最终一致性兜底成本</strong>（必须额外设计写库与发消息的一致性方案以及消费端幂等逻辑）。</p>
+    </div>
+  </details>
+</div>

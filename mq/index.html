@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="由浅入深的消息队列学习手账：从解耦/异步/削峰到 Kafka、RocketMQ、RabbitMQ 架构选型，深挖消息不丢、幂等、顺序、积压、事务消息、零拷贝、ISR/Leader Epoch 与 Rebalance。" />
-  <title>消息队列：从解耦削峰，到百万吞吐与零丢失 · note-garden 技术知识花园</title>
+  <meta name="description" content="消息队列（MQ）基础与实战篇：面向零基础开发者与日常复习，以 Kafka（KRaft）为主线、Go 代码为核心，从全景定位、六大概念、Docker 5 分钟跑通、七大通用业务场景（发券/削峰/日志/同步/本地消息表/延迟关单/死信），到不丢与幂等、顺序与积压排障、三大 MQ 选型、上线前必知清单与综合场景自测。" />
+  <title>消息队列 · 基础与实战篇 · note-garden 技术知识花园</title>
   <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
   <link rel="stylesheet" href="../assets/plop-garden.css" />
   <script src="../assets/plop-garden.js"></script>
@@ -23,8 +23,11 @@
       <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
         <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
         <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
-        <span class="plop-tag tomato">📨 KAFKA · ROCKETMQ · RABBITMQ 全览</span>
       </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" class="active" aria-current="page" title="循序渐进：从全景定位、核心概念、Docker 与 Go 跑通、七大通用业务场景，到三段防丢、幂等、保序积压、三大 MQ 选型、上线必知与场景自测">🌱 基础与实战篇</a>
+        <a href="principles.html" data-edition-target="principles.html" title="按需深挖：Pull + 长轮询、PID + Sequence 与 EOS、半消息反查与分层时间轮、顺序写与零拷贝、ISR / HW / Leader Epoch 与 Rebalance 协议">📘 核心原理篇 ↗</a>
+      </nav>
     </div>
 
     <div class="console-group">
@@ -38,8 +41,8 @@
   </header>
 
   <div class="plop-desk-stage">
-    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + MQ 核心速查小票 ==================== -->
-    <aside class="plop-side-rail left" aria-label="本篇章节导航与参数速查">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + MQ 日常开发速查 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与日常开发速查">
       <div class="rail-sticky-cluster">
         <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
         <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
@@ -58,74 +61,74 @@
         </div>
 
         <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
-        <nav class="plop-index-tabs" id="toc-tabs" aria-label="消息队列章节书签">
-          <a href="#why" class="plop-ear-tab active" data-toc="why">
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="消息队列基础与实战章节书签">
+          <a href="#overview" class="plop-ear-tab active" data-toc="overview">
             <span class="ear-dot"></span>
-            <span>00 第一性原理导读</span>
+            <span>00 全景科普与边界</span>
           </a>
-          <a href="#model" class="plop-ear-tab" data-toc="model">
+          <a href="#concepts" class="plop-ear-tab" data-toc="concepts">
             <span class="ear-dot mustard"></span>
-            <span>01 收益、模型与概念</span>
+            <span>01 六大核心概念</span>
           </a>
-          <a href="#arch" class="plop-ear-tab" data-toc="arch">
+          <a href="#quickstart" class="plop-ear-tab" data-toc="quickstart">
             <span class="ear-dot mint"></span>
-            <span>02 三大 MQ 架构选型</span>
+            <span>02 快速跑起来</span>
+          </a>
+          <a href="#scenarios" class="plop-ear-tab" data-toc="scenarios">
+            <span class="ear-dot pink"></span>
+            <span>03 常见实战场景</span>
           </a>
           <a href="#reliable" class="plop-ear-tab" data-toc="reliable">
-            <span class="ear-dot pink"></span>
-            <span>03 不丢、幂等与 EOS</span>
+            <span class="ear-dot tomato"></span>
+            <span>04 不丢与不重</span>
           </a>
           <a href="#order" class="plop-ear-tab" data-toc="order">
             <span class="ear-dot periwinkle"></span>
-            <span>04 顺序、积压与推拉</span>
+            <span>05 顺序与积压</span>
           </a>
-          <a href="#business" class="plop-ear-tab" data-toc="business">
-            <span class="ear-dot mustard"></span>
-            <span>05 事务、延迟与死信</span>
-          </a>
-          <a href="#storage" class="plop-ear-tab" data-toc="storage">
+          <a href="#arch" class="plop-ear-tab" data-toc="arch">
             <span class="ear-dot mint"></span>
-            <span>06 存储与零拷贝原理</span>
+            <span>06 三大 MQ 选型</span>
           </a>
-          <a href="#cluster" class="plop-ear-tab" data-toc="cluster">
-            <span class="ear-dot periwinkle"></span>
-            <span>07 ISR 副本与重平衡</span>
+          <a href="#production" class="plop-ear-tab" data-toc="production">
+            <span class="ear-dot mustard"></span>
+            <span>07 上线前必知</span>
           </a>
-          <a href="#advanced" class="plop-ear-tab" data-toc="advanced">
+          <a href="#quiz" class="plop-ear-tab" data-toc="quiz">
             <span class="ear-dot pink"></span>
-            <span>08 串联、代码与自测</span>
+            <span>08 综合场景自测</span>
           </a>
         </nav>
 
-        <!-- 3. 打孔小票贴纸：MQ 关键机制与参数速查 -->
+        <!-- 3. 打孔小票贴纸：MQ 日常开发速查 -->
         <div class="plop-side-ticket tilt-right">
           <div class="plop-side-ticket-head">
-            <span>MQ 核心机制速查</span>
-            <span>#PROD</span>
+            <span>KAFKA 开发速查</span>
+            <span>#3.8/4.0</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>三大收益</span>
+            <span>三大价值</span>
             <span>解耦 · 异步 · 削峰</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>Kafka 零丢失</span>
+            <span>组内并行度</span>
+            <span>消费者数 ≤ 分区数</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>零丢失底座</span>
             <span>acks=all &amp; min.isr≥2</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>业务不重标准</span>
-            <span>At-least-once + 幂等</span>
+            <span>消费不丢</span>
+            <span>先落库再手动提交</span>
           </div>
           <div class="plop-side-ticket-row">
-            <span>顺序保证边界</span>
-            <span>单 Partition/Queue 内</span>
-          </div>
-          <div class="plop-side-ticket-row">
-            <span>零拷贝区别</span>
-            <span>Kafka=sendfile / RMQ=mmap</span>
+            <span>局部保序</span>
+            <span>orderNo 作消息 Key</span>
           </div>
           <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
-            <span>组内并行上限</span>
-            <span>消费者数 ≤ 分区数</span>
+            <span>底层原理</span>
+            <span>顶部 📘原理篇</span>
           </div>
         </div>
       </div>
@@ -135,15 +138,15 @@
     <main class="plop-workbench" id="content">
       <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
       <nav class="plop-mobile-toc" aria-label="章节快速跳转">
-        <a href="#why" class="active">00 第一性原理</a>
-        <a href="#model">01 模型与概念</a>
-        <a href="#arch">02 三大MQ选型</a>
-        <a href="#reliable">03 不丢与幂等</a>
-        <a href="#order">04 顺序与积压</a>
-        <a href="#business">05 事务与延迟</a>
-        <a href="#storage">06 存储与零拷贝</a>
-        <a href="#cluster">07 副本与重平衡</a>
-        <a href="#advanced">08 串联与自测</a>
+        <a href="#overview" class="active">00 全景科普</a>
+        <a href="#concepts">01 核心概念</a>
+        <a href="#quickstart">02 跑起来</a>
+        <a href="#scenarios">03 实战场景</a>
+        <a href="#reliable">04 不丢不重</a>
+        <a href="#order">05 顺序积压</a>
+        <a href="#arch">06 选型对比</a>
+        <a href="#production">07 上线必知</a>
+        <a href="#quiz">08 场景自测</a>
       </nav>
 
       <div class="wb-sheet plop-journal-book">
@@ -152,149 +155,159 @@
         <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
         <div class="journal-spine-rings" aria-hidden="true"></div>
 
-        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三遍读法车票 -->
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 三阶段路线车票 -->
         <header class="wb-masthead">
           <div class="wb-card wb-date-card" style="background:var(--plop-bubblegum);">
-            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">MIDDLEWARE / 02</span>
-            <div style="font-family:var(--font-head); font-style:italic; font-size:34px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">MQ</div>
-            <span style="font-family:var(--font-mono); font-size:11px; font-weight:800; color:var(--plop-ink-text);">KAFKA · ROCKET · RABBIT</span>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">EDITION 01 / PRACTICE</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:36px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">MQ</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">🌱 基础与实战篇</span>
           </div>
 
           <div class="wb-masthead-main">
             <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
-              <span class="plop-tag tomato">MESSAGE QUEUE GUIDE</span>
-              <span class="plop-tag mint">ZERO-LOSS · IDEMPOTENCY · TX</span>
-              <span class="plop-tag periwinkle">PAGE CACHE · ZERO-COPY · ISR</span>
+              <span class="plop-tag mint">🌱 EDITION 1 · 基础与实战篇</span>
+              <span class="plop-tag tomato">KAFKA KRAFT · GO PRACTICE · 7 SCENARIOS</span>
+              <span class="plop-tag periwinkle">ZERO-LOSS · IDEMPOTENCY · CHECKLIST</span>
             </div>
-            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 35px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
-              消息队列：从解耦削峰，到百万吞吐与零丢失
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              消息队列 · 基础与实战篇：全景定位、快速上手、七大场景与防丢规范
             </h1>
-            <p style="font-size:14.8px; color:var(--plop-ink-soft); margin:0; font-weight:600;">
-              按「为什么要引 MQ → 内部怎么组织消息 → 三大主流怎么选 → 线上怎么解决不丢/不重/有序/积压/事务/延迟 → 底层凭什么百万吞吐且挂机不丢」一条问题链由浅入深推导。兼顾零基础建立直觉与高阶生产/面试深水区。
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0; font-weight:600; line-height:1.6;">
+              面向从未接触过消息队列的开发者与日常工程复习：以 Kafka（KRaft 模式）为主线、Go 代码为核心，一屏讲清消息队列在系统中的分层位置与适用边界，五分钟在本地跑通收发与消费组实验，逐个落地异步通知、秒杀削峰、日志采集、数据同步、本地消息表、延迟关单与死信重试七大通用业务场景，最后配齐三段防丢、消费幂等、局部保序、积压排障、三大主流选型与上线前必知清单。
             </p>
 
-            <!-- 三遍读法手账小票卡片 -->
+            <!-- 三阶段学习路线车票卡片 -->
             <div class="wb-kpi-grid">
-              <a href="#model" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">① 第一遍：建立直觉</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 00—02：搞懂解耦/异步/削峰、消费者组统一模型与三大 MQ 选型</div>
+              <a href="#overview" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">① 全景定位、概念与跑起来</div>
+                <div style="font-size:12px; font-weight:700;">章节 00—02：系统边界、六大概念、Docker + Go 收发与分组实验</div>
               </a>
-              <a href="#reliable" class="plop-ticket-kpi" style="background:var(--plop-mint);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">② 第二遍：攻克痛点</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 03—05：掌握三段防丢、幂等、局部保序、积压急救与事务/延迟消息</div>
+              <a href="#scenarios" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">② 七大业务场景与可靠保序</div>
+                <div style="font-size:12px; font-weight:700;">章节 03—05：发券/削峰/同步/本地消息表/延迟/死信、不丢幂等与积压排障</div>
               </a>
-              <a href="#storage" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
-                <div style="font-family:var(--font-head); font-size:15.5px; font-weight:900; color:var(--plop-ink-text);">③ 第三遍：深挖底层</div>
-                <div style="font-size:12.2px; font-weight:700;">章节 06—08：扒开顺序写、零拷贝、CommitLog、ISR/Leader Epoch 与 Rebalance</div>
+              <a href="#arch" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">③ 中间件选型、上线规范与自测</div>
+                <div style="font-size:12px; font-weight:700;">章节 06—08：三大 MQ 与 Redis Stream 选型、防踢监控清单与 10 题自测</div>
               </a>
             </div>
           </div>
         </header>
 
-        <!-- ====================================================================
-             9 大章节纯 HTML 子模块（由 assets/plop-garden.js 自动并行加载拼装）
-             平时修改某个章节，直接编辑 mq/sections/ 下的对应小文件即可；
-             每个挂载点内预置静态章节摘要与直达链接，兼顾搜索引擎、阅读器、AI 抓取与无 JS 环境可达性
-             ==================================================================== -->
         <noscript>
           <div class="plop-callout warn" style="margin:14px 0;">
-            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 9 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已展示全篇 9 大章节核心脉络摘要与独立 HTML 直达链接，点击任意章节即可直接阅读完整正文。
           </div>
         </noscript>
 
-        <div data-plop-section="sections/00-why.html">
-          <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 第一性原理导读：我们为什么需要消息队列？入门懂什么就够、进阶到底在解决什么？</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">从服务间纯同步 RPC 调用的三大死穴（强耦合、串行高延迟、洪峰冲垮数据库）出发，推导消息队列「解耦/异步/削峰、消费模型与架构选型、零丢失与幂等有序、高吞吐存储与副本高可用」完整知识树。</p>
+        <div data-plop-section="sections/00-overview.html">
+          <section class="wb-card" id="overview" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-overview.html">00 · 全景科普：消息队列架构定位、场景地图与适用边界</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">一句话定义与快递驿站类比、电商下单引入 MQ 前后对比图、七大通用业务场景地图、不适用边界与三大代价、四方对比表及全篇知识地图。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/01-model.html">
-          <section class="wb-card" id="model" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-model.html">01 · 收益、模型与概念：解耦/异步/削峰三大价值，以及用「消费者组 (Consumer Group)」统一两种消费模型</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">结合用户下单实战算清引入 MQ 的收益与代价，详解如何用 Consumer Group 同时实现点对点队列（组内竞争）与发布订阅广播（组间广播），以及 Topic、Partition、Offset、Broker 核心概念。</p>
+        <div data-plop-section="sections/01-concepts.html">
+          <section class="wb-card" id="concepts" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-concepts.html">01 · 核心概念：六大基础组件与消费者组统一模型</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">一张图串起 Producer、Broker、Topic、Partition、Offset 与 Consumer Group，掌握「组内竞争、组间广播」与「消费者数 ≤ 分区数」设计约束。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/02-arch.html">
-          <section class="wb-card" id="arch" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-arch.html">02 · 三大 MQ 架构与选型：Kafka (KRaft)、RocketMQ (NameServer + Broker)、RabbitMQ (4 种 Exchange 路由) 全景对比</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解三大主流 MQ 的架构演进（含 Kafka KRaft 去 ZooKeeper）、RabbitMQ Direct / Topic / Fanout / Headers 四种交换机路由规则与 Quorum 队列，并给出多维选型决策表。</p>
+        <div data-plop-section="sections/02-quickstart.html">
+          <section class="wb-card" id="quickstart" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-quickstart.html">02 · 跑起来：Docker 启动 Kafka（KRaft）、命令行与第一段收发代码</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">Docker Compose 启动单节点 Kafka 3.8 与 Web UI、命令行建 Topic/收发/看 Lag、Go 与 Node.js 最小示例，以及同组竞争与跨组广播动手实验。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/03-reliable.html">
+        <div data-plop-section="sections/03-scenarios.html">
+          <section class="wb-card" id="scenarios" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-scenarios.html">03 · 常见实战场景：按需求落地的七套消息队列方案</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">按「需求 → 为什么用 MQ → 设计 → Go 代码 → 常见坑 → 背后原理」逐个实现下单发券通知、秒杀削峰与耗时任务排队、日志批量压缩、异构数据同步、本地消息表（对比 RocketMQ 事务）、延迟关单与阶梯重试死信队列。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/04-reliability.html">
           <section class="wb-card" id="reliable" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-reliable.html">03 · 可靠性生命线：怎么保证消息「一分不丢」（生产→存储→消费三段论）与「绝不重算」（幂等生产者 &amp; 消费端幂等）？</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">逐段剖析生产端确认重发、Broker 同步刷盘与多副本同步（`acks=-1` + `min.insync.replicas`）、消费端先执行业务再手动 ACK，以及 Kafka `PID + Sequence Number` 幂等生产者与消费端三大幂等落地方案（唯一索引、乐观锁版本号、防重表/Redis 状态机）。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-reliability.html">04 · 不丢与不重：三段防丢配置、手动提交与消费端幂等代码</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">给出生产端、Broker、消费端防丢配置与手动提交 Offset 代码，提供数据库唯一索引、状态机条件更新、Redis SET NX 状态机三段幂等代码及 EOS 适用结论。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/04-order.html">
+        <div data-plop-section="sections/05-order-backlog.html">
           <section class="wb-card" id="order" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-order.html">04 · 顺序、积压与推拉：局部顺序消息（同 Key 同分区 + 内存哈希队列）、千万级积压三步急救与「Pull + 长轮询」</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解如何兼顾业务单号局部保序与并发吞吐、`max.in.flight.requests.per.connection` 防乱序、线上千万级积压临时扩容 Topic/Partition 紧急泄洪方案，以及为什么现代 MQ 采用客户端 Pull + Broker 长轮询（Long Polling）。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-order-backlog.html">05 · 顺序与积压：同单号局部保序代码与线上积压排障命令</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">用订单号作 Key 实现单分区局部有序消费，汇总查看 Lag、定位消费卡死或慢调用、常规加实例与临时 10 倍分区 Topic 紧急泄洪实战流程。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/05-business.html">
-          <section class="wb-card" id="business" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-business.html">05 · 高阶业务特性：事务消息（RocketMQ 半消息 + 事务反查 vs 本地消息表）、延迟消息（时间轮 Timing Wheel）与死信队列 DLQ</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">完整推演分布式事务最终一致性两种标准范式、RocketMQ 4.x 18 级延迟级别到 5.0 分层时间轮实现任意秒级定时消息、以及阶梯退避重试与死信队列兜底。</p>
+        <div data-plop-section="sections/06-selection.html">
+          <section class="wb-card" id="arch" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-selection.html">06 · 三大 MQ 选型：Kafka、RocketMQ、RabbitMQ 与 Redis Stream 边界</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解三大主流 MQ 架构差异与 RabbitMQ 四种交换机路由规则，通过多维选型表给出何时选哪款及何时 Redis Stream 已够用的明确结论。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/06-storage.html">
-          <section class="wb-card" id="storage" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-storage.html">06 · 存储与零拷贝原理：Kafka 百万 TPS 五大引擎（顺序写、Page Cache、<code>sendfile</code> 零拷贝、稀疏索引、批量压缩）与 RocketMQ 存储对比</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">深入对比 Kafka 分区独立文件 vs RocketMQ 单一 `CommitLog + ConsumeQueue + IndexFile` 混合存储，解析为什么 Kafka 用 `sendfile` 而 RocketMQ 用 `mmap`。</p>
+        <div data-plop-section="sections/07-production.html">
+          <section class="wb-card" id="production" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/07-production.html">07 · 上线前必须知道：Topic 规范、消息兼容、防踢调参与监控告警</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">梳理 Topic 命名与分区估算、消息大小与字段向后兼容、max.poll.interval.ms 超时防踢出消费组、重试/DLQ/幂等核查与五项核心监控指标。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/07-cluster.html">
-          <section class="wb-card" id="cluster" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/07-cluster.html">07 · 高可用与协调：副本机制 ISR / LEO / HW 高水位、Leader Epoch 防截断丢数据与消费者组 Rebalance 调优</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">图解 ISR 副本同步与 HW 推进过程、揭示纯靠 HW 在重启切换时丢失已提交数据或数据分叉的漏洞及 `Leader Epoch` 解决方案，以及消费者组 Rebalance STW 痛点与增量协作重平衡（Cooperative Sticky）调优。</p>
-          </section>
-        </div>
-
-        <div data-plop-section="sections/08-advanced.html">
-          <section class="wb-card" id="advanced" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/08-advanced.html">08 · 串联、代码与自测：一条消息的 7 步完整一生 + 生产代码模板 + 15 题一句话速记表与 10 题闭卷自测</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">串联订单消息从生产到落库幂等消费的完整闭环，附可直接复制的生产配置模板、积压排障命令、存算分离架构演进与高频面试自测问答。</p>
+        <div data-plop-section="sections/08-quiz.html">
+          <section class="wb-card" id="quiz" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/08-quiz.html">08 · 综合场景自测：一条消息的 7 步一生、10 道排障题与 15 题速记</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">串联订单消息全生命周期，以默认折叠的真实故障题检验重复发券、状态乱序、百万积压、丢消息等排障思路，附 15 题一句话速记表。</p>
           </section>
         </div>
 
       </div>
     </main>
 
-    <!-- ==================== 右侧手账贴纸栏：代码/命令速拷贴 + 跨专题切换耳标 ==================== -->
+    <!-- ==================== 右侧手账贴纸栏：原理篇切换 + 实战代码速拷贴 + 跨专题切换耳标 ==================== -->
     <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
       <div class="rail-sticky-cluster">
-        <!-- 1. 毛线帽吉祥物 + 快捷复制代码/排障命令便签 -->
-        <div class="plop-sticky-note mint tilt-right">
+        <!-- 1. 切换核心原理篇提示便签 -->
+        <div class="plop-sticky-note periwinkle tilt-left">
           <div class="plop-pin"></div>
           <div class="sticky-title">
             <span style="display:inline-flex; align-items:center; gap:5px;">
               <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
-              <span>📋 实战模板速拷</span>
+              <span>📘 深入核心原理篇</span>
             </span>
+            <span>KERNEL</span>
+          </div>
+          <p style="font-size:11.8px; line-height:1.5; margin:6px 0 8px; color:var(--plop-ink-text); font-weight:700;">
+            已按「🔥常问 / 🔬深挖」分级标注：长轮询、PID+Seq、半消息与时间轮、零拷贝、ISR/Leader Epoch 一键直达。
+          </p>
+          <a href="principles.html" data-edition-target="principles.html" class="plop-pill-sticker mustard" style="display:block; text-align:center; font-size:11.8px; padding:6px 8px; text-decoration:none;">
+            📘 前往核心原理篇 ↗
+          </a>
+        </div>
+
+        <!-- 2. 快捷复制脚本便签 -->
+        <div class="plop-sticky-note mint tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span>📋 实战模板速拷</span>
             <span>COPY</span>
           </div>
           <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
-            <button type="button" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('code-kafka-reliable', this)">
-              📨 复制 Kafka 零丢失模板
+            <button type="button" class="plop-pill-sticker" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('code-qs-compose', this)">
+              🐳 复制 Kafka KRaft Compose
             </button>
-            <button type="button" class="plop-pill-sticker mustard" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('code-rmq-tx', this)">
-              🚀 复制 RocketMQ 事务模板
+            <button type="button" class="plop-pill-sticker mustard" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('code-rel-consumer', this)">
+              🛡️ 复制 Go 手动提交消费模板
             </button>
             <button type="button" class="plop-pill-sticker paper" style="font-size:11.5px; padding:6px 8px;" onclick="copyText('code-mq-ops', this)">
-              🔎 复制积压排障与重置命令
+              🔎 复制积压排障与回溯命令
             </button>
           </div>
         </div>
 
-        <!-- 2. 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <!-- 3. 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
         <div class="plop-index-tabs" data-plop-topics></div>
 
         <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">

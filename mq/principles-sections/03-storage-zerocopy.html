@@ -1,0 +1,174 @@
+<!-- ====================================================================
+     PART 03 (PRINCIPLES): 存储与零拷贝 · 百万吞吐五大引擎与两大文件架构对比
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="storage">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">存储与零拷贝：百万吞吐五大引擎与两大磁盘文件架构对比</span>
+  <span class="plop-tag tomato">SEQUENTIAL I/O · PAGE CACHE · SENDFILE VS MMAP · COMMITLOG</span>
+</div>
+
+<!-- 03.1 · Kafka 百万吞吐五大引擎 + 零拷贝图解与 sendfile vs mmap -->
+<div class="wb-card" id="fast" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">⚡ 03.1 · 百万吞吐内核：顺序追加写、OS PageCache 与 sendfile / mmap 零拷贝机制</div>
+  <h3>⚡ 03.1 为什么消息全写进磁盘，单机还能扛百万级 TPS <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-log">实战篇 03.3 日志与埋点高吞吐采集</a> 与 <a href="index.html#sc-fanout">03.1 多消费组读取</a> —— 为什么写磁盘的 Kafka 比很多纯内存队列吞吐还要高？<code>sendfile</code> 零拷贝到底省掉了哪几次拷贝？
+  </p>
+
+  <p>
+    机械硬盘或固态硬盘真正慢的是<strong>随机寻道读写</strong>；一旦改成<strong>纯文件末尾顺序追加写（Sequential Append-Only）</strong>，现代磁盘顺序吞吐可达数百 MB/s 至数 GB/s。Kafka 围绕操作系统内核构建了五环相扣的加速链路：
+  </p>
+
+  <ol style="font-size:13.2px; line-height:1.6;">
+    <li><strong>磁盘顺序追加写</strong>：每个分区文件只允许在末尾追加，绝不原地修改已写入字节，将随机 I/O 彻底转化为 <code>O(1)</code> 顺序追加。</li>
+    <li><strong>借力操作系统 <code>PageCache（内核页缓存）</code></strong>：不在 JVM（Java Virtual Machine，Java 虚拟机）堆内存里自建大对象缓存，避免对象头内存膨胀与 Full GC（Garbage Collection，垃圾回收）长停顿；写入直接进内核页缓存由操作系统后台刷盘，实时追尾的消费者读取时接近 100% 直接命中内存页缓存，且 Broker 进程重启页缓存不丢失。</li>
+    <li><strong>端到端整批压缩透传</strong>：Producer 将几百条消息打包成一个压缩的 <code>RecordBatch</code>，Broker <strong>无需解压</strong>原样校验落盘，Consumer 整批拉回后再在客户端解压，单次系统调用与网络开销摊薄上百倍。</li>
+    <li><strong>多分区水平并行</strong>：不同分区的 Leader 分布在不同 Broker 节点与磁盘上并行读写。</li>
+    <li><strong><code>sendfile</code> 零拷贝（Zero-Copy）网络发送</strong>：消除内核态与用户态之间无意义的来回搬运。</li>
+  </ol>
+
+  <!-- Editorial SVG: Traditional read+write (4 copies) vs Linux sendfile + SG-DMA (0 CPU copies) -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 288" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mq-zc-title mq-zc-desc">
+        <title id="mq-zc-title">传统文件读写四次拷贝与 Kafka sendfile 零拷贝内核路径对比</title>
+        <desc id="mq-zc-desc">上半部分展示传统 read 加 write 需要4次上下文切换与4次数据拷贝（含2次进出用户态缓冲区的冗余CPU拷贝）；下半部分展示 sendfile 配合 SG-DMA 让数据从内核 PageCache 直接送达网卡，全程0次CPU数据拷贝。</desc>
+        <defs>
+          <marker id="mq-zc-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="mq-zc-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Zone 1: Traditional I/O -->
+        <rect x="24" y="16" width="792" height="104" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="40" y="20" width="448" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="264" y="32" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">传统 read() + write()：4 次上下文切换 + 4 次拷贝（含 2 次多余 CPU 拷贝）</text>
+
+        <!-- Zone 2: sendfile Zero-Copy -->
+        <rect x="24" y="136" width="792" height="104" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="40" y="140" width="468" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="274" y="152" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">Kafka sendfile + SG-DMA：2 次切换 + 0 次 CPU 拷贝（数据全程不进 JVM）</text>
+
+        <!-- Connectors: Zone 1 (drawn BEFORE boxes) -->
+        <line x1="168" y1="78" x2="232" y2="78" stroke="#4f5d75" stroke-width="1.3" marker-end="url(#mq-zc-arr-muted)"/>
+        <rect x="176" y="54" width="48" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="200" y="65" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">DMA 1</text>
+
+        <line x1="376" y1="78" x2="440" y2="78" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#mq-zc-arr-muted)"/>
+        <rect x="384" y="54" width="48" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="408" y="65" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#bf4520">CPU 2</text>
+
+        <line x1="580" y1="78" x2="644" y2="78" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#mq-zc-arr-muted)"/>
+        <rect x="588" y="54" width="48" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="612" y="65" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#bf4520">CPU 3</text>
+
+        <!-- Connectors: Zone 2 -->
+        <line x1="168" y1="198" x2="256" y2="198" stroke="#4f5d75" stroke-width="1.3" marker-end="url(#mq-zc-arr-muted)"/>
+        <rect x="184" y="174" width="56" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="212" y="185" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">DMA 1</text>
+
+        <line x1="476" y1="198" x2="620" y2="198" stroke="#bf4520" stroke-width="1.8" marker-end="url(#mq-zc-arr-accent)"/>
+        <rect x="492" y="174" width="112" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="548" y="186" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#bf4520">SG-DMA 直传网卡</text>
+
+        <!-- Nodes: Zone 1 -->
+        <rect x="44" y="52" width="124" height="52" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="106" y="82" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">磁盘 .log 文件</text>
+
+        <rect x="232" y="52" width="144" height="52" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="304" y="82" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="600" fill="#1F1F23">内核 PageCache</text>
+
+        <rect x="440" y="52" width="140" height="52" rx="6" fill="#FFFFFF" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3"/>
+        <text x="510" y="76" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#4f5d75">JVM 用户态缓冲</text>
+        <text x="510" y="94" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#bf4520">(多余往返搬运)</text>
+
+        <rect x="644" y="52" width="152" height="52" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="720" y="76" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">Socket 缓冲 → 网卡</text>
+        <text x="720" y="94" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">+ DMA 4 出网</text>
+
+        <!-- Nodes: Zone 2 -->
+        <rect x="44" y="172" width="124" height="52" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="106" y="202" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">磁盘 .log 文件</text>
+
+        <rect x="256" y="168" width="220" height="60" rx="6" fill="#FFFDF7"/>
+        <rect x="256" y="168" width="220" height="60" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="366" y="194" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#bf4520">内核 PageCache（热读直中）</text>
+        <text x="366" y="214" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">仅向 Socket 传文件位置描述符</text>
+
+        <rect x="620" y="172" width="176" height="52" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="708" y="196" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">网卡 NIC 直接发送</text>
+        <text x="708" y="214" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">FileChannel.transferTo</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="24" y1="252" x2="816" y2="252" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="24" y="264" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="44" y="273" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">“零拷贝”精确含义是「内核态与用户态之间 0 次 CPU 数据拷贝」（DMA，Direct Memory Access，直接内存访问硬件搬运仍在）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4>🔍 进阶辨析：既然 <code>sendfile</code> 比 <code>mmap</code> 少一次 CPU 拷贝，为什么 RocketMQ 选了 <code>mmap</code>？</h4>
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">系统调用</th>
+          <th style="width:26%">切换与拷贝开销</th>
+          <th>核心差异与 Kafka / RocketMQ 选型原因</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>sendfile</code></strong><br>（Kafka 消费读取）</td>
+          <td><strong>2 次切换 + 0 次 CPU 拷贝</strong><br>（PageCache 直达网卡）</td>
+          <td><code>sendfile(out_fd, in_fd, offset, count)</code> 在内核里直接把字节流推向网卡，<strong>只向用户态返回发送了多少字节（整数），应用层代码完全拿不到消息内容</strong>。Kafka 分区文件存的就是目标 Topic 的原始批次，无需在服务端解析过滤，原样吐给网卡最快（注：若开启 TLS/SSL 加密，因需在用户态加密，<code>sendfile</code> 会自动退化回常规读取）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>mmap + write</code></strong><br>（RocketMQ 读写）</td>
+          <td><strong>4 次切换 + 1 次 CPU 拷贝</strong><br>（PageCache → Socket 缓冲）</td>
+          <td><code>mmap（Memory Map，内存映射文件）</code>把内核 PageCache 直接映射到用户态虚拟地址空间，<strong>Broker 代码可以在用户态直接读取消息头属性、执行服务端 SQL92/Tag 过滤、做内存页预热（Warmup）与锁页（mlock）</strong>。RocketMQ 所有 Topic 混写在定长 1 GB <code>CommitLog</code> 中且需要服务端解析消息逻辑，因此 <code>mmap</code> 更契合。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 03.2 · Kafka Segment 稀疏索引 vs RocketMQ CommitLog + ConsumeQueue -->
+<div class="wb-card" id="store" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">💽 03.2 · 磁盘文件布局对比：Kafka 分区 Segment 稀疏索引 vs RocketMQ 单一 CommitLog</div>
+  <h3>💽 03.2 两大存储文件结构对比与万级 Topic 权衡 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#three">实战篇 06.1 / 06.3 选型表</a> 与 <a href="index.html#prod-topic">07.1 分区规划</a> —— 磁盘上的消息文件到底长什么样？为什么单集群建几千个 Topic 时 Kafka 吞吐会明显下降而 RocketMQ 依然平稳？
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:13px 15px; font-size:13.1px; line-height:1.6;">
+      <div style="font-weight:900; color:var(--plop-ink); margin-bottom:6px;">📂 一、Kafka：每个 Partition 独立目录 + 稀疏索引</div>
+      <p style="margin:0 0 8px;">
+        每个分区拆成多个默认 <code>1 GB</code> 的日志段（<code>Segment</code>），文件名就是该段第 1 条消息的起始 Offset（如 <code>00000000000000368769.log</code>），配套 <code>.index</code>（偏移量稀疏索引）与 <code>.timeindex</code>（时间戳索引）。
+      </p>
+      <p style="margin:0;">
+        • <strong>查 <code>offset=368800</code> 三步定位</strong>：① 按 Segment 文件名二分锁定所属段；② 在 <code>mmap</code> 映射的 <code>.index</code> 稀疏索引（每写满 <code>4 KB</code> 消息才建一条索引项，极省内存）中二分找到最近的小于等于该 Offset 的物理字节位置；③ 从该位置往后顺序扫几 KB 即命中目标。<br>
+        • <strong>短板</strong>：当 Broker 上同时有几千个活跃分区文件并发追加写时，在底层同一块物理磁盘上会交错退化为<strong>实质上的随机写</strong>。
+      </p>
+    </div>
+
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:13px 15px; font-size:13.1px; line-height:1.6;">
+      <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:6px;">🚀 二、RocketMQ：单一 <code>CommitLog</code> + 20B <code>ConsumeQueue</code></div>
+      <p style="margin:0 0 8px;">
+        整台 Broker 上<strong>所有 Topic、所有队列的消息全部混写进唯一一个 <code>CommitLog</code> 日志流</strong>（每文件定长 <code>1 GB</code>），再由后台 <code>ReputMessageService</code> 异步分发构建每个消费队列的轻量目录文件 <code>ConsumeQueue</code>（外加按业务 Key 哈希查询的 <code>IndexFile</code>）。
+      </p>
+      <p style="margin:0;">
+        • <strong>定长 20 字节索引设计</strong>：<code>ConsumeQueue</code> 每条记录严格固定 <code>20 Bytes = [8B CommitLog物理偏移 + 4B 消息长度 + 8B Tag哈希码]</code>。消费者先在全驻留页缓存的 20B 索引里匹配 8 字节 Tag 哈希，命中后再按 8B 地址去 <code>CommitLog</code> 读取消息体。<br>
+        • <strong>收益与代价</strong>：哪怕建 10,000 个 Topic 写入也永远是单文件纯顺序写；代价是消费变成“先读索引再读数据”的两跳读取，且无法直接使用 <code>sendfile</code>。
+      </p>
+    </div>
+  </div>
+</div>

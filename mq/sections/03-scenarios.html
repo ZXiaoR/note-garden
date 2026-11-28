@@ -1,0 +1,615 @@
+<!-- ====================================================================
+     PART 03: 常见实战场景 · 按业务需求落地的 7 套标准方案
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="scenarios">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">常见实战场景：按需求落地的七套消息队列方案</span>
+  <span class="plop-tag tomato">FANOUT · PEAK SHAVING · BATCH LOG · CDC · OUTBOX · DELAY · DLQ</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>面对「下单后多方通知、秒杀削峰、耗时导出排队、埋点采集、缓存/搜索同步、数据库与发消息一致性、超时关单、失败重试与死信」需求时，直接给出 Topic/Key/消费组设计并写出生产可用的 Go 代码（均基于 <code>github.com/segmentio/kafka-go v0.4.47</code> 与 Kafka 3.x / 4.0）。
+</div>
+
+<!-- ==================== 03.1 下单后异步发券、发短信 ==================== -->
+<div class="wb-card" id="sc-fanout" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">📣 03.1 · 场景一：下单/注册后异步发券与发短信（多消费组各自消费一份）</div>
+  <h3>📣 03.1 下单后异步发券、发短信</h3>
+
+  <ul>
+    <li><strong>需求</strong>：用户支付订单成功后，需要给账户发放满减返利券，同时发送支付成功通知短信；未来还可能增加会员积分统计，且不能拖慢支付回调主接口。</li>
+    <li><strong>为什么用 MQ</strong>：把发券、发短信从支付主链路剥离为后台异步执行，主接口耗时保持在毫秒级；各下游各自订阅事件，未来加积分服务无需改动支付代码。</li>
+    <li><strong>方案设计</strong>：
+      <ul>
+        <li><strong>Topic</strong>：<code>trade.order.paid</code>（分区数设为 <code>6</code>，留足并发余量）</li>
+        <li><strong>消息 Key</strong>：<code>order_no</code>（如 <code>"ORD_20261128_01"</code>）</li>
+        <li><strong>消费者组</strong>：发券服务配置 <code>GroupID = "coupon-svc-grp"</code>，短信服务配置 <code>GroupID = "sms-svc-grp"</code>（两组各自独立收到每一笔支付事件）</li>
+      </ul>
+    </li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 order_fanout.go · 支付事件发布 + 多消费组独立订阅手动提交 [Go · kafka-go v0.4.47]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-fanout', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-fanout"><code><span class="c-kw">package</span> ordermq
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"encoding/json"</span>
+    <span class="c-str">"log"</span>
+
+    <span class="c-str">"github.com/segmentio/kafka-go"</span>
+)
+
+<span class="c-kw">type</span> OrderPaidEvent <span class="c-kw">struct</span> {
+    EventID <span class="c-kw">string</span> <span class="c-str">`json:"eventId"`</span> <span class="c-cm">// 全局唯一事件 ID，供下游做防重幂等</span>
+    OrderNo <span class="c-kw">string</span> <span class="c-str">`json:"orderNo"`</span>
+    UserID  <span class="c-kw">int64</span>  <span class="c-str">`json:"userId"`</span>
+    Amount  <span class="c-kw">int64</span>  <span class="c-str">`json:"amountCent"`</span>
+}
+
+<span class="c-cm">// 1. 支付服务：发布「订单已支付」事件（全局复用同一个 *kafka.Writer）</span>
+<span class="c-kw">func</span> PublishOrderPaid(ctx context.Context, w *kafka.Writer, evt OrderPaidEvent) <span class="c-kw">error</span> {
+    body, err := json.Marshal(evt)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">return</span> w.WriteMessages(ctx, kafka.Message{
+        Key:   []<span class="c-kw">byte</span>(evt.OrderNo),
+        Value: body,
+    })
+}
+
+<span class="c-cm">// 2. 通用消费循环：发券服务传 groupID="coupon-svc-grp"，短信服务传 groupID="sms-svc-grp"</span>
+<span class="c-kw">func</span> StartOrderPaidWorker(ctx context.Context, brokers []<span class="c-kw">string</span>, groupID <span class="c-kw">string</span>, handle <span class="c-kw">func</span>(context.Context, OrderPaidEvent) <span class="c-kw">error</span>) {
+    r := kafka.NewReader(kafka.ReaderConfig{
+        Brokers: brokers,
+        Topic:   <span class="c-str">"trade.order.paid"</span>,
+        GroupID: groupID,
+    })
+    <span class="c-kw">defer</span> r.Close()
+
+    <span class="c-kw">for</span> {
+        <span class="c-cm">// 使用 FetchMessage 而非 ReadMessage（ReadMessage 会在读到瞬间自动提交 Offset！）</span>
+        msg, err := r.FetchMessage(ctx)
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span>
+        }
+        <span class="c-kw">var</span> evt OrderPaidEvent
+        <span class="c-kw">if</span> err := json.Unmarshal(msg.Value, &amp;evt); err == <span class="c-kw">nil</span> {
+            <span class="c-kw">if</span> err := handle(ctx, evt); err != <span class="c-kw">nil</span> {
+                log.Printf(<span class="c-str">"[%s] 处理失败稍后重试 order=%s: %v"</span>, groupID, evt.OrderNo, err)
+                <span class="c-kw">continue</span> <span class="c-cm">// 实际生产转入 03.7 阶梯重试 Topic，避免卡住当前分区</span>
+            }
+        }
+        <span class="c-cm">// 业务真正成功后，才手动提交 Offset</span>
+        _ = r.CommitMessages(ctx, msg)
+    }
+}</code></pre>
+  </div>
+
+  <div class="plop-callout warn" style="margin:10px 0 8px;">
+    <strong>⚠️ 两个高频踩坑点：</strong><br>
+    1. <strong>切忌在同一个消费者函数里串行写 <code>发券() + 发短信()</code></strong>：一旦发券成功但短信接口超时报错触发重试，若发券没做严格幂等就会白送多张券，且慢速外部短信会把快速内部发券堵死——<strong>一个独立业务动作配一个独立 <code>GroupID</code></strong>。<br>
+    2. <code>kafka-go</code> 中 <code>r.ReadMessage(ctx)</code> 默认开启了自动提交，拉出消息瞬间就算没处理完也会提交 Offset；生产业务一律改用 <strong><code>r.FetchMessage(ctx)</code> + 处理成功后调 <code>r.CommitMessages(ctx, msg)</code></strong>。
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:0;">
+    💡 <strong>背后的原理：</strong>多个消费组同时拉取同一份分区文件时，Broker 如何靠内核页缓存（PageCache）让多方零磁盘寻道读取？详见 <a href="principles.html#push-pull">《📘 核心原理篇 · 00 推与拉》</a> 与 <a href="principles.html#fast">《03.1 PageCache 与零拷贝》</a>。
+  </p>
+</div>
+
+<!-- ==================== 03.2 秒杀削峰与耗时任务异步排队 ==================== -->
+<div class="wb-card" id="sc-peak" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🌊 03.2 · 场景二：秒杀流量削峰与耗时任务排队（网关快速入队 + 消费端限速执行）</div>
+  <h3>🌊 03.2 秒杀削峰与耗时任务异步排队</h3>
+
+  <ul>
+    <li><strong>需求 A（秒杀削峰）</strong>：整点秒杀 1,000 件商品，第 1 秒涌入 30,000 次下单请求，而底层 MySQL 订单库最高只能承受 1,500 TPS 写入。</li>
+    <li><strong>需求 B（<span id="sc-async-job">耗时任务排队</span>）</strong>：运营在后台点击「导出全年百万行订单 Excel」或用户上传视频触发「转码加水印」，单次处理耗时 20～60 秒，同步等待会导致 HTTP 网关 504 超时且并发数一高直接打满服务器内存。</li>
+    <li><strong>为什么用 MQ</strong>：把瞬时高并发请求或长耗时重任务先变成轻量的队列消息存下来，前端立即拿到「排队中 / 任务 ID（<code>taskId</code>）」去轮询状态；后端消费 Worker 按数据库或 CPU 承受上限<strong>主动限速匀速处理</strong>。</li>
+    <li><strong>方案设计</strong>：
+      <ul>
+        <li><strong>Topic</strong>：秒杀用 <code>seckill.order.requests</code>（12 分区）；导出任务用 <code>job.export.tasks</code>（4 分区）</li>
+        <li><strong>消息 Key</strong>：<code>user_id</code> 或 <code>task_id</code></li>
+        <li><strong>消费者组</strong>：<code>seckill-order-writer-grp</code>（进程内加令牌桶限流器 <code>rate.Limiter</code> 严格控制写库速率）</li>
+      </ul>
+    </li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 seckill_peak_shaving.go · 入口快速入队返回排队态 + 消费端限速落库 [Go · kafka-go + x/time/rate]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-peak', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-peak"><code><span class="c-cm">// go get golang.org/x/time/rate</span>
+<span class="c-kw">package</span> seckill
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"encoding/json"</span>
+
+    <span class="c-str">"github.com/segmentio/kafka-go"</span>
+    <span class="c-str">"golang.org/x/time/rate"</span>
+)
+
+<span class="c-kw">type</span> SeckillReq <span class="c-kw">struct</span> {
+    ReqID  <span class="c-kw">string</span> <span class="c-str">`json:"reqId"`</span>
+    UserID <span class="c-kw">int64</span>  <span class="c-str">`json:"userId"`</span>
+    SkuID  <span class="c-kw">int64</span>  <span class="c-str">`json:"skuId"`</span>
+}
+
+<span class="c-cm">// 1. HTTP 接口层：Redis 原子预扣库存通过后，5ms 写入 Kafka 立即向前端返回 reqId（状态：排队中）</span>
+<span class="c-kw">func</span> EnqueueSeckill(ctx context.Context, w *kafka.Writer, req SeckillReq) <span class="c-kw">error</span> {
+    payload, _ := json.Marshal(req)
+    <span class="c-kw">return</span> w.WriteMessages(ctx, kafka.Message{
+        Key:   []<span class="c-kw">byte</span>(req.ReqID),
+        Value: payload,
+    })
+}
+
+<span class="c-cm">// 2. 消费端 Worker：按数据库安全水位限速（如共 3 台实例，每台限速 400 TPS，合计 1200 TPS 平稳写库）</span>
+<span class="c-kw">func</span> ConsumeSeckillWithRateLimit(ctx context.Context, r *kafka.Reader, createOrderInDB <span class="c-kw">func</span>(context.Context, SeckillReq) <span class="c-kw">error</span>) {
+    limiter := rate.NewLimiter(rate.Limit(400), 50) <span class="c-cm">// 每秒最多 400 次，桶突发容量 50</span>
+
+    <span class="c-kw">for</span> {
+        msg, err := r.FetchMessage(ctx)
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span>
+        }
+        <span class="c-cm">// 超过数据库承载速率时在此平滑等待，不会把下游 MySQL 打挂</span>
+        <span class="c-kw">if</span> err := limiter.Wait(ctx); err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span>
+        }
+        <span class="c-kw">var</span> req SeckillReq
+        _ = json.Unmarshal(msg.Value, &amp;req)
+        <span class="c-kw">if</span> err := createOrderInDB(ctx, req); err == <span class="c-kw">nil</span> {
+            _ = r.CommitMessages(ctx, msg)
+        }
+    }
+}</code></pre>
+  </div>
+
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
+    ⚠️ <strong>常见坑：</strong>① 改成入队削峰后，接口返回的只是「已受理排队」，前端必须轮询 <code>GET /seckill/result?reqId=xxx</code> 查看最终是否下单成功；② 做<strong>耗时导出/转码排队</strong>时，如果单条消息执行超过 5 分钟（Kafka 默认 <code>max.poll.interval.ms</code>），Broker 会判定消费者假死并将其踢出消费组，导致该重任务被别的机器重复拉走再跑一遍——务必调小单批拉取数并调大超时阈值（详见 <a href="#rebalance-tuning">07.3 防踢调参</a>）。 ｜ 💡 <strong>背后的原理：</strong>为什么 Pull 模型天生不怕流量洪峰冲垮消费者？见 <a href="principles.html#push-pull">《📘 核心原理篇 · 00 推与拉》</a>。
+  </p>
+</div>
+
+<!-- ==================== 03.3 日志与埋点采集 ==================== -->
+<div class="wb-card" id="sc-log" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">📊 03.3 · 场景三：日志与埋点高吞吐采集（批量攒包 + 压缩异步发送）</div>
+  <h3>📊 03.3 日志与用户行为埋点采集</h3>
+
+  <ul>
+    <li><strong>需求</strong>：App 首页曝光、按钮点击埋点与微服务访问日志每秒产生 50,000 条记录，需要收集后导入 ClickHouse 或大数据数仓做漏斗分析。</li>
+    <li><strong>为什么用 MQ</strong>：业务服务器磁盘小且不能直连压垮数仓；Kafka 单机可抗百万级写入并充当海量日志缓冲管道。</li>
+    <li><strong>方案设计</strong>：
+      <ul>
+        <li><strong>Topic</strong>：<code>telemetry.user.clicks</code>（<code>12</code>～<code>24</code> 分区，设 <code>retention.hours=72</code> 保留 3 天自动清理）</li>
+        <li><strong>消息 Key</strong>：留空使用轮询负载均衡（<code>&amp;kafka.RoundRobin{}</code>），让所有分区流量绝对均匀</li>
+        <li><strong>吞吐优先配置</strong>：开启<strong>内存攒批（<code>BatchSize</code> / <code>BatchTimeout</code>）+ <code>LZ4</code> 压缩 + 异步发送 + <code>RequireOne</code> 确认</strong>（允许极端断电丢极少量埋点，换取十倍吞吐与零接口阻塞）</li>
+      </ul>
+    </li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 telemetry_batch_writer.go · 埋点日志异步攒批与 LZ4 压缩配置 [Go · kafka-go v0.4.47]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-log', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-log"><code><span class="c-kw">func</span> NewTelemetryWriter(brokers []<span class="c-kw">string</span>) *kafka.Writer {
+    <span class="c-kw">return</span> &amp;kafka.Writer{
+        Addr:         kafka.TCP(brokers...),
+        Topic:        <span class="c-str">"telemetry.user.clicks"</span>,
+        Balancer:     &amp;kafka.RoundRobin{}, <span class="c-cm">// 无需保序，均匀打散到所有分区</span>
+        BatchSize:    500,                 <span class="c-cm">// 凑够 500 条发一次网络请求</span>
+        BatchBytes:   1 &lt;&lt; 20,             <span class="c-cm">// 或凑够 1 MiB 发一次</span>
+        BatchTimeout: 50 * time.Millisecond, <span class="c-cm">// 流量低时最多等 50ms 立即发出</span>
+        Compression:  kafka.Lz4,           <span class="c-cm">// JSON 文本经 LZ4 压缩通常可省 70%+ 带宽</span>
+        RequiredAcks: kafka.RequireOne,    <span class="c-cm">// Leader 写入即确认（非账务日志高吞吐档位）</span>
+        Async:        <span class="c-kw">true</span>,                <span class="c-cm">// WriteMessages 写入内存缓冲即返回，不阻塞业务请求</span>
+    }
+}
+<span class="c-cm">// 注意：服务收到 SIGTERM 优雅退出时，务必调用 writer.Close() 把内存里最后半批日志刷出去！</span></code></pre>
+  </div>
+
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
+    ⚠️ <strong>常见坑：</strong>① 千万别把日志配置（<code>Async: true</code> + <code>RequireOne</code>）照抄到订单扣款业务上，否则机器断电会丢账；② 开启 <code>Async: true</code> 后，进程重启停机前若不调 <code>writer.Close()</code>，还在内存缓冲区排队的最后几十毫秒日志会丢失。 ｜ 💡 <strong>背后的原理：</strong>为什么开启批量压缩后，Kafka 连解压都不用做就能原样落盘并零拷贝推给消费者？详见 <a href="principles.html#fast">《📘 核心原理篇 · 03.1 百万吞吐五大加速引擎》</a>。
+  </p>
+</div>
+
+<!-- ==================== 03.4 数据同步（数据库变更 → 搜索 / 缓存） ==================== -->
+<div class="wb-card" id="sc-sync" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔄 03.4 · 场景四：异构数据同步（数据库变更事件 → 刷新搜索索引与删除缓存）</div>
+  <h3>🔄 03.4 数据同步：数据库变更 → 搜索索引 / 缓存</h3>
+
+  <ul>
+    <li><strong>需求</strong>：商家在后台修改了商品价格或上下架状态并落入 MySQL 后，需要把最新商品信息同步到 Elasticsearch 供全站全文搜索，并删除 Redis 里的旧商品详情缓存（见 <a href="../redis/index.html#consistency">Redis 笔记 03.1 Cache-Aside</a>）。</li>
+    <li><strong>为什么用 MQ</strong>：如果在改价接口里同步双写 MySQL + Elasticsearch + Redis，任一组件抖动就会导致三方数据不一致；通过把数据库变更转为有序事件流（业务主动发，或用 Debezium / Canal 订阅 MySQL <code>Binlog</code> 自动投递，即 <code>CDC，Change Data Capture，变更数据捕获</code>），搜索与缓存各自独立订阅并支持失败重试。</li>
+    <li><strong>方案设计</strong>：
+      <ul>
+        <li><strong>Topic</strong>：<code>catalog.product.changed</code>（8 分区）</li>
+        <li><strong>消息 Key（核心！）</strong>：<strong>必须填商品主键 <code>sku_id</code></strong>，确保同一个商品的「改价 100 → 改价 80」严格进同一个分区按顺序消费</li>
+        <li><strong>消费者组</strong>：<code>es-indexer-grp</code>（更新搜索索引）、<code>redis-invalidator-grp</code>（删除并重试清理缓存）</li>
+      </ul>
+    </li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 product_sync_worker.go · 消费商品变更事件：带版本号防旧覆盖更新 ES 与删缓存 [Go]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sync', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-sync"><code><span class="c-kw">type</span> ProductChangeEvent <span class="c-kw">struct</span> {
+    SkuID     <span class="c-kw">string</span> <span class="c-str">`json:"skuId"`</span>
+    PriceCent <span class="c-kw">int64</span>  <span class="c-str">`json:"priceCent"`</span>
+    Version   <span class="c-kw">int64</span>  <span class="c-str">`json:"version"`</span> <span class="c-cm">// 数据库递增版本号或 updated_at 毫秒时间戳</span>
+}
+
+<span class="c-kw">func</span> HandleProductSync(ctx context.Context, evt ProductChangeEvent) <span class="c-kw">error</span> {
+    <span class="c-cm">// 1. 删 Redis 缓存（失败返回 error 触发消费重试，天然实现「延迟/重试删缓存」闭环）</span>
+    <span class="c-kw">if</span> err := rdb.Del(ctx, <span class="c-str">"sku:detail:"</span>+evt.SkuID).Err(); err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-cm">// 2. 更新 Elasticsearch 时带上外部版本号（version_type=external），即使极端重放也不会用旧版本覆盖新版本</span>
+    <span class="c-kw">return</span> upsertESWithExternalVersion(ctx, evt.SkuID, evt.PriceCent, evt.Version)
+}</code></pre>
+  </div>
+
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
+    ⚠️ <strong>常见坑：</strong>① 漏设 <code>Key = sku_id</code> 导致两次连续改价落进不同分区，慢消费者后跑完旧消息把价格改回老值（详见 <a href="#partition-order">05.1 局部顺序保证</a>）；② 消息体里建议带上数据库的单调递增 <code>version</code>，让下游存储具备最后一道防旧值覆盖的能力。
+  </p>
+</div>
+
+<!-- ==================== 03.5 下单与发消息的一致性：本地消息表 ==================== -->
+<div class="wb-card" id="sc-tx" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🤝 03.5 · 场景五：下单写库与发消息的一致性（本地消息表 Outbox vs RocketMQ 事务消息）</div>
+  <h3>🤝 03.5 下单与发消息的一致性：本地消息表实战</h3>
+
+  <p>
+    在订单支付场景里，我们需要同时完成<strong>「① 修改本地 MySQL 订单为已支付」</strong>和<strong>「② 向 Kafka 发送支付消息」</strong>。为什么不能直接写两行代码？因为跨了两个系统，怎么排顺序都有漏洞：
+  </p>
+  <ul>
+    <li><strong>❌ 先写 MySQL 提交，再发 MQ</strong>：刚提交完事务进程崩溃或网络闪断，消息没发出去 👉 <strong>钱扣了，下游永远收不到通知</strong>。</li>
+    <li><strong>❌ 先发 MQ，再写 MySQL 提交</strong>：消息一发出就被下游消费发了券，结果本地数据库唯一键冲突回滚了 👉 <strong>单没下成，白发了优惠券</strong>。</li>
+    <li><strong>❌ 在数据库事务 <code>BEGIN...COMMIT</code> 里同步调 MQ</strong>：发 MQ 网络卡顿 2 秒会把数据库行锁与连接占住 2 秒拖垮连接池；且发完 MQ 后若在 <code>COMMIT</code> 那一瞬间断电回滚，已经发出去的消息同样撤不回来。</li>
+  </ul>
+
+  <p>
+    在使用 Kafka 时，最通用的工业级解法是<strong>本地消息表（Transactional Outbox，事务发件箱模式）</strong>——在同一个业务数据库里建一张 <code>outbox_messages</code> 表，利用 MySQL 自身的单库 ACID 事务保证「业务表修改」和「待发消息记录」100% 同生共死，再由后台协程轮询投递：
+  </p>
+
+  <!-- Editorial SVG: Transactional Outbox Flow -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 256" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mq-outbox-title mq-outbox-desc">
+        <title id="mq-outbox-title">本地消息表 Transactional Outbox 保证写库与发消息最终一致架构</title>
+        <desc id="mq-outbox-desc">订单服务在同一个 MySQL 本地事务中原子写入 orders 订单表与 outbox_messages 待发消息表；事务提交后由后台 Relay 轮询器读取 PENDING 记录可靠投递至 Kafka 并回写状态为 SENT。</desc>
+        <defs>
+          <marker id="mq-ob-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="mq-ob-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Zone: Single MySQL ACID Transaction -->
+        <rect x="204" y="20" width="224" height="176" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1.2"/>
+        <rect x="220" y="24" width="192" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="316" y="36" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#5a6580">MySQL 同库单事务 (ACID)</text>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <!-- Order Service (156,104) -> orders table (228,82) -->
+        <path d="M 156,104 H 180 Q 188,104 188,96 V 90 Q 188,82 196,82 H 228" fill="none" stroke="#4f5d75" stroke-width="1.3" marker-end="url(#mq-ob-arr-muted)"/>
+        <!-- Order Service (156,132) -> outbox table (228,154) -->
+        <path d="M 156,132 H 180 Q 188,132 188,140 V 146 Q 188,154 196,154 H 228" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#mq-ob-arr-accent)"/>
+
+        <!-- outbox table (404,154) -> Relay Worker (484,154) -->
+        <line x1="404" y1="154" x2="484" y2="154" stroke="#bf4520" stroke-width="1.5" marker-end="url(#mq-ob-arr-accent)"/>
+        <rect x="432" y="130" width="44" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="454" y="141" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#bf4520">POLL</text>
+
+        <!-- Relay Worker (616,154) -> Kafka (680,154) -->
+        <line x1="616" y1="154" x2="680" y2="154" stroke="#bf4520" stroke-width="1.5" marker-end="url(#mq-ob-arr-accent)"/>
+        <rect x="624" y="130" width="48" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="648" y="141" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#bf4520">SEND</text>
+
+        <!-- Node: Order Service -->
+        <rect x="24" y="84" width="132" height="68" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="90" y="112" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">订单服务</text>
+        <text x="90" y="132" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">BEGIN ... COMMIT</text>
+
+        <!-- Node: orders table -->
+        <rect x="228" y="56" width="176" height="52" rx="6" fill="#FFFFFF" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="316" y="78" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">① orders 订单表</text>
+        <text x="316" y="96" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">INSERT / UPDATE PAID</text>
+
+        <!-- Node: outbox_messages table (Focal 1) -->
+        <rect x="228" y="128" width="176" height="52" rx="6" fill="#FFFDF7"/>
+        <rect x="228" y="128" width="176" height="52" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="316" y="150" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">② outbox_messages</text>
+        <text x="316" y="168" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">status = 'PENDING'</text>
+
+        <!-- Node: Relay Worker -->
+        <rect x="484" y="120" width="132" height="68" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="550" y="148" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">后台投递协程</text>
+        <text x="550" y="168" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">成功后改 SENT</text>
+
+        <!-- Node: Kafka Broker (Focal 2) -->
+        <rect x="680" y="120" width="136" height="68" rx="6" fill="#FFFDF7"/>
+        <rect x="680" y="120" width="136" height="68" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="748" y="148" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">Kafka Broker</text>
+        <text x="748" y="168" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">trade.order.paid</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="24" y1="212" x2="816" y2="212" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="24" y="224" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="44" y="233" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">同事务落盘待发记录 → 即使投递中途断电，重启后轮询 PENDING 记录也会 100% 补发</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 outbox_tx.go · 本地消息表建表 SQL + Go 同事务双写与后台轮询投递 [Go · database/sql + kafka-go]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-outbox', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-outbox"><code><span class="c-cm">/* 建表 SQL（与 orders 表在同一个 MySQL 库）：
+CREATE TABLE outbox_messages (
+  id          BIGINT PRIMARY KEY AUTO_INCREMENT,
+  topic       VARCHAR(128) NOT NULL,
+  msg_key     VARCHAR(64)  NOT NULL,
+  payload     JSON         NOT NULL,
+  status      VARCHAR(16)  NOT NULL DEFAULT 'PENDING', -- PENDING / SENT
+  retry_count INT          NOT NULL DEFAULT 0,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_status_id (status, id)
+); */</span>
+
+<span class="c-cm">// Step 1: 订单服务在同一个本地事务里「改订单 + 插本地消息表」</span>
+<span class="c-kw">func</span> CreateOrderWithOutbox(ctx context.Context, db *sql.DB, orderNo <span class="c-kw">string</span>, userID, amount <span class="c-kw">int64</span>) <span class="c-kw">error</span> {
+    tx, err := db.BeginTx(ctx, <span class="c-kw">nil</span>)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">defer</span> tx.Rollback()
+
+    <span class="c-kw">if</span> _, err = tx.ExecContext(ctx,
+        <span class="c-str">`INSERT INTO orders (order_no, user_id, amount, status) VALUES (?, ?, ?, 'PAID')`</span>,
+        orderNo, userID, amount,
+    ); err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+
+    payload, _ := json.Marshal(map[<span class="c-kw">string</span>]<span class="c-kw">any</span>{<span class="c-str">"orderNo"</span>: orderNo, <span class="c-str">"userId"</span>: userID, <span class="c-str">"amount"</span>: amount})
+    <span class="c-kw">if</span> _, err = tx.ExecContext(ctx,
+        <span class="c-str">`INSERT INTO outbox_messages (topic, msg_key, payload, status) VALUES ('trade.order.paid', ?, ?, 'PENDING')`</span>,
+        orderNo, payload,
+    ); err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">return</span> tx.Commit() <span class="c-cm">// 要么两张表同时成功，要么同时回滚</span>
+}
+
+<span class="c-cm">// Step 2: 后台 Relay 协程每 500ms 扫描一批未发送消息投递 Kafka（多实例下配合 FOR UPDATE SKIP LOCKED）</span>
+<span class="c-kw">func</span> RelayPendingOutboxOnce(ctx context.Context, db *sql.DB, w *kafka.Writer) <span class="c-kw">error</span> {
+    tx, err := db.BeginTx(ctx, <span class="c-kw">nil</span>)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">defer</span> tx.Rollback()
+
+    rows, err := tx.QueryContext(ctx,
+        <span class="c-str">`SELECT id, topic, msg_key, payload FROM outbox_messages WHERE status='PENDING' ORDER BY id LIMIT 50 FOR UPDATE SKIP LOCKED`</span>)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">defer</span> rows.Close()
+
+    <span class="c-kw">var</span> sentIDs []<span class="c-kw">int64</span>
+    <span class="c-kw">for</span> rows.Next() {
+        <span class="c-kw">var</span> id <span class="c-kw">int64</span>
+        <span class="c-kw">var</span> topic, key <span class="c-kw">string</span>
+        <span class="c-kw">var</span> body []<span class="c-kw">byte</span>
+        _ = rows.Scan(&amp;id, &amp;topic, &amp;key, &amp;body)
+        <span class="c-kw">if</span> err := w.WriteMessages(ctx, kafka.Message{Topic: topic, Key: []<span class="c-kw">byte</span>(key), Value: body}); err == <span class="c-kw">nil</span> {
+            sentIDs = append(sentIDs, id)
+        }
+    }
+    <span class="c-kw">for</span> _, id := <span class="c-kw">range</span> sentIDs {
+        _, _ = tx.ExecContext(ctx, <span class="c-str">`UPDATE outbox_messages SET status='SENT' WHERE id=?`</span>, id)
+    }
+    <span class="c-kw">return</span> tx.Commit()
+}</code></pre>
+  </div>
+
+  <div class="plop-callout info" style="margin:12px 0 8px;">
+    <strong>🚀 另一种主流做法 —— RocketMQ 原生事务消息：</strong><br>
+    如果团队选型的是 <strong>RocketMQ</strong>，无需自己在业务库建 <code>outbox_messages</code> 表。RocketMQ 原生提供了「<strong>先发对消费者隐身的半消息（Half Message）→ 执行本地 DB 事务 → 发 Commit 转正（若断电未发则由 Broker 主动回调反查 DB 状态）</strong>」机制，达成完全相同的最终一致性效果。<br>
+    ⚠️ <strong>共同边界</strong>：无论是本地消息表还是 RocketMQ 事务消息，都属于<strong>最终一致性方案</strong>——Relay 发成功但改 <code>SENT</code> 前崩溃会重发一次，因此<strong>下游消费者必须做幂等（见 <a href="#idempotent">04.2</a>）</strong>；且下游若消费报错不会回滚上游已支付的订单，而是走 <a href="#sc-dlq">03.7 重试与死信</a> 补偿。
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:0;">
+    💡 <strong>背后的原理：</strong>RocketMQ 的半消息具体存在哪里、Broker 定时事务反查是如何运转的？详见 <a href="principles.html#tx-msg">《📘 核心原理篇 · 02.1 事务消息半消息与反查实现》</a>。
+  </p>
+</div>
+
+<!-- ==================== 03.6 延迟任务：订单超时取消 ==================== -->
+<div class="wb-card" id="sc-delay" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">⏱️ 03.6 · 场景六：延迟任务（订单 30 分钟超时取消与四大技术方案对比）</div>
+  <h3>⏱️ 03.6 延迟任务：订单超时未支付自动取消</h3>
+
+  <ul>
+    <li><strong>需求</strong>：用户提交订单后锁定库存，若 30 分钟仍未付款，系统自动关闭订单并释放库存；不能每分钟跑 <code>SELECT * FROM orders</code> 扫千万级全表。</li>
+    <li><strong>核心事实：Kafka 没有原生的任意延迟/定时消息功能！</strong>因为 Kafka 的 Partition 是严格按写入时间顺序追加的只读日志段，无法低开销地在文件中间插入任意到期时刻的消息并排序投递。</li>
+    <li><strong>工程选型对比（按基础设施现状四选一）</strong>：</li>
+  </ul>
+
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">实现方案</th>
+          <th style="width:42%">具体做法</th>
+          <th>优缺点与核心注意事项</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① RocketMQ 定时消息</strong><br><span style="font-size:11.5px; color:#15803d;">大体量交易首选</span></td>
+          <td>发送消息时直接指定投递时间戳（RocketMQ 5.0 <code>DeliverTimeStamp</code>，4.x 指定 <code>delayLevel=16</code> 即 30m），到期后消费者才收得到。</td>
+          <td><strong>开箱即用、高可靠磁盘持久化</strong>，支持百万级待关单积压；需团队已部署 RocketMQ。</td>
+        </tr>
+        <tr>
+          <td><strong>② RabbitMQ 延迟方案</strong></td>
+          <td>方案 A：无消费者的缓冲队列设 <code>TTL</code> + 绑定 <code>DLX（Dead Letter Exchange，死信交换机）</code>；<br>方案 B：安装官方 <code>rabbitmq_delayed_message_exchange</code> 插件。</td>
+          <td>⚠️ <strong>方案 A 有严重的队头阻塞坑</strong>：RabbitMQ 只检查队列第 1 条消息是否过期——若前一条设 30m、后一条设 1m，1m 的消息会被堵满 30m 才出来！混用不同时长务必选插件或按时长拆独立队列。</td>
+        </tr>
+        <tr>
+          <td><strong>③ <a href="../redis/index.html#sc-delay">Redis ZSet</a> + Kafka</strong><br><span style="font-size:11.5px; color:var(--plop-tomato);">Kafka 栈最常用组合</span></td>
+          <td>下单时 <code>ZADD delay:unpaid &lt;now+1800&gt; &lt;orderNo&gt;</code>；后台轻量协程每秒用 Lua 原子弹出已到期单号，转发进 Kafka <code>trade.order.cancel</code> 由消费组并发关单。</td>
+          <td>不用额外部署第二种 MQ，支持任意秒级精度且支付成功可顺手 <code>ZREM</code> 提前移除；完整 Lua 代码见 <a href="../redis/index.html#sc-delay">Redis 笔记 04.7</a>。</td>
+        </tr>
+        <tr>
+          <td><strong>④ Kafka 固定档位延迟 Topic</strong></td>
+          <td>专门建 <code>order.delay.30m</code> Topic（同 Topic 内所有消息固定延迟 30m，天然先入先到期）；转发器读到头部消息若还没满 30m 就 <code>Sleep</code> 剩余秒数，到期后写入真实 <code>order.cancel</code> Topic。</td>
+          <td>纯 Kafka 零外部依赖，但<strong>每个延迟档位都必须建独立 Topic</strong>，无法支持任意自定义时刻；且等待期间需注意调用 <code>Pause</code> 或短轮询防触发消费超时重平衡。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 cancel_unpaid_consumer.go · 无论用哪种延迟触发器，关单消费端都必须写条件幂等 SQL [Go]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-delay', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-delay"><code><span class="c-cm">// 消费到期关单事件：用户可能在第 29 分 59 秒刚付完款，因此关单 SQL 必须校验 status='UNPAID'</span>
+<span class="c-kw">func</span> HandleOrderTimeoutCancel(ctx context.Context, db *sql.DB, orderNo <span class="c-kw">string</span>) <span class="c-kw">error</span> {
+    res, err := db.ExecContext(ctx,
+        <span class="c-str">`UPDATE orders SET status = 'CANCELED', canceled_at = NOW() WHERE order_no = ? AND status = 'UNPAID'`</span>,
+        orderNo,
+    )
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    affected, _ := res.RowsAffected()
+    <span class="c-kw">if</span> affected == 1 {
+        <span class="c-cm">// 确实将未支付订单改为了已取消，此时才去归还锁定库存（若 affected==0 说明已支付或已取消过，直接忽略）</span>
+        <span class="c-kw">return</span> releaseLockedStock(ctx, db, orderNo)
+    }
+    <span class="c-kw">return nil</span>
+}</code></pre>
+  </div>
+
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
+    💡 <strong>背后的原理：</strong>RocketMQ 5.0 是怎么做到把百万条不同时刻到期的定时消息按 <code>O(1)</code> 复杂度写盘并准点触发的？详见 <a href="principles.html#timing-wheel">《📘 核心原理篇 · 02.2 18 级队列与分层时间轮实现》</a>。
+  </p>
+</div>
+
+<!-- ==================== 03.7 失败重试与死信队列 ==================== -->
+<div class="wb-card" id="sc-dlq" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🛟 03.7 · 场景七：失败重试与死信队列（阶梯重试 Topic + DLQ 隔离兜底）</div>
+  <h3>🛟 03.7 失败重试与死信队列（DLQ）</h3>
+
+  <ul>
+    <li><strong>需求</strong>：消费订单消息调用电子发票服务时，偶尔遇到对方网关抖动超时，或者某条消息因历史脏数据导致解析必报错（俗称「毒丸消息 Poison Pill」）。</li>
+    <li><strong>为什么不能原地死循环重试</strong>：Kafka 单分区按序推进，如果第 100 号脏消息一直报错不提交 Offset，后面第 101～100,000 号正常用户的发票全都会被它死死堵住。</li>
+    <li><strong>方案设计（应用层阶梯重试 Topic + DLQ）</strong>：
+      <ul>
+        <li>RocketMQ 原生内置了 <code>%RETRY%</code>（16 级退避）与 <code>%DLQ%</code>；而 <strong>Kafka 服务端没有内置重试与死信队列</strong>，需要在消费端代码里用独立 Topic 实现：</li>
+        <li>主 Topic：<code>invoice.issue</code> ──(第 1～3 次失败带重试次数 Header)──▶ 重试 Topic：<code>invoice.issue.retry</code> ──(超过 3 次仍失败)──▶ 死信 Topic：<code>invoice.issue.dlq</code>，<strong>转存成功后立即提交原分区 Offset 放行后续正常消息</strong>，并对 <code>.dlq</code> 配置监控告警人工修复重放。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 retry_and_dlq.go · Kafka 消费失败自动升级重试计数与超限转入 DLQ [Go · kafka-go v0.4.47]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-dlq', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-dlq"><code><span class="c-kw">import</span> <span class="c-str">"strconv"</span>
+
+<span class="c-kw">const</span> maxRetry = 3
+
+<span class="c-kw">func</span> ConsumeWithDLQ(ctx context.Context, r *kafka.Reader, routeWriter *kafka.Writer, bizFn <span class="c-kw">func</span>([]<span class="c-kw">byte</span>) <span class="c-kw">error</span>) {
+    <span class="c-kw">for</span> {
+        msg, err := r.FetchMessage(ctx)
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span>
+        }
+        <span class="c-kw">if</span> bizErr := bizFn(msg.Value); bizErr != <span class="c-kw">nil</span> {
+            retries := getRetryHeader(msg.Headers) + 1
+            targetTopic := <span class="c-str">"invoice.issue.retry"</span>
+            <span class="c-kw">if</span> retries &gt; maxRetry {
+                targetTopic = <span class="c-str">"invoice.issue.dlq"</span> <span class="c-cm">// 超过上限：隔离进死信队列并触发告警</span>
+            }
+            <span class="c-cm">// 将原消息连同最新重试次数、报错原因转发至 retry 或 dlq Topic</span>
+            fwdErr := routeWriter.WriteMessages(ctx, kafka.Message{
+                Topic: targetTopic,
+                Key:   msg.Key,
+                Value: msg.Value,
+                Headers: []kafka.Header{
+                    {Key: <span class="c-str">"x-retry-count"</span>, Value: []<span class="c-kw">byte</span>(strconv.Itoa(retries))},
+                    {Key: <span class="c-str">"x-last-error"</span>, Value: []<span class="c-kw">byte</span>(bizErr.Error())},
+                },
+            })
+            <span class="c-kw">if</span> fwdErr != <span class="c-kw">nil</span> {
+                <span class="c-kw">continue</span> <span class="c-cm">// 连重试/死信队列都没写进去时，切勿提交原 Offset，防止丢消息</span>
+            }
+        }
+        <span class="c-cm">// 业务成功，或已安全转交至 retry / dlq 后，提交当前分区 Offset 继续处理下一条</span>
+        _ = r.CommitMessages(ctx, msg)
+    }
+}
+
+<span class="c-kw">func</span> getRetryHeader(headers []kafka.Header) <span class="c-kw">int</span> {
+    <span class="c-kw">for</span> _, h := <span class="c-kw">range</span> headers {
+        <span class="c-kw">if</span> h.Key == <span class="c-str">"x-retry-count"</span> {
+            n, _ := strconv.Atoi(<span class="c-kw">string</span>(h.Value))
+            <span class="c-kw">return</span> n
+        }
+    }
+    <span class="c-kw">return</span> 0
+}</code></pre>
+  </div>
+
+  <div class="plop-callout info" style="margin:12px 0 14px;">
+    <strong>⏪ 补充技巧 —— 历史消息回溯（Message Replay）：</strong><br>
+    如果下午 2:00 发版引入了一个计算逻辑 Bug（代码没报错，但把积分少算了一半），死信队列不会抓到它。此时只需修复代码重新上线，在停掉消费组后用命令行把该组的 Offset 重置回下午 2:00（见 <a href="#backlog">05.2 回溯命令</a>），配合消费幂等就能把这期间的消息完整重算修复。
+  </div>
+
+  <h4 id="quiz-03" style="margin:0 0 8px;">☑️ 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 在本地消息表（Outbox）方案中，如果后台 Relay 协程已经把消息成功发到了 Kafka，但刚要执行 <code>UPDATE outbox_messages SET status='SENT'</code> 时机器断电了，会发生什么？怎么防？</span></summary>
+    <div class="drawer-body">
+      <p>机器重启后，那条记录在数据库里仍然是 <code>PENDING</code> 状态，Relay 协程会把它<strong>再往 Kafka 发送一遍</strong>（产生重复消息）。这完全符合预期——本地消息表追求的是「至少投递成功一次（At-least-once）」，只要<strong>下游消费者按事件唯一 ID 或订单号做好业务幂等（04.2）</strong>，第二次收到时直接忽略即可。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 团队用的是 RabbitMQ，同事在一个公共延迟队列上混发「30 分钟超时关单」和「10 秒支付结果轮询」两种 TTL 消息，上线后会出现什么故障？</span></summary>
+    <div class="drawer-body">
+      <p>会出现严重的<strong>队头阻塞</strong>：10 秒轮询消息排在 30 分钟关单消息后面时，RabbitMQ 只检查队头第 1 条消息是否过期，导致原本 10 秒就该触发的消息全部被卡住整整 30 分钟才集中爆发。应当按固定 TTL 时长拆成两个独立缓冲队列，或改用 <code>rabbitmq_delayed_message_exchange</code> 延迟交换机插件。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 为什么「订单需要保持严格先后顺序」的场景（如同一单的创建→支付→退款）不能直接用上面的异步重试 Topic 方案？</span></summary>
+    <div class="drawer-body">
+      <p>因为如果把失败的「创建订单」消息挪去 <code>.retry</code> 队列并提交了主分区 Offset，主分区紧接着就会先消费「支付订单」——由于订单还没创建出来，「支付」也会跟着报错或状态错乱。强顺序场景遇到失败只能在当前分区有限次短暂退避重试，仍失败则将该订单号记入异常锁定表拦截同单后续消息并告警（见 <a href="#partition-order">05.1</a>）。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">4. 做用户点击埋点采集时，产品经理说允许极端故障丢千分之一的埋点，但绝不能拖慢商品详情页接口耗时，<code>kafka.Writer</code> 哪三个参数最关键？</span></summary>
+    <div class="drawer-body">
+      <p>① <code>Async: true</code>（异步写入内存缓冲立即返回，不阻塞接口协程）；② <code>BatchSize / BatchTimeout</code> + <code>Compression: kafka.Lz4</code>（攒批压缩大幅降低网络 I/O）；③ <code>RequiredAcks: kafka.RequireOne</code>（只需 Leader 写入即确认，不必等所有副本同步）。</p>
+    </div>
+  </details>
+</div>

@@ -1,0 +1,147 @@
+<!-- ====================================================================
+     PART 04 (PRINCIPLES): 副本与高可用 · ISR、HW 高水位与 Leader Epoch
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="isr">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">副本与高可用：ISR 同步集、HW 高水位与 Leader Epoch 防截断丢数</span>
+  <span class="plop-tag tomato">ISR · LEO · HIGH WATERMARK · LEADER EPOCH</span>
+</div>
+
+<!-- 04.1 · ISR、LEO 与 HW 高水位协同机制 -->
+<div class="wb-card" id="isr-hw" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🛡️ 04.1 · 多副本同步标尺：ISR 动态集合、LEO 日志末端与 HW 高水位木桶法则</div>
+  <h3>🛡️ 04.1 <code>ISR</code>、<code>LEO</code> 与 <code>HW</code> 高水位是如何协同推进的 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#lost">实战篇 04.1 Broker 防丢配置</a> —— 当生产者配置了 <code>acks=all</code> 时，Broker 具体在等哪些节点确认？为什么刚写进 Leader 的新消息不会立刻让消费者读到？
+  </p>
+
+  <p>
+    Kafka 的每个分区由 <strong>1 个 <code>Leader</code> 副本 + 若干个 <code>Follower</code> 副本</strong>组成（合称 <code>AR，Assigned Replicas，已分配副本全集</code>）。所有生产写入和默认消费读取都只找 Leader；Follower 唯一的工作就是持续向 Leader 发送 <code>FetchRequest</code> 把新日志拉回本地追加。为了界定“谁没掉队”以及“哪条消息算真正安全提交”，Kafka 维护了三个核心标尺：
+  </p>
+
+  <!-- Editorial SVG: Contiguous Offset Log Bars for Leader & Followers + HW Boundary -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 264" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mq-isr-title mq-isr-desc">
+        <title id="mq-isr-title">Kafka ISR 同步副本集中 LEO 末端偏移量与 HW 高水位短板关系图</title>
+        <desc id="mq-isr-desc">展示同在 ISR 集合中的三个副本连续日志槽位：Leader 已写至 offset 4（LEO=5），Follower-1 追至 offset 3（LEO=4），最慢的 Follower-2 追至 offset 2（LEO=3），因此全局高水位 HW 取木桶短板等于 3，消费者仅能读取 offset 0 到 2。</desc>
+
+        <!-- Row Labels -->
+        <text x="28" y="68" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">Leader (Broker-1 · ISR)</text>
+        <text x="28" y="124" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="600" fill="#4f5d75">Follower-1 (Broker-2 · ISR)</text>
+        <text x="28" y="180" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="600" fill="#4f5d75">Follower-2 (Broker-3 · 短板)</text>
+
+        <!-- Row 1: Leader contiguous cells (0,1,2 committed; 3,4 uncommitted) -->
+        <rect x="232" y="44" width="88" height="40" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="276" y="68" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" fill="#1F1F23">offset=0</text>
+        <rect x="320" y="44" width="88" height="40" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="364" y="68" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" fill="#1F1F23">offset=1</text>
+        <rect x="408" y="44" width="88" height="40" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="452" y="68" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" fill="#1F1F23">offset=2</text>
+        <rect x="496" y="44" width="88" height="40" fill="rgba(45,49,66,0.04)" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="4,3"/>
+        <text x="540" y="68" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#5a6580">3 (同步中)</text>
+        <rect x="584" y="44" width="88" height="40" fill="rgba(45,49,66,0.04)" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="4,3"/>
+        <text x="628" y="68" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#5a6580">4 (同步中)</text>
+        <rect x="684" y="52" width="76" height="24" rx="4" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="722" y="68" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" font-weight="600" fill="#1F1F23">LEO = 5</text>
+
+        <!-- Row 2: Follower-1 contiguous cells (0,1,2,3) -->
+        <rect x="232" y="100" width="88" height="40" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="276" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" fill="#1F1F23">offset=0</text>
+        <rect x="320" y="100" width="88" height="40" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="364" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" fill="#1F1F23">offset=1</text>
+        <rect x="408" y="100" width="88" height="40" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="452" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" fill="#1F1F23">offset=2</text>
+        <rect x="496" y="100" width="88" height="40" fill="rgba(45,49,66,0.04)" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="4,3"/>
+        <text x="540" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#5a6580">offset=3</text>
+        <rect x="596" y="108" width="76" height="24" rx="4" fill="#FFFFFF" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="634" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">LEO = 4</text>
+
+        <!-- Row 3: Follower-2 contiguous cells (0,1,2) -->
+        <rect x="232" y="156" width="88" height="40" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="276" y="180" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" fill="#1F1F23">offset=0</text>
+        <rect x="320" y="156" width="88" height="40" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="364" y="180" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" fill="#1F1F23">offset=1</text>
+        <rect x="408" y="156" width="88" height="40" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="452" y="180" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="10" fill="#1F1F23">offset=2</text>
+        <rect x="512" y="164" width="160" height="24" rx="4" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.5"/>
+        <text x="592" y="180" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#bf4520">最小 LEO=3 → HW=3</text>
+
+        <!-- Vertical High Watermark Line at x=496 (Focal 2) -->
+        <line x1="496" y1="36" x2="496" y2="204" stroke="#bf4520" stroke-width="2.2" stroke-dasharray="5,3"/>
+        <rect x="408" y="12" width="176" height="20" rx="4" fill="rgba(191,69,32,0.10)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="496" y="26" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="800" fill="#bf4520">HW = 3（消费者可见上限）</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="24" y1="220" x2="816" y2="220" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="24" y="232" width="14" height="10" rx="2" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="44" y="241" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">已提交消息（offset &lt; HW，消费者可读且切主不丢）</text>
+        <rect x="364" y="232" width="14" height="10" rx="2" fill="rgba(45,49,66,0.04)" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="3,2"/>
+        <text x="384" y="241" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">未全同步消息（HW ≤ offset &lt; LEO，对消费者暂时隐身）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">核心标尺</th>
+          <th style="width:32%">全称与精确定义</th>
+          <th>运行机制与常见追问点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>ISR</code></strong></td>
+          <td><strong>In-Sync Replicas（同步副本集合）</strong><br>包含 Leader 本身 + 未掉队的活跃 Follower</td>
+          <td>现代 Kafka 仅凭时间参数 <strong><code>replica.lag.time.max.ms</code>（默认 <code>30s</code>）</strong>判定进出（早已废弃易引发大批量抖动的落后条数阈值）：只要 Follower 超过 30 秒没发拉取请求或没追上 Leader 最新进度，就被移出 ISR；追平后自动重新加回。</td>
+        </tr>
+        <tr>
+          <td><strong><code>LEO</code></strong></td>
+          <td><strong>Log End Offset（日志末端偏移量）</strong><br>当前副本<strong>下一条待写入消息</strong>的 Offset</td>
+          <td>每个副本各自独立维护自己的 <code>LEO</code>。例如刚写完 <code>offset=2</code> 的副本，其 <code>LEO</code> 为 <code>3</code>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>HW</code></strong></td>
+          <td><strong>High Watermark（高水位线）</strong><br>等于 <code>HW = min(ISR 中所有副本的 LEO)</code></td>
+          <td>① <strong>定义消费者可见边界</strong>：消费者只能读到 <code>offset &lt; HW</code> 的消息，防止读到万一切主就会消失的未同步脏数据；② <strong>驱动 <code>acks=all</code> 返回</strong>：只有当 <code>HW</code> 越过某条消息时，Leader 才向 <code>acks=all</code> 的生产者返回写入成功。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 04.2 · 为什么光靠 HW 会丢已提交数据：Leader Epoch 破局 -->
+<div class="wb-card" id="leader-epoch" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🔬 04.2 · 截断防丢协议：为什么纯靠滞后 HW 会丢已提交数据，以及 Leader Epoch 的修复原理</div>
+  <h3>🔬 04.2 为什么光靠 <code>HW</code> 会丢数据：<code>Leader Epoch</code> 破局推演 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#lost">实战篇 04.1 存储高可用</a> —— 既然已经有了 <code>ISR + HW</code>，为什么 Kafka 0.11 还要专门引入 <code>Leader Epoch</code>？
+  </p>
+
+  <p>
+    在早期 Kafka 中，任何副本崩溃重启回来时，为了防止本地留有未提交脏数据，都会先执行一步操作：<strong>把自己的本地日志无条件截断（Truncate）到自己记录的 <code>HW</code> 位置</strong>。但这里藏着一个<strong>「Follower 的 HW 更新永远比 Leader 慢一轮 Fetch RPC」</strong>的时间差漏洞：
+  </p>
+
+  <div class="wb-grid-2">
+    <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:11px; padding:12px 14px; font-size:13px; line-height:1.6;">
+      <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:6px;">❌ 无 Leader Epoch 时的丢数据并发时序</div>
+      1. <strong>消息已提交，但备机 HW 尚未刷新</strong>：Leader A 和 Follower B 都已写完消息 <code>m1 (offset=1)</code>。A 收到 B 的拉取请求后把自己的 <code>HW</code> 推进到了 <code>2</code>（并向生产者返回了成功）；但 A 只能等 <strong>B 发起下一轮拉取时</strong>才能顺带把最新 <code>HW=2</code> 告诉 B，因此此刻 B 本地的 <code>LEO=2</code>，而旧 <code>HW</code> 仍停在 <code>1</code>。<br>
+      2. <strong>B 重启按旧 HW 自砍</strong>：此时 B 恰好重启，醒来看到本地 <code>HW=1</code>，于是把已经落盘的已提交消息 <code>m1</code> 从本地删掉了（<code>LEO</code> 退回 <code>1</code>）。<br>
+      3. <strong>A 紧接着断电宕机</strong>：在 B 还没来得及从 A 重新拉回 <code>m1</code> 的这一瞬间，Leader A 断电了；B 当选新 Leader，<strong>已经向客户端承诺成功的 <code>m1</code> 永久消失</strong>（若无视顺序选主还会造成日志分叉覆盖）。
+    </div>
+
+    <div style="background:#F0FDF4; border:2px solid #15803d; border-radius:11px; padding:12px 14px; font-size:13px; line-height:1.6;">
+      <div style="font-weight:900; color:#15803d; margin-bottom:6px;">✅ 引入 <code>Leader Epoch [epoch, startOffset]</code> 后</div>
+      Kafka 0.11+ 为每一次 Leader 换届分配单调递增的任期号 <code>Epoch</code>，并在每个副本本地持久化一张 <code>leader-epoch-checkpoint</code> 表（记录第几任 Leader 从哪个 Offset 开始写入）：<br>
+      1. <strong>禁止盲目按本地旧 HW 截断</strong>：Follower B 重启恢复后不再自顾自删日志。<br>
+      2. <strong>先发协议问当前 Leader</strong>：B 向 Leader A 发送 <code>OffsetsForLeaderEpochRequest(epoch=0)</code> 查询第 0 任期的真实末端进度。<br>
+      3. <strong>精准对齐不误删</strong>：Leader A 返回 <code>endOffset = 2</code>；B 发现自己本地的 <code>LEO=2</code> 并未超过 <code>2</code>，于是<strong>一字节都不截断，完整保住了 <code>m1</code></strong>，即使下一毫秒 A 宕机切主也零丢失。
+    </div>
+  </div>
+</div>

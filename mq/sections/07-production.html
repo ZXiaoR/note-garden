@@ -1,0 +1,184 @@
+<!-- ====================================================================
+     PART 07: 上线前必须知道 · Topic 规范、消息兼容、防踢调参与监控告警
+     ==================================================================== -->
+<div class="wb-sec-header" id="production" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">07</span>
+  <span class="wb-sec-title">上线前必须知道：Topic 规范、消息兼容、防踢调参与监控告警</span>
+  <span class="plop-tag tomato">NAMING · SCHEMA · MAX.POLL.INTERVAL · DLQ · METRICS</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>新需求提测上线前，按工程规范一次性定好 Topic 命名、初始分区数、消息 Key 与向后兼容格式，避开消费超时被踢出组的重平衡陷阱，并配齐防御三件套与核心监控告警。
+</div>
+
+<!-- 07.1 · Topic 命名、分区数怎么定、消息 Key 怎么选 -->
+<div class="wb-card" id="prod-topic" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">📐 07.1 · 容量与路由规划：Topic 命名规范、初始分区数估算与消息 Key 选择准则</div>
+  <h3>📐 07.1 Topic 命名、分区数与消息 Key 规范</h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">规划维度</th>
+          <th style="width:42%">推荐工程标准</th>
+          <th>常见反例与潜在问题</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① Topic 命名</strong></td>
+          <td>采用全小写三段式：<strong><code>&lt;业务域&gt;.&lt;资源实体&gt;.&lt;事件/类型&gt;</code></strong>（如 <code>trade.order.paid</code>、<code>telemetry.app.click</code>）；生产集群建议关闭 <code>auto.create.topics.enable=false</code>，统一走审批/脚本创建。</td>
+          <td>❌ 取名 <code>test1</code>、<code>msg_queue</code> 语义不明；开启自动建 Topic 后，代码拼错一个字母就会静默建出无人消费的幽灵 Topic。</td>
+        </tr>
+        <tr>
+          <td><strong>② 分区数怎么定</strong></td>
+          <td>按公式估算：<code>max(峰值生产吞吐 ÷ 单分区写能力, 峰值消费吞吐 ÷ 单消费者处理能力)</code>，并取预期消费者实例数的整数倍。<br>• 普通业务事件：初始 <strong><code>6</code> 或 <code>12</code> 个分区</strong>足够；<br>• 高并发日志流：初始 <strong><code>12</code>～<code>32</code> 个分区</strong>。</td>
+          <td>❌ 两个极端都要避开：① 只建 <code>1</code> 个分区导致未来无法水平加消费者扩容；② 一上来无脑建 <code>500</code> 个分区——注意<strong>分区数只能增不能减</strong>，单机分区成千上万会让磁盘顺序写退化为随机 I/O，还会拖慢故障选主与重平衡。</td>
+        </tr>
+        <tr>
+          <td><strong>③ 消息 Key 怎么选</strong></td>
+          <td>• <strong>需要局部保序</strong>：用高基数业务唯一标识（<code>order_no</code>、<code>user_id</code>、<code>sku_id</code>）；<br>• <strong>无需保序（纯吞吐）</strong>：Key 留空走轮询均衡。</td>
+          <td>❌ 用低基数枚举值当 Key（如按 <code>platform="iOS"</code> 或 <code>status="PAID"</code> 做 Key），会导致 80% 流量全砸进某一个分区造成严重热点积压。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 07.2 · 消息体大小、格式（JSON / Protobuf）、字段兼容与版本号 -->
+<div class="wb-card" id="prod-payload" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📦 07.2 · 消息契约设计：大小上限、JSON vs Protobuf 选型与不停机向后兼容</div>
+  <h3>📦 07.2 消息体大小、序列化格式与字段兼容</h3>
+
+  <ul>
+    <li><strong>消息体大小控制（拒绝大消息）</strong>：Kafka 默认单批最大限制约 <code>1 MiB</code>（<code>max.message.bytes</code>），生产推荐单条消息保持在 <strong><code>1 KB ~ 64 KB</code></strong> 以内。如果需要传递 5 MB 的电子发票 PDF、导出报表或高分辨率图片，<strong>严禁把文件 Base64 塞进消息体</strong>（会打爆 Broker 页缓存与网卡），标准做法是先把文件传到对象存储（OSS / S3），消息里只传文件的路径 URL 与哈希摘要。</li>
+    <li><strong>序列化格式选型（<code>JSON</code> vs <code>Protobuf</code>）</strong>：
+      <ul>
+        <li><strong><code>JSON</code></strong>：文本可读性好，在 Kafka UI 网页和命令行里一眼就能看清字段值，排障效率高；开启 <code>LZ4</code> 批量压缩后体积也很紧凑，<strong>90% 常规业务事件首选</strong>。</li>
+        <li><strong><code>Protobuf</code>（Protocol Buffers，协议缓冲区）</strong>：Google 跨语言二进制编码，带严格 <code>.proto</code> 契约校验，序列化耗时与体积均比未压缩 JSON 小一半以上，适合每秒数十万条的埋点、风控特征流与大型跨语言微服务。</li>
+      </ul>
+    </li>
+    <li><strong>字段兼容与版本号（防上线炸下游）</strong>：在多消费组架构中，生产者与下游三四个团队不可能在同一秒发版，消息结构必须自带信封元数据并遵守<strong>平滑演进三原则</strong>：</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>📄 order_event_envelope.json · 推荐的生产级消息信封结构与向后兼容三原则</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-prod-schema', this)">复制示例</button>
+    </div>
+    <pre class="plop-code-pre" id="code-prod-schema"><code>{
+  <span class="c-str">"eventId"</span>: <span class="c-str">"evt_01J8Z9K3M4P5Q6R7"</span>,   <span class="c-cm">// 必带：全局唯一事件 ID，供所有下游做消费幂等</span>
+  <span class="c-str">"eventType"</span>: <span class="c-str">"ORDER_PAID"</span>,            <span class="c-cm">// 必带：事件语义类型</span>
+  <span class="c-str">"schemaVersion"</span>: 2,                   <span class="c-cm">// 必带：契约版本号（破坏性变更时递增）</span>
+  <span class="c-str">"occurredAt"</span>: 1795838400000,          <span class="c-cm">// 必带：业务发生毫秒时间戳，方便监控端到端延迟与防旧覆盖</span>
+  <span class="c-str">"data"</span>: {
+    <span class="c-str">"orderNo"</span>: <span class="c-str">"ORD_20261128_01"</span>,
+    <span class="c-str">"amountCent"</span>: 19900,                <span class="c-cm">// 原则 ①：绝不原地改旧字段类型（如把整数分改成字符串元）</span>
+    <span class="c-str">"discountCent"</span>: 2000                <span class="c-cm">// 原则 ②：只追加可选新字段；旧消费者默认忽略未知字段，新消费者对缺失字段给零值</span>
+                                        <span class="c-cm">// 原则 ③：废弃旧字段前，必须确认所有下游消费组均已发版不再读取该字段</span>
+  }
+}</code></pre>
+  </div>
+</div>
+
+<!-- 07.3 · 消费超时与被踢出消费组（从现 07.3 挪实战部分过来） -->
+<div class="wb-card" id="rebalance-tuning" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">⏱️ 07.3 · 防踢出消费组：区分心跳超时与 max.poll.interval.ms 消费处理超时</div>
+  <h3>⏱️ 07.3 消费超时与被踢出消费组（<code>max.poll.interval.ms</code>）</h3>
+
+  <p>
+    线上最隐蔽的一类故障是：消费者进程明明活得好好的、CPU 和内存都很正常，却每隔几分钟就被踢出消费组触发 <strong><code>Rebalance</code>（分区重平衡）</strong>，交出分区后未提交的消息又被别的实例拉去重跑一遍，陷入「越重跑越慢、越慢越被踢」的死循环。根源在于没分清 Kafka 的两个超时时钟：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:28%">超时参数 / 调优项</th>
+          <th style="width:28%">典型默认值</th>
+          <th>监控什么 &amp; 生产怎么配才不会被误踢</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 消费处理最大间隔</strong><br><code>max.poll.interval.ms</code><br>配合 <code>max.poll.records</code></td>
+          <td>间隔 <code>5 分钟</code><br>单批 <code>500 条</code></td>
+          <td><strong>最常见的被踢元凶！</strong>它衡量「两次拉取请求之间的最大业务处理耗时」。假如一次拉了 500 条，下游外部接口变慢每条花 0.7 秒，共跑了 350 秒（超 5 分钟），Broker 就判定消费协程卡死直接踢人！<br>👉 <strong>调优：调小单批条数（<code>50~100</code>）、给下游 HTTP/SQL 设严格超时（如 <code>3s</code>），长耗时导出任务将间隔调大至 <code>15~30 分钟</code>。</strong></td>
+        </tr>
+        <tr>
+          <td><strong>② 进程存活心跳超时</strong><br><code>session.timeout.ms</code><br><code>heartbeat.interval.ms</code></td>
+          <td>会话 <code>45s</code><br>心跳 <code>3s</code></td>
+          <td>由客户端后台独立心跳线程定时发送，专门检测机器宕机或网络中断。保持 <code>heartbeat &lt;= 1/3 * session.timeout</code> 即可，切勿把 <code>session.timeout.ms</code> 改得过小（如 <code>6s</code>），否则轻微网络抖动就会误踢。</td>
+        </tr>
+        <tr>
+          <td><strong>③ 静态成员资格</strong><br><code>group.instance.id</code></td>
+          <td>默认未开启</td>
+          <td>K8s 容器滚动发版重启时，若给每个 Pod 配置固定的 <code>group.instance.id</code>，只要新容器在 <code>session.timeout.ms</code> 内启动连回，Broker 直接把原分区还给它，<strong>发版全程零无谓重平衡</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>④ 增量协作重平衡策略</strong><br><code>CooperativeStickyAssignor</code></td>
+          <td>旧版默认 Eager 全量回收</td>
+          <td>使用支持协作重平衡的客户端策略时，扩缩容只迁移变动的那一两个分区，其余未变动分区不中断消费。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:0;">
+    💡 <strong>背后的原理：</strong><code>GroupCoordinator</code> 与客户端班长（Consumer Leader）是怎么通过两阶段握手完成分区重新分配的？为什么传统重平衡会导致全组消费停顿（STW）？详见 <a href="principles.html#rebalance">《📘 核心原理篇 · 05 Rebalance 原理》</a>。
+  </p>
+</div>
+
+<!-- 07.4 · 上线核查清单与监控告警 -->
+<div class="wb-card" id="prod-checklist" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🚨 07.4 · 上线核对与可观测性：防御三件套自查与 5 项必配监控告警</div>
+  <h3>🚨 07.4 防御三件套核查与核心监控告警</h3>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:12px 14px; font-size:13.2px; line-height:1.6;">
+      <div style="font-weight:900; color:var(--plop-ink); margin-bottom:6px;">☑️ 代码合入前必查「消费防御三件套」</div>
+      <ol style="margin:0; padding-left:18px;">
+        <li><strong>手动提交 + 有限退避重试是否配好？</strong>（关闭自动提交，下游瞬时报错走退避重试，不在原地无休眠死循环）。</li>
+        <li><strong>死信队列（<code>DLQ</code>）是否兜底？</strong>（超过最大重试次数的毒丸消息自动转入 <code>.dlq</code> 放行主分区，不让 1 条坏数据堵死全站）。</li>
+        <li><strong>消费端业务幂等是否实现？</strong>（唯一索引、条件状态更新或 Redis 三态锁至少落地一种，重跑历史数据不翻车）。</li>
+      </ol>
+    </div>
+
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:12px 14px; font-size:13.2px; line-height:1.6;">
+      <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:6px;">🔔 生产必配的 5 项监控告警指标</div>
+      <ol style="margin:0; padding-left:18px;">
+        <li><strong><code>Consumer Lag</code>（消费积压量与持续时长）</strong>：不仅看绝对条数，更要看「连续 5 分钟只涨不降」告警。</li>
+        <li><strong><code>Producer Error Rate</code>（生产发送失败率）</strong>：大于 <code>0</code> 立即告警，排查网络、磁盘满或 <code>min.isr</code> 不足。</li>
+        <li><strong><code>Consume Latency P99</code>（单条消费耗时）</strong>：识别下游慢 SQL/慢接口，提前防超时踢出组。</li>
+        <li><strong><code>Rebalance Rate</code>（消费组重平衡次数）</strong>：非发版期间重平衡次数突增，说明存在慢消费被踢或容器反复重启。</li>
+        <li><strong><code>DLQ Message Count</code>（死信队列新增条数）</strong>：<strong>只要 <code>&gt; 0</code> 立即发即时通讯告警</strong>，当天人工介入排查修复。</li>
+      </ol>
+    </div>
+  </div>
+
+  <h4 id="quiz-07" style="margin:0 0 8px;">☑️ 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 上游订单团队想把 <code>amount</code> 字段从整数分（<code>19900</code>）直接改成带小数点的字符串元（<code>"199.00"</code>）直接发版上线，会发生什么？正确的改法是什么？</span></summary>
+    <div class="drawer-body">
+      <p><strong>直接发版会导致下游 Go / Java 静态类型消费者全部反序列化报错</strong>（如 <code>json: cannot unmarshal string into Go struct field .amount of type int64</code>），新产生的订单事件全数掉进死信队列或卡住分区。<br>
+      <strong>正确改法</strong>：保留原 <code>amount</code>（或 <code>amountCent</code>）整数不变，<strong>新增一个可选字段 <code>amountYuanStr: "199.00"</code></strong>；等所有下游消费组都平滑升级读取新字段后，再在下个大版本清理旧字段。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 业务需要异步生成 8 MB 的年度账单 PDF 发邮件给用户，生产端直接把 8 MB PDF 字节流塞进 Kafka Value 发送，结果直接报错拒收，该怎么重构？</span></summary>
+    <div class="drawer-body">
+      <p>触发了 Kafka 单批最大消息限制（默认 <code>1 MiB</code>，报 <code>MessageSizeTooLargeException</code>）。<strong>不要去盲目把 Broker 上限改成 20 MB</strong>，正确做法是：生成账单后先把 PDF 上传到对象存储（OSS / S3 / MinIO），往 Kafka 里只发一条几百字节的 JSON（含 <code>userId</code> 与 <code>pdfObjectKey</code>），邮件消费者收到后拉取文件流或拼出签名下载链接发信。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 监控报警某消费组非发版时段每小时触发十几次 Rebalance，看服务器内存和网络都很平稳，第一步该怀疑什么？</span></summary>
+    <div class="drawer-body">
+      <p>第一步看消费单批耗时是否超过了 <code>max.poll.interval.ms</code>（默认 5 分钟）。比如代码里调了一个没设超时时间的第三方 HTTP 接口，偶发卡住几分钟导致未能按时发起下一轮拉取，被 Coordinator 判定假死踢出消费组。</p>
+    </div>
+  </details>
+</div>

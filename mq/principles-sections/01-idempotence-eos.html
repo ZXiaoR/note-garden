@@ -1,0 +1,60 @@
+<!-- ====================================================================
+     PART 01 (PRINCIPLES): 幂等生产者与投递语义 · PID + Sequence 与 EOS
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="eos">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">幂等生产者与投递语义：PID + Sequence 滑动窗口与 EOS 两阶段提交</span>
+  <span class="plop-tag tomato">AT-LEAST-ONCE · PID + SEQ · TRANSACTION COORDINATOR · LSO</span>
+</div>
+
+<!-- 01.1 · PID + Sequence Number 滑动窗口判重与保序原理 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">⚙️ 01.1 · 幂等生产者内核：PID + Sequence Number 内存滑动窗口判重与管道保序</div>
+  <h3>⚙️ 01.1 <code>PID + Sequence Number</code> 是如何实现单分区判重与防乱序的 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#eos-summary">实战篇 04.3 幂等生产者结论</a> —— 开启 <code>enable.idempotence=true</code> 后，Broker 底层究竟靠什么数据结构拦住网络重发包，又为什么它允许单连接同时在途发送 5 个批次却绝不乱序？
+  </p>
+
+  <p>
+    消息传递共有三种标准语义：<strong><code>At-most-once</code>（最多一次，发后不管可丢不重）</strong>、<strong><code>At-least-once</code>（至少一次，超时重发不丢但可重）</strong>、<strong><code>Exactly-once</code>（精确一次，不丢不重）</strong>。在网络抖动导致 Broker 已写盘但返回的确认包半路丢失时，Producer 超时重发就会在分区里写出两条重复记录。Kafka 0.11+ 引入并在 3.0+ 默认开启的<strong>幂等生产者</strong>，用极轻量的两级编号消除了这一层重复：
+  </p>
+
+  <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:12px 0;">
+    <ol style="margin:0; font-size:13.2px; line-height:1.62;">
+      <li><strong>初始化分配 <code>PID（Producer ID，生产者唯一标识）</code></strong>：每个开启幂等的 Producer 实例启动连接时，向 Broker 申请一个全局唯一递增的 64 位整数 <code>PID</code>（对业务代码完全透明）。</li>
+      <li><strong>按分区维护单调递增 <code>Sequence Number（批次序列号）</code></strong>：Producer 在内存中为发往每一个 <code>(Topic, Partition)</code> 的消息批次（<code>RecordBatch</code>）附带一个从 <code>0</code> 开始严格加 1 递增的 32 位整数 <code>Seq</code>。</li>
+      <li><strong>Broker 端 5 槽位滑动窗口校验</strong>：Leader 副本在内存（并随快照持久化）为每个 <code>(PID, Partition)</code> 缓存<strong>最近收到的 5 个批次序列号状态</strong>，设上一批成功写入的最大序号为 <code>LastSeq</code>：
+        <ul>
+          <li>当新到达批次的 <code>Seq == LastSeq + 1</code> 👉 严格连续，<strong>正常追加写入日志并更新 <code>LastSeq</code></strong>；</li>
+          <li>当新到达批次的 <code>Seq &lt;= LastSeq</code>（且命中最近 5 个批次窗口） 👉 说明这是因 ACK 丢包触发的<strong>网络重发旧包，Broker 直接静默丢弃数据，但向 Producer 返回写入成功响应</strong>，从而消除重复落盘；</li>
+          <li>当新到达批次的 <code>Seq &gt; LastSeq + 1</code> 👉 说明前序批次尚未到达（发生了管道超车乱序），Broker 直接拒绝并返回 <code>OutOfOrderSequenceException</code> 触发客户端按序重排重发——这就解释了为什么只要满足 <strong><code>max.in.flight.requests.per.connection &lt;= 5</code></strong>，即使开启异步管道并发也能保证分区内严格有序。</li>
+        </ul>
+      </li>
+    </ol>
+  </div>
+
+  <div class="plop-callout warn" style="margin-bottom:0;">
+    <strong>🚫 再次明确它的物理边界（面试高频追问点）：</strong><br>
+    由于 <code>PID</code> 是进程级临时身份且没有跨会话持久化绑定业务数据：① Producer 容器重启后会领到全新的 <code>PID</code>，旧会话未决重发无法跨重启去重；② 同一条消息发往不同分区各自独立编号，不防跨分区重复；③ 上游代码逻辑 Bug 调用两次 <code>send()</code> 会被分配 <code>Seq=1</code> 和 <code>Seq=2</code> 视为两条合法新消息。因此消费端修改外部数据库时，实战篇 <a href="index.html#idempotent">04.2 的业务幂等</a> 永远不可省略。
+  </div>
+</div>
+
+<!-- 01.2 · 跨分区事务与流计算 EOS 两阶段提交 -->
+<div class="wb-card" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🔬 01.2 · 流处理精确一次（EOS）：TransactionCoordinator 两阶段提交与 LSO 隔离水位</div>
+  <h3>🔬 01.2 跨分区事务与流计算 EOS 的底层两阶段提交 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#eos-summary">实战篇 04.3 结论 ②</a> —— 在 Flink / Kafka Streams「从 Topic A 读 → 计算 → 写回 Topic B / C」场景下，Kafka 是怎么跨越多个分区做到「消费进度提交」与「多分区结果写入」同生共死的？
+  </p>
+
+  <ol style="font-size:13.3px; line-height:1.65;">
+    <li><strong>静态绑定 <code>transactional.id</code> 与递增纪元 <code>producer_epoch</code>（防僵尸实例）</strong>：开发者显式配置固定的 <code>transactional.id</code>。当旧实例假死卡顿、新实例用相同 <code>transactional.id</code> 启动时，服务端 <code>TransactionCoordinator（事务协调器）</code> 会把它的 <code>epoch</code> 加 1——旧僵尸实例恢复后再发来的任何写入请求都会因 <code>epoch</code> 过期被直接围栏拦截（Fencing）。</li>
+    <li><strong>日志先原样落盘，靠控制标记（Control Marker）决定可见性</strong>：事务开启后，Producer 写往多个目标分区的数据以及提交给 <code>__consumer_offsets</code> 的消费位点，其实<strong>已经直接追加写进了各自的分区日志文件</strong>，只是还处于“未决事务”状态。</li>
+    <li><strong>两阶段提交写 <code>COMMIT / ABORT</code> 标记</strong>：调用 <code>commitTransaction()</code> 时，<code>TransactionCoordinator</code> 先在内部事务日志 <code>__transaction_state</code> 持久化写入 <code>PREPARE_COMMIT</code>，随后向本次涉及的所有分区追加写入一条特殊的<strong>控制记录（<code>COMMIT</code> 或 <code>ABORT</code> Marker）</strong>，全部写完后标记事务完成。</li>
+    <li><strong>消费端 <code>read_committed</code> 与 <code>LSO（Last Stable Offset，最后稳定偏移量）</code></strong>：配置了 <code>isolation.level = read_committed</code> 的下游消费者，最多只能读到 <code>LSO</code>（即分区内最早一条尚未完结事务的起始位置，<code>LSO &lt;= HW</code>）之前的消息，并自动在客户端过滤掉带有 <code>ABORT</code> 标记的已回滚批次。</li>
+  </ol>
+</div>

@@ -28,7 +28,7 @@
     { path: 'go/index.html', aliases: ['go/principles.html', 'go/principles'], title: '🐹 Go 语言与原理', dot: 'mustard', group: 'sys' },
     { path: 'node/index.html', aliases: ['node/principles.html', 'node/principles'], title: '🟢 Node.js 基础与原理', dot: 'mint', group: 'sys' },
     { path: 'os/index.html', aliases: ['os/principles.html', 'os/principles'], title: '🖥️ Linux 操作系统', dot: 'mint', group: 'sys' },
-    { path: 'mq/index.html', title: '📨 消息队列对比', dot: '', group: 'sys' },
+    { path: 'mq/index.html', aliases: ['mq/principles.html', 'mq/principles'], title: '📨 消息队列基础与原理', dot: '', group: 'sys' },
     { path: 'backend/reliability.html', title: '🛡️ 稳定性七件套与防线', dot: 'tomato', group: 'sys', recent: true },
     { path: 'browser/index.html', aliases: ['browser/principles.html', 'browser/principles'], title: '🌐 浏览器工作原理', dot: 'periwinkle', group: 'sys' },
     { path: 'webrtc/index.html', aliases: ['webrtc/principles.html', 'webrtc/principles'], title: '📹 音视频与 WebRTC', dot: 'mint', group: 'sys', recent: true }
@@ -302,29 +302,58 @@
       });
 
       // 同步「入门篇 ⇄ 原理篇」切换按钮的当前章节锚点，实现“读到哪一章，切过去就是哪一章”
+      const curPath = window.location.pathname || '';
+      const isMqPage = curPath.includes('/mq/');
+      const mqToPrinciplesMap = {
+        overview: 'push-pull',
+        concepts: 'push-pull',
+        quickstart: 'push-pull',
+        scenarios: 'tx-delay',
+        reliable: 'eos',
+        order: 'advanced',
+        arch: 'storage',
+        production: 'rebalance',
+        quiz: 'advanced'
+      };
+      const mqToPracticeMap = {
+        'push-pull': 'overview',
+        eos: 'reliable',
+        'tx-delay': 'scenarios',
+        storage: 'arch',
+        isr: 'reliable',
+        rebalance: 'production',
+        advanced: 'order'
+      };
       const principlesAnchorMap = {
         'linux-cmd': 'tools',
-        'overview': 'why',
-        'quickstart': 'why',
-        'scenarios': 'lock',
-        'production': 'fast',
-        'quiz': 'cheat'
+        overview: 'why',
+        quickstart: 'why',
+        scenarios: 'lock',
+        production: 'fast',
+        quiz: 'cheat'
       };
       const practiceAnchorMap = {
-        'why': 'overview',
-        'fast': 'production',
-        'lock': 'scenarios'
+        why: 'overview',
+        fast: 'production',
+        lock: 'scenarios'
       };
       document.querySelectorAll('[data-edition-target]').forEach(a => {
         const base = a.getAttribute('data-edition-target');
         if (!base) return;
         let targetHash = currentId;
-        if (base.includes('principles.html') && principlesAnchorMap[currentId]) {
+        if (isMqPage) {
+          if (base.includes('principles.html') && mqToPrinciplesMap[currentId]) {
+            targetHash = mqToPrinciplesMap[currentId];
+          } else if (base.includes('index.html') && mqToPracticeMap[currentId]) {
+            targetHash = mqToPracticeMap[currentId];
+          }
+        } else if (base.includes('principles.html') && principlesAnchorMap[currentId]) {
           targetHash = principlesAnchorMap[currentId];
-        } else if (base.includes('index.html') && (window.location.pathname || '').includes('/redis/') && practiceAnchorMap[currentId]) {
+        } else if (base.includes('index.html') && curPath.includes('/redis/') && practiceAnchorMap[currentId]) {
           targetHash = practiceAnchorMap[currentId];
         }
-        const isTopChapter = !targetHash || targetHash === 'why' || targetHash === 'overview';
+        const isTopChapter =
+          !targetHash || targetHash === 'why' || targetHash === 'overview' || targetHash === 'push-pull';
         a.setAttribute('href', !isTopChapter ? `${base}#${targetHash}` : base);
       });
     }
@@ -335,7 +364,19 @@
   }
 
   // 10. 自动并行加载拆分的纯 HTML 章节子文件 ([data-plop-section="sections/01-xxx.html"])
-  const SECTION_CACHE_PREFIX = 'plop-sec-v12:';
+  const SECTION_CACHE_PREFIX = 'plop-sec-v14:';
+
+  function normalizePlopDrawers(root = document) {
+    root.querySelectorAll('details.plop-drawer > summary').forEach(summary => {
+      if (summary.querySelector(':scope > .plop-drawer-title')) return;
+      const span = document.createElement('span');
+      span.className = 'plop-drawer-title';
+      while (summary.firstChild) {
+        span.appendChild(summary.firstChild);
+      }
+      summary.appendChild(span);
+    });
+  }
   const prefetchedPages = new Set();
 
   function getSectionCacheKey(url, baseHref = window.location.href) {
@@ -411,6 +452,7 @@
       slots.forEach((slot, idx) => {
         slot.outerHTML = cachedFragments[idx];
       });
+      normalizePlopDrawers();
       refreshScrollSpy();
       if (window.location.hash) {
         revealHashTarget(true);
@@ -448,6 +490,7 @@
         slot.outerHTML = fragments[idx];
       });
 
+      normalizePlopDrawers();
       refreshScrollSpy();
       if (window.location.hash) {
         revealHashTarget(true);
@@ -473,6 +516,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     ensurePlopSvgSprite();
     renderTopicTabs();
+    normalizePlopDrawers();
 
     const currentSurface = document.documentElement.getAttribute('data-plop-surface') || 'mat';
     document.querySelectorAll('[data-surface-btn]').forEach(btn => {

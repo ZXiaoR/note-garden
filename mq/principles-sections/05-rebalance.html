@@ -1,0 +1,64 @@
+<!-- ====================================================================
+     PART 05 (PRINCIPLES): Rebalance 原理 · 协调者两阶段协议与增量协作重平衡
+     ==================================================================== -->
+<div class="wb-sec-header" id="rebalance" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">Rebalance 原理：GroupCoordinator 两阶段协议与增量协作重平衡</span>
+  <span class="plop-tag tomato">GROUP COORDINATOR · JOINGROUP / SYNCGROUP · STW · COOPERATIVE STICKY</span>
+</div>
+
+<!-- 05.1 · GroupCoordinator 两阶段握手协议与全组 STW 成因 -->
+<div class="wb-card" id="rebalance-proto" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔄 05.1 · 重平衡协调协议：FindCoordinator / JoinGroup / SyncGroup 与客户端算方案的原因</div>
+  <h3>🔄 05.1 消费者组 Rebalance 的两阶段握手与 STW 成因 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#rebalance-tuning">实战篇 07.3 消费超时与被踢出组</a> —— 当组内增减机器或某台消费者超时被踢时，分区所有权在底层是怎么重新洗牌的？为什么传统重平衡会让整个消费组全部暂停工作？
+  </p>
+
+  <p>
+    当满足三类触发条件之一（<strong>① 组内成员数量变化；② 订阅 Topic 的分区数增加；③ 正则订阅匹配到新 Topic</strong>）时，负责该消费组的服务端协调者 <code>GroupCoordinator</code> 就会组织全组执行以下四步协议：
+  </p>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px; margin:12px 0;">
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px; font-size:12.8px; line-height:1.55;">
+      <strong>① FindCoordinator</strong><br>
+      客户端按 <code>abs(hash(group.id)) % 50</code>（内部主题 <code>__consumer_offsets</code> 默认 50 个分区）找到该分区 Leader 所在的 Broker，它就是管理本组的 <code>GroupCoordinator</code>。
+    </div>
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px; font-size:12.8px; line-height:1.55;">
+      <strong>② JoinGroup（入组选班长）</strong><br>
+      所有存活成员向 Coordinator 发送 <code>JoinGroup</code> 报到。Coordinator 选出第一个报到的消费者作为本轮<strong>客户端班长（Consumer Leader）</strong>，把全组存活成员名单和订阅信息返回给班长。
+    </div>
+    <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px; font-size:12.8px; line-height:1.55;">
+      <strong>③ SyncGroup（班长下发方案）</strong><br>
+      <strong>由客户端班长在本地运行分配算法（如 Range / RoundRobin / Sticky）算出谁领哪几个分区</strong>，通过 <code>SyncGroup</code> 提交给 Coordinator，再由 Coordinator 分发给每个组员。
+    </div>
+    <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:10px 12px; font-size:12.8px; line-height:1.55;">
+      <strong>④ Heartbeat（世代保活）</strong><br>
+      每次重平衡完成都会把组纪元号 <code>GenerationID</code> 加 1（拦截旧世代迟到的非法 Offset 提交），成员通过后台独立线程定时发送心跳维持租约。
+    </div>
+  </div>
+
+  <p style="font-size:13.2px; margin-bottom:0;">
+    💡 <strong>为什么让客户端班长算分配方案，而不是让 Broker 直接算？</strong>这样做既把计算开销从服务端卸载到了客户端，又让业务团队可以<strong>自由实现自定义的分区分配策略（如按机房就近分配）而完全无需修改或重启 Broker 集群</strong>。<br>
+    ⚠️ <strong>为什么传统 Eager（急切式）模式会导致全组 <code>STW（Stop-The-World，全局消费停顿）</code>？</strong>因为在 Eager 协议下，组员发 <code>JoinGroup</code> 之前必须<strong>无条件先交出自己手上全部的分区所有权并停止拉取</strong>，等最慢的那台成员也对齐完成 <code>Join + Sync</code> 后大家才能重新开始消费——组内若有上百个实例，一次滚动发版就会造成数十秒甚至数分钟的全组零吞吐。
+  </p>
+</div>
+
+<!-- 05.2 · 增量协作式重平衡原理 -->
+<div class="wb-card" id="coop-sticky" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🔬 05.2 · 无停顿重平衡：CooperativeStickyAssignor 两小步增量剥离机制</div>
+  <h3>🔬 05.2 增量协作式重平衡是如何消除全局 STW 的 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#rebalance-tuning">实战篇 07.3 调优项 ④</a> —— 开启 <code>CooperativeStickyAssignor</code> 后，新扩容一台消费者 C3 时，原本正在消费 P0～P5 的 C1、C2 是怎么做到不中断消费就把分区让出一部分的？
+  </p>
+
+  <p style="font-size:13.3px; margin-bottom:0;">
+    Kafka 2.4+ 引入并在 3.x 成熟的<strong>增量协作协议（Incremental Cooperative Rebalancing）</strong>把原来粗暴的“全员没收重分”拆成了<strong>两轮极轻量的协商</strong>：<br>
+    1. <strong>第一轮重平衡（不没收任何分区，只通知需出让的差集）</strong>：假设 C1 拿着 <code>[P0, P1, P2]</code>，C2 拿着 <code>[P3, P4, P5]</code>，此时新节点 C3 加入。第一轮 <code>JoinGroup</code> 时 C1、C2 <strong>保留各自全部分区继续正常消费</strong>；班长算出粘性新方案后，只通知 C1 放弃 <code>P2</code>、通知 C2 放弃 <code>P5</code>。<br>
+    2. <strong>第二轮重平衡（仅交接被剥离的那两个分区）</strong>：C1 和 C2 提交完 <code>P2</code>、<code>P5</code> 的 Offset 并释放它们后立刻触发第二轮轻量同步，将闲置出来的 <code>[P2, P5]</code> 正式分配给新成员 C3——<strong>在此期间 <code>P0, P1, P3, P4</code> 四个分区一毫秒都没有停止过消费</strong>，彻底消除了全局 STW 抖动。
+  </p>
+</div>

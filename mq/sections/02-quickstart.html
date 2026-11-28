@@ -1,0 +1,277 @@
+<!-- ====================================================================
+     PART 02: 跑起来 · Docker 启动 Kafka (KRaft)、命令行与第一段收发代码
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="quickstart">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">跑起来：Docker 启动 Kafka（KRaft）、命令行与第一段收发代码</span>
+  <span class="plop-tag">DOCKER COMPOSE · KRAFT 3.8 · CLI · KAFKA-GO · KAFKAJS</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>5 分钟在本地启动无需 ZooKeeper 的单节点 Kafka 与网页管理面板，敲通建 Topic、收发消息与查积压命令，用代码发出并收到第一条消息，亲手验证组内分摊与跨组广播。
+</div>
+
+<!-- 02.1 · Docker Compose 启动单节点 Kafka (KRaft) + Web UI -->
+<div class="wb-card" id="qs-docker" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🐳 02.1 · 本地环境搭建：Docker Compose 一键启动 Kafka 3.8（KRaft 模式）与 Web UI</div>
+  <h3>🐳 02.1 启动单节点 Kafka 与可视化控制台</h3>
+
+  <p>
+    早期版本的 Kafka 必须额外先搭一套 ZooKeeper 才能运行；从 <strong>Kafka 3.3+ 起正式内置了 <code>KRaft</code>（Kafka Raft Metadata mode，基于 Raft 共识算法的内置元数据模式），Kafka 4.0 更已彻底移除 ZooKeeper</strong>。本地练习直接用官方 <code>apache/kafka:3.8.0</code> 镜像搭配可视化面板 <code>kafka-ui</code>，新建一个空目录保存以下 <code>docker-compose.yml</code> 后执行 <code>docker compose up -d</code> 即可：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐳 docker-compose.yml · 单节点 Kafka (KRaft) + Kafka Web UI [Kafka 3.8 / 兼容 4.0]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-qs-compose', this)">复制配置</button>
+    </div>
+    <pre class="plop-code-pre" id="code-qs-compose"><code>services:
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: local-kafka
+    ports:
+      - "9092:9092"   <span class="c-cm"># 供宿主机上的 Go / Node.js 代码连接 (localhost:9092)</span>
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      <span class="c-cm"># 双监听器：INTERNAL 供 Docker 容器内 Web UI 访问，EXTERNAL 供宿主机代码访问</span>
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      <span class="c-cm"># 单节点开发环境必须把内部 Topic 副本数设为 1（生产多节点默认是 3）</span>
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: local-kafka-ui
+    ports:
+      - "8080:8080"   <span class="c-cm"># 浏览器访问 http://localhost:8080 查看 Topic、分区与消息</span>
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-kraft
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:10px 0 0;">
+    💡 启动约 10 秒后，浏览器打开 <code>http://localhost:8080</code>，即可在图形界面看到在线的 1 台 Broker 节点。注意单机环境下 <code>KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1</code> 不可省略，否则消费组提交 Offset 时会因为默认寻找 3 台副本而报错。
+  </p>
+</div>
+
+<!-- 02.2 · 命令行四步闭环：建 Topic、发消息、消费、看 Lag -->
+<div class="wb-card" id="qs-cli" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">⌨️ 02.2 · 命令行实操：建 Topic、发消息、消费消息与查看消费组 Lag</div>
+  <h3>⌨️ 02.2 先用 4 条命令走通完整收发闭环</h3>
+
+  <p>
+    官方镜像已将管理脚本放在容器内的 <code>/opt/kafka/bin/</code> 目录。打开终端依次执行下面 4 步，亲眼看到消息写入与 Offset 变化：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>⌨️ quickstart_cli.sh · 建 Topic、生产、消费与查看积压 Lag [Kafka 3.x / 4.x]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-qs-cli', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-qs-cli"><code><span class="c-cm"># 1. 创建名为 order.events 的 Topic，指定 3 个分区、单机 1 个副本</span>
+docker exec -it local-kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 \
+  --create --topic order.events --partitions 3 --replication-factor 1
+
+<span class="c-cm"># 查看刚创建的 Topic 详情（确认 Partition 0 / 1 / 2 均已就绪）</span>
+docker exec -it local-kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 --describe --topic order.events
+
+<span class="c-cm"># 2. 发送几条带 Key 的测试消息（按冒号分隔 Key:Value，输入完按 Ctrl+C 退出）</span>
+docker exec -it local-kafka /opt/kafka/bin/kafka-console-producer.sh \
+  --bootstrap-server localhost:9092 --topic order.events \
+  --property parse.key=true --property key.separator=:
+<span class="c-cm"># 依次粘贴下面三行回车：</span>
+<span class="c-cm"># ORD_101:{"orderNo":"ORD_101","amount":99}</span>
+<span class="c-cm"># ORD_102:{"orderNo":"ORD_102","amount":199}</span>
+<span class="c-cm"># ORD_103:{"orderNo":"ORD_103","amount":299}</span>
+
+<span class="c-cm"># 3. 以消费组 demo-cli-grp 从头消费消息（打印所属分区、Offset、Key 和 Value）</span>
+docker exec -it local-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic order.events \
+  --group demo-cli-grp --from-beginning \
+  --property print.partition=true --property print.offset=true --property print.key=true
+
+<span class="c-cm"># 4. 另开一个终端查看消费组进度与积压量 LAG（LAG = LOG-END-OFFSET - CURRENT-OFFSET）</span>
+docker exec -it local-kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:9092 --describe --group demo-cli-grp</code></pre>
+  </div>
+</div>
+
+<!-- 02.3 · Go 与 Node.js 最小生产者 + 消费者示例 -->
+<div class="wb-card" id="qs-code" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🚀 02.3 · 第一段代码：Go (segmentio/kafka-go) 与 Node.js (kafkajs) 最小收发示例</div>
+  <h3>🚀 02.3 用代码连上本地 Kafka 收发消息</h3>
+
+  <p>
+    下面分别给出 <strong>Go</strong>（采用纯 Go 实现、零 C 依赖的 <code>github.com/segmentio/kafka-go v0.4.47</code>，后续实战章节均以它为主）与 <strong>Node.js</strong>（采用 <code>kafkajs v2.2.4</code>）的最小生产者 + 消费者闭环代码，连接本机 <code>localhost:9092</code> 直接运行即可：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 main.go · Go 最小生产与消费组示例 [kafka-go v0.4.47]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-qs-go', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-qs-go"><code><span class="c-cm">// go mod init mq-demo &amp;&amp; go get github.com/segmentio/kafka-go@v0.4.47</span>
+<span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"log"</span>
+    <span class="c-str">"time"</span>
+
+    <span class="c-str">"github.com/segmentio/kafka-go"</span>
+)
+
+<span class="c-kw">func</span> main() {
+    ctx := context.Background()
+
+    <span class="c-cm">// 1. 生产者：向 order.events 发送 1 条消息</span>
+    writer := &amp;kafka.Writer{
+        Addr:     kafka.TCP(<span class="c-str">"localhost:9092"</span>),
+        Topic:    <span class="c-str">"order.events"</span>,
+        Balancer: &amp;kafka.Hash{}, <span class="c-cm">// 按 Key 哈希选分区</span>
+    }
+    err := writer.WriteMessages(ctx, kafka.Message{
+        Key:   []<span class="c-kw">byte</span>(<span class="c-str">"ORD_2001"</span>),
+        Value: []<span class="c-kw">byte</span>(<span class="c-str">`{"orderNo":"ORD_2001","event":"PAID"}`</span>),
+    })
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        log.Fatal(<span class="c-str">"发送失败:"</span>, err)
+    }
+    _ = writer.Close()
+    fmt.Println(<span class="c-str">"✅ 消息发送成功"</span>)
+
+    <span class="c-cm">// 2. 消费者组：读取刚发出的消息</span>
+    reader := kafka.NewReader(kafka.ReaderConfig{
+        Brokers:     []<span class="c-kw">string</span>{<span class="c-str">"localhost:9092"</span>},
+        Topic:       <span class="c-str">"order.events"</span>,
+        GroupID:     <span class="c-str">"coupon-service-grp"</span>,
+        StartOffset: kafka.FirstOffset, <span class="c-cm">// 新消费组首次从头读</span>
+    })
+    <span class="c-kw">defer</span> reader.Close()
+
+    readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+    <span class="c-kw">defer</span> cancel()
+
+    msg, err := reader.ReadMessage(readCtx)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        log.Fatal(<span class="c-str">"消费失败:"</span>, err)
+    }
+    fmt.Printf(<span class="c-str">"📥 收到消息: 分区=%d offset=%d key=%s val=%s\n"</span>,
+        msg.Partition, msg.Offset, <span class="c-kw">string</span>(msg.Key), <span class="c-kw">string</span>(msg.Value))
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🟢 demo.mjs · Node.js 最小生产与消费示例 [kafkajs v2.2.4]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-qs-node', this)">复制 JS</button>
+      </div>
+      <pre class="plop-code-pre" id="code-qs-node"><code><span class="c-cm">// npm init -y &amp;&amp; npm install kafkajs@2.2.4</span>
+<span class="c-kw">import</span> { Kafka } <span class="c-kw">from</span> <span class="c-str">'kafkajs'</span>;
+
+<span class="c-kw">const</span> kafka = <span class="c-kw">new</span> Kafka({
+  clientId: <span class="c-str">'order-demo-app'</span>,
+  brokers: [<span class="c-str">'localhost:9092'</span>],
+});
+
+<span class="c-kw">async function</span> main() {
+  <span class="c-cm">// 1. 生产者发送消息</span>
+  <span class="c-kw">const</span> producer = kafka.producer();
+  <span class="c-kw">await</span> producer.connect();
+  <span class="c-kw">await</span> producer.send({
+    topic: <span class="c-str">'order.events'</span>,
+    messages: [
+      { key: <span class="c-str">'ORD_2002'</span>, value: JSON.stringify({ orderNo: <span class="c-str">'ORD_2002'</span>, event: <span class="c-str">'PAID'</span> }) },
+    ],
+  });
+  <span class="c-kw">await</span> producer.disconnect();
+  console.log(<span class="c-str">'✅ Node 生产者发送成功'</span>);
+
+  <span class="c-cm">// 2. 消费者组订阅并消费</span>
+  <span class="c-kw">const</span> consumer = kafka.consumer({ groupId: <span class="c-str">'sms-service-grp'</span> });
+  <span class="c-kw">await</span> consumer.connect();
+  <span class="c-kw">await</span> consumer.subscribe({ topic: <span class="c-str">'order.events'</span>, fromBeginning: <span class="c-kw">true</span> });
+
+  <span class="c-kw">await</span> consumer.run({
+    eachMessage: <span class="c-kw">async</span> ({ partition, message }) =&gt; {
+      console.log(
+        <span class="c-str">`📥 收到: 分区=${partition} offset=${message.offset} key=${message.key} val=${message.value}`</span>
+      );
+    },
+  });
+}
+
+main().catch(console.error);</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 02.4 · 动手实验：验证同组分区分配与跨组独立广播 -->
+<div class="wb-card" id="qs-lab" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🧪 02.4 · 动手实验：用三个终端亲眼验证「同组竞争分摊」与「跨组独立广播」</div>
+  <h3>🧪 02.4 5 分钟动手实验：把抽象概念变成体感</h3>
+
+  <p>
+    刚才我们建的 <code>order.events</code> 有 <strong>3 个分区（<code>P0 / P1 / P2</code>）</strong>。现在打开 4 个终端窗口做两个小实验，验证第 01 章讲的消费者组规则：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span>🧪 group_lab.sh · 实验步骤：2 个同组消费者 + 1 个异组消费者对照观察</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-qs-lab', this)">复制实验命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-qs-lab"><code><span class="c-cm"># 【终端 1 &amp; 终端 2】分别执行完全相同的命令：启动两个同属于 coupon-grp 的消费者</span>
+docker exec -it local-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic order.events --group coupon-grp \
+  --property print.partition=true --property print.key=true
+
+<span class="c-cm"># 【终端 3】启动一个属于不同消费组 sms-grp 的消费者</span>
+docker exec -it local-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic order.events --group sms-grp \
+  --property print.partition=true --property print.key=true
+
+<span class="c-cm"># 【终端 4】查看 coupon-grp 分区分配情况，然后用 producer 连续发 6 条不同 Key 的消息</span>
+docker exec -it local-kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:9092 --describe --group coupon-grp</code></pre>
+  </div>
+
+  <ul>
+    <li><strong>预期现象 ①（组内分摊）</strong>：在 <code>--describe --group coupon-grp</code> 的输出里，你会看到 <code>CONSUMER-ID</code> 列把 3 个分区自动拆成了 <strong>1 台负责 2 个分区（如 <code>P0, P1</code>）、另 1 台负责 1 个分区（如 <code>P2</code>）</strong>；当你连发 6 条消息时，终端 1 和终端 2 加起来正好收到这 6 条，没有任何一条重复。</li>
+    <li><strong>预期现象 ②（组间广播）</strong>：与此同时，终端 3（<code>sms-grp</code>）独自把这 6 条消息<strong>一条不落全收到了</strong>——这就是一份订单事件同时驱动发券与发短信的工作方式。</li>
+  </ul>
+
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 14px;">
+    💡 <strong>背后的原理：</strong>为什么终端 1、2、3 平时静静挂在那里不占 CPU，而你在终端 4 一敲回车它们毫秒级就跳出消息？底层靠的是「客户端主动 Pull + Broker 长轮询挂起唤醒」，详见 <a href="principles.html#push-pull">《📘 核心原理篇 · 00 推与拉：Pull + 长轮询》</a>。
+  </p>
+
+  <h4 id="quiz-02" style="margin:0 0 8px;">☑️ 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 同事先往 Topic 里发了 10 条测试消息，随后才第一次启动自己的 Go 消费者（未设 <code>StartOffset</code>），结果一条都没收到，为什么？</span></summary>
+    <div class="drawer-body">
+      <p>因为对于之前从未提交过 Offset 的全新消费组，客户端默认从<strong>最新末尾（<code>latest</code> / <code>kafka.LastOffset</code>）</strong>开始监听，只收启动之后新进来的消息，防止新服务一上线意外把过去 7 天几千万条老订单全重跑一遍。本地调试想读历史消息，需显式加 <code>--from-beginning</code> 或在 Go 中设 <code>StartOffset: kafka.FirstOffset</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 在上面的动手实验里，如果你再开第 4、第 5 个同样叫 <code>coupon-grp</code> 的终端，<code>--describe</code> 里会看到什么？</span></summary>
+    <div class="drawer-body">
+      <p>因为 <code>order.events</code> 一共只有 3 个分区，当 <code>coupon-grp</code> 里的消费者达到 4 个时，前 3 个终端各自领到 1 个分区，第 4 个终端不会出现在分区分配行里（处于空闲待命状态）；只有当你按 <code>Ctrl+C</code> 关掉前面某一个终端后，Kafka 触发重平衡才会把空出来的那个分区自动交给第 4 个终端。</p>
+    </div>
+  </details>
+</div>

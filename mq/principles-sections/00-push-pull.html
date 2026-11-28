@@ -1,0 +1,74 @@
+<!-- ====================================================================
+     PART 00 (PRINCIPLES): 推与拉 · Pull 模型、长轮询挂起唤醒与 Pop 演进
+     ==================================================================== -->
+<div class="wb-sec-header" id="push-pull" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">推与拉：Pull 模型、长轮询挂起唤醒与无状态 Pop 演进</span>
+  <span class="plop-tag tomato">PUSH VS PULL · LONG POLLING · BACKPRESSURE · POP MODE</span>
+</div>
+
+<!-- 00.1 · Push vs Pull 与长轮询机制 -->
+<div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔄 00.1 · 消费通信模型：Push 主动推送与 Pull 主动拉取的权衡及长轮询机制</div>
+  <h3>🔄 00.1 为什么 Kafka 与 RocketMQ 都选了「Pull + 长轮询」 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#qs-lab">实战篇 02.4 动手实验</a> 与 <a href="index.html#sc-peak">03.2 秒杀削峰</a> —— 为什么消费者平时阻塞等待几乎不占 CPU，新消息一写入却能毫秒级收到，而且秒杀洪峰灌入百万条消息时消费者也不会被冲垮？
+  </p>
+
+  <p>
+    Broker 把队列里的消息交给消费者，在网络协议层只有<strong>服务端主动推（Push）</strong>和<strong>客户端主动拉（Pull）</strong>两条路线，两者各有天然优劣：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">分发模式</th>
+          <th style="width:28%">核心优势</th>
+          <th style="width:28%">固有短板</th>
+          <th>主流中间件的工程改进方案</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Push 模式</strong><br>（Broker 主动推）</td>
+          <td><strong>端到端延迟极低</strong>：Broker 一收到消息立刻通过长连接推送给消费者，可达微秒级响应。</td>
+          <td><strong>缺乏天然背压（Backpressure），易压垮慢消费者</strong>：Broker 不清楚下游数据库能不能扛住，大促洪峰来时全速推送会直接把消费者内存打爆（OOM）。</td>
+          <td><strong>RabbitMQ 采用 Push</strong>，但必须搭配 <strong><code>basicQos(prefetchCount=N)</code></strong> 滑动窗口限流：消费者手上未确认（Unacked）的消息达到 N 条时，Broker 暂停向它推送。</td>
+        </tr>
+        <tr>
+          <td><strong>Pull 模式</strong><br>（Consumer 主动拉）</td>
+          <td><strong>消费速率完全自主可控</strong>：消费者处理完一批再去拉下一批（也方便在拉取后做批量落库），天然适应削峰场景。</td>
+          <td><strong>朴素轮询的两难</strong>：队列为空时若死循环发起请求会白白空耗 CPU 与网卡；若每次固定休眠 2 秒再拉又会平白引入最高 2 秒延迟。</td>
+          <td><strong>Kafka 与 RocketMQ 采用 Pull + 长轮询（Long Polling）</strong>，同时消除空转开销与休眠延迟。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="margin-top:14px;">⚙️ 长轮询（Long Polling）在 Broker 内部是如何工作的？</h4>
+  <ol style="margin-bottom:0;">
+    <li><strong>有足够数据时立即返回</strong>：消费者携带目标分区的起始 <code>Offset</code>、最小期望字节数 <code>fetch.min.bytes</code>（默认 <code>1 Byte</code>）与最大等待时间 <code>fetch.max.wait.ms</code>（默认 <code>500ms</code>）发送 <code>FetchRequest</code>；若当前分区已有可读新消息，Broker 直接通过零拷贝立即返回。</li>
+    <li><strong>无新数据时挂起进时间轮（不空转、不占工作线程）</strong>：若当前分区没有新消息，Broker <strong>不会立即返回空包</strong>，而是将该拉取请求封装进内部的延迟操作池（Kafka 中称为 <code>Purgatory</code> 炼狱组件，底层基于分层时间轮）挂起等待。</li>
+    <li><strong>双条件唤醒</strong>：① 只要在 <code>500ms</code> 窗口内生产者往该分区写入了新消息并推进了高水位 <code>HW</code>，Broker 立刻唤醒挂起的请求毫秒级返回数据；② 若等满 <code>500ms</code> 仍无新消息，才返回空响应让客户端发起下一轮长轮询。</li>
+  </ol>
+</div>
+
+<!-- 00.2 · 伪 Push 封装与 RocketMQ 5.0 无状态 Pop 模式 -->
+<div class="wb-card" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🚀 00.2 · 消费协议演进：SDK 回调式“伪 Push”封装与 RocketMQ 5.0 无状态 Pop 模式</div>
+  <h3>🚀 00.2 为什么叫 <code>PushConsumer</code> 底层却是 Pull，以及 Pop 模式演进 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#consumer-group">实战篇 01.2 消费者数 ≤ 分区数</a> 与 <a href="index.html#choose">06.3 选型表</a> —— 传统分区独占绑定有什么局限，为什么新一代云原生 MQ 引入了无状态 Pop 消费？
+  </p>
+
+  <ul>
+    <li><strong>客户端“伪 Push”语法糖</strong>：在 RocketMQ 中最常用的类名叫 <code>DefaultMQPushConsumer</code>（Node.js <code>kafkajs</code> 的 <code>consumer.run({ eachMessage })</code> 同理），它并不是 Broker 主动推，而是客户端 SDK 在后台起了一个循环长轮询线程拉回消息后，自动回调你注册的处理函数——对业务开发者保留了事件驱动的易用体验，底层依然保有 Pull 的流控安全性。</li>
+    <li><strong>传统 Pull 分区独占模型的痛点</strong>：在经典 Kafka / RocketMQ 4.x 中，1 个分区固定绑定给组内唯一个消费者实例。万一某台消费者机器出现亚健康（如磁盘 I/O 夯住但心跳线程还活着没断开），它名下的分区就会彻底停滞积压，组内其他空闲健康的消费者完全帮不上忙；而且消费者实例数受死于分区数上限。</li>
+    <li><strong>RocketMQ 5.0 无状态 <code>Pop</code> 消费（及 Kafka KIP-932 Share Groups 共享组方向）</strong>：消费者不再与具体队列死死绑定，任何空闲消费者都可以向 Broker 发 <code>Pop</code> 请求领取任意队列的消息；Broker 发消息的同时为该条消息设置一段<strong>不可见时间（InvisibleTime，类似可见性租约）</strong>——超时未收到 <code>Ack</code> 则自动恢复可见交由其他健康实例重试。这样彻底解除了「消费者数 ≤ 分区数」限制，也消除了客户端重平衡停顿。</li>
+  </ul>
+</div>

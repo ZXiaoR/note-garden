@@ -1,0 +1,242 @@
+<!-- ====================================================================
+     PART 08: 综合场景自测 · 一条消息的 7 步一生、10 道排障题与 15 题速记
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="quiz">
+  <span class="wb-sec-num">08</span>
+  <span class="wb-sec-title">综合场景自测：一条消息的 7 步一生、10 道排障题与 15 题速记</span>
+  <span class="plop-tag tomato">7-STEP LIFECYCLE · SCENARIO TROUBLESHOOTING · CHEAT SHEET</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 怎么用本章复习：</strong>先跟着 08.1 在脑中把一条订单消息从诞生到清理的全链路过一遍；再合上前面章节做 08.2 的 10 道线上排障与方案设计题（先自己想排查顺序，再点开核对）。
+</div>
+
+<!-- 08.1 · 一条消息的 7 步完整一生（保留并更新互链锚点） -->
+<div class="wb-card" id="lifecycle" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🎬 08.1 · 全篇串联：跟着一笔订单消息走完从生产入队到过期清理的 7 步一生</div>
+  <h3>🎬 08.1 全链路大串联：一条订单消息的 7 步完整一生</h3>
+
+  <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:12px; padding:14px; display:grid; gap:9px; font-size:13.2px; line-height:1.58;">
+    <div style="background:var(--plop-mustard); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 13px;">
+      <strong>Step 1 · 本地事务与生产路由（<a href="#sc-tx">03.5</a> / <a href="#partition-order">05.1</a>）：</strong>订单服务通过本地消息表确保订单与待发事件原子落库，Producer 指定业务键 <code>Key = "ORD_1001"</code> 哈希锁定目标分区 <code>Partition-2</code>（保同单有序），以 <code>acks=all</code> 发送。
+    </div>
+    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 13px;">
+      <strong>Step 2 · Broker 幂等判重与顺序写页缓存（<a href="principles.html#eos">原理篇 01</a> / <a href="principles.html#fast">03.1</a>）：</strong><code>Partition-2</code> 的 Leader 副本校验序列号无重复后，将消息批次顺序追加写入当前活跃日志段对应的操作系统 <code>PageCache</code>，并更新稀疏偏移量索引。
+    </div>
+    <div style="background:var(--plop-periwinkle); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 13px;">
+      <strong>Step 3 · 多副本同步与高水位推进（<a href="#lost">04.1</a> / <a href="principles.html#isr">原理篇 04</a>）：</strong><code>ISR</code> 同步副本集合中的 Follower 拉取该消息落入各自内存；满足 <code>min.insync.replicas &gt;= 2</code> 后 Leader 推进高水位 <code>HW</code> 并向 Producer 返回确认成功，消息正式对消费者可见。
+    </div>
+    <div style="background:var(--plop-mint); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 13px;">
+      <strong>Step 4 · 长轮询拉取与零拷贝传输（<a href="#sc-fanout">03.1</a> / <a href="principles.html#push-pull">原理篇 00</a> / <a href="principles.html#fast">03.1</a>）：</strong>发券组与短信组各自负责 <code>Partition-2</code> 的消费者实例通过长轮询拉取；Broker 调用 <code>sendfile</code> 零拷贝将页缓存字节流直推网卡。
+    </div>
+    <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 13px;">
+      <strong>Step 5 · 消费端幂等校验与业务执行（<a href="#idempotent">04.2</a> / <a href="#partition-order">05.1</a>）：</strong>消费者拿到消息后，先凭 <code>eventId</code> 或 <code>orderNo</code> 经数据库唯一索引 / 状态机条件更新完成幂等防重，再串行执行发券或改状态逻辑。
+    </div>
+    <div style="background:var(--plop-mustard); border:1.8px solid var(--plop-ink); border-radius:9px; padding:9px 13px;">
+      <strong>Step 6 · 手动提交 Offset 与异常死信兜底（<a href="#sc-dlq">03.7</a> / <a href="#lost">04.1</a>）：</strong>业务落库成功后手动提交 Offset 到内部 <code>__consumer_offsets</code>；若连续退避重试超限仍报错，则转入 <code>.dlq</code> 死信队列触发告警并放行后续消息。
+    </div>
+    <div style="background:#F8FAFC; border:1.8px dashed var(--plop-ink); border-radius:9px; padding:9px 13px;">
+      <strong>Step 7 · 历史回溯与分段过期回收（<a href="#backlog">05.2</a> / <a href="principles.html#store">原理篇 03.2</a>）：</strong>保留期内（默认 7 天）随时支持按时间重置 Offset 回溯重跑；到期后按整段旧 <code>Segment</code> 文件 <code>O(1)</code> 物理删除回收磁盘。
+    </div>
+  </div>
+</div>
+
+<!-- 08.2 · 综合场景自测 10 题（答案默认折叠） -->
+<div class="wb-card" id="self-check" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">☑️ 08.2 · 综合场景自测：10 道真实线上排障与架构设计题（点击题目展开参考方案）</div>
+  <h3>☑️ 08.2 综合场景自测 10 题</h3>
+
+  <div class="wb-grid-2">
+    <div>
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">01. 客服反馈有用户只付了一笔订单，账户里却收到了两张一样的满减优惠券，怎么排查和修复？</span></summary>
+        <div class="drawer-body">
+          <p><strong>排查两步走</strong>：<br>
+          ① 先去 Kafka UI 或日志按 <code>orderNo</code> 搜消息：看上游订单服务是不是因为没做本地防重发了<strong>两条不同 <code>eventId</code> 的支付消息</strong>，还是只有 <strong>1 条消息被消费了两次</strong>（如发券服务刚发版重启、消费慢触发 Rebalance 或提交 Offset 超时重投）。<br>
+          ② <strong>根因必在发券消费端缺少业务幂等</strong>：只要是 <code>At-least-once</code> 投递，重投随时会发生。<br>
+          <strong>根治修复</strong>：在用户领券表增加联合唯一索引 <code>UNIQUE KEY uk_order_coupon (order_no, coupon_tpl_id)</code>，捕获唯一键冲突错误（MySQL 1062）直接视为成功并提交 Offset（回顾 <a href="#idempotent">04.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">02. 订单列表同步到查询库时，偶尔出现订单明明已支付，状态却被改回「待支付」，为什么？怎么解决？</span></summary>
+        <div class="drawer-body">
+          <p><strong>原因</strong>：同一笔订单的「已创建（待支付）」与「已支付」两条变更消息发生了<strong>乱序消费</strong>——要么生产端没把 <code>orderNo</code> 设为消息 <code>Key</code> 打散到了不同分区，要么消费端拉出消息后丢进了无序并发协程池。<br>
+          <strong>双重解决</strong>：① 传输层：生产端固定设置 <code>Key = orderNo</code> 路由进同一分区，消费端单分区串行（或按 <code>orderNo</code> 哈希固定通道）处理；② 存储层兜底：更新 SQL 带上状态机或递增版本号条件（如 <code>WHERE order_no=? AND version &lt; ?</code>），即使极端重放乱序也绝不会发生状态倒退（回顾 <a href="#sc-sync">03.4</a> / <a href="#partition-order">05.1</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">03. 早上到公司发现监控告警：核心消费组 Lag 涨到了 200 万条，按什么顺序处理？</span></summary>
+        <div class="drawer-body">
+          <p>1. <strong>敲命令诊断现场</strong>：执行 <code>kafka-consumer-groups.sh --describe --group xxx</code>。<br>
+          2. <strong>先分清死活与倾斜</strong>：若 <code>CONSUMER-ID</code> 为空说明全挂了，看报错拉起；若一直在 <code>PreparingRebalance</code> 说明单批超时被踢，调小单批条数并降级慢外部调用；若只有 1 个分区积压说明热点 Key 倾斜。<br>
+          3. <strong>扩容清零</strong>：若当前消费者数小于分区数（如 24 分区只开了 4 台），直接扩满到 24 台并改批量写库；若原本只有 4 个分区且已跑满 4 台、要求半小时追平，则<strong>新建 40 分区临时 Topic，把原 4 台改为纯内存转发搬运工，同时起 40 台新消费者并发消化</strong>，期间留意调大日志保留时间防过期误删（回顾 <a href="#backlog">05.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">04. 用户钱扣成功了、MySQL 订单表也是「已支付」，但下游仓库一直没收到发货消息，怎么回事？</span></summary>
+        <div class="drawer-body">
+          <p><strong>典型根因</strong>：上游写了朴素的「先提交本地数据库事务，再调 <code>writer.WriteMessages</code> 发 Kafka」，结果在事务刚提交完那一刻遇上网络闪断、Broker 切主或容器重启，且代码没处理发送报错，导致写库成功但消息漏发。<br>
+          <strong>应急补救</strong>：查出订单表状态为 <code>PAID</code> 但超过 5 分钟未生成发货单的记录，通过管理接口补发一次事件（下游有幂等可安全重发）。<br>
+          <strong>彻底根治</strong>：改为<strong>本地消息表（Transactional Outbox）</strong>（同库事务写订单 + 写 <code>outbox_messages</code>，后台协程轮询投递直至确认成功），或切换 RocketMQ 事务消息（回顾 <a href="#sc-tx">03.5</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">05. 某异步导出报表消费组每隔 5 分钟就触发一次 Rebalance，同一份大报表被反复生成好几遍，怎么修？</span></summary>
+        <div class="drawer-body">
+          <p><strong>原因</strong>：单份百万行报表生成耗时超过了 <code>max.poll.interval.ms</code>（默认 5 分钟），消费者迟迟没去发起下一次拉取，被 Coordinator 误判卡死踢出组；未提交 Offset 的任务随即被分给另一台机器从头重做，形成死循环。<br>
+          <strong>修复方案</strong>：① 将单次拉取条数设为 <code>1</code>，并根据最大导出耗时将超时阈值调大（如 <code>20 分钟</code>）；② 优化导出 SQL 分页流式写入对象存储；③ 落库状态前先检查任务表是否已完成保障幂等（回顾 <a href="#sc-async-job">03.2</a> / <a href="#rebalance-tuning">07.3</a>）。</p>
+        </div>
+      </details>
+    </div>
+
+    <div>
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">06. 整点秒杀瞬时涌入 20,000 QPS 抢 500 件商品，数据库最高只能扛 1,000 TPS，全链路怎么设计？</span></summary>
+        <div class="drawer-body">
+          <p>① <strong>入口拦截与预扣</strong>：网关限流防刷后，在 Redis 里用 Lua 脚本原子校验用户限购并扣减 500 件预热库存（97.5% 没抢到的请求在内存层小于 1ms 直接拦截返回“已售罄”，根本不进 MQ 和数据库）；<br>
+          ② <strong>入队削峰</strong>：真正抢到名额的 500 个请求写入 Kafka <code>seckill.order.requests</code> 后立即向前端返回 <code>reqId</code>（前端显示“排队生成订单中”并轮询结果）；<br>
+          ③ <strong>消费端匀速落库</strong>：消费者使用 <code>rate.Limiter</code> 控制在 500 TPS 安全水位平缓创建 MySQL 订单并手动提交 Offset（回顾 <a href="#sc-peak">03.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">07. 团队基础设施只有 Kafka 和 Redis，现在要做「订单 30 分钟未支付自动取消」，怎么落地最稳？</span></summary>
+        <div class="drawer-body">
+          <p>因为 Kafka 没有原生任意延迟消息，最稳妥省心的组合是 <strong><code>Redis ZSet + Kafka + 低频扫库兜底</code></strong>：<br>
+          ① 下单成功时执行 <code>ZADD delay:unpaid &lt;下单时间戳+1800&gt; &lt;orderNo&gt;</code>（用户中途支付成功可顺手 <code>ZREM</code>）；<br>
+          ② 后台调度协程每秒用 Lua 脚本原子执行 <code>ZRANGEBYSCORE + ZREM</code> 弹出已到期单号，投递进 Kafka <code>trade.order.cancel</code> Topic；<br>
+          ③ 关单消费组并发执行 <code>UPDATE orders SET status='CANCELED' WHERE order_no=? AND status='UNPAID'</code>，影响行数为 1 时释放库存；<br>
+          ④ 配一个每 10 分钟跑一次的低频数据库扫描任务，兜底进程在弹出 ZSet 后、发进 Kafka 前极端断电漏掉的订单（回顾 <a href="#sc-delay">03.6</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">08. 消费端遇到一条上游传错格式的脏消息一直反序列化报错，导致整个分区的后续消息全卡住了怎么办？</span></summary>
+        <div class="drawer-body">
+          <p>这就是典型的「毒丸消息（Poison Pill）」。<br>
+          ① <strong>区分错误类型</strong>：像 JSON 语法损坏、必填字段缺失这类确定性永久错误，重试 100 次也绝不可能成功，根本无需退避重试，应捕获后<strong>直接携带原消息与报错堆栈写入死信队列 Topic（<code>.dlq</code>）</strong>；对网络超时类瞬态错误，最多经 <code>.retry</code> Topic 退避重试 3 次后仍失败同样转入 <code>.dlq</code>。<br>
+          ② 确认成功写入 <code>.dlq</code> 后，<strong>立即手动提交原分区 Offset</strong> 放行后面堆积的正常业务消息，并由 <code>.dlq</code> 监控告警通知研发人工修复重放（回顾 <a href="#sc-dlq">03.7</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">09. 发消息时如果忘了把 <code>kafka-go</code> 的 <code>RequiredAcks</code> 显式设为 <code>RequireAll</code>，而消费端用了 <code>ReadMessage</code>，有哪两处丢消息隐患？</span></summary>
+        <div class="drawer-body">
+          <p>① <strong>生产端隐患</strong>：未显式指定 <code>kafka.RequireAll</code> 时，消息未等同步副本确认即返回，Leader 单机断电会丢掉尚未被 Follower 拉走的页缓存数据；<br>
+          ② <strong>消费端隐患</strong>：<code>kafka-go</code> 的 <code>ReadMessage</code> 会在把消息交给业务代码<strong>之前</strong>就标记自动提交 Offset——一旦紧接着写数据库报错或容器重启，这条消息不会再被重投，直接丢失。应统一改用 <code>FetchMessage</code> + 落库成功后调 <code>CommitMessages</code>（回顾 <a href="#sc-fanout">03.1</a> / <a href="#lost">04.1</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">10. 需要给正在运行的 <code>trade.order.paid</code> 消息新增优惠明细并附上 4 MB 的电子合同文件，已有 3 个部门在消费，怎么安全上线？</span></summary>
+        <div class="drawer-body">
+          <p>① <strong>大文件剥离</strong>：4 MB 电子合同绝不塞进 Kafka 消息体（会超默认 1 MiB 限制且拖垮页缓存），先传 OSS/S3 对象存储，消息里只放 <code>contractFileKey</code> 字符串；<br>
+          ② <strong>字段向后兼容</strong>：保留所有原有字段名和类型不动，仅在 JSON 顶层或 <code>data</code> 内<strong>新增可选字段</strong>（<code>discountItems</code>、<code>contractFileKey</code>）；老的 2 个不需要合同的部门一行代码不用改、无需同步发版，需要合同的部门平滑升级读取新字段即可（回顾 <a href="#prod-payload">07.2</a>）。</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<!-- 08.3 · 15 题一句话速记表（保留原 08.4 并更新互链） -->
+<div class="wb-card" id="cheat" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">⚡ 08.3 · 复习速查卡：消息队列 15 个核心问题一句话速记表</div>
+  <h3>⚡ 08.3 消息队列 15 题一句话速记表</h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:28%">核心问题</th>
+          <th>一句话标准答案（含对应章节跳转）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 为什么要用 MQ？</strong></td>
+          <td><strong>解耦</strong>（上游发事件不绑定下游代码）、<strong>异步</strong>（剥离非核心支线降低接口耗时）、<strong>削峰填谷</strong>（队列蓄水把瞬时洪峰变匀速流保护数据库）（<a href="#why">00.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 引入 MQ 有什么代价？</strong></td>
+          <td><strong>可用性依赖增加</strong>（多一层故障点）、<strong>工程复杂度上升</strong>（需处理丢/重/乱序/积压）、<strong>跨系统最终一致性挑战</strong>（<a href="#tradeoffs">00.3</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 消费者组如何兼顾两种模型？</strong></td>
+          <td><strong>组内竞争分摊</strong>（1 个分区同一时刻只分给组内 1 台消费者，<code>有效消费者数 &lt;= 分区数</code>）；<strong>组间独立广播</strong>（不同 <code>GroupID</code> 各自消费一份全量）（<a href="#consumer-group">01.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 三大 MQ 与 Redis Stream 怎么选？</strong></td>
+          <td>百万吞吐日志/流管道选 <strong>Kafka</strong>；核心交易/原生事务定时选 <strong>RocketMQ</strong>；微秒低延迟/复杂路由选 <strong>RabbitMQ</strong>；日百万级以内轻量项目用 <strong><a href="../redis/index.html#sc-mq">Redis Stream</a></strong> 就够（<a href="#choose">06.3</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>5. 如何保证消息不丢？</strong></td>
+          <td><strong>生产端</strong> <code>acks=all</code> + 重试捕获；<strong>Broker 端</strong> <code>replication.factor=3</code> + <code>min.insync.replicas=2</code> + 禁脏选主；<strong>消费端</strong>关自动提交，业务落库后再手动提交 Offset（<a href="#lost">04.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>6. 如何解决重复消费？</strong></td>
+          <td>遵循 <strong><code>At-least-once + 消费端业务幂等</code></strong>：按业务唯一单号用<strong>数据库唯一索引 / 状态机条件更新 / Redis <code>PROCESSING+DONE</code> 状态机</strong>兜底（<a href="#idempotent">04.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>7. 如何保证消息顺序性？</strong></td>
+          <td>放弃单分区全局有序，用<strong>局部有序</strong>：生产端把 <code>orderNo</code> 作 <code>Key</code> 哈希进同一分区 + 防重试超车 + 消费端单分区串行或按 Key 固定通道处理（<a href="#partition-order">05.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>8. 线上百万/千万级积压怎么处理？</strong></td>
+          <td>先敲 <code>--describe</code> 排除消费全挂或慢超时重平衡；消费者数未满直接扩满实例；<strong>老分区不够则将原消费者改为纯内存转发器，打入 10 倍分区的临时 Topic 起 10 倍机器泄洪</strong>（<a href="#backlog">05.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>9. 为什么选 Pull + 长轮询？</strong></td>
+          <td>Push 易压垮慢消费者；Pull 让消费端自主控速，配合<strong>长轮询（无消息时 Broker 挂起请求，来新消息立即唤醒返回）</strong>兼顾控速与毫秒级实时性（<a href="principles.html#push-pull">原理篇 00</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>10. 写库与发消息怎么保证一致？</strong></td>
+          <td>Kafka 用<strong>本地消息表（同库单事务写业务表与 <code>outbox</code> 表 + 后台轮询投递）</strong>；RocketMQ 用<strong>半消息暂存 + 本地事务 + Broker 定时状态反查</strong>（<a href="#sc-tx">03.5</a> / <a href="principles.html#tx-msg">原理篇 02.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>11. 延迟关单怎么实现？</strong></td>
+          <td>Kafka 无原生任意延迟，常用 <strong>Redis ZSet 到期弹出 + Kafka</strong>；RocketMQ 5.0 用<strong>分层时间轮</strong>原生支持任意定时；RabbitMQ 用延迟插件或同档位 <code>TTL+DLX</code>（避开队头阻塞）（<a href="#sc-delay">03.6</a> / <a href="principles.html#timing-wheel">原理篇 02.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>12. Kafka 凭什么单机百万吞吐？</strong></td>
+          <td><strong>磁盘顺序追加写 + 操作系统 PageCache（避开 JVM GC）+ <code>sendfile</code> 零拷贝（0 次 CPU 拷贝）+ 端到端批量压缩 + 多分区水平并行</strong>（<a href="principles.html#fast">原理篇 03.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>13. Kafka 与 RocketMQ 存储差在哪？</strong></td>
+          <td>Kafka 每个分区独立 <code>Segment (.log + .index 稀疏索引)</code>，少量大流极快；RocketMQ 全机共写 <strong>1 个 <code>CommitLog</code> + 20B 定长 <code>ConsumeQueue</code></strong>，几千个 Topic 不退化为随机写（<a href="principles.html#store">原理篇 03.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>14. ISR、HW、LEO 与 Leader Epoch？</strong></td>
+          <td><code>ISR</code> 是同步副本集（按 30s 时间判定）；<code>LEO</code> 是下一待写偏移量；<code>HW</code> 是 ISR 最小 LEO（消费者可见边界）；<code>Leader Epoch</code> 修复 Follower 重启按滞后 HW 盲目截断丢数据漏洞（<a href="principles.html#isr">原理篇 04</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>15. 怎么避免频繁 Rebalance 停顿？</strong></td>
+          <td>调小单批拉取条数防止超 <code>max.poll.interval.ms</code>（5 分钟）被踢，配置 <code>group.instance.id</code> 静态成员与 <code>CooperativeStickyAssignor</code> 增量协作重平衡（<a href="#rebalance-tuning">07.3</a> / <a href="principles.html#rebalance">原理篇 05</a>）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 08.4 · 核对依据与官方文档边界 -->
+<div class="wb-card" id="sources" style="background:var(--plop-sheet);">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+    <h3 style="margin:0;">📚 核对依据与适用版本说明（Kafka 3.8 / 4.0 · kafka-go v0.4.47 · RocketMQ 5.0 · RabbitMQ 3.13 / 4.0）</h3>
+    <span class="plop-tag periwinkle">VERIFIED: 2026-11-28</span>
+  </div>
+  <p style="font-size:13.3px; margin-bottom:10px;">
+    本篇命令行基于官方 <strong>Apache Kafka 3.8.0（KRaft 模式，同样适用于移除 ZooKeeper 后的 Kafka 4.0）</strong>，Go 示例基于 <code>github.com/segmentio/kafka-go v0.4.47</code>，Node.js 快速上手示例基于 <code>kafkajs v2.2.4</code>。生产不同小版本的默认参数细节请结合以下官方文档核对：
+  </p>
+  <ul class="source-links-grid">
+    <li>🔗 <a href="https://kafka.apache.org/documentation/#gettingStarted" target="_blank" rel="noopener">Apache Kafka 官方快速上手与 KRaft 配置</a> · <a href="https://kafka.apache.org/documentation/#producerconfigs" target="_blank" rel="noopener">Producer / Consumer 参数手册</a></li>
+    <li>🔗 <a href="https://github.com/segmentio/kafka-go" target="_blank" rel="noopener">segmentio/kafka-go 官方仓库文档（Reader / Writer / 手动提交）</a></li>
+    <li>🔗 <a href="https://rocketmq.apache.org/zh/docs/featureBehavior/04transactionmessage/" target="_blank" rel="noopener">Apache RocketMQ 5.0 事务消息与定时时间轮官方文档</a></li>
+    <li>🔗 <a href="https://www.rabbitmq.com/docs/quorum-queues" target="_blank" rel="noopener">RabbitMQ Quorum 仲裁队列</a> · <a href="https://www.rabbitmq.com/docs/dlx" target="_blank" rel="noopener">死信交换机 (DLX) 官方说明</a></li>
+  </ul>
+</div>

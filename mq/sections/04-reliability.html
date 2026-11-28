@@ -1,0 +1,285 @@
+<!-- ====================================================================
+     PART 04: 不丢与不重 · 三段防丢配置、手动提交与消费端幂等代码
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="reliable">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">不丢与不重：三段防丢配置、手动提交与消费端幂等代码</span>
+  <span class="plop-tag tomato">ZERO-LOSS · MANUAL COMMIT · IDEMPOTENCY · EOS</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>配齐生产端、Broker、消费端三段「零丢失」参数与手动提交 Offset 代码，并用数据库唯一索引、状态机条件更新或 Redis 状态机写出防重复消费的幂等逻辑。
+</div>
+
+<!-- 04.1 · 生产端、Broker、消费端三段防丢：配置与代码 -->
+<div class="wb-card" id="lost" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🛡️ 04.1 · 消息不丢失三段闭环：生产发送、Broker 多副本存储与消费手动提交配置</div>
+  <h3>🛡️ 04.1 消息不丢失：把「生产 → Broker → 消费」三段逐一配齐</h3>
+
+  <p>
+    一条消息从业务发出到真正落库生效，一共跨越三个阶段，任何一个阶段漏配参数都可能在断电或重启时丢数据。工程上必须沿着<strong>「第一段：生产发送 → 第二段：Broker 存储 → 第三段：消费提交」</strong>逐段加固：
+  </p>
+
+  <div style="display:grid; gap:12px; margin:14px 0;">
+    <!-- 第一段：生产端 -->
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:12px; padding:13px 15px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+        <span style="font-weight:900; font-size:14.5px; color:var(--plop-ink);">① 生产端 → Broker（防网络闪断丢包）</span>
+        <span class="plop-tag tomato" style="font-size:11px;">acks=all + 错误捕获重试/补偿</span>
+      </div>
+      <div style="font-size:13.2px; line-height:1.6;">
+        • <strong>禁止发后不管（<code>acks=0</code>）或忽略发送返回值</strong>：同步发送必须检查返回的 <code>error</code>，异步发送必须在错误回调中重试或写入本地消息表兜底。<br>
+        • <strong>为什么 <code>acks=1</code> 依然会丢消息？</strong><code>acks=1</code> 只等 Leader 副本写进自己内存页缓存就向生产者返回成功；如果此刻 Follower 备份副本还没来得及拉取，Leader 机器突然断电，新选出的 Leader 上根本没有这条消息。因此核心账务必须设为 <strong><code>acks=all</code>（或 <code>-1</code>，Kafka 3.0+ 原生客户端默认已是 <code>all</code>，注意 <code>kafka-go</code> 默认是 <code>RequireNone/One</code>，必须显式指定 <code>kafka.RequireAll</code>！）</strong>。
+      </div>
+    </div>
+
+    <!-- 第二段：Broker 端 -->
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:12px; padding:13px 15px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+        <span style="font-weight:900; font-size:14.5px; color:var(--plop-ink);">② Broker 存储阶段（防单机断电丢页缓存、防硬盘物理损坏）</span>
+        <span class="plop-tag periwinkle" style="font-size:11px;">3 副本 + min.insync.replicas=2</span>
+      </div>
+      <div style="font-size:13.2px; line-height:1.6;">
+        Kafka 收到消息后先写入操作系统内存页缓存（PageCache）再异步刷盘，单机掉电会丢未刷盘内存，因此生产集群靠<strong>多副本冗余三件套</strong>保障：<br>
+        1. <strong><code>replication.factor = 3</code></strong>：每个分区在 3 台不同机器上各存一份副本；<br>
+        2. <strong><code>min.insync.replicas = 2</code></strong>：配合生产端 <code>acks=all</code>，强制要求每条消息至少同时写入 <strong>Leader + 至少 1 台同步 Follower（共 2 台机器内存）</strong>才算成功——否则当 Follower 全掉线导致同步副本集合 <code>ISR（In-Sync Replicas，同步副本集合）</code> 只剩 Leader 1 台时，<code>acks=all</code> 会悄悄退化成单机写入；<br>
+        3. <strong><code>unclean.leader.election.enable = false</code></strong>（Kafka 1.0+ 默认值）：禁止落后掉队的非同步副本被选为新 Leader 覆盖丢数据。
+      </div>
+    </div>
+
+    <!-- 第三段：消费端 -->
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:12px; padding:13px 15px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+        <span style="font-weight:900; font-size:14.5px; color:var(--plop-tomato);">③ Broker → 消费端（线上 80% 的丢消息事故都发生在这里）</span>
+        <span class="plop-tag mint" style="font-size:11px;">关自动提交 · 先完成业务再手动 Commit</span>
+      </div>
+      <div style="font-size:13.2px; line-height:1.6;">
+        • <strong>误区 A（开启自动提交 / 先提交后处理）</strong>：拉出消息就提交了 Offset，结果写数据库报错或容器 OOM（Out Of Memory，内存溢出）重启，Broker 以为你处理完了，永远不再重投。<br>
+        • <strong>误区 B（拉出消息丢进内存异步协程池就立刻提交）</strong>：主循环刚把消息塞进 <code>go func()</code> 就调了 <code>CommitMessages</code>，一旦容器发版重启，还在内存协程里没跑完的消息瞬间蒸发。<br>
+        • <strong>正确做法</strong>：关闭自动提交（<code>enable.auto.commit=false</code>），在当前消费流程<strong>同步执行完业务落库后，最后一步才手动提交 Offset</strong>。
+      </div>
+    </div>
+  </div>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🛡️ reliable_pipeline.go · Broker 建 Topic 命令 + Go 零丢失生产与手动提交消费模板 [Kafka 3.x / 4.0]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-rel-consumer', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-rel-consumer"><code><span class="c-cm">/* 1. 生产集群建 Topic 命令（3 副本 + 至少 2 个同步副本在位才允许 acks=all 写入）：
+kafka-topics.sh --bootstrap-server broker1:9092 --create --topic trade.order.paid \
+  --partitions 6 --replication-factor 3 --config min.insync.replicas=2
+*/</span>
+
+<span class="c-cm">// 2. Go 生产端：显式指定 RequireAll (acks=all) + 有限重试 + 同步等待错误返回</span>
+<span class="c-kw">func</span> NewReliableWriter(brokers []<span class="c-kw">string</span>) *kafka.Writer {
+    <span class="c-kw">return</span> &amp;kafka.Writer{
+        Addr:         kafka.TCP(brokers...),
+        Topic:        <span class="c-str">"trade.order.paid"</span>,
+        Balancer:     &amp;kafka.Hash{},
+        RequiredAcks: kafka.RequireAll, <span class="c-cm">// 核心！显式要求所有 ISR 同步副本写入成功</span>
+        MaxAttempts:  5,                <span class="c-cm">// 网络闪断自动重试最多 5 次</span>
+        Async:        <span class="c-kw">false</span>,            <span class="c-cm">// 同步阻塞等待 Broker 确认</span>
+    }
+}
+
+<span class="c-cm">// 3. Go 消费端：FetchMessage 拉取（不自动提交） -> 业务落库成功 -> CommitMessages 手动提交</span>
+<span class="c-kw">func</span> RunReliableConsumer(ctx context.Context, brokers []<span class="c-kw">string</span>, handleBiz <span class="c-kw">func</span>(context.Context, kafka.Message) <span class="c-kw">error</span>) {
+    r := kafka.NewReader(kafka.ReaderConfig{
+        Brokers:        brokers,
+        Topic:          <span class="c-str">"trade.order.paid"</span>,
+        GroupID:        <span class="c-str">"points-service-grp"</span>,
+        CommitInterval: 0, <span class="c-cm">// 0 表示禁用后台定时自动刷盘提交，完全由代码手动控制</span>
+    })
+    <span class="c-kw">defer</span> r.Close()
+
+    <span class="c-kw">for</span> {
+        msg, err := r.FetchMessage(ctx)
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span>
+        }
+        <span class="c-cm">// 必须先在当前协程把业务逻辑和数据库事务彻底跑成功</span>
+        <span class="c-kw">if</span> err := handleBiz(ctx, msg); err != <span class="c-kw">nil</span> {
+            <span class="c-cm">// 处理失败切勿 Commit！走退避重试或转入 DLQ（见 03.7）</span>
+            <span class="c-kw">continue</span>
+        }
+        <span class="c-cm">// 业务落库成功后再签字提交 Offset（即使这一步崩溃，重启也只是重投一次，由 04.2 幂等兜底）</span>
+        _ = r.CommitMessages(ctx, msg)
+    }
+}</code></pre>
+  </div>
+
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
+    💡 <strong>背后的原理：</strong>多副本之间 <code>ISR</code>、<code>LEO</code> 与高水位 <code>HW</code> 是如何配合推进的？为什么副本重启时还需要 <code>Leader Epoch</code> 防丢数据？详见 <a href="principles.html#isr">《📘 核心原理篇 · 04 副本与高可用》</a>。（若使用 RocketMQ 则对应同步刷盘 <code>SYNC_FLUSH</code> + 同步复制/DLedger；RabbitMQ 则对应持久化标志 + <code>Publisher Confirm</code> + <code>Quorum 仲裁队列</code>）。
+  </p>
+</div>
+
+<!-- 04.2 · 消费端幂等：唯一索引、状态机、Redis SET NX 各给一段代码 -->
+<div class="wb-card" id="idempotent" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">♻️ 04.2 · 消费端幂等实战：唯一索引、状态机乐观锁与 Redis SET NX 三种写法</div>
+  <h3>♻️ 04.2 消费端幂等：防重复执行的 3 套标准代码</h3>
+
+  <p>
+    在分布式网络里，只要按 04.1 做到了「不丢消息」（生产超时重发 + 消费先落库后提交 Offset），<strong>重复投递就一定会发生</strong>：比如消费者刚给用户加完 100 积分，还没来得及执行下一行 <code>CommitMessages</code> 容器就重启了，新实例接管分区后会把同一条消息再拉出来执行一遍。
+  </p>
+  <p>
+    因此生产消费逻辑必须满足<strong>幂等性（Idempotency，即 <code>f(f(x)) = f(x)</code>，同一业务消息执行 1 次与执行 N 次结果完全一致）</strong>。第一步是选取稳定的<strong>业务唯一幂等键</strong>（如 <code>order_no</code>、支付流水号或上游生成的 <code>event_id</code>，不要依赖重发会改变的临时连接序号），然后按场景三选一落地：
+  </p>
+
+  <!-- 写法 1：唯一索引 / 同事务防重表 -->
+  <h4>写法 ①：数据库唯一索引 / 同事务防重表（账务与加积分首选，100% 物理兜底）</h4>
+  <p style="font-size:13.3px; margin:4px 0 8px;">
+    插入订单用表本身的 <code>UNIQUE KEY (order_no)</code>；如果是 <code>UPDATE user_points SET balance = balance + 100</code> 这种累加操作，就在同一个数据库建一张 <code>mq_consume_log (event_id PRIMARY KEY)</code>，把<strong>「插防重表 + 加积分」包在同一个本地事务里</strong>——重复消息进来时第一句主键冲突报错回滚，积分绝不会多加：
+  </p>
+  <div class="plop-code-box" style="margin-bottom:16px;">
+    <div class="plop-code-head">
+      <span>🐹 idem_unique_key.go · 写法一：同事务插入唯一键防重表 + 累加积分 [Go + MySQL]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-idem-uk', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-idem-uk"><code><span class="c-kw">import</span> <span class="c-str">"github.com/go-sql-driver/mysql"</span>
+
+<span class="c-kw">func</span> AddPointsIdempotent(ctx context.Context, db *sql.DB, eventID <span class="c-kw">string</span>, userID, points <span class="c-kw">int64</span>) <span class="c-kw">error</span> {
+    tx, err := db.BeginTx(ctx, <span class="c-kw">nil</span>)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">defer</span> tx.Rollback()
+
+    <span class="c-cm">// 1. 先向防重表插入唯一 event_id（建表主键: event_id VARCHAR(64) PRIMARY KEY）</span>
+    _, err = tx.ExecContext(ctx, <span class="c-str">`INSERT INTO mq_consume_log (event_id) VALUES (?)`</span>, eventID)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-cm">// MySQL 错误码 1062 = Duplicate entry（说明之前已经成功处理过了，直接视为成功放行提交 Offset！）</span>
+        <span class="c-kw">if</span> me, ok := err.(*mysql.MySQLError); ok &amp;&amp; me.Number == 1062 {
+            <span class="c-kw">return nil</span>
+        }
+        <span class="c-kw">return</span> err
+    }
+
+    <span class="c-cm">// 2. 只有首次插入成功的事务，才会走到下面执行真正的加积分</span>
+    <span class="c-kw">if</span> _, err = tx.ExecContext(ctx,
+        <span class="c-str">`UPDATE user_points SET balance = balance + ? WHERE user_id = ?`</span>, points, userID,
+    ); err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">return</span> tx.Commit()
+}</code></pre>
+  </div>
+
+  <!-- 写法 2：状态机 / 乐观锁 -->
+  <h4>写法 ②：业务状态机 / 乐观锁条件更新（状态流转类业务最简洁，零额外表）</h4>
+  <p style="font-size:13.3px; margin:4px 0 8px;">
+    订单状态天然遵循 <code>UNPAID（待支付） → PAID（已支付） → SHIPPED（已发货）</code> 单向流转。更新时在 <code>WHERE</code> 里限定前置状态即可天然防重：
+  </p>
+  <div class="plop-code-box" style="margin-bottom:16px;">
+    <div class="plop-code-head">
+      <span>🐹 idem_state_machine.go · 写法二：带前置状态的单条原子条件更新 [Go + SQL]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-idem-sm', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-idem-sm"><code><span class="c-kw">func</span> MarkOrderPaidIdempotent(ctx context.Context, db *sql.DB, orderNo <span class="c-kw">string</span>) <span class="c-kw">error</span> {
+    <span class="c-cm">// 只有当前处于 UNPAID 时才会改成 PAID；重复消息再来时 status 已是 PAID，受影响行数为 0，天然幂等</span>
+    res, err := db.ExecContext(ctx,
+        <span class="c-str">`UPDATE orders SET status = 'PAID', paid_at = NOW() WHERE order_no = ? AND status = 'UNPAID'`</span>,
+        orderNo,
+    )
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    rows, _ := res.RowsAffected()
+    <span class="c-kw">if</span> rows == 0 {
+        <span class="c-cm">// 已经处理过（或已取消），幂等安全返回 nil 以提交 Offset</span>
+        <span class="c-kw">return nil</span>
+    }
+    <span class="c-kw">return nil</span>
+}</code></pre>
+  </div>
+
+  <!-- 写法 3：Redis SET NX 状态机 -->
+  <h4>写法 ③：Redis <code>SET NX</code> 三态状态机（调第三方发短信等无本地 DB 事务场景）</h4>
+  <p style="font-size:13.3px; margin:4px 0 8px;">
+    ⚠️ <strong>避坑重点</strong>：千万不能简单写成「一上来 <code>SETNX</code>，发现 Key 已存在就直接跳过并提交 Offset」——因为万一上次刚执行完 <code>SETNX</code> 还没发出短信进程就崩溃了，重启重投时看到 Key 存在直接跳过，<strong>这条短信就永远漏发了</strong>！正确写法是区分 <code>PROCESSING</code>（处理中租约）与 <code>DONE</code>（已完成）：
+  </p>
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 idem_redis_nx.go · 写法三：Redis PROCESSING / DONE 状态机防崩溃漏处理 [Go · go-redis/v9]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-idem-redis', this)">复制 Go</button>
+    </div>
+    <pre class="plop-code-pre" id="code-idem-redis"><code><span class="c-kw">func</span> SendSMSIdempotent(ctx context.Context, rdb *redis.Client, eventID, phone <span class="c-kw">string</span>) <span class="c-kw">error</span> {
+    key := <span class="c-str">"idem:sms:"</span> + eventID
+
+    <span class="c-cm">// 1. 原子抢占 30 秒处理租约：SET idem:sms:&lt;id&gt; "PROCESSING" NX EX 30</span>
+    ok, err := rdb.SetNX(ctx, key, <span class="c-str">"PROCESSING"</span>, 30*time.Second).Result()
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">if</span> !ok {
+        <span class="c-cm">// 抢占失败：查一下究竟是已经彻底成功了，还是别的协程正在跑</span>
+        state, _ := rdb.Get(ctx, key).Result()
+        <span class="c-kw">if</span> state == <span class="c-str">"DONE"</span> {
+            <span class="c-kw">return nil</span> <span class="c-cm">// 已确认发过短信，安全跳过并提交 Offset</span>
+        }
+        <span class="c-kw">return</span> errors.New(<span class="c-str">"任务正在处理中，稍后重试（切勿直接提交 Offset）"</span>)
+    }
+
+    <span class="c-cm">// 2. 调用外部短信网关；若失败则主动删掉 PROCESSING 锁，让下次重试能正常进来</span>
+    <span class="c-kw">if</span> err := callSMSProvider(ctx, phone); err != <span class="c-kw">nil</span> {
+        _ = rdb.Del(ctx, key).Err()
+        <span class="c-kw">return</span> err
+    }
+
+    <span class="c-cm">// 3. 真正发送成功，将标记升级为 DONE 并保留 24 小时防重</span>
+    _ = rdb.Set(ctx, key, <span class="c-str">"DONE"</span>, 24*time.Hour).Err()
+    <span class="c-kw">return nil</span>
+}</code></pre>
+  </div>
+</div>
+
+<!-- 04.3 · Kafka 幂等生产者与 EOS：只留结论和配置 -->
+<div class="wb-card" id="eos-summary" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📌 04.3 · 结论速查：Kafka 幂等生产者与 EOS（精确一次语义）能做什么、不能做什么</div>
+  <h3>📌 04.3 Kafka 幂等生产者与 EOS：工程结论与配置</h3>
+
+  <p>
+    看文档时常会遇到「Kafka 支持幂等生产者和 <code>EOS（Exactly-Once Semantics，精确一次语义）</code>」。实际开发只需记住以下两条工程结论，不必混淆概念：
+  </p>
+
+  <ul>
+    <li><strong>结论 ①：幂等生产者（<code>enable.idempotence = true</code>，Kafka 3.0+ 官方 Java/librdkafka 客户端已默认开启）</strong>
+      <ul>
+        <li><strong>它防住了什么</strong>：防止同一个 Producer 实例在网络超时重发时，把同一批消息往 Broker 分区里重复写两遍，同时保证单连接最多 5 个未确认批次（<code>max.in.flight.requests.per.connection &lt;= 5</code>）重试时不乱序。</li>
+        <li><strong>它防不住什么（为什么消费端仍必须写 04.2 的业务幂等）</strong>：① Producer 进程重启后重发；② 上游业务代码因为 Bug 调了两次发送函数；③ <strong>消费者写完 MySQL 但在提交 Offset 前崩溃导致的重复消费</strong>。</li>
+      </ul>
+    </li>
+    <li><strong>结论 ②：Kafka 事务 / EOS（<code>transactional.id</code> + 消费端 <code>isolation.level = read_committed</code>）</strong>
+      <ul>
+        <li>仅适用于 <strong>「从 Kafka 读 → 内存计算 → 写回 Kafka」的流处理闭环</strong>（如 Flink / Kafka Streams）。只要你的消费者是去<strong>写外部 MySQL、改 Redis 或发短信</strong>，Kafka 事务管不到外部数据库，标准答案永远是：<strong><code>At-least-once（04.1 三段防丢） + 消费端业务幂等（04.2）</code></strong>。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 14px;">
+    💡 <strong>背后的原理：</strong>Broker 是如何用 <code>PID + Sequence Number</code> 在内存里做滑动窗口去重的？流处理跨分区两阶段提交又是怎么跑的？详见 <a href="principles.html#eos">《📘 核心原理篇 · 01 幂等生产者与投递语义》</a>。
+  </p>
+
+  <h4 id="quiz-04" style="margin:0 0 8px;">☑️ 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 生产端已经配了 <code>acks=all</code>，但 Topic 的 <code>min.insync.replicas</code> 保持了默认值 <code>1</code>，集群遇到什么故障时照样会丢消息？</span></summary>
+    <div class="drawer-body">
+      <p>当两台 Follower 因为网络抖动暂时掉队被移出 <code>ISR</code> 同步集合，导致 <code>ISR</code> 里只剩 Leader 自己 1 台机器时：由于 <code>min.insync.replicas=1</code> 允许继续写入，<code>acks=all</code> 此时只写进 Leader 1 台机器就会返回成功；紧接着若 Leader 硬盘损坏或断电未刷盘，数据依然丢失。所以必须同时设 <code>replication.factor=3</code> 且 <code>min.insync.replicas=2</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 同事为了加快消费速度，在消费循环里一拿到消息就起一个 <code>go handleOrder(msg)</code> 协程异步写库，紧接着主循环立刻调 <code>CommitMessages</code>，这有什么风险？</span></summary>
+    <div class="drawer-body">
+      <p>一旦服务发版滚动重启、容器 OOM 或 <code>handleOrder</code> 内部遇到数据库死锁报错，Offset 却早已被主循环提前提交给了 Kafka。重启后消费者直接从后面的新 Offset 开始拉取，之前还在内存协程里没落库的那批订单消息就<strong>静默永久丢失</strong>了。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 为什么在已开启 Kafka 幂等生产者（<code>enable.idempotence=true</code>）的线上环境，用户还是偶尔收到两张相同的支付返利券？</span></summary>
+    <div class="drawer-body">
+      <p>因为幂等生产者只管「Producer 到 Broker 写入不重」，完全管不到「Broker 到 Consumer 投递不重」。只要发券服务某次滚动发布重启或消费慢触发了重平衡，已经落库发了券但还没来得及提交 Offset 的那几条消息就会被再次投递；发券表若没对 <code>(order_no, coupon_type)</code> 加唯一索引，就会发第二张券。</p>
+    </div>
+  </details>
+</div>

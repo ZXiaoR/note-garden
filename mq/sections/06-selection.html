@@ -1,0 +1,207 @@
+<!-- ====================================================================
+     PART 06: 三大 MQ 选型 · Kafka、RocketMQ、RabbitMQ 与 Redis Stream 边界
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="arch">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">三大 MQ 选型：Kafka、RocketMQ、RabbitMQ 与 Redis Stream 边界</span>
+  <span class="plop-tag">KAFKA · ROCKETMQ · RABBITMQ · REDIS STREAM</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>说清 Kafka、RocketMQ、RabbitMQ 各自的架构定位与 RabbitMQ 交换机路由方式，在新项目立项时根据吞吐量、延迟消息与运维成本快速拍板选哪一款（或直接复用 Redis Stream）。
+</div>
+
+<!-- 06.1 · 三大主流 MQ 架构基因速览（复用原 02.1） -->
+<div class="wb-card" id="three" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🏗️ 06.1 · 架构基因拆解：为什么市面上同时存在 Kafka、RocketMQ 与 RabbitMQ</div>
+  <h3>🏗️ 06.1 三大主流 MQ 的架构定位与取舍</h3>
+
+  <p>
+    没有一款消息队列能在所有指标上同时拿第一，因为<strong>「百万级高吞吐」「丰富的交易级内置特性（事务/定时/万级 Topic）」「微秒级低延迟与复杂路由」</strong>在底层存储和网络模型上天然存在取舍：
+  </p>
+
+  <div style="display:grid; gap:12px; margin:14px 0;">
+    <!-- Kafka -->
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+        <span style="background:var(--plop-ink); color:#FFFFFF; font-weight:900; font-size:14px; padding:3px 11px; border-radius:7px;">
+          ① Apache Kafka —— 百万级吞吐与大数据流管道标准
+        </span>
+        <span class="plop-tag mint" style="font-size:11px;">Scala/Java · 单机百万 TPS · KRaft 去 ZK</span>
+      </div>
+      <div style="font-size:13.2px; line-height:1.6;">
+        • <strong>设计重心</strong>：把消息彻底抽象为<strong>分布式追加日志（Append-Only Log）</strong>。依靠分区顺序写、操作系统页缓存、<code>sendfile</code> 零拷贝与批量压缩，单机吞吐可达百万级/秒，磁盘堆积 TB 级历史数据毫不费力。<br>
+        • <strong>元数据架构</strong>：Kafka 3.3+ 生产就绪、4.0 彻底移除外部 ZooKeeper，改用内置 Raft 共识协议的 <strong><code>KRaft</code> 控制平面</strong>管理分区元数据（详见 <a href="principles.html#kraft">原理篇 06.2</a>）。
+      </div>
+    </div>
+
+    <!-- RocketMQ -->
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+        <span style="background:var(--plop-mustard); border:1.8px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:3px 11px; border-radius:7px;">
+          ② Apache RocketMQ —— 核心电商交易与金融业务全能型
+        </span>
+        <span class="plop-tag tomato" style="font-size:11px;">Java · 十万级 TPS · 原生事务 / 定时 / 重试</span>
+      </div>
+      <div style="font-size:13.2px; line-height:1.6;">
+        • <strong>设计重心</strong>：针对电商交易补齐了 Kafka 不擅长的两块短板——一是原生内置<strong>分布式事务消息、任意时刻定时消息、Tag 二级过滤与 16 级重试死信队列</strong>；二是存储上让整台 Broker 所有 Topic 共写<strong>唯一一个 <code>CommitLog</code> 文件</strong>（配轻量 <code>ConsumeQueue</code> 索引，详见 <a href="principles.html#store">原理篇 03.2</a>），即使业务建了几千个 Topic 也不会退化为磁盘随机写。<br>
+        • <strong>路由协调</strong>：使用极简无状态的 <strong><code>NameServer</code> 集群</strong>（节点间互不通信，Broker 定时向所有 NameServer 上报心跳）替代重型注册中心。
+      </div>
+    </div>
+
+    <!-- RabbitMQ -->
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:12px; padding:14px 16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+        <span style="background:var(--plop-periwinkle); border:1.8px solid var(--plop-ink); color:var(--plop-ink-text); font-weight:900; font-size:14px; padding:3px 11px; border-radius:7px;">
+          ③ RabbitMQ —— 微秒级低延迟与灵活交换机路由
+        </span>
+        <span class="plop-tag periwinkle" style="font-size:11px;">Erlang · 万级 TPS · µs 级延迟 · AMQP</span>
+      </div>
+      <div style="font-size:13.2px; line-height:1.6;">
+        • <strong>设计重心</strong>：基于 <code>AMQP（Advanced Message Queuing Protocol，高级消息队列协议）</code> 与 Erlang 语言实现。它的核心不是分区大日志，而是在 Broker 内部前置了一层灵活的 <strong><code>Exchange（交换机）</code></strong>——生产者只把带路由键（<code>Routing Key</code>）的消息发给交换机，交换机按绑定规则实时分发到不同队列（<code>Queue</code>）。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 06.2 · RabbitMQ 交换机路由与 Quorum 队列（复用原 02.2） -->
+<div class="wb-card" id="rabbit" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🔀 06.2 · RabbitMQ 核心机制：4 种 Exchange 交换机路由规则与 Quorum 仲裁队列</div>
+  <h3>🔀 06.2 RabbitMQ 交换机路由与高可用队列</h3>
+
+  <p>
+    在 RabbitMQ 里没有 Kafka 的「消费者组」概念——它靠<strong>「1 个 Exchange 绑定多个独立 Queue」实现多业务广播</strong>，靠<strong>「多个消费者监听同一个 Queue」实现竞争分摊</strong>。4 种内置交换机的匹配规则如下：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">Exchange 类型</th>
+          <th style="width:40%">路由匹配规则</th>
+          <th>典型业务场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>Direct</code>（直连）</strong></td>
+          <td><code>Routing Key == Binding Key</code> <strong>完全相等</strong>时，投递到对应队列。</td>
+          <td>按明确标识精准分流（如把 <code>error</code> 日志发告警队列，<code>info</code> 发归档队列）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Fanout</code>（扇出广播）</strong></td>
+          <td><strong>忽略 <code>Routing Key</code></strong>，绑定在该交换机上的所有队列无条件各复制一份（最快）。</td>
+          <td>纯粹的一对多事件广播（如注册成功同时推给发券队列、欢迎邮件队列）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Topic</code>（通配符，最常用）</strong></td>
+          <td>以点号 <code>.</code> 分词（如 <code>order.pay.shanghai</code>）：<br>• <code>*</code> 匹配<strong>恰好 1 个词</strong>；<br>• <code>#</code> 匹配 <strong>0 个或多个词</strong>。</td>
+          <td>多维按需订阅：绑定 <code>order.#</code> 收全部订单事件；绑定 <code>*.pay.*</code> 只收各城市支付事件。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Headers</code>（头部属性）</strong></td>
+          <td>不看 <code>Routing Key</code>，匹配消息 <code>Headers</code> 键值对（<code>x-match: all / any</code>）。</td>
+          <td>开销较大极少使用，基本都可被 <code>Topic</code> 交换机替代。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-size:13.1px; color:var(--plop-ink-soft); margin:10px 0 0;">
+    🛡️ <strong>RabbitMQ 集群高可用标准</strong>：旧版「经典镜像队列（Classic Mirrored Queue）」已在 RabbitMQ 4.0 移除；生产环境一律声明基于 Raft 一致性协议的 <strong><code>Quorum Queue（仲裁队列）</code></strong>，过半节点落盘即确认，兼顾防丢与防脑裂。
+  </p>
+</div>
+
+<!-- 06.3 · 全维度选型对比表 + 一句话选型结论（含 Redis Stream） -->
+<div class="wb-card" id="choose" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">📊 06.3 · 选型决策总表：Kafka vs RocketMQ vs RabbitMQ 全维度对比与一句话结论</div>
+  <h3>📊 06.3 全维度选型对比表与拍板结论</h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:17%">对比维度</th>
+          <th style="width:27%">Apache Kafka</th>
+          <th style="width:29%">Apache RocketMQ</th>
+          <th>RabbitMQ</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>单机吞吐量</strong></td>
+          <td><strong style="color:#15803d;">百万级/s（最高）</strong><br>顺序写 + PageCache + <code>sendfile</code></td>
+          <td><strong>十万级/s（高）</strong><br>单一 <code>CommitLog</code> + <code>mmap</code></td>
+          <td><strong>万级~数万级/s</strong><br>交换机实时路由与队列状态开销</td>
+        </tr>
+        <tr>
+          <td><strong>端到端延迟</strong></td>
+          <td><strong>毫秒级（数 ms）</strong><br>微批攒包换高吞吐</td>
+          <td><strong>毫秒级（1~5 ms）</strong><br>低延迟与高吞吐均衡</td>
+          <td><strong style="color:var(--plop-tomato);">微秒级（µs 级，最低）</strong><br>收到即实时 Push 推送</td>
+        </tr>
+        <tr>
+          <td><strong>单集群 Topic 规模</strong></td>
+          <td><strong>几十~几百个最佳</strong><br>分区文件上万易引发随机 I/O</td>
+          <td><strong style="color:#15803d;">几千~上万个 Topic 稳定</strong><br>全机共写 1 个 <code>CommitLog</code></td>
+          <td><strong>百~千级队列</strong><br>队列过多占 Erlang 内存</td>
+        </tr>
+        <tr>
+          <td><strong>事务一致性方案</strong></td>
+          <td>用<strong>本地消息表（Outbox）</strong>；内置事务仅限流计算内部</td>
+          <td><strong style="color:var(--plop-tomato);">原生支持半消息 + 事务反查</strong></td>
+          <td>不支持事务反查，用<strong>本地消息表（Outbox）</strong></td>
+        </tr>
+        <tr>
+          <td><strong>延迟 / 定时消息</strong></td>
+          <td>无原生支持，搭配 <strong>Redis ZSet</strong> 或分档延迟 Topic</td>
+          <td><strong style="color:#15803d;">原生支持</strong>（5.0 时间轮任意秒级定时）</td>
+          <td><code>delayed_message</code> 插件，或按固定时长拆 <code>TTL + DLX</code></td>
+        </tr>
+        <tr>
+          <td><strong>重试与死信队列</strong></td>
+          <td>客户端应用层自建 <code>.retry</code> 与 <code>.dlq</code> Topic</td>
+          <td><strong style="color:#15803d;">原生内置</strong> <code>%RETRY%</code> 与 <code>%DLQ%</code></td>
+          <td><code>Nack</code> 或绑定死信交换机 <code>DLX</code></td>
+        </tr>
+        <tr>
+          <td><strong>海量堆积与回溯</strong></td>
+          <td><strong style="color:#15803d;">极强（TB 级堆积 + 按时间回溯）</strong></td>
+          <td><strong>强（磁盘持久化 + 按时间回溯）</strong></td>
+          <td>传统队列不耐百万级堆积（消费即删）</td>
+        </tr>
+        <tr>
+          <td><strong>消费拉取模式</strong></td>
+          <td>Pull + 长轮询</td>
+          <td>Pull + 长轮询 / 5.0 无状态 Pop</td>
+          <td>Push 为主（配 <code>basicQos(prefetch)</code> 限流）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-callout tip" style="margin:14px 0;">
+    <strong>🎯 一句话选型拍板结论：</strong><br>
+    • <strong>海量日志、用户埋点、CDC 数据管道、流计算生态</strong> 👉 选 <strong>Kafka</strong>（如果普通业务后端团队不想维护多套 MQ，用「Kafka + 本地消息表 + Redis ZSet 延迟」这套黄金组合也能稳稳覆盖绝大多数交易需求）。<br>
+    • <strong>大型电商、金融支付核心交易中台（Topic 上千且重度依赖原生事务消息与定时关单）</strong> 👉 选 <strong>RocketMQ</strong>。<br>
+    • <strong>企业内部微服务需要复杂通配符路由或微秒级实时指令下发</strong> 👉 选 <strong>RabbitMQ</strong>。<br>
+    • <strong>中小型项目日消息量在百万条以内、没有大规模积压诉求、不想多招运维盯一套 MQ 集群</strong> 👉 <strong>根本不用引入新组件，直接用现有的 <a href="../redis/index.html#sc-mq">Redis Stream</a> 就够了！</strong>
+  </div>
+
+  <h4 id="quiz-06" style="margin:0 0 8px;">☑️ 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 公司准备搭建全站统一的用户点击埋点与容器日志收集总线，峰值约 40 万条/秒，下游要同时喂给 Flink 实时大屏与 ClickHouse，选哪款最合适？</span></summary>
+    <div class="drawer-body">
+      <p>选 <strong>Apache Kafka</strong>。40 万条/秒属于典型的大吞吐流式管道场景，无需复杂路由和单条事务反查，Kafka 的批量压缩、<code>sendfile</code> 零拷贝、TB 级磁盘堆积能力以及与 Flink / ClickHouse 的原生连接器支持都是行业事实标准。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 一个创业团队的 SaaS 后台已有 MySQL 和 Redis 7，现在想把「用户修改头像后异步生成缩略图（每天约 2 万次）」做成队列任务，该上 Kafka、RabbitMQ 还是 Redis Stream？</span></summary>
+    <div class="drawer-body">
+      <p>直接用 <strong><a href="../redis/index.html#sc-mq">Redis Stream</a></strong>。日均 2 万次平均每秒不到 1 条，<code>XADD + XREADGROUP + XACK + XAUTOCLAIM</code> 已经完整具备多 Worker 分摊和崩溃重试能力，零新增基础设施运维负担；等将来日消息涨到千万级或需要数天历史消息回放时再平滑升级到 Kafka 也不迟。</p>
+    </div>
+  </details>
+</div>

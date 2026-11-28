@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-plop-surface="poster">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="消息队列（MQ）核心原理篇：深入剖析 Pull + 长轮询挂起唤醒、Kafka PID + Sequence 幂等生产者与跨分区 EOS、RocketMQ 半消息事务反查与 5.0 分层时间轮、顺序写与 sendfile/mmap 零拷贝、Segment 稀疏索引 vs CommitLog、ISR / HW / Leader Epoch 截断防丢与 Rebalance 协调协议。" />
+  <title>消息队列 · 核心原理篇 · note-garden 技术知识花园</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+  <link rel="stylesheet" href="../assets/plop-garden.css" />
+  <script src="../assets/plop-garden.js"></script>
+  <script defer src="../assets/analytics.js"></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       顶部固定导航与手账桌面材质切换栏
+       ========================================================================== -->
+  <header class="plop-console">
+    <div class="console-group">
+      <a href="../index.html" class="mode-switch-btn">
+        🌱 返回花园首页
+      </a>
+      <div style="display:inline-flex; align-items:center; gap:6px; margin-left:4px;">
+        <svg width="30" height="25" class="anim-bob"><use href="#plop-buddy-cap"></use></svg>
+        <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
+      </div>
+      <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
+        <a href="index.html" data-edition-target="index.html" title="回到全景定位、Docker 与 Go 跑通、七大通用业务场景、三段防丢幂等代码与上线前必知清单">🌱 基础与实战篇 ↗</a>
+        <a href="principles.html" class="active principles" aria-current="page" title="深入 Pull 长轮询、PID+Sequence、半消息反查与时间轮、零拷贝与存储架构、ISR/Leader Epoch 与 Rebalance 内核">📘 核心原理篇</a>
+      </nav>
+    </div>
+
+    <div class="console-group">
+      <span class="console-label">🎨 切换手账桌面材质：</span>
+      <button class="sticker-btn" onclick="setSurface('mat', this)">🟩 切割垫</button>
+      <button class="sticker-btn active" onclick="setSurface('poster', this)">📄 奶油画纸</button>
+      <button class="sticker-btn" onclick="setSurface('notebook', this)">📓 横线本</button>
+      <button class="sticker-btn" onclick="setSurface('kraft', this)">📦 牛皮纸</button>
+      <button class="sticker-btn" onclick="setSurface('riso', this)">🌸 孔版粉</button>
+    </div>
+  </header>
+
+  <div class="plop-desk-stage">
+    <!-- ==================== 左侧手账贴纸栏：吉祥物阅读进度贴 + 章节书签耳标 + 内核数值速查 ==================== -->
+    <aside class="plop-side-rail left" aria-label="本篇章节导航与底层机制速查">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 吉祥物模切贴纸 + 实时阅读进度条 -->
+        <div class="diecut-sticker tilt-left" onclick="this.classList.remove('sticker-pop-click'); void this.offsetWidth; this.classList.add('sticker-pop-click');">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <svg width="44" height="38" class="anim-bob" style="flex-shrink:0;"><use href="#plop-buddy-cap"></use></svg>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:12px; color:var(--plop-tomato);">📖 阅读进度</span>
+                <span id="read-progress-text" style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-ink);">0%</span>
+              </div>
+              <div class="plop-progress-track">
+                <div class="plop-progress-bar" id="read-progress-bar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
+        <nav class="plop-index-tabs" id="toc-tabs" aria-label="消息队列核心原理章节书签">
+          <a href="#push-pull" class="plop-ear-tab active" data-toc="push-pull">
+            <span class="ear-dot"></span>
+            <span>00 推拉与长轮询</span>
+          </a>
+          <a href="#eos" class="plop-ear-tab" data-toc="eos">
+            <span class="ear-dot mustard"></span>
+            <span>01 幂等生产者与EOS</span>
+          </a>
+          <a href="#tx-delay" class="plop-ear-tab" data-toc="tx-delay">
+            <span class="ear-dot pink"></span>
+            <span>02 半消息与时间轮</span>
+          </a>
+          <a href="#storage" class="plop-ear-tab" data-toc="storage">
+            <span class="ear-dot mint"></span>
+            <span>03 存储与零拷贝</span>
+          </a>
+          <a href="#isr" class="plop-ear-tab" data-toc="isr">
+            <span class="ear-dot periwinkle"></span>
+            <span>04 ISR与LeaderEpoch</span>
+          </a>
+          <a href="#rebalance" class="plop-ear-tab" data-toc="rebalance">
+            <span class="ear-dot mustard"></span>
+            <span>05 Rebalance 原理</span>
+          </a>
+          <a href="#advanced" class="plop-ear-tab" data-toc="advanced">
+            <span class="ear-dot tomato"></span>
+            <span>06 进阶抽屉与自测</span>
+          </a>
+        </nav>
+
+        <!-- 3. 打孔小票贴纸：MQ 内核关键机制速查 -->
+        <div class="plop-side-ticket tilt-right">
+          <div class="plop-side-ticket-head">
+            <span>MQ KERNEL</span>
+            <span>#INTERNALS</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>单连接保序幂等</span>
+            <span>PID+Seq (in.flight≤5)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>Kafka 零拷贝</span>
+            <span>sendfile (0 CPU拷贝)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>RMQ 零拷贝</span>
+            <span>mmap (1 CPU拷贝)</span>
+          </div>
+          <div class="plop-side-ticket-row">
+            <span>ConsumeQueue</span>
+            <span>20B 定长索引</span>
+          </div>
+          <div class="plop-side-ticket-row" style="color:var(--plop-tomato);">
+            <span>消费者可见上限</span>
+            <span>HW = min(ISR LEO)</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中央手账主工作台 ==================== -->
+    <main class="plop-workbench" id="content">
+      <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
+      <nav class="plop-mobile-toc" aria-label="章节快速跳转">
+        <a href="#push-pull" class="active">00 长轮询</a>
+        <a href="#eos">01 PID与EOS</a>
+        <a href="#tx-delay">02 事务与时间轮</a>
+        <a href="#storage">03 存储与零拷贝</a>
+        <a href="#isr">04 ISR与Epoch</a>
+        <a href="#rebalance">05 Rebalance</a>
+        <a href="#advanced">06 进阶抽屉</a>
+      </nav>
+
+      <div class="wb-sheet plop-journal-book">
+        <div class="washi-tape periwinkle"></div>
+
+        <!-- 左侧金属活页线圈书脊 (Spiral Ring Binder Spine) -->
+        <div class="journal-spine-rings" aria-hidden="true"></div>
+
+        <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 内核主线车票 -->
+        <header class="wb-masthead">
+          <div class="wb-card wb-date-card periwinkle">
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">EDITION 02 / KERNEL</span>
+            <div style="font-family:var(--font-head); font-style:italic; font-size:36px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">MQ</div>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);">📘 核心原理篇</span>
+          </div>
+
+          <div class="wb-masthead-main">
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+              <span class="plop-tag periwinkle">📘 EDITION 2 · 核心原理篇</span>
+              <span class="plop-tag mint">LONG POLLING · PID+SEQ · TIMING WHEEL</span>
+              <span class="plop-tag tomato">ZERO-COPY · ISR / LEADER EPOCH · KRAFT</span>
+            </div>
+            <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
+              消息队列 · 核心原理篇：长轮询、零拷贝存储、ISR 副本共识与协调协议
+            </h1>
+            <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0; font-weight:600; line-height:1.6;">
+              聚焦消息队列底层实现与高阶面试深水区：深入拆解客户端主动拉取配合长轮询挂起唤醒机制、Broker 内存 PID + Sequence 滑动窗口判重与跨分区两阶段提交、RocketMQ 半消息事务反查与分层时间轮定时引擎、磁盘顺序写配合操作系统页缓存与零拷贝内核路径，以及 ISR 高水位推进、Leader Epoch 日志截断防丢、Rebalance 协作协议与存算分离架构演进。
+            </p>
+
+            <!-- 三阶段内核主线车票卡片 -->
+            <div class="wb-kpi-grid">
+              <a href="#push-pull" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">① 网络通信与高阶特性内核</div>
+                <div style="font-size:12px; font-weight:700;">章节 00—02：Pull 长轮询、PID+Seq 判重、半消息反查与分层时间轮</div>
+              </a>
+              <a href="#storage" class="plop-ticket-kpi" style="background:var(--plop-mint);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">② 百万吞吐存储与零拷贝</div>
+                <div style="font-size:12px; font-weight:700;">章节 03：顺序写、PageCache、sendfile vs mmap 与稀疏索引/CommitLog</div>
+              </a>
+              <a href="#isr" class="plop-ticket-kpi" style="background:var(--plop-bubblegum);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">③ 副本高可用、重平衡与演进</div>
+                <div style="font-size:12px; font-weight:700;">章节 04—06：ISR/HW、Leader Epoch、协作重平衡、KRaft 与存算分离</div>
+              </a>
+            </div>
+          </div>
+        </header>
+
+        <div class="plop-callout tip" style="margin:24px 0 22px;">
+          <strong>📖 怎么读这篇《核心原理篇》：</strong>建议先通读 <a href="index.html">《🌱 基础与实战篇》</a> 把本地环境、常用业务场景代码和排障命令跑通，遇到各节末尾的「💡 背后的原理」链接再按需跳进来查阅。文中每一节开头都明确写出了<strong>「这节回答的是实战篇哪个问题」</strong>，并做了两级标注：优先掌握标有 <span class="plop-tag tomato" style="padding:1px 6px; font-size:11px;">🔥 常问</span> 的主干原理（Pull + 长轮询、PID + Sequence 边界、半消息反查、百万吞吐五大引擎与零拷贝、ISR/HW、Rebalance STW 成因）；标有 <span class="plop-tag periwinkle" style="padding:1px 6px; font-size:11px;">🔬 深挖</span> 的进阶机制（跨分区 2PC、分层时间轮、CommitLog 20B 索引、Leader Epoch 截断时序、KRaft 与存算分离）可在准备资深架构面试或好奇底层细节时选读。
+        </div>
+
+        <noscript>
+          <div class="plop-callout warn" style="margin:14px 0;">
+            <strong>📖 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已展示全篇 7 大章节核心脉络摘要与独立 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+          </div>
+        </noscript>
+
+        <div data-plop-section="principles-sections/00-push-pull.html">
+          <section class="wb-card" id="push-pull" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/00-push-pull.html">00 · 推与拉：Pull 模型、长轮询挂起唤醒与无状态 Pop 演进</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比 Push 主动推送与 Pull 主动拉取的吞吐控速差异，详解 Broker 长轮询挂起唤醒机制与 RocketMQ 5.0 Pop 模式。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/01-idempotence-eos.html">
+          <section class="wb-card" id="eos" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/01-idempotence-eos.html">01 · 幂等生产者与投递语义：PID + Sequence 滑动窗口与 EOS 两阶段提交</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">剖析 Broker 内存 (PID, Partition) 序列号判重与防乱序窗口，以及流处理跨分区事务协调器与 read_committed 隔离原理。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/02-tx-delay.html">
+          <section class="wb-card" id="tx-delay" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/02-tx-delay.html">02 · 事务消息与延迟消息的实现：半消息反查机制与分层时间轮</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解 RocketMQ 内部半消息 Topic 与定时状态反查闭环，对比 18 级固定延迟队列与 5.0 TimerWheel + TimerLog 分层时间轮。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/03-storage-zerocopy.html">
+          <section class="wb-card" id="storage" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/03-storage-zerocopy.html">03 · 存储与零拷贝：百万吞吐五大引擎与两大磁盘文件架构对比</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">图解传统 4 次拷贝 vs sendfile 零 CPU 拷贝，辨析 sendfile 与 mmap 选型差异，对比 Kafka Segment 稀疏索引与 RocketMQ CommitLog + ConsumeQueue。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/04-replication-isr.html">
+          <section class="wb-card" id="isr" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/04-replication-isr.html">04 · 副本与高可用：ISR 同步集、HW 高水位与 Leader Epoch 防截断丢数</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">图解 ISR 动态进出与 HW 木桶短板推进过程，推演仅靠滞后 HW 在重启切主时丢已提交数据的漏洞及 Leader Epoch 修复方案。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/05-rebalance.html">
+          <section class="wb-card" id="rebalance" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/05-rebalance.html">05 · Rebalance 原理：GroupCoordinator 两阶段协议与增量协作重平衡</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">拆解 FindCoordinator / JoinGroup / SyncGroup 握手流程、为什么由客户端班长计算分配方案，以及 CooperativeSticky 如何消除全组 STW。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="principles-sections/06-advanced.html">
+          <section class="wb-card" id="advanced" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="principles-sections/06-advanced.html">06 · 进阶抽屉与深度自测：扩分区哈希漂移、KRaft 共识与存算分离</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">解析顺序消息在线扩分区乱序窗口与过渡方案、Kafka KRaft 取代 ZooKeeper 的本质提升、Pulsar/AutoMQ 存算分离及 6 道深度原理自测。</p>
+          </section>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 右侧手账贴纸栏：切换实战篇 + 跨专题切换耳标 ==================== -->
+    <aside class="plop-side-rail right" aria-label="快捷工具与专题切换">
+      <div class="rail-sticky-cluster">
+        <!-- 1. 切换基础与实战篇提示便签 -->
+        <div class="plop-sticky-note periwinkle tilt-right">
+          <div class="plop-pin"></div>
+          <div class="sticky-title">
+            <span style="display:inline-flex; align-items:center; gap:5px;">
+              <svg width="24" height="24" class="anim-bob"><use href="#plop-buddy-beanie"></use></svg>
+              <span>🌱 切换基础与实战篇</span>
+            </span>
+            <span>PRACTICE</span>
+          </div>
+          <p style="font-size:11.8px; line-height:1.5; margin:6px 0 8px; color:var(--plop-ink-text); font-weight:700;">
+            需要查阅 Docker KRaft 启动配置、Go 收发与幂等代码、本地消息表 SQL 或线上积压排障命令？
+          </p>
+          <a href="index.html" data-edition-target="index.html" class="plop-pill-sticker mint" style="display:block; text-align:center; font-size:11.8px; padding:6px 8px; text-decoration:none;">
+            🌱 回到基础与实战篇 ↗
+          </a>
+        </div>
+
+        <!-- 2. 跨专题快速切换书签耳标（由 assets/plop-garden.js 统一渲染） -->
+        <div class="plop-index-tabs" data-plop-topics></div>
+
+        <button type="button" class="plop-pill-sticker paper tilt-left" onclick="window.scrollTo({top:0, behavior:'smooth'})">
+          ⬆️ 回到手账顶部
+        </button>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>
