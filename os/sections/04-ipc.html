@@ -1,8 +1,8 @@
 <div class="wb-sec-header" id="pipe"><span class="wb-sec-num">04</span><span class="wb-sec-title">任务怎样合作 · 先分清传数据和发通知</span><span class="plop-tag mint">先理解过程</span></div>
-<div class="wb-card" id="communication" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3>📨 04.1 一个进程统计，另一个显示，结果怎么送过去？</h3><p>假设把工具拆成两个进程：一个读取文字并计算，另一个显示结果。各自的私有内存通常不能让对方直接访问，因此需要一种约定好的通道。<strong>这就是进程间通信：让隔离的运行实例交换信息。</strong></p><p>一种简单做法是让统计进程把“120个字”写入通道，显示进程再从另一端读出。内核提供和管理这类通道，并处理写满、读空时怎么办。</p></div>
+<div class="wb-card" id="communication" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 04.1 一个进程统计，另一个显示，结果怎么送过去？</h3><p>假设把工具拆成两个进程：一个读取文字并计算，另一个显示结果。各自的私有内存通常不能让对方直接访问，因此需要一种约定好的通道。<strong>这就是进程间通信：让隔离的运行实例交换信息。</strong></p><p>一种简单做法是让统计进程把“120个字”写入通道，显示进程再从另一端读出。内核提供和管理这类通道，并处理写满、读空时怎么办。</p></div>
 <div class="wb-card" id="shm" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <h3>🚰 04.2 需要传什么，就选择什么协作方式</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> 04.2 需要传什么，就选择什么协作方式</h3>
   <p>
     延续上一章的例子：<strong>进程甲（负责统计字数）</strong>想把算出来的结果交给<strong>进程乙（负责汇总显示）</strong>。既然两个进程各自的私有内存是隔离的，操作系统提供了 <strong>3 种不同形态的数据交接方式</strong>：
   </p>
@@ -10,7 +10,7 @@
   <!-- 三栏图解：管道（水流） vs 消息队列（快递包裹） vs 共享内存（共用同一个物理格子） -->
   <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:12px 0; box-shadow:2px 3px 0 var(--plop-shadow);">
     <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:10px;">
-      🗺️ 图解三种跨进程传数据方式：水管字节流 vs 独立包裹队列 vs 共享同一块物理内存
+      <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 图解三种跨进程传数据方式：水管字节流 vs 独立包裹队列 vs 共享同一块物理内存
     </div>
 
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(225px, 1fr)); gap:12px; align-items:stretch; font-size:12.5px;">
@@ -37,7 +37,7 @@
             ② 消息队列 · 像贴了标签的快递柜
           </div>
           <div style="background:#FFFFFF; border:1.6px solid var(--plop-ink); border-radius:7px; padding:8px; font-family:var(--font-mono); font-size:11.5px; font-weight:900; text-align:center; margin-bottom:6px;">
-            进程甲 ──<span style="color:var(--plop-tomato);">①投递</span>──▶ [📦包1: 120] [📦包2: 85] ──<span style="color:var(--plop-tomato);">②取件</span>──▶ 进程乙
+            进程甲 ──<span style="color:var(--plop-tomato);">①投递</span>──▶ [<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-kraft"></use></svg>包1: 120] [<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-kraft"></use></svg>包2: 85] ──<span style="color:var(--plop-tomato);">②取件</span>──▶ 进程乙
           </div>
           <div style="line-height:1.55; color:var(--plop-ink-text);">
             • <strong>特点：</strong>不再是混在一起的字节流，而是把数据打包成<strong>一条条有独立边界、带类型编号的消息</strong>存进内核链表。<br/>
@@ -68,7 +68,7 @@
 </div>
 <div class="wb-card" id="signal" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <h3>🔔 04.3 紧急通知与跨机器通信：信号（Signal）与套接字（Socket）</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 04.3 紧急通知与跨机器通信：信号（Signal）与套接字（Socket）</h3>
   <p>
     04.2 的管道、消息队列和共享内存都有两个共同前提：<strong>① 接收方需要主动去读取；② 双方运行在同一台机器上，共用同一根内存条</strong>。而在实际运行中，还会遇到另外两类协作需求：
   </p>
@@ -77,7 +77,7 @@
     <!-- 场景 1：对方正在忙，没空读管道 -> 引出信号 Signal -->
     <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px;">
       <div style="font-weight:900; font-size:13.4px; color:var(--plop-tomato); margin-bottom:5px;">
-        🚨 场景 ①：对方正埋头猛算，根本没空看管道，怎么立刻叫停它？ ──▶ 靠「信号 (Signal)」
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 场景 ①：对方正埋头猛算，根本没空看管道，怎么立刻叫停它？ ──▶ 靠「信号 (Signal)」
       </div>
       • <strong>为什么前三种不管用：</strong>假设进程甲正在埋头统计一个 10GB 的大文件，代码一直卡在循环里算字数，根本没去读管道或看消息队列。这时你在键盘按了 <code>Ctrl + C</code> 想让它停下来，往管道里塞字它是看不见的。<br/>
       • <strong>怎么解决：</strong>需要一种<strong>“不经过管道、由内核直接拍肩膀打断它”</strong>的异步事件通知——这就是<strong>信号（<code>Signal</code>）</strong>。它不传大段文章，只传一个编号（例如 <code>2号 SIGINT</code> = 你按了 Ctrl+C、<code>15号 SIGTERM</code> = 请保存好进度优雅退出、<code>9号 SIGKILL</code> = 内核直接强制终结）。
@@ -86,10 +86,10 @@
     <!-- 场景 2：两个进程不在同一台电脑上 -> 引出套接字 Socket -->
     <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px;">
       <div style="font-weight:900; font-size:13.4px; color:#15803d; margin-bottom:5px;">
-        🌐 场景 ②：统计进程在远端服务器，显示界面在你的笔记本上，怎么传？ ──▶ 靠「套接字 (Socket)」
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 场景 ②：统计进程在远端服务器，显示界面在你的笔记本上，怎么传？ ──▶ 靠「套接字 (Socket)」
       </div>
       • <strong>为什么前三种不管用：</strong>管道、消息队列和共享内存，全都是靠<strong>“同一台电脑上的同一根内存条”</strong>中转或共享的；隔着网线的两台电脑根本没有共用内存条。<br/>
       • <strong>怎么解决：</strong>操作系统提供了统一的网络通信插口叫<strong>套接字（<code>Socket</code>）</strong>。进程甲把“120个字”写进自己的 Socket，由内核网络协议栈和网卡通过网线发给另一台电脑的 Socket，从而把通信范围从“本机”扩展到了“全世界”（顺便也支持本机进程之间高速通信）。
     </div>
   </div>
-</div><details class="plop-drawer"><summary><span class="plop-drawer-title">🧩 想一想：两个进程共享了同一块内存，是否就能随便同时修改？</span></summary><div class="drawer-body"><p>不能。共享只解决“能访问同一份数据”，还要解决修改顺序和相互配合的问题，否则同样可能覆盖结果。</p></div></details>
+</div><details class="plop-drawer"><summary><span class="plop-drawer-title"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-puzzle"></use></svg> 想一想：两个进程共享了同一块内存，是否就能随便同时修改？</span></summary><div class="drawer-body"><p>不能。共享只解决“能访问同一份数据”，还要解决修改顺序和相互配合的问题，否则同样可能覆盖结果。</p></div></details>

@@ -10,8 +10,8 @@
 <!-- 03.1 · Buffer 底层结构、8KB Slab 预分配内存池与 alloc vs allocUnsafe -->
 <div class="wb-card" id="buffer" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🧱 03.1 · 二进制内存管理：<code>Buffer</code> 视图卡片与 <code>ArrayBuffer</code> 的两层拆分、<code>8KB</code> Slab 共享内存池与 8 字节对齐</div>
-  <h3>⚡ 03.1 <code>Buffer</code> 内存模型、<code>8KB</code> Slab 共享内存池与 <code>alloc / allocUnsafe</code> 机制</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 03.1 · 二进制内存管理：<code>Buffer</code> 视图卡片与 <code>ArrayBuffer</code> 的两层拆分、<code>8KB</code> Slab 共享内存池与 8 字节对齐</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 03.1 <code>Buffer</code> 内存模型、<code>8KB</code> Slab 共享内存池与 <code>alloc / allocUnsafe</code> 机制</h3>
 
   <!-- 第一层：先讲清 Buffer 和 ArrayBuffer 在内存里到底是怎么拆成两部分的 -->
   <p>
@@ -36,7 +36,7 @@
   <div class="wb-grid-2" style="margin-bottom:12px;">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🧪 buffer_pool.js · 观察两个小 Buffer 如何共享同一块 8KB 物理内存</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> buffer_pool.js · 观察两个小 Buffer 如何共享同一块 8KB 物理内存</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-buf-pool', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-buf-pool"><code><span class="c-cm">// 1. 共享池默认总大小 Buffer.poolSize = 8192 字节 (8KB)</span>
@@ -59,7 +59,7 @@ console.<span class="c-fn">log</span>(safeBuf.buffer.byteLength);     <span clas
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 游标 <code>poolOffset</code> 切分与推进的 4 个步骤：</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 游标 <code>poolOffset</code> 切分与推进的 4 个步骤：</div>
       <ul style="margin:0; padding-left:18px; font-size:12.9px; line-height:1.64;">
         <li><strong>Step 1 · 建池（<code>createPool</code>）</strong>：分配一块 <code>8192B</code> 的 <code>ArrayBuffer</code>，游标初始化为 <code>poolOffset = 0</code>。</li>
         <li><strong>Step 2 · 切出 <code>b1(100B)</code></strong>：<code>b1</code> 记录 <code>byteOffset = 0, byteLength = 100</code>（占用下标 <code>0..99</code>），游标推进至 <code>100</code>。</li>
@@ -173,32 +173,32 @@ console.<span class="c-fn">log</span>(safeBuf.buffer.byteLength);     <span clas
       <tbody>
         <tr>
           <td><strong><code>Buffer.alloc(size)</code></strong></td>
-          <td>❌ <strong>永不走池</strong>（无论大小）</td>
-          <td>✅ 全部初始化为 <code>0x00</code></td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> <strong>永不走池</strong>（无论大小）</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 全部初始化为 <code>0x00</code></td>
           <td>直接向底层申请一块长度为 <code>size</code> 且已清零的独立 <code>ArrayBuffer</code>。<strong>日常业务开发最推荐的默认安全写法</strong>。</td>
         </tr>
         <tr>
           <td><strong><code>Buffer.allocUnsafe(size)</code></strong><br>（当 <code>size &lt; 4096B</code> 时）</td>
-          <td>✅ <strong>走 8KB 共享池</strong></td>
-          <td>❌ 未清零（含旧残留字节）</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> <strong>走 8KB 共享池</strong></td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 未清零（含旧残留字节）</td>
           <td>直接从全局 <code>8KB</code> 共享池当前 <code>poolOffset</code> 处切出视图返回，省去系统调用与清零开销；<strong>必须在紧接着的代码里将整块区域写满新数据</strong>。</td>
         </tr>
         <tr>
           <td><strong><code>Buffer.allocUnsafe(size)</code></strong><br>（当 <code>size &gt;= 4096B</code> 时）</td>
-          <td>❌ 不走共享池</td>
-          <td>❌ 未清零</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 不走共享池</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 未清零</td>
           <td>因大于等于 <code>4KB</code> 阈值，直接单独申请一块长度为 <code>size</code> 的未清零独立 <code>ArrayBuffer</code>。</td>
         </tr>
         <tr>
           <td><strong><code>Buffer.from(str)</code></strong><br>或 <strong><code>Buffer.concat(list)</code></strong></td>
-          <td>✅ 总字节数 <code>&lt; 4096B</code> 时<strong>走 8KB 共享池</strong></td>
-          <td>✅ 立即被传入的字符串/数组完整覆写</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 总字节数 <code>&lt; 4096B</code> 时<strong>走 8KB 共享池</strong></td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 立即被传入的字符串/数组完整覆写</td>
           <td>内部先调用池化分配切出空间，随后立即将字符串编码字节完整写入该切片，<strong>既享受了共享池的高性能，又不会泄露旧内存数据</strong>。</td>
         </tr>
         <tr>
           <td><strong><code>Buffer.allocUnsafeSlow(size)</code></strong></td>
-          <td>❌ <strong>强制不走池</strong></td>
-          <td>❌ 未清零</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> <strong>强制不走池</strong></td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 未清零</td>
           <td>哪怕只有 10 个字节也强制单独申请独立 <code>ArrayBuffer</code>——专用于<strong>需要长期驻留在全局缓存中</strong>的小 Buffer，防止它拖住整块 8KB 共享池无法释放。</td>
         </tr>
       </tbody>
@@ -209,7 +209,7 @@ console.<span class="c-fn">log</span>(safeBuf.buffer.byteLength);     <span clas
   <div class="wb-grid-2" style="margin-bottom:12px;">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>⚠️ 注意事项 ① · allocUnsafe 未写满即发送导致旧内存数据泄露</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 注意事项 ① · allocUnsafe 未写满即发送导致旧内存数据泄露</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-buf-pitfall1', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-buf-pitfall1"><code><span class="c-cm">// ❌ 错误写法：申请了 64 字节未清零池化切片，只写入 5 字节就把整个 buf 发出去</span>
@@ -227,7 +227,7 @@ console.<span class="c-fn">log</span>(safeBuf.buffer.byteLength);     <span clas
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>⚠️ 注意事项 ② · 长期缓存小切片导致整块 8KB 共享池无法被 GC 回收</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 注意事项 ② · 长期缓存小切片导致整块 8KB 共享池无法被 GC 回收</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-buf-pitfall2', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-buf-pitfall2"><code><span class="c-kw">const</span> globalCache = [];
@@ -248,11 +248,11 @@ console.<span class="c-fn">log</span>(safeBuf.buffer.byteLength);     <span clas
 
   <!-- 源码折叠抽屉：Node.js lib/buffer.js 真实的 8KB 内存池实现 -->
   <details class="plop-drawer">
-    <summary>🔍 展开查看 Node.js 源码（<code>lib/buffer.js</code>）：<code>createPool()</code> 与 <code>allocate(size)</code> 真实实现</summary>
+    <summary><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 展开查看 Node.js 源码（<code>lib/buffer.js</code>）：<code>createPool()</code> 与 <code>allocate(size)</code> 真实实现</summary>
     <div class="drawer-body">
       <div class="plop-code-box" style="margin:0;">
         <div class="plop-code-head">
-          <span>📜 node/lib/buffer.js · 8KB Slab 共享池分配与 8 字节对齐核心源码</span>
+          <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> node/lib/buffer.js · 8KB Slab 共享池分配与 8 字节对齐核心源码</span>
           <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-buf-src', this)">复制源码</button>
         </div>
         <pre class="plop-code-pre" id="code-buf-src"><code>Buffer.poolSize = 8 * 1024; <span class="c-cm">// 默认 8192 Bytes</span>
@@ -294,8 +294,8 @@ console.<span class="c-fn">log</span>(safeBuf.buffer.byteLength);     <span clas
 <!-- 03.2 · Stream 内部状态结构与背压（Backpressure）核心机制 -->
 <div class="wb-card" id="backpressure" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🌊 03.2 · 流式缓冲与限流状态机：<code>_readableState / _writableState</code> 与背压控制机制</div>
-  <h3>🚰 03.2 <code>Stream</code> 内部缓冲状态机、<code>highWaterMark</code> 水位线与背压（Backpressure）流转</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> 03.2 · 流式缓冲与限流状态机：<code>_readableState / _writableState</code> 与背压控制机制</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> 03.2 <code>Stream</code> 内部缓冲状态机、<code>highWaterMark</code> 水位线与背压（Backpressure）流转</h3>
 
   <p>
     在流式传输中，当<strong>上游磁盘读取速度（如 <code>500MB/s</code>）远快于下游客户端网络接收速度（如 <code>1MB/s</code>）</strong>时，若不对上游限速，未发送的数据块会在可写流内部持续积压直至内存溢出。<br>
@@ -339,7 +339,7 @@ console.<span class="c-fn">log</span>(safeBuf.buffer.byteLength);     <span clas
   <div class="wb-grid-2" style="margin-bottom:12px;">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🔧 manual_backpressure.js · write 返回值检查、pause 暂停与 drain 恢复原理</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> manual_backpressure.js · write 返回值检查、pause 暂停与 drain 恢复原理</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-bp-manual', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-bp-manual"><code>readable.<span class="c-fn">on</span>(<span class="c-str">'data'</span>, (chunk) =&gt; {
@@ -360,7 +360,7 @@ writable.<span class="c-fn">on</span>(<span class="c-str">'drain'</span>, () =&g
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>❌ vs ✅ stream_pipeline.mjs · 传统 .pipe() 缺陷与 stream.pipeline 标准写法</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> vs <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> stream_pipeline.mjs · 传统 .pipe() 缺陷与 stream.pipeline 标准写法</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-bp-pipeline', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-bp-pipeline"><code><span class="c-kw">import</span> { pipeline } <span class="c-kw">from</span> <span class="c-str">'node:stream/promises'</span>;
@@ -431,5 +431,5 @@ writable.<span class="c-fn">on</span>(<span class="c-str">'drain'</span>, () =&g
 </div>
 
 <div class="plop-bridge">
-  🔗 了解堆外 <code>Buffer</code> 与流式背压后，接下来进入 <strong>第 04 章</strong>：解析 V8 堆内的 <strong>隐藏类优化、新老生代分代垃圾回收（GC）与线上内存泄漏排查方法</strong> ➔
+  <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 了解堆外 <code>Buffer</code> 与流式背压后，接下来进入 <strong>第 04 章</strong>：解析 V8 堆内的 <strong>隐藏类优化、新老生代分代垃圾回收（GC）与线上内存泄漏排查方法</strong> ➔
 </div>

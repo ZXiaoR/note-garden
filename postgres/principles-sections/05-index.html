@@ -10,8 +10,8 @@
 <!-- 05.1 · B-tree (nbtree) 内核 -->
 <div class="wb-card" id="nbtree-internals" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🌳 05.1 · B-tree (nbtree) 内核：Lehman-Yao 高并发算法、重复键去重与自底向上清理</div>
-  <h3>🌳 05.1 Lehman-Yao 高并发 B-tree 与去重清理机制</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 05.1 · B-tree (nbtree) 内核：Lehman-Yao 高并发算法、重复键去重与自底向上清理</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 05.1 Lehman-Yao 高并发 B-tree 与去重清理机制</h3>
 
         <p>PostgreSQL 的默认 B-tree 索引实现（源码位于 <code>src/backend/access/nbtree/</code>）并非教科书里的基础 B+Tree，而是基于 <strong>Lehman &amp; Yao (1981) 高并发 B-link Tree 算法</strong>，并融合了现代版本的多项工业级改良。</p>
 
@@ -33,8 +33,8 @@
 <!-- 05.2 · B-tree vs GIN vs BRIN 物理结构对比 -->
 <div class="wb-card" id="gin-brin-internals" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🗂️ 05.2 · B-tree vs GIN vs BRIN：三大索引物理结构对比与 GIN 写缓冲毛刺调优</div>
-  <h3>🗂️ 05.2 B-tree、GIN 倒排树与 BRIN 极值块映射的物理结构对比</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 05.2 · B-tree vs GIN vs BRIN：三大索引物理结构对比与 GIN 写缓冲毛刺调优</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 05.2 B-tree、GIN 倒排树与 BRIN 极值块映射的物理结构对比</h3>
 
         <p>针对不同形态的数据访问模式，PostgreSQL 提供了开放的索引访问方法接口（Index Access Method API）。理解 <strong>B-tree、GIN（通用倒排索引）与 BRIN（块范围索引）</strong> 的物理页面拓扑，是解决复杂检索与写入延迟毛刺的关键：</p>
 
@@ -137,7 +137,7 @@
         </div>
 
         <div class="plop-callout warn" style="margin-bottom:0;">
-          <strong>🔧 生产调优：消除 GIN 索引的写入延迟毛刺（<code>gin_pending_list_limit</code>）：</strong><br>
+          <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 生产调优：消除 GIN 索引的写入延迟毛刺（<code>gin_pending_list_limit</code>）：</strong><br>
           由于一行 <code>JSONB</code> 文档可能包含 50 个键值对，如果每次 <code>INSERT</code> 都同步去修改 GIN 的 Entry B-tree 中的 50 个节点，写入吞吐量会急剧下降。为此 GIN 默认开启了 <strong><code>fastupdate = on</code></strong>：新插入的词元先顺序追加到一个无序的 <strong><code>Pending List</code>（待处理链表）</strong>中；但这带来了两个副作用：<br>
           1. <strong>任何 <code>SELECT</code> 查询除了查 GIN 主树外，还必须额外顺序扫描整个 <code>Pending List</code></strong>；<br>
           2. 当 <code>Pending List</code> 累积达到阈值 <strong><code>gin_pending_list_limit</code>（默认 <code>4MB</code>）</strong>时，<strong>恰好触发阈值的那条普通用户 <code>INSERT / UPDATE</code> 语句会被迫同步承担将 4MB 待处理列表合并刷入主树的重任</strong>，导致该次写入偶发数百毫秒的延迟毛刺。在延迟敏感型 OLTP 表上，建议通过 <code>ALTER INDEX idx_name SET (gin_pending_list_limit = 1024);</code> 将阈值调小至 <code>1MB</code>，或为该表调积极 <code>autovacuum</code> 以在后台高频异步清空 <code>Pending List</code>。
@@ -147,8 +147,8 @@
 <!-- 05.3 · Index Only Scan 与 Visibility Map，以及 Bitmap Scan 有损退化 -->
 <div class="wb-card" id="vm-and-bitmap-scan" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">👁️ 05.3 · Index Only Scan 与 Visibility Map，以及 Bitmap Scan 有损退化</div>
-  <h3>👁️ 05.3 可见性映射表（<code>_vm</code>）与位图扫描 <code>exact / lossy</code> 退化机制</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 05.3 · Index Only Scan 与 Visibility Map，以及 Bitmap Scan 有损退化</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 05.3 可见性映射表（<code>_vm</code>）与位图扫描 <code>exact / lossy</code> 退化机制</h3>
 
         <h4>可见性映射表（Visibility Map, <code>_vm</code>）与 <code>Index Only Scan</code> 免回表原理</h4>
         <p>在阅读 <code>EXPLAIN ANALYZE</code> 时，很多工程师会疑惑：既然元组的可见性信息（<code>t_xmin / t_xmax</code>）只存在堆表（Heap）的元组头里，而 B-tree 索引项里只存了「键值 + <code>ctid</code>」，那为什么 <code>Index Only Scan</code> 可以不回表就判断该索引项对当前事务可见？</p>

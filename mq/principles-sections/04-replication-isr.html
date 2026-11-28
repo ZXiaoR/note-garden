@@ -10,11 +10,11 @@
 <!-- 04.1 · ISR、LEO 与 HW 高水位协同机制 -->
 <div class="wb-card" id="isr-hw" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🛡️ 04.1 · 多副本同步标尺：ISR 动态集合、LEO 日志末端与 HW 高水位木桶法则</div>
-  <h3>🛡️ 04.1 <code>ISR</code>、<code>LEO</code> 与 <code>HW</code> 高水位是如何协同推进的 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.1 · 多副本同步标尺：ISR 动态集合、LEO 日志末端与 HW 高水位木桶法则</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.1 <code>ISR</code>、<code>LEO</code> 与 <code>HW</code> 高水位是如何协同推进的 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
 
   <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
-    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#lost">实战篇 04.1 Broker 防丢配置</a> —— 当生产者配置了 <code>acks=all</code> 时，Broker 具体在等哪些节点确认？为什么刚写进 Leader 的新消息不会立刻让消费者读到？
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#lost">实战篇 04.1 Broker 防丢配置</a> —— 当生产者配置了 <code>acks=all</code> 时，Broker 具体在等哪些节点确认？为什么刚写进 Leader 的新消息不会立刻让消费者读到？
   </p>
 
   <p>
@@ -117,11 +117,11 @@
 <!-- 04.2 · 为什么光靠 HW 会丢已提交数据：Leader Epoch 破局 -->
 <div class="wb-card" id="leader-epoch" style="background:var(--plop-paper);">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🔬 04.2 · 截断防丢协议：为什么纯靠滞后 HW 会丢已提交数据，以及 Leader Epoch 的修复原理</div>
-  <h3>🔬 04.2 为什么光靠 <code>HW</code> 会丢数据：<code>Leader Epoch</code> 破局推演 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.2 · 截断防丢协议：为什么纯靠滞后 HW 会丢已提交数据，以及 Leader Epoch 的修复原理</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.2 为什么光靠 <code>HW</code> 会丢数据：<code>Leader Epoch</code> 破局推演 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
 
   <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
-    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#lost">实战篇 04.1 存储高可用</a> —— 既然已经有了 <code>ISR + HW</code>，为什么 Kafka 0.11 还要专门引入 <code>Leader Epoch</code>？
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#lost">实战篇 04.1 存储高可用</a> —— 既然已经有了 <code>ISR + HW</code>，为什么 Kafka 0.11 还要专门引入 <code>Leader Epoch</code>？
   </p>
 
   <p>
@@ -130,14 +130,14 @@
 
   <div class="wb-grid-2">
     <div style="background:#FFF0F5; border:2px solid var(--plop-tomato); border-radius:11px; padding:12px 14px; font-size:13px; line-height:1.6;">
-      <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:6px;">❌ 无 Leader Epoch 时的丢数据并发时序</div>
+      <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 无 Leader Epoch 时的丢数据并发时序</div>
       1. <strong>消息已提交，但备机 HW 尚未刷新</strong>：Leader A 和 Follower B 都已写完消息 <code>m1 (offset=1)</code>。A 收到 B 的拉取请求后把自己的 <code>HW</code> 推进到了 <code>2</code>（并向生产者返回了成功）；但 A 只能等 <strong>B 发起下一轮拉取时</strong>才能顺带把最新 <code>HW=2</code> 告诉 B，因此此刻 B 本地的 <code>LEO=2</code>，而旧 <code>HW</code> 仍停在 <code>1</code>。<br>
       2. <strong>B 重启按旧 HW 自砍</strong>：此时 B 恰好重启，醒来看到本地 <code>HW=1</code>，于是把已经落盘的已提交消息 <code>m1</code> 从本地删掉了（<code>LEO</code> 退回 <code>1</code>）。<br>
       3. <strong>A 紧接着断电宕机</strong>：在 B 还没来得及从 A 重新拉回 <code>m1</code> 的这一瞬间，Leader A 断电了；B 当选新 Leader，<strong>已经向客户端承诺成功的 <code>m1</code> 永久消失</strong>（若无视顺序选主还会造成日志分叉覆盖）。
     </div>
 
     <div style="background:#F0FDF4; border:2px solid #15803d; border-radius:11px; padding:12px 14px; font-size:13px; line-height:1.6;">
-      <div style="font-weight:900; color:#15803d; margin-bottom:6px;">✅ 引入 <code>Leader Epoch [epoch, startOffset]</code> 后</div>
+      <div style="font-weight:900; color:#15803d; margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 引入 <code>Leader Epoch [epoch, startOffset]</code> 后</div>
       Kafka 0.11+ 为每一次 Leader 换届分配单调递增的任期号 <code>Epoch</code>，并在每个副本本地持久化一张 <code>leader-epoch-checkpoint</code> 表（记录第几任 Leader 从哪个 Offset 开始写入）：<br>
       1. <strong>禁止盲目按本地旧 HW 截断</strong>：Follower B 重启恢复后不再自顾自删日志。<br>
       2. <strong>先发协议问当前 Leader</strong>：B 向 Leader A 发送 <code>OffsetsForLeaderEpochRequest(epoch=0)</code> 查询第 0 任期的真实末端进度。<br>

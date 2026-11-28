@@ -8,14 +8,14 @@
 </div>
 
 <div class="plop-callout tip" style="margin-bottom:18px;">
-  <strong>🎯 学完本章你能做什么：</strong>遇到实际开发最常碰到的 9 类 Redis 需求，直接按「需求 → 方案选型 → 命令 → 可运行 Go 代码 → 常见坑 → 背后原理」落地，并分清什么时候该写 Lua 脚本、什么时候该换专业消息队列。
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>遇到实际开发最常碰到的 9 类 Redis 需求，直接按「需求 → 方案选型 → 命令 → 可运行 Go 代码 → 常见坑 → 背后原理」落地，并分清什么时候该写 Lua 脚本、什么时候该换专业消息队列。
 </div>
 
 <!-- ==================== 第一组：高频状态、防刷与计数 ==================== -->
 <div class="wb-card" id="sc-session" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🔐 04.1–04.4 · 高频状态与防刷实战：登录态管理、短信验证码、防重幂等与计数器回写</div>
-  <h3>🔐 第一组：登录态、验证码、防重复提交与计数器</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 04.1–04.4 · 高频状态与防刷实战：登录态管理、短信验证码、防重幂等与计数器回写</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 第一组：登录态、验证码、防重复提交与计数器</h3>
 
   <!-- 04.1 登录态 / Token -->
   <h4>04.1 登录态 / Token（活跃自动续期 + 强制踢下线）</h4>
@@ -27,7 +27,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>⌨️ session_token.redis · 登录、鉴权续期与踢下线 [Redis 6.x / 7.x]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> session_token.redis · 登录、鉴权续期与踢下线 [Redis 6.x / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sess-cmd', this)">复制命令</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-sess-cmd"><code><span class="c-cm"># 1. 登录成功：存 Token 映射（7天=604800秒），并记入该用户的设备集合</span>
@@ -51,7 +51,7 @@ DEL auth:tk:9f8a7b6c auth:user_tks:1001</code></pre>
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 session.go · 按半程阈值同步续期、单端登出与全局踢下线 [Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> session.go · 按半程阈值同步续期、单端登出与全局踢下线 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sess-go', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-sess-go"><code><span class="c-kw">const</span> sessionTTL = 7 * 24 * time.Hour
@@ -102,7 +102,7 @@ DEL auth:tk:9f8a7b6c auth:user_tks:1001</code></pre>
     </div>
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
-    ⚠️ <strong>常见坑：</strong>① 不要每次只读请求都无脑刷 <code>EXPIRE</code>（会产生大量主从同步流量），<strong>剩余寿命小于一半（如剩不到 3.5 天）再续期</strong>即可；② <strong>续期单个 Token 时务必在同一个 Pipeline 里同步 <code>EXPIRE</code> 该用户的 <code>auth:user_tks:&lt;uid&gt;</code> 集合（主动登出时 <code>SREM</code> 清理）</strong>，否则用户持续活跃超过 7 天后，Token 还在但外层设备集合已过期消失，改密踢下线时就会漏掉这些旧 Token。 ｜ 💡 <strong>背后的原理：</strong>过期字典指针共享与自动清理机制见 <a href="principles.html#redisdb-kernel">《📘 原理篇 · 00.2》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>常见坑：</strong>① 不要每次只读请求都无脑刷 <code>EXPIRE</code>（会产生大量主从同步流量），<strong>剩余寿命小于一半（如剩不到 3.5 天）再续期</strong>即可；② <strong>续期单个 Token 时务必在同一个 Pipeline 里同步 <code>EXPIRE</code> 该用户的 <code>auth:user_tks:&lt;uid&gt;</code> 集合（主动登出时 <code>SREM</code> 清理）</strong>，否则用户持续活跃超过 7 天后，Token 还在但外层设备集合已过期消失，改密踢下线时就会漏掉这些旧 Token。 ｜ <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>过期字典指针共享与自动清理机制见 <a href="principles.html#redisdb-kernel">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 原理篇 · 00.2》</a>。
   </p>
 
   <!-- 04.2 验证码 -->
@@ -116,7 +116,7 @@ DEL auth:tk:9f8a7b6c auth:user_tks:1001</code></pre>
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>⌨️ sms_code.redis · 冷却锁、日限额与一次性核销 [Redis 7.0+]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> sms_code.redis · 冷却锁、日限额与一次性核销 [Redis 7.0+]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sms-cmd', this)">复制命令</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-sms-cmd"><code><span class="c-cm"># 1. 抢 60 秒发送冷却锁（返回 nil 说明 60 秒内刚发过，直接拦截）</span>
@@ -135,7 +135,7 @@ GETDEL sms:code:13800138000</code></pre>
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 sms_verify.go · 发送频控与防暴力枚举校验 [Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> sms_verify.go · 发送频控与防暴力枚举校验 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sms-go', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-sms-go"><code><span class="c-kw">func</span> SendSMS(ctx context.Context, rdb *redis.Client, phone, code <span class="c-kw">string</span>) <span class="c-kw">error</span> {
@@ -160,7 +160,7 @@ GETDEL sms:code:13800138000</code></pre>
     </div>
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
-    ⚠️ <strong>常见坑：</strong>① 验证通过后必须立刻删码，防止同一验证码在 5 分钟内被重放；② 校验失败时建议对 <code>sms:err:&lt;phone&gt;</code> 调 <code>INCR</code>，连续输错 5 次直接删掉原验证码强制重发，防止脚本暴力穷举 6 位数字。 ｜ 💡 <strong>背后的原理：</strong>单线程原子执行条件写入见 <a href="principles.html#single-thread">《📘 原理篇 · 01.1》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>常见坑：</strong>① 验证通过后必须立刻删码，防止同一验证码在 5 分钟内被重放；② 校验失败时建议对 <code>sms:err:&lt;phone&gt;</code> 调 <code>INCR</code>，连续输错 5 次直接删掉原验证码强制重发，防止脚本暴力穷举 6 位数字。 ｜ <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>单线程原子执行条件写入见 <a href="principles.html#single-thread">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 原理篇 · 01.1》</a>。
   </p>
 
   <!-- 04.3 防重复提交 / 幂等 -->
@@ -174,7 +174,7 @@ GETDEL sms:code:13800138000</code></pre>
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>⌨️ idempotent.redis · 一行原子抢占防重键 [Redis 6.x / 7.x]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> idempotent.redis · 一行原子抢占防重键 [Redis 6.x / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-idem-cmd', this)">复制命令</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-idem-cmd"><code><span class="c-cm"># 第 1 次请求到达：键不存在，写入成功返回 OK -&gt; 放行去创建订单</span>
@@ -186,7 +186,7 @@ SET idem:order:req_88201 "PROCESSING" NX EX 300</code></pre>
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 idempotent.go · 下单防重包装（报错回退锁允许重试）[Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> idempotent.go · 下单防重包装（报错回退锁允许重试）[Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-idem-go', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-idem-go"><code><span class="c-kw">func</span> SubmitOrderOnce(ctx context.Context, rdb *redis.Client, idemToken <span class="c-kw">string</span>, createFn <span class="c-kw">func</span>() (<span class="c-kw">string</span>, <span class="c-kw">error</span>)) (<span class="c-kw">string</span>, <span class="c-kw">error</span>) {
@@ -210,7 +210,7 @@ SET idem:order:req_88201 "PROCESSING" NX EX 300</code></pre>
     </div>
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
-    ⚠️ <strong>常见坑：</strong>① 如果后续写 MySQL 明确报错回滚了，记得删掉幂等键允许用户正常重试；② Redis 防重挡的是 99.9% 的并发连点，数据库订单表仍应给业务单号建<strong>唯一索引（<code>UNIQUE KEY</code>）</strong>做最终兜底。 ｜ 💡 <strong>背后的原理：</strong>单线程 Reactor 串行保证无竞态见 <a href="principles.html#single-thread">《📘 原理篇 · 01.1》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>常见坑：</strong>① 如果后续写 MySQL 明确报错回滚了，记得删掉幂等键允许用户正常重试；② Redis 防重挡的是 99.9% 的并发连点，数据库订单表仍应给业务单号建<strong>唯一索引（<code>UNIQUE KEY</code>）</strong>做最终兜底。 ｜ <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>单线程 Reactor 串行保证无竞态见 <a href="principles.html#single-thread">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 原理篇 · 01.1》</a>。
   </p>
 
   <!-- 04.4 计数器 -->
@@ -224,7 +224,7 @@ SET idem:order:req_88201 "PROCESSING" NX EX 300</code></pre>
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>⌨️ counter_flush.redis · 内存记增量与安全扣减已落盘值 [Redis 6.x / 7.x]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> counter_flush.redis · 内存记增量与安全扣减已落盘值 [Redis 6.x / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-cnt-cmd', this)">复制命令</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-cnt-cmd"><code><span class="c-cm"># 1. 用户每次点开帖子 5001：增量 +1，并把 5001 记入待刷盘脏集合</span>
@@ -241,7 +241,7 @@ HINCRBY post:views:delta 5001 -120</code></pre>
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 view_counter.go · 埋点累加与定时合并回写数据库 [Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> view_counter.go · 埋点累加与定时合并回写数据库 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-cnt-go', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-cnt-go"><code><span class="c-kw">func</span> AddPostView(ctx context.Context, rdb *redis.Client, postID <span class="c-kw">string</span>) {
@@ -273,15 +273,15 @@ HINCRBY post:views:delta 5001 -120</code></pre>
     </div>
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 0;">
-    ⚠️ <strong>常见坑：</strong>刷盘时切忌直接 <code>HDEL</code> 把字段删掉，否则读取到删掉这几毫秒内新产生的阅读量就凭空消失了；用 <code>HINCRBY -delta</code> 差额扣减才是并发安全的。 ｜ 💡 <strong>背后的原理：</strong>小 Hash 的紧凑编码与扩容原理见 <a href="principles.html#listpack-kernel">《📘 原理篇 · 02.2 / 02.3》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>常见坑：</strong>刷盘时切忌直接 <code>HDEL</code> 把字段删掉，否则读取到删掉这几毫秒内新产生的阅读量就凭空消失了；用 <code>HINCRBY -delta</code> 差额扣减才是并发安全的。 ｜ <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>小 Hash 的紧凑编码与扩容原理见 <a href="principles.html#listpack-kernel">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 原理篇 · 02.2 / 02.3》</a>。
   </p>
 </div>
 
 <!-- ==================== 第二组：限流、排行榜与延迟任务 ==================== -->
 <div class="wb-card" id="sc-ratelimit" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🚦 04.5–04.7 · 流量与排序调度：限流三步演进、实时排行榜与订单超时延迟取消</div>
-  <h3>🚦 第二组：接口限流、实时排行榜与延迟任务</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 04.5–04.7 · 流量与排序调度：限流三步演进、实时排行榜与订单超时延迟取消</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 第二组：接口限流、实时排行榜与延迟任务</h3>
 
   <!-- 04.5 限流 -->
   <h4>04.5 接口限流：固定窗口 → 滑动窗口（ZSet）→ 令牌桶（Lua）</h4>
@@ -326,7 +326,7 @@ HINCRBY post:views:delta 5001 -120</code></pre>
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 sliding_window.go · 滑动窗口限流（ZSet + Lua）[Redis 6.x / 7.x]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> sliding_window.go · 滑动窗口限流（ZSet + Lua）[Redis 6.x / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rl-slide', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-rl-slide"><code><span class="c-cm">// 适合中小配额精准限流（如每分钟最多 10 次）：先清理窗口外旧记录，未超限才写入本次请求</span>
@@ -356,7 +356,7 @@ return 1
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 token_bucket.go · 令牌桶限流（Hash + Lua 服务端时钟）[Redis 6.x / 7.x]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> token_bucket.go · 令牌桶限流（Hash + Lua 服务端时钟）[Redis 6.x / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rl-bucket', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-rl-bucket"><code><span class="c-cm">// 适合高并发大配额网关限流：直接用 Redis TIME 获取统一时钟，不怕多台业务机时间不准</span>
@@ -383,7 +383,7 @@ return 1
     </div>
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
-    ⚠️ <strong>常见坑：</strong>写滑动窗口时<strong>一定要先判断 <code>ZCARD &lt; limit</code> 再 <code>ZADD</code></strong>！如果先把每次请求都塞进 ZSet 再判断超限，恶意刷接口的人每秒发 1 万次请求会把你的 ZSet 塞爆并且无限续期。 ｜ 💡 <strong>背后的原理：</strong>Lua 单线程原子执行机制见 <a href="principles.html#misc">《📘 原理篇 · 06.2》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>常见坑：</strong>写滑动窗口时<strong>一定要先判断 <code>ZCARD &lt; limit</code> 再 <code>ZADD</code></strong>！如果先把每次请求都塞进 ZSet 再判断超限，恶意刷接口的人每秒发 1 万次请求会把你的 ZSet 塞爆并且无限续期。 ｜ <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>Lua 单线程原子执行机制见 <a href="principles.html#misc">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 原理篇 · 06.2》</a>。
   </p>
 
   <!-- 04.6 排行榜 -->
@@ -397,7 +397,7 @@ return 1
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>⌨️ leaderboard.redis · Top 10 与查询个人名次 [Redis 6.2+ / 7.x]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> leaderboard.redis · Top 10 与查询个人名次 [Redis 6.2+ / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rank-cmd', this)">复制命令</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-rank-cmd"><code><span class="c-cm"># 1. 更新玩家积分（纯整数拼接 500分 × 10^10 + 反向秒数；无需同分决胜时直接用 ZINCRBY）</span>
@@ -413,7 +413,7 @@ ZSCORE rank:act "u_1001"</code></pre>
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 leaderboard.go · 纯整数拼接同分决胜与一次拉取榜单+我的名次 [Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> leaderboard.go · 纯整数拼接同分决胜与一次拉取榜单+我的名次 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rank-go', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-rank-go"><code><span class="c-kw">const</span> timeScale <span class="c-kw">int64</span> = 10_000_000_000 <span class="c-cm">// 10^10 秒级基准</span>
@@ -440,7 +440,7 @@ ZSCORE rank:act "u_1001"</code></pre>
     </div>
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
-    ⚠️ <strong>常见坑：</strong>① <code>ZREVRANK</code> 从 <code>0</code> 起算，返回给前端前记得 <code>+ 1</code>，且用户未上榜时会返回 <code>redis.Nil</code>；② ZSet 的 <code>score</code> 是 IEEE 754 双精度浮点数，能精确表示无损整数的上限是 <code>2<sup>53</sup></code>（约 <code>9 × 10<sup>15</sup></code>）——按 <code>× 10<sup>10</sup></code> 拼 10 位秒级时间戳时，<strong>原始积分精确上限约为 90 万</strong>（若改用活动开始后的相对秒数 <code>× 10<sup>7</sup></code>，积分上限即可扩至约 9000 万 × 10 = 9 亿）。 ｜ 💡 <strong>背后的原理：</strong>跳表如何靠 <code>span</code> 跨度瞬间算出第几名，见 <a href="principles.html#rehash">《📘 原理篇 · 02.3 跳表 zskiplist》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>常见坑：</strong>① <code>ZREVRANK</code> 从 <code>0</code> 起算，返回给前端前记得 <code>+ 1</code>，且用户未上榜时会返回 <code>redis.Nil</code>；② ZSet 的 <code>score</code> 是 IEEE 754 双精度浮点数，能精确表示无损整数的上限是 <code>2<sup>53</sup></code>（约 <code>9 × 10<sup>15</sup></code>）——按 <code>× 10<sup>10</sup></code> 拼 10 位秒级时间戳时，<strong>原始积分精确上限约为 90 万</strong>（若改用活动开始后的相对秒数 <code>× 10<sup>7</sup></code>，积分上限即可扩至约 9000 万 × 10 = 9 亿）。 ｜ <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>跳表如何靠 <code>span</code> 跨度瞬间算出第几名，见 <a href="principles.html#rehash">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 原理篇 · 02.3 跳表 zskiplist》</a>。
   </p>
 
   <!-- 04.7 延迟任务 -->
@@ -454,7 +454,7 @@ ZSCORE rank:act "u_1001"</code></pre>
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>⌨️ delay_order.redis · 投递超时单、支付撤单与到期检索 [Redis 6.x / 7.x]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> delay_order.redis · 投递超时单、支付撤单与到期检索 [Redis 6.x / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-delay-cmd', this)">复制命令</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-delay-cmd"><code><span class="c-cm"># 1. 创建订单时投递：score 设为 30 分钟后的秒级时间戳</span>
@@ -469,7 +469,7 @@ ZRANGEBYSCORE delay:order:unpaid 0 1732761805 LIMIT 0 20</code></pre>
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 delay_worker.go · 多实例安全的 Lua 原子弹出到期订单 [Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> delay_worker.go · 多实例安全的 Lua 原子弹出到期订单 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-delay-go', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-delay-go"><code><span class="c-cm">// 原子查询并移除到期任务，确保多台服务同时轮询不会重复拉到同一笔订单</span>
@@ -495,20 +495,20 @@ return items
     </div>
   </div>
   <div class="plop-callout warn" style="margin:10px 0 8px;">
-    <strong>⚠️ 两个极高频踩坑点：</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 两个极高频踩坑点：</strong><br>
     1. <strong>千万别用 Redis「键过期事件监听（Keyspace Notifications）」来做订单取消！</strong>因为它的通知本质是发后即忘的广播，你的服务重启或网络闪断那几秒过期的订单通知会<strong>直接永久丢失</strong>，而且键多时抽样过期会有数分钟延迟。<br>
     2. 弹出订单后如果业务进程刚要调数据库就崩了，这笔订单已不在 ZSet 里——所以生产环境<strong>必须配一个每 10 分钟跑一次的低频数据库兜底扫描任务</strong>（扫超过 35 分钟仍未支付的漏网之鱼），或者在订单量很大时直接用 RocketMQ 定时消息 / RabbitMQ 死信队列。
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:0;">
-    💡 <strong>背后的原理：</strong>为什么 Redis 的过期键不是到期那一毫秒立刻被删掉的？详见 <a href="principles.html#expire">《📘 原理篇 · 04.2 定期过期抽样与惰性删除》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>为什么 Redis 的过期键不是到期那一毫秒立刻被删掉的？详见 <a href="principles.html#expire">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 原理篇 · 04.2 定期过期抽样与惰性删除》</a>。
   </p>
 </div>
 
 <!-- ==================== 第三组：分布式锁与轻量消息队列 ==================== -->
 <div class="wb-card" id="lock" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill" id="sc-lock">🔒 04.8–04.9 · 分布式协调与队列：生产级分布式互斥锁与 Stream 消费者组</div>
-  <h3>🔒 第三组：分布式互斥锁与消息队列</h3>
+  <div class="chapter-q-pill" id="sc-lock"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 04.8–04.9 · 分布式协调与队列：生产级分布式互斥锁与 Stream 消费者组</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 第三组：分布式互斥锁与消息队列</h3>
 
   <!-- 04.8 分布式锁 -->
   <h4>04.8 分布式锁：跨机器互斥的 4 项安全准则</h4>
@@ -520,7 +520,7 @@ return items
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>📜 unlock_atomic.lua · 原子校验持有者令牌并释放锁 [Redis 6.x / 7.x]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> unlock_atomic.lua · 原子校验持有者令牌并释放锁 [Redis 6.x / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('redis-lua-unlock', this)">复制 Lua</button>
       </div>
       <pre class="plop-code-pre" id="redis-lua-unlock"><code><span class="c-cm">-- KEYS[1]: 锁键名 | ARGV[1]: 当前持有者唯一随机 Token</span>
@@ -534,7 +534,7 @@ return items
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 dist_lock.go · 带看门狗自动续期的 Go 分布式锁 [Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> dist_lock.go · 带看门狗自动续期的 Go 分布式锁 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-go-lock', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-redis-go-lock"><code><span class="c-kw">var</span> (
@@ -578,7 +578,7 @@ return items
     </div>
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
-    ⚠️ <strong>常见坑：</strong>① 绝不能在业务代码里分两步写 <code>if rdb.Get() == token { rdb.Del() }</code>——刚比对完若卡顿 10ms 锁过期易主，下一行 <code>Del()</code> 照样误删别人的锁；② <strong>看门狗续期返回 <code>0</code> 说明锁已经丢了，不能静默忽略</strong>，应立即调用 <code>cancelBiz()</code> 通知业务协程停止执行；③ 在主从切主或进程长停顿下，就算取消了 Context 也拦不住已经发在半路上的旧写请求，对资金/库存等强一致写入还需配合下游存储的单调递增版本号或栅栏令牌校验。 ｜ 💡 <strong>背后的原理：</strong>主从丢锁、Redlock 争议与 <code>Fencing Token</code> 栅栏校验见 <a href="principles.html#lock">《📘 原理篇 · 06.1 Fencing Token》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>常见坑：</strong>① 绝不能在业务代码里分两步写 <code>if rdb.Get() == token { rdb.Del() }</code>——刚比对完若卡顿 10ms 锁过期易主，下一行 <code>Del()</code> 照样误删别人的锁；② <strong>看门狗续期返回 <code>0</code> 说明锁已经丢了，不能静默忽略</strong>，应立即调用 <code>cancelBiz()</code> 通知业务协程停止执行；③ 在主从切主或进程长停顿下，就算取消了 Context 也拦不住已经发在半路上的旧写请求，对资金/库存等强一致写入还需配合下游存储的单调递增版本号或栅栏令牌校验。 ｜ <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>主从丢锁、Redlock 争议与 <code>Fencing Token</code> 栅栏校验见 <a href="principles.html#lock">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 原理篇 · 06.1 Fencing Token》</a>。
   </p>
 
   <!-- 04.9 消息队列 -->
@@ -646,7 +646,7 @@ return items
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>⚡ stream_mq.redis · 限长生产、消费组拉取、ACK 与故障接管 [Redis 6.2+ / 7.x]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> stream_mq.redis · 限长生产、消费组拉取、ACK 与故障接管 [Redis 6.2+ / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('redis-stream-cmd', this)">复制命令</button>
       </div>
       <pre class="plop-code-pre" id="redis-stream-cmd"><code><span class="c-cm"># 1. 生产消息：MAXLEN ~ 10000 近似裁剪防内存撑爆，* 自动生成递增 ID</span>
@@ -667,7 +667,7 @@ XAUTOCLAIM mq:orders g1 c2 60000 0-0 COUNT 10</code></pre>
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 stream_worker.go · Go 消费者组循环拉取与 ACK 确认 [Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> stream_worker.go · Go 消费者组循环拉取与 ACK 确认 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-stm-go', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-stm-go"><code><span class="c-kw">func</span> ConsumeOrderStream(ctx context.Context, rdb *redis.Client, consumerName <span class="c-kw">string</span>) {
@@ -695,20 +695,20 @@ XAUTOCLAIM mq:orders g1 c2 60000 0-0 COUNT 10</code></pre>
   </div>
 
   <div class="plop-callout warn" style="margin:12px 0 8px;">
-    <strong>⚠️ 选型边界：什么时候 Redis <code>Stream</code> 够用，什么时候必须换 Kafka / RabbitMQ？</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 选型边界：什么时候 Redis <code>Stream</code> 够用，什么时候必须换 Kafka / RabbitMQ？</strong><br>
     • <strong>用 Redis Stream 就够了</strong>：中小型项目不想额外维护一套消息队列组件、日消息量在百万级以内、下游正常实时消费无大规模积压、能容忍极端宿主机断电丢失最后 1 秒非账务消息。<br>
     • <strong>必须换 Kafka / RabbitMQ / RocketMQ</strong>：① <strong>消息积压可能达几十 GB 甚至 TB 级</strong>（Redis 全存内存，设了 <code>MAXLEN</code> 积压超限就会把老消息裁掉，不设又会直接把 Redis 内存撑爆宕机；而 Kafka 存廉价磁盘不怕堆积）；② <strong>资金账务级零丢失要求</strong>（需同步刷盘 + 多副本确认才向生产者返回成功）；③ 需要复杂的路由交换机、原生多级延迟队列或死信队列（选 RabbitMQ / RocketMQ）。
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:0;">
-    💡 <strong>背后的原理：</strong>Stream 如何用前缀压缩基数树 <code>rax + listpack</code> 压缩同构消息字段，详见 <a href="principles.html#mq">《📘 原理篇 · 06.2 Stream 底层存储模型》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>Stream 如何用前缀压缩基数树 <code>rax + listpack</code> 压缩同构消息字段，详见 <a href="principles.html#mq">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 原理篇 · 06.2 Stream 底层存储模型》</a>。
   </p>
 </div>
 
 <!-- ==================== 本章末尾辨析：Lua 与 MULTI 的区别 ==================== -->
 <div class="wb-card" id="misc" style="background:var(--plop-paper);">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">⚖️ 04.10 · 本章收尾辨析：Lua 脚本与 MULTI / EXEC 事务到底有什么区别</div>
-  <h3>⚖️ 04.10 为什么上面实战都在写 <code>Lua</code> 脚本，而不用 <code>MULTI</code> 事务？</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 04.10 · 本章收尾辨析：Lua 脚本与 MULTI / EXEC 事务到底有什么区别</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 04.10 为什么上面实战都在写 <code>Lua</code> 脚本，而不用 <code>MULTI</code> 事务？</h3>
 
   <p>
     很多刚从 MySQL 转过来的开发者看到 Redis 有 <code>MULTI ... EXEC</code>，会误以为它和关系型数据库事务一样。实际上两者差别很大——把 <code>MULTI</code>、<code>Lua</code> 和负责纯批量网络加速的 <code>Pipeline</code> 放在一张表里对比最清楚：

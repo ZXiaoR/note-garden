@@ -10,8 +10,8 @@
 <!-- 06.1 · 洋葱圈中间件模型：15 行代码实现 koa-compose -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🧅 06.1 · 中间件执行模型：Koa 洋葱模型原理与 koa-compose 核心实现</div>
-  <h3>⚙️ 06.1 洋葱模型（Onion Middleware）原理与 <code>koa-compose</code> 防重入实现</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 06.1 · 中间件执行模型：Koa 洋葱模型原理与 koa-compose 核心实现</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 06.1 洋葱模型（Onion Middleware）原理与 <code>koa-compose</code> 防重入实现</h3>
 
   <p>
     在 Web 框架（如 Koa）中，日志记录、权限校验与统一异常捕获通常通过中间件串联。Koa 使用 <strong><code>koa-compose</code> 将中间件数组组合为递归嵌套的 Promise 调用链</strong>：每个中间件中 <code>await next()</code> 之前的代码按注册顺序依次执行（请求进入阶段），待最内层业务逻辑完成后，再按相反顺序依次恢复执行各中间件 <code>await next()</code> 之后的代码（响应返回阶段）。
@@ -20,7 +20,7 @@
   <div class="wb-grid-2" style="margin-bottom:12px;">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🧅 koa_compose.js · 15 行 koa-compose 核心调度与防重入源码</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> koa_compose.js · 15 行 koa-compose 核心调度与防重入源码</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-koa-compose', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-koa-compose"><code><span class="c-kw">function</span> <span class="c-fn">compose</span>(middlewares) {
@@ -47,7 +47,7 @@
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 <code>compose</code> 实现中的三个关键设计：</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> <code>compose</code> 实现中的三个关键设计：</div>
       <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
         <li><strong>1. <code>Promise.resolve</code> 统一包装</strong>：无论中间件编写为普通同步函数还是 <code>async</code> 函数，其返回值都被包装为 Promise，保证外层可统一使用 <code>await next()</code> 等待。</li>
         <li><strong>2. <code>i &lt;= index</code> 防重入保护</strong>：若在同一个中间件函数内调用两次 <code>next()</code>，第二次调用传入的下标 <code>i</code> 仍等于当前 <code>index</code>，函数会立即返回 rejected Promise，防止下游业务逻辑被重复执行。</li>
@@ -60,8 +60,8 @@
 <!-- 06.2 · AsyncLocalStorage 全链路 TraceID 透传 -->
 <div class="wb-card" id="als" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🔗 06.2 · 异步上下文透传：AsyncLocalStorage 全链路 TraceID 传递机制</div>
-  <h3>🧭 06.2 <code>AsyncLocalStorage</code> 异步上下文隔离与全链路日志追踪</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 06.2 · 异步上下文透传：AsyncLocalStorage 全链路 TraceID 传递机制</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 06.2 <code>AsyncLocalStorage</code> 异步上下文隔离与全链路日志追踪</h3>
 
   <p>
     由于 Node.js 在单个主线程上交替执行成百上千个并发请求的异步回调，如果将请求的 <code>traceId</code> 存放在模块全局变量中，后到达的请求会立即覆盖前一个请求的数据。为此 Node.js 内置了 <strong><code>AsyncLocalStorage</code>（位于 <code>node:async_hooks</code> 模块）</strong>：它会在当前异步调用链派生出的每一个 Promise、定时器与 I/O 回调上自动关联并恢复专属的存储对象（Store），无需修改业务函数签名即可安全获取当前请求的上下文。
@@ -70,7 +70,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>❌ vs ✅ trace_context.mjs · 全局变量串号误区与 AsyncLocalStorage 正确用法</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> vs <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> trace_context.mjs · 全局变量串号误区与 AsyncLocalStorage 正确用法</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-als-trace', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-als-trace"><code><span class="c-kw">import</span> { AsyncLocalStorage } <span class="c-kw">from</span> <span class="c-str">'node:async_hooks'</span>;
@@ -99,7 +99,7 @@
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 <code>AsyncLocalStorage</code> 上下文传递原理：</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> <code>AsyncLocalStorage</code> 上下文传递原理：</div>
       <p style="font-size:13px; margin:0; line-height:1.62;">
         • <strong>资源创建时捕获（Capture）</strong>：在 <code>als.run(store, fn)</code> 回调执行期间，每当底层创建新的异步资源（如 Promise、<code>setTimeout</code> 或文件/网络请求句柄），运行时会将当前活跃的 <code>store</code> 引用挂载到该异步资源实例上；<br>
         • <strong>回调执行时恢复（Enter / Exit）</strong>：当该异步资源就绪并被事件循环唤醒执行回调前，运行时自动将当前活跃存储切换为该资源绑定的 <code>store</code>，并在回调执行完毕退栈时还原，从而实现多请求并发交错下的上下文隔离。
@@ -111,13 +111,13 @@
 <!-- 06.3 · 线上稳定性治理与 Event Loop 延迟监控 -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🛡️ 06.3 · 生产稳定性保障：Event Loop 延迟监控、未捕获异常处理与 CPU 火焰图分析</div>
-  <h3>🔥 06.3 事件循环延迟监控（<code>monitorEventLoopDelay</code>）与未捕获异常安全退出规范</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.3 · 生产稳定性保障：Event Loop 延迟监控、未捕获异常处理与 CPU 火焰图分析</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 06.3 事件循环延迟监控（<code>monitorEventLoopDelay</code>）与未捕获异常安全退出规范</h3>
 
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🛡️ safety_and_lag.js · Event Loop 延迟采样与未捕获异常平滑退出</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> safety_and_lag.js · Event Loop 延迟采样与未捕获异常平滑退出</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-lag-mon', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-lag-mon"><code><span class="c-kw">const</span> { monitorEventLoopDelay } = <span class="c-fn">require</span>(<span class="c-str">'node:perf_hooks'</span>);
@@ -140,7 +140,7 @@ process.<span class="c-fn">on</span>(<span class="c-str">'uncaughtException'</sp
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🔥 cpu_flamegraph.sh · CPU 高负载火焰图采集命令与异常退出原则</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> cpu_flamegraph.sh · CPU 高负载火焰图采集命令与异常退出原则</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('cmd-node-prof', this)">复制命令</button>
       </div>
       <pre class="plop-code-pre" id="cmd-node-prof"><code><span class="c-cm"># 方法①：使用内置 --cpu-prof 参数生成 .cpuprofile 文件，导入 Chrome DevTools 分析</span>
@@ -159,8 +159,8 @@ npx 0x app.js
 <!-- 06.4 · 18 道核心知识点自测抽屉 -->
 <div class="wb-card" id="cheat" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🎓 06.4 · 核心知识点自测：Node.js 运行时与工程实践 18 题参考解析</div>
-  <h3>🏆 Node.js 核心原理与工程实践 18 问参考解析</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 06.4 · 核心知识点自测：Node.js 运行时与工程实践 18 题参考解析</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> Node.js 核心原理与工程实践 18 问参考解析</h3>
 
   <details class="plop-drawer">
     <summary>01. Node.js 的线程模型是怎样的？为什么单主线程能支撑高并发 I/O？存在哪些局限？</summary>

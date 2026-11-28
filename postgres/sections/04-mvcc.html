@@ -10,8 +10,8 @@
 <!-- 04.1 · 事务生命周期、报错中止规则与 SAVEPOINT 局部回滚 -->
 <div class="wb-card" id="mvcc" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🔄 04.1 · 事务控制：<code>BEGIN / COMMIT / ROLLBACK</code>、事务块报错中止规则与 <code>SAVEPOINT</code> 局部回滚</div>
-  <h3>🔄 04.1 事务生命周期与报错中止规则</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 04.1 · 事务控制：<code>BEGIN / COMMIT / ROLLBACK</code>、事务块报错中止规则与 <code>SAVEPOINT</code> 局部回滚</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 04.1 事务生命周期与报错中止规则</h3>
 
   <p>
     在 PostgreSQL 中，如果不显式开启事务，每一条独立的 SQL 语句都会自动包裹在它自己的隐式事务中（执行成功即自动提交）。当需要让多条读写语句“要么全部成功，要么全部撤销”时，使用 <code>BEGIN</code> 开启显式事务块，最后以 <code>COMMIT</code> 提交或 <code>ROLLBACK</code> 回滚。
@@ -20,7 +20,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🐘 transaction_and_savepoint.sql · 事务与保存点局部回滚</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pg"></use></svg> transaction_and_savepoint.sql · 事务与保存点局部回滚</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-savepoint', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="code-pg-savepoint"><code><span class="c-cmt">-- 1. 开启事务（可同时指定事务隔离级别或只读模式）</span>
@@ -45,7 +45,7 @@
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">⚠️ 与 MySQL 的重要行为差异：事务内单条语句报错后的状态</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 与 MySQL 的重要行为差异：事务内单条语句报错后的状态</div>
       <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
         <li><strong>在 MySQL 中</strong>：事务内某一条 SQL 语句语法错误或唯一键冲突报错后，应用层如果忽略该异常继续发送下一条 SQL 并执行 <code>COMMIT</code>，其余成功的语句依然会被提交。</li>
         <li><strong>在 PostgreSQL 中</strong>：严格遵循原子性语义——<strong>只要显式事务块内任意一条 SQL 语句执行报错，整个事务会立即进入 <code>ABORTED</code>（已中止）状态</strong>。此时如果继续发送任何普通 SQL，数据库都会直接拒绝并提示 <code>ERROR: current transaction is aborted, commands ignored until end of transaction block</code>，即使最后执行 <code>COMMIT</code> 也会被自动转为 <code>ROLLBACK</code>。</li>
@@ -58,8 +58,8 @@
 <!-- 04.2 · 事务隔离级别的日常表现与并发写冲突处理 -->
 <div class="wb-card" id="isolation" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🛡️ 04.2 · 隔离级别：<code>Read Committed</code>（默认）与 <code>Repeatable Read</code> 的日常读写行为差异</div>
-  <h3>🛡️ 04.2 四种事务隔离级别与并发更新行为</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.2 · 隔离级别：<code>Read Committed</code>（默认）与 <code>Repeatable Read</code> 的日常读写行为差异</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.2 四种事务隔离级别与并发更新行为</h3>
 
   <p>
     SQL 标准定义了四种事务隔离级别。在 PostgreSQL 中，<code>Read Uncommitted</code> 在内部直接等价于 <code>Read Committed</code>，因此<strong>在任何隔离级别下都不会发生脏读（不会读到其他未提交事务修改的数据）</strong>：
@@ -102,8 +102,8 @@
 <!-- 04.3 · 悲观行锁、乐观锁与 FOR UPDATE SKIP LOCKED 并发抢单队列 -->
 <div class="wb-card" id="lock" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🔐 04.3 · 并发加锁：<code>SELECT ... FOR UPDATE</code> 悲观行锁、乐观锁版本号与 <code>SKIP LOCKED</code> 任务队列</div>
-  <h3>🔐 04.3 行级锁语法与 <code>SKIP LOCKED</code> 任务抢单实战</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 04.3 · 并发加锁：<code>SELECT ... FOR UPDATE</code> 悲观行锁、乐观锁版本号与 <code>SKIP LOCKED</code> 任务队列</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 04.3 行级锁语法与 <code>SKIP LOCKED</code> 任务抢单实战</h3>
 
   <p>
     在默认的 <code>Read Committed</code> 隔离级别下，如果业务代码采用“先 <code>SELECT</code> 查出余额、在应用内存中计算新余额、再执行 <code>UPDATE</code> 写回”的两步写法，两个并发请求会读到相同的初始余额，导致后提交的事务覆盖先提交事务的扣款结果（丢失更新）。解决并发修改冲突有三种标准工程模式：
@@ -111,7 +111,7 @@
 
   <div class="wb-grid-2">
     <div>
-      <h4>📋 三种并发更新保护模式与锁选项对照</h4>
+      <h4><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 三种并发更新保护模式与锁选项对照</h4>
       <div class="table-wrap">
         <table class="plop-table">
           <thead>
@@ -148,7 +148,7 @@
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🐘 skip_locked_queue.sql · 基于 SKIP LOCKED 的并发任务出队</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pg"></use></svg> skip_locked_queue.sql · 基于 SKIP LOCKED 的并发任务出队</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-skip-locked', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="pg-skip-locked"><code><span class="c-cmt">-- 场景 A：事务内使用 FOR UPDATE 悲观锁完成先查后改</span>
@@ -176,6 +176,6 @@
   </div>
 
   <div class="plop-callout info" style="margin-top:12px; margin-bottom:0;">
-    <strong>📘 底层原理延伸：</strong>PostgreSQL 为什么在更新一行数据时不原地覆盖，而是通过 <code>xmin / xmax / ctid</code> 在堆表页里追加一条新版本元组？为什么锁住 1000 万行也不会撑爆共享内存锁表？详见 <a href="principles.html#trx">📘 核心原理篇 · 04 堆表 MVCC、快照可见性状态机与行锁实现 ↗</a>。
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 底层原理延伸：</strong>PostgreSQL 为什么在更新一行数据时不原地覆盖，而是通过 <code>xmin / xmax / ctid</code> 在堆表页里追加一条新版本元组？为什么锁住 1000 万行也不会撑爆共享内存锁表？详见 <a href="principles.html#trx"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 04 堆表 MVCC、快照可见性状态机与行锁实现 ↗</a>。
   </div>
 </div>

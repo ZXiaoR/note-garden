@@ -10,8 +10,8 @@
 <!-- 05.1 · child_process 四种方法底层调用关系、IPC 通道与安全规范 -->
 <div class="wb-card" id="child-process" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🛠️ 05.1 · 子进程底层机制：<code>spawn</code> 核心基座、四种 API 封装关系、IPC 管道与命令注入防护</div>
-  <h3>⚙️ 05.1 <code>node:child_process</code> 底层调用关系、IPC 通道原理与安全规范</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 05.1 · 子进程底层机制：<code>spawn</code> 核心基座、四种 API 封装关系、IPC 管道与命令注入防护</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 05.1 <code>node:child_process</code> 底层调用关系、IPC 通道原理与安全规范</h3>
 
   <p>
     <strong>① 先看清四个函数的底层关系：只有 <code>spawn</code> 是地基，其余三个全是基于它的封装。</strong><br>
@@ -33,28 +33,28 @@
         <tr>
           <td><strong>1. <code>spawn(file, args)</code></strong><br>（最底层基座）</td>
           <td>直接调用 <code>uv_spawn</code>，建立父子进程 <code>stdin / stdout / stderr</code> 三条流管道</td>
-          <td>❌ 否（默认 <code>shell: false</code>）</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 否（默认 <code>shell: false</code>）</td>
           <td><strong><code>Stream</code> 流式实时返回</strong><br>（无内存大小上限）</td>
           <td>每产生一块输出就触发一次 <code>stdout.on('data')</code>，<strong>适合输出体积巨大或持续运行</strong>的子进程（如实时读取视频转码、日志流）。</td>
         </tr>
         <tr>
           <td><strong>2. <code>execFile(file, args, cb)</code></strong><br>（调用外部程序首选）</td>
           <td><code>spawn(file, args)</code> + 在内存中把 <code>stdout/stderr</code> 流拼接为完整 <code>Buffer/String</code> 后触发回调</td>
-          <td>❌ 否（直接执行目标二进制程序）</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 否（直接执行目标二进制程序）</td>
           <td>攒齐后一次性回调<br>（默认上限 <code>maxBuffer = 1MB</code>）</td>
           <td><strong>安全且高效</strong>：不拉起额外的 <code>/bin/sh</code> 进程，参数作为独立数组元素直接传给目标程序，<strong>天然免疫 Shell 命令注入</strong>。</td>
         </tr>
         <tr>
           <td><strong>3. <code>exec(command, cb)</code></strong><br>（仅用于固定 Shell 脚本）</td>
           <td><code>execFile('/bin/sh', ['-c', command], cb)</code>（Windows 下调用 <code>cmd.exe /d /s /c</code>）</td>
-          <td>✅ <strong>是（先启动 Shell 解释器）</strong></td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> <strong>是（先启动 Shell 解释器）</strong></td>
           <td>攒齐后一次性回调<br>（默认上限 <code>maxBuffer = 1MB</code>）</td>
           <td>因为启动了 Shell，所以支持管道符 <code>a | b</code>、通配符 <code>*.log</code> 与重定向；<strong>但绝不可直接拼接用户输入字符串</strong>。</td>
         </tr>
         <tr>
           <td><strong>4. <code>fork(jsModulePath)</code></strong><br>（专用于派生 Node 子进程）</td>
           <td><code>spawn(process.execPath, [jsModulePath], { stdio: ['pipe', 'pipe', 'pipe', 'ipc'] })</code></td>
-          <td>❌ 否（直接启动新 Node 进程）</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 否（直接启动新 Node 进程）</td>
           <td><strong>内置双向 IPC 通道</strong><br>（<code>send() / on('message')</code>）</td>
           <td>除了标准输入输出外，额外创建第 4 条文件描述符通道（<strong>Unix Domain Socket</strong>），不仅能收发 JSON 消息，还能<strong>跨进程传递 TCP Socket 句柄</strong>（<code>Cluster</code> 的基石）。</td>
         </tr>
@@ -65,7 +65,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>❌ vs ✅ child_process_safe.js · 为什么 exec 拼接字符串会导致命令注入</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> vs <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> child_process_safe.js · 为什么 exec 拼接字符串会导致命令注入</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-cp-safe', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-cp-safe"><code><span class="c-kw">import</span> { exec, execFile } <span class="c-kw">from</span> <span class="c-str">'node:child_process'</span>;
@@ -84,7 +84,7 @@
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🔗 fork_ipc_fd.js · fork() 父子进程通过 IPC 传递普通消息与 TCP 连接句柄</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> fork_ipc_fd.js · fork() 父子进程通过 IPC 传递普通消息与 TCP 连接句柄</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-fork-ipc', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-fork-ipc"><code><span class="c-cm">// 父进程创建子进程后，底层自动通过环境变量 NODE_CHANNEL_FD 传入 IPC 管道描述符：</span>
@@ -102,8 +102,8 @@ child.<span class="c-fn">send</span>(<span class="c-str">'socket'</span>, client
 <!-- 05.2 · Cluster 多进程架构：为什么 8 个进程同时 listen(8080) 不会报端口冲突？ -->
 <div class="wb-card" id="cluster-ipc" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🏛️ 05.2 · 多进程共享端口与零停机发版：<code>Cluster</code> 拦截 <code>listen()</code> 原理、Round-Robin 分发与滚动重启</div>
-  <h3>🏛️ 05.2 <code>Cluster</code> 多进程共享 <code>8080</code> 端口机制与零停机平滑重启</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 05.2 · 多进程共享端口与零停机发版：<code>Cluster</code> 拦截 <code>listen()</code> 原理、Round-Robin 分发与滚动重启</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 05.2 <code>Cluster</code> 多进程共享 <code>8080</code> 端口机制与零停机平滑重启</h3>
 
   <p>
     <strong>① 揭开核心疑问：正常情况下两个进程同时监听 <code>8080</code> 端口会报 <code>EADDRINUSE</code> 错误，为什么 <code>Cluster</code> 里写 8 个 Worker 调用 <code>server.listen(8080)</code> 却完全正常？</strong><br>
@@ -192,7 +192,7 @@ child.<span class="c-fn">send</span>(<span class="c-str">'socket'</span>, client
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🟢 cluster_zero_downtime.mjs · 零停机滚动重启与崩溃自愈完整代码</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> cluster_zero_downtime.mjs · 零停机滚动重启与崩溃自愈完整代码</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-cluster', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-cluster"><code><span class="c-kw">import</span> cluster <span class="c-kw">from</span> <span class="c-str">'node:cluster'</span>;
@@ -222,7 +222,7 @@ child.<span class="c-fn">send</span>(<span class="c-str">'socket'</span>, client
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 为什么不让多个 Worker 直接共享监听 Socket 去抢 <code>accept()</code>？</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 为什么不让多个 Worker 直接共享监听 Socket 去抢 <code>accept()</code>？</div>
       <p style="font-size:13px; margin:0; line-height:1.64;">
         Node.js 早期曾尝试让所有 Worker 直接挂在同一个底层监听 Socket 上由操作系统内核唤醒。但在 Linux 下，内核为了减少上下文切换，往往优先唤醒最后休眠的 1~2 个进程（<strong>LIFO 饥饿现象</strong>），导致 8 核机器上 2 个 Worker 占满 100% CPU，其余 6 个几乎分不到请求。<br>
         因此 Node.js 将默认调度策略改为<strong>主进程统一 <code>accept</code> + Round-Robin 轮询分发</strong>，确保每个 Worker 分到的连接数严格均衡。
@@ -234,8 +234,8 @@ child.<span class="c-fn">send</span>(<span class="c-str">'socket'</span>, client
 <!-- 05.3 · worker_threads 工作线程底层架构与三种跨线程数据传输机制 -->
 <div class="wb-card" id="worker-threads" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🧵 05.3 · 多线程底层模型：<code>worker_threads</code> 多 V8 Isolate 架构、三种内存传输方式与 <code>Atomics</code> 同步</div>
-  <h3>⚡ 05.3 <code>node:worker_threads</code> 进程内多 Isolate 架构与三种跨线程内存通信机制</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 05.3 · 多线程底层模型：<code>worker_threads</code> 多 V8 Isolate 架构、三种内存传输方式与 <code>Atomics</code> 同步</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 05.3 <code>node:worker_threads</code> 进程内多 Isolate 架构与三种跨线程内存通信机制</h3>
 
   <p>
     <strong>① <code>worker_threads</code> 启动后，进程内部到底长什么样？（什么独享、什么共享？）</strong><br>
@@ -295,7 +295,7 @@ child.<span class="c-fn">send</span>(<span class="c-str">'socket'</span>, client
   <div class="wb-grid-2" style="margin-bottom:14px;">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🚀 mode1_and_2.mjs · 方式①深拷贝 vs 方式② transferList 零拷贝过户</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> mode1_and_2.mjs · 方式①深拷贝 vs 方式② transferList 零拷贝过户</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-worker-transfer', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-worker-transfer"><code><span class="c-cm">// --- 方式 ①：默认结构化克隆（深拷贝，适合传几 KB 的普通配置或小结果）---</span>
@@ -313,7 +313,7 @@ console.<span class="c-fn">log</span>(bigAb.byteLength); <span class="c-cm">// �
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>⚡ mode3_shared_atomics.mjs · 方式③ SharedArrayBuffer + Atomics 原子读写</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> mode3_shared_atomics.mjs · 方式③ SharedArrayBuffer + Atomics 原子读写</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-worker-thread', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-worker-thread"><code><span class="c-kw">import</span> { Worker, isMainThread, workerData } <span class="c-kw">from</span> <span class="c-str">'node:worker_threads'</span>;
@@ -370,5 +370,5 @@ console.<span class="c-fn">log</span>(bigAb.byteLength); <span class="c-cm">// �
 </div>
 
 <div class="plop-bridge">
-  🔗 了解多进程共享端口与多线程共享内存后，接下来进入 <strong>第 06 章</strong>：探讨 <strong>Koa 洋葱模型实现、<code>AsyncLocalStorage</code> 异步链路追踪、事件循环延迟监控，以及 18 道核心自测题</strong> ➔
+  <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 了解多进程共享端口与多线程共享内存后，接下来进入 <strong>第 06 章</strong>：探讨 <strong>Koa 洋葱模型实现、<code>AsyncLocalStorage</code> 异步链路追踪、事件循环延迟监控，以及 18 道核心自测题</strong> ➔
 </div>

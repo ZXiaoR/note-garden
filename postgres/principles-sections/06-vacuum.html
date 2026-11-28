@@ -10,8 +10,8 @@
 <!-- 06.1 · HOT (Heap-Only Tuple) 页内更新链与实时页内剪枝 -->
 <div class="wb-card" id="hot-update-pruning" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🔥 06.1 · HOT (Heap-Only Tuple) 页内更新链与实时页内剪枝（Page Pruning）</div>
-  <h3>🔥 06.1 HOT 页内更新与实时页内剪枝（On-Access Page Pruning）</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 06.1 · HOT (Heap-Only Tuple) 页内更新链与实时页内剪枝（Page Pruning）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 06.1 HOT 页内更新与实时页内剪枝（On-Access Page Pruning）</h3>
 
         <p>在 PostgreSQL 的堆表架构下，一次普通的 <code>UPDATE</code> 默认会产生双倍放大：不仅要在堆表中插入一条新元组，还要<strong>为这张表上的每一个索引都追加一条指向新元组 <code>ctid</code> 的索引记录</strong>（即使被更新的列根本不在索引里）。为了攻克这一痛点，PostgreSQL 8.3 引入了极为关键的 <strong>HOT（Heap-Only Tuple，仅堆元组）优化机制</strong>。</p>
 
@@ -123,15 +123,15 @@
 <!-- 06.2 · 32 位 XID 环形回卷、VACUUM FREEZE 与四大膨胀阻塞源 -->
 <div class="wb-card" id="xid-wraparound-freeze" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">♻️ 06.2 · 32 位 XID 环形回卷、VACUUM FREEZE 与四大膨胀阻塞源</div>
-  <h3>♻️ 06.2 32 位 XID 环形回卷、<code>VACUUM FREEZE</code> 与死元组膨胀根因</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 06.2 · 32 位 XID 环形回卷、VACUUM FREEZE 与四大膨胀阻塞源</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 06.2 32 位 XID 环形回卷、<code>VACUUM FREEZE</code> 与死元组膨胀根因</h3>
 
         <h4>32 位 XID <code>TransactionIdPrecedes</code> 环形比较算法与元组冻结（Freeze）</h4>
         <p>如果把元组头里的 <code>t_xmin</code>（4B）和 <code>t_xmax</code>（4B）直接扩充为 8 字节的 64 位整数，每一行元组就会永久多出 8 字节开销，百亿行大表平白膨胀上百 GB。因此 PostgreSQL 至今在磁盘元组头中保留了 <strong>32 位无符号事务 ID（共 <code>2<sup>32</sup> ≈ 42.9 亿</code> 个编号，其中 <code>0=Invalid</code>、<code>1=Bootstrap</code>、<code>2=Frozen</code>，普通事务从 <code>3</code> 开始分配）</strong>，并使用模 <code>2<sup>32</sup></code> 算术来比较两个 XID 的先后：</p>
 
         <div class="plop-code-box" style="margin:12px 0;">
           <div class="plop-code-head">
-            <span>🔄 TransactionIdPrecedes · 32 位事务 ID 模 2^32 环形先后比较算法（src/backend/access/transam/transam.c）</span>
+            <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> TransactionIdPrecedes · 32 位事务 ID 模 2^32 环形先后比较算法（src/backend/access/transam/transam.c）</span>
             <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-xid-ring', this)">复制代码</button>
           </div>
           <pre class="plop-code-pre" id="code-xid-ring"><code><span class="c-cm">// 比较两个 32 位无符号事务 ID (id1 是否在 id2 之前发生)：</span>
@@ -182,7 +182,7 @@
         </div>
 
         <div class="plop-callout tip" style="margin-bottom:0;">
-          <strong>📦 <code>VACUUM</code> vs <code>VACUUM FULL</code> vs <code>pg_repack</code> 空间回收边界：</strong><br>
+          <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-kraft"></use></svg> <code>VACUUM</code> vs <code>VACUUM FULL</code> vs <code>pg_repack</code> 空间回收边界：</strong><br>
           标准 <strong><code>VACUUM</code>（不带 <code>FULL</code>）</strong>不阻塞任何读写 DML，但它只是把死元组占用的页内空间清理后登记到附属的 <strong>空闲空间映射表（Free Space Map，后缀 <code>_fsm</code>，内部是一棵三层二叉最大堆树，每个数据页用 1 字节以 32 字节为步长记录剩余空间）</strong>中，供本表后续 <code>INSERT / UPDATE</code> 复用，<strong>不会把已分配的数据页归还给操作系统文件系统</strong>（除非表末尾恰好有连续全空页且能瞬间拿到排他锁截断）。<br>
           若表因历史故障已膨胀至 200 GB（有效数据仅 20 GB），想要把 180 GB 磁盘空间真正归还给操作系统：切忌在业务高峰期直接跑 <code>VACUUM FULL</code>（它会申请 8 级最强排他锁 <code>AccessExclusiveLock</code> 重写全表，彻底冻结读写）。生产标准做法是使用社区成熟的在线缩表工具 <strong><code>pg_repack</code></strong>：它先创建一张与原表结构一致的影子新表，通过触发器（或逻辑解码）记录重放期间的增量变更，全量拷贝并建好索引后，仅在最后毫秒级切换新旧表 <code>relfilenode</code> 时短暂加锁。
         </div>
@@ -191,8 +191,8 @@
 <!-- 06.3 · WAL 预写日志、Full Page Writes 防页撕裂与流复制架构 -->
 <div class="wb-card" id="wal-and-replication" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">📝 06.3 · WAL 预写日志、Full Page Writes 防页撕裂与流复制架构</div>
-  <h3>📝 06.3 WAL 预写日志、<code>full_page_writes</code> 防页撕裂与流复制</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 06.3 · WAL 预写日志、Full Page Writes 防页撕裂与流复制架构</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 06.3 WAL 预写日志、<code>full_page_writes</code> 防页撕裂与流复制</h3>
 
         <h4>LSN（日志序列号）、<code>pd_lsn</code> 与预写式法则（Write-Ahead Logging）</h4>
         <p>PostgreSQL 的一切持久性保证都建立在 <strong>WAL（Write-Ahead Log，位于 <code>pg_wal/</code> 目录，默认每个切片文件 16 MB）</strong>之上。每一条 WAL 记录在整个数据库簇生命周期内的字节偏移量被称为 <strong><code>LSN</code>（Log Sequence Number，64 位整数，显示为 <code>XXXX/YYYYYYYY</code> 格式，可通过 <code>pg_current_wal_lsn()</code> 查看）</strong>。</p>
@@ -239,8 +239,8 @@
 <!-- 06.4 · PostgreSQL 原理与架构深度自测（15 题闭卷检验） -->
 <div class="wb-card" id="pg-principles-quiz" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🎯 06.4 · PostgreSQL 原理与架构深度自测（15 题闭卷检验）</div>
-  <h3>🎯 06.4 PostgreSQL 核心原理与架构调优闭卷自测（15 题）</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 06.4 · PostgreSQL 原理与架构深度自测（15 题闭卷检验）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 06.4 PostgreSQL 核心原理与架构调优闭卷自测（15 题）</h3>
 
         <p>以下 15 道核心原理与架构调优题串联了本篇从存储页布局、进程内存、MVCC 快照、索引算法到垃圾回收与崩溃恢复的完整知识链路。建议先在脑海中组织回答，再点击展开核对内核级解析：</p>
 

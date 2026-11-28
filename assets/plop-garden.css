@@ -80,6 +80,51 @@
 }
 
 /* ==========================================================================
+   Unified Hand-Drawn Riso Sticker Inline Icons (svg.plop-ico)
+   ========================================================================== */
+svg.plop-ico {
+  width: 1.18em;
+  height: 1.18em;
+  vertical-align: -0.2em;
+  flex-shrink: 0;
+  display: inline-block;
+  overflow: visible;
+}
+
+h1 svg.plop-ico,
+h2 svg.plop-ico,
+h3 svg.plop-ico,
+h4 svg.plop-ico {
+  width: 1.12em;
+  height: 1.12em;
+  vertical-align: -0.17em;
+  margin-right: 3px;
+}
+
+.chapter-q-pill svg.plop-ico,
+.plop-tag svg.plop-ico,
+.plop-code-head svg.plop-ico,
+.plop-drawer-title svg.plop-ico {
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.2em;
+  margin-right: 2px;
+}
+
+.card-ico-blob svg.plop-ico {
+  width: 26px;
+  height: 26px;
+  vertical-align: middle;
+  margin: 0;
+}
+
+.plop-float-top-btn svg.plop-ico {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+
+/* ==========================================================================
    5 Tactile Surfaces (Cutting Mat / Poster / Notebook / Kraft / Riso)
    ========================================================================== */
 :root,
@@ -143,6 +188,10 @@
 /* ==========================================================================
    Base Body & Top Sticky Craft Bar
    ========================================================================== */
+html {
+  scrollbar-gutter: stable;
+}
+
 body.plop-garden-body,
 body {
   margin: 0;
@@ -1024,38 +1073,42 @@ html[data-note-theme="plop"] .box {
 }
 
 /* ==========================================================================
-   Fluid Responsive 3-Column Craft Desk Layout
-   - >= 1340px: 3 Columns (Left Sticker Rail | Center Sheet | Right Sticker Rail)
-   - 1080px - 1339px: 2 Columns (Left Sticker Rail | Center Sheet)
-   - < 1080px: 1 Column + Compact Horizontal Sticker Bar
+   Fluid Responsive Craft Desk Layout
+   - Symmetric 3-Track Stage across Home & Article Subpages:
+     [Left Sticky Index Rail | Dead-Center Main Sheet | Symmetric Right Counterweight]
+     Keeping an equal-width right counterweight track ensures the large white main sheet
+     sits optically at 50vw (instead of being pushed ~105px rightward by the left rail),
+     and gives the bottom-right floating dock dedicated breathing room.
    ========================================================================== */
 .plop-desk-stage {
-  max-width: 1520px;
+  max-width: 1540px;
   margin: 0 auto;
   padding: 26px clamp(12px, 2vw, 24px) 92px;
   display: grid;
-  grid-template-columns: clamp(158px, 13vw, 182px) minmax(0, 1fr) clamp(158px, 13vw, 182px);
+  grid-template-columns: clamp(156px, 12.5vw, 182px) minmax(0, 1fr) clamp(156px, 12.5vw, 182px);
   gap: clamp(14px, 1.6vw, 22px);
   align-items: start;
 }
 
-@media (max-width: 1339px) {
-  .plop-desk-stage {
-    max-width: 1220px;
-    grid-template-columns: 164px minmax(0, 1fr);
-    gap: 16px;
-  }
-  .plop-side-rail.right {
-    display: none !important;
-  }
+.plop-desk-stage > .plop-side-rail.left {
+  grid-column: 1;
+}
+
+.plop-desk-stage > .garden-wrap,
+.plop-desk-stage > .plop-workbench {
+  grid-column: 2;
 }
 
 @media (max-width: 1079px) {
   .plop-desk-stage {
     max-width: 980px;
     grid-template-columns: minmax(0, 1fr);
-    padding: 16px 12px 64px;
+    padding: 16px 12px 76px;
     gap: 12px;
+  }
+  .plop-desk-stage > .garden-wrap,
+  .plop-desk-stage > .plop-workbench {
+    grid-column: 1;
   }
   .plop-side-rail {
     display: none !important;
@@ -1101,8 +1154,8 @@ html[data-note-theme="plop"] .box {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px 6px 6px 3px;
-  margin: -4px -6px -6px -3px;
+  padding: 8px 18px 12px 8px;
+  margin: -8px -18px -12px -8px;
   scrollbar-width: thin;
   scrollbar-color: rgba(40, 72, 216, 0.32) transparent;
 }
@@ -1635,6 +1688,7 @@ html[data-note-theme="plop"] .box {
 }
 
 .plop-topic-group {
+  flex-shrink: 0;
   border: 2.3px solid var(--plop-ink);
   border-radius: 13px 9px 14px 10px;
   background: var(--plop-paper);
@@ -1718,16 +1772,204 @@ html[data-note-theme="plop"] .box {
   transform: translateX(3px);
 }
 
-.plop-recent-head {
-  font-family: var(--font-mono);
-  font-size: 10.2px;
-  font-weight: 900;
-  color: var(--plop-tomato);
-  letter-spacing: 0.04em;
-  padding: 0 2px 2px;
-}
-
 [data-plop-section] > section h2 a {
   color: var(--plop-ink-text);
   text-decoration: none;
+}
+
+/* ==========================================================================
+   Bottom-Right Floating Sticker Dock (Topic Switcher Popover + Back-to-Top)
+   ========================================================================== */
+.plop-float-dock {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 9900;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.plop-float-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.plop-float-top-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--plop-paper);
+  border: 2.3px solid var(--plop-ink);
+  box-shadow: 0 0 0 2.5px var(--plop-paper), 3px 4px 0 var(--plop-shadow);
+  color: var(--plop-ink-text);
+  font-size: 16px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(10px) scale(0.9);
+  transition: opacity 0.18s ease, transform 0.2s var(--spring-bounce), visibility 0.18s ease, background-color 0.15s ease;
+}
+
+.plop-float-top-btn.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.plop-float-top-btn:hover {
+  background: var(--plop-mint);
+  transform: translateY(-2px) scale(1.05);
+}
+
+.plop-float-topic-btn {
+  height: 44px;
+  padding: 0 15px 0 11px;
+  border-radius: 999px;
+  background: var(--plop-mustard);
+  border: 2.4px solid var(--plop-ink);
+  box-shadow: 0 0 0 3px var(--plop-paper), 3px 5px 0 var(--plop-shadow);
+  color: var(--plop-ink-text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.18s var(--spring-bounce), background-color 0.15s ease;
+}
+
+.plop-float-topic-btn:hover {
+  transform: translateY(-2px) rotate(-1.5deg);
+  background: var(--plop-mint);
+}
+
+.plop-float-dock.open .plop-float-topic-btn {
+  background: var(--plop-bubblegum);
+  transform: translateY(0);
+}
+
+.plop-float-topic-pop {
+  width: min(272px, calc(100vw - 28px));
+  max-height: min(68vh, 520px);
+  background: var(--plop-paper);
+  border: 2.5px solid var(--plop-ink);
+  border-radius: 16px 13px 18px 14px;
+  box-shadow: 0 0 0 3px var(--plop-paper), 5px 7px 0 var(--plop-shadow);
+  padding: 12px 12px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(12px) scale(0.95);
+  transform-origin: bottom right;
+  transition: opacity 0.18s ease, transform 0.2s var(--spring-bounce), visibility 0.18s ease;
+}
+
+.plop-float-dock.open .plop-float-topic-pop {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.plop-float-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1.8px dashed rgba(40, 72, 216, 0.3);
+  flex-shrink: 0;
+}
+
+.plop-float-pop-title {
+  font-family: var(--font-head);
+  font-size: 13.5px;
+  font-weight: 900;
+  color: var(--plop-ink-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.plop-float-pop-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.8px solid var(--plop-ink);
+  background: var(--plop-sheet);
+  color: var(--plop-ink-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.plop-float-pop-close:hover {
+  background: var(--plop-tomato);
+  color: #ffffff;
+}
+
+.plop-float-topic-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 4px 12px 6px 4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.plop-float-topic-body::-webkit-scrollbar {
+  display: none;
+}
+
+.plop-float-topic-body .plop-topic-group-list .plop-ear-tab {
+  font-size: 12.2px;
+  padding: 6px 10px;
+}
+
+@media (max-width: 640px) {
+  .plop-float-dock {
+    right: 14px;
+    bottom: 14px;
+  }
+  .plop-float-topic-btn {
+    height: 40px;
+    padding: 0 12px 0 9px;
+    font-size: 12.2px;
+  }
+  .plop-float-top-btn {
+    width: 38px;
+    height: 38px;
+    font-size: 14px;
+  }
+}
+
+@media print {
+  .plop-float-dock {
+    display: none !important;
+  }
 }

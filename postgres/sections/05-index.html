@@ -10,8 +10,8 @@
 <!-- 05.1 · 常见索引类型选型与四大工程级索引变体 -->
 <div class="wb-card" id="index-type" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🗂️ 05.1 · 索引选型：六类内置索引适用场景与部分索引、表达式索引、<code>INCLUDE</code> 覆盖索引创建语法</div>
-  <h3>🗂️ 05.1 索引类型选型与高阶索引创建语法</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 05.1 · 索引选型：六类内置索引适用场景与部分索引、表达式索引、<code>INCLUDE</code> 覆盖索引创建语法</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 05.1 索引类型选型与高阶索引创建语法</h3>
 
   <p>
     在 PostgreSQL 中执行 <code>CREATE INDEX</code> 时，如果不指定类型，默认创建的是 <strong>B-tree 索引</strong>。同时，针对 JSONB 文档、数组、地理位置以及超大规模时序日志表，PostgreSQL 内置了多种专用索引访问方法：
@@ -54,7 +54,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🐘 create_indexes.sql · 常见索引与高阶变体创建示例</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pg"></use></svg> create_indexes.sql · 常见索引与高阶变体创建示例</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-index-sql', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="pg-index-sql"><code><span class="c-cmt">-- 1. 复合 B-tree 索引：按 (user_id, created_at DESC) 加速用户历史订单分页</span>
@@ -79,7 +79,7 @@
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📖 高阶索引语法说明：<code>WHERE</code> 部分索引与 <code>INCLUDE</code> 覆盖索引</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 高阶索引语法说明：<code>WHERE</code> 部分索引与 <code>INCLUDE</code> 覆盖索引</div>
       <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
         <li><strong>部分索引（Partial Index）</strong>：在 <code>CREATE INDEX</code> 末尾加上 <code>WHERE 条件</code>，数据库只会把满足该条件的行放进索引树。除了加快特定状态查询，还常用于实现<strong>“软删除表中的唯一约束”</strong>：<code>CREATE UNIQUE INDEX idx_email_active ON users (email) WHERE deleted_at IS NULL;</code>（允许已注销用户的邮箱被重新注册，但未注销用户中邮箱唯一）。</li>
         <li><strong>覆盖索引（<code>INCLUDE</code> 子句）</strong>：当高频执行 <code>SELECT amount, status FROM orders WHERE user_id = 10</code> 时，把只用于展示、不参与过滤排序的 <code>amount, status</code> 放入 <code>INCLUDE</code>，数据库直接从索引叶子节点即可拿齐所需字段（走 <code>Index Only Scan</code>），无需再去读取主表数据页。</li>
@@ -91,8 +91,8 @@
 <!-- 05.2 · 复合索引最左前缀规则与常见索引失效写法对照 -->
 <div class="wb-card" id="index-fail" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🧭 05.2 · 索引命中规则：复合索引列顺序设计与 6 类常见索引失效写法改写对照</div>
-  <h3>🧭 05.2 复合索引设计原则与常见失效场景改写</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 05.2 · 索引命中规则：复合索引列顺序设计与 6 类常见索引失效写法改写对照</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 05.2 复合索引设计原则与常见失效场景改写</h3>
 
   <p>
     复合 B-tree 索引（例如建立在 <code>(user_id, status, created_at)</code> 上的索引）按照从左到右的列顺序逐层排序：先按第 1 列 <code>user_id</code> 排序，当 <code>user_id</code> 相同时再按第 2 列 <code>status</code> 排序，依此类推。因此设计复合索引时应遵循<strong>“等值过滤列放前面，范围过滤或排序列放后面”</strong>的原则，并在编写 SQL 时避开以下 6 类导致索引无法高效命中的写法：
@@ -103,8 +103,8 @@
       <thead>
         <tr>
           <th style="width:20%">未命中索引原因</th>
-          <th style="width:38%">❌ 导致全表扫描的低效写法</th>
-          <th>✅ 命中索引的推荐改写方案</th>
+          <th style="width:38%"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 导致全表扫描的低效写法</th>
+          <th><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 命中索引的推荐改写方案</th>
         </tr>
       </thead>
       <tbody>
@@ -146,8 +146,8 @@
 <!-- 05.3 · 使用 EXPLAIN (ANALYZE, BUFFERS) 读懂执行计划 -->
 <div class="wb-card" id="explain" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🔬 05.3 · 慢查询诊断：使用 <code>EXPLAIN (ANALYZE, BUFFERS)</code> 读懂四种扫描节点与关键指标</div>
-  <h3>🔬 05.3 使用 <code>EXPLAIN (ANALYZE, BUFFERS)</code> 分析慢查询</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 05.3 · 慢查询诊断：使用 <code>EXPLAIN (ANALYZE, BUFFERS)</code> 读懂四种扫描节点与关键指标</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 05.3 使用 <code>EXPLAIN (ANALYZE, BUFFERS)</code> 分析慢查询</h3>
 
   <p>
     排查慢 SQL 时，在查询语句前加上 <code>EXPLAIN</code> 可以查看优化器预估的执行计划（不会真正执行语句）；加上 <strong><code>EXPLAIN (ANALYZE, BUFFERS)</code></strong> 则会真正执行一次该 SQL，并输出每个步骤的真实耗时、实际返回行数与缓冲页读取次数（注意：若对 <code>UPDATE / DELETE</code> 执行 <code>EXPLAIN ANALYZE</code>，请包裹在 <code>BEGIN; ... ROLLBACK;</code> 中以免修改真实数据）。
@@ -155,7 +155,7 @@
 
   <div class="plop-code-box" style="margin-bottom:14px;">
     <div class="plop-code-head">
-      <span>🐘 explain_analyze_buffers.sql · 执行计划输出与字段解读</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pg"></use></svg> explain_analyze_buffers.sql · 执行计划输出与字段解读</span>
       <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-explain-demo', this)">复制 SQL</button>
     </div>
     <pre class="plop-code-pre" id="pg-explain-demo"><code><span class="c-kw">EXPLAIN</span> (ANALYZE, BUFFERS)
@@ -239,7 +239,7 @@ Execution Time: 0.142 ms
       </div>
 
       <div class="plop-callout info" style="margin-top:10px; margin-bottom:0;">
-        <strong>📘 底层原理延伸：</strong>优化器的 <code>cost</code> 评分公式是如何根据直方图计算的？为什么建立了 <code>INCLUDE</code> 覆盖索引后，有时 <code>Index Only Scan</code> 依然会出现大量 <code>Heap Fetches</code> 回表？详见 <a href="principles.html#index">📘 核心原理篇 · 03 优化器 CBO 与 05 六大索引内核 ↗</a>。
+        <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 底层原理延伸：</strong>优化器的 <code>cost</code> 评分公式是如何根据直方图计算的？为什么建立了 <code>INCLUDE</code> 覆盖索引后，有时 <code>Index Only Scan</code> 依然会出现大量 <code>Heap Fetches</code> 回表？详见 <a href="principles.html#index"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 03 优化器 CBO 与 05 六大索引内核 ↗</a>。
       </div>
     </div>
   </div>

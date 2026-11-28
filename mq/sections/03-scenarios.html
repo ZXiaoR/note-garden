@@ -8,14 +8,14 @@
 </div>
 
 <div class="plop-callout tip" style="margin-bottom:18px;">
-  <strong>🎯 学完本章你能做什么：</strong>面对「下单后多方通知、秒杀削峰、耗时导出排队、埋点采集、缓存/搜索同步、数据库与发消息一致性、超时关单、失败重试与死信」需求时，直接给出 Topic/Key/消费组设计并写出生产可用的 Go 代码（均基于 <code>github.com/segmentio/kafka-go v0.4.47</code> 与 Kafka 3.x / 4.0）。
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>面对「下单后多方通知、秒杀削峰、耗时导出排队、埋点采集、缓存/搜索同步、数据库与发消息一致性、超时关单、失败重试与死信」需求时，直接给出 Topic/Key/消费组设计并写出生产可用的 Go 代码（均基于 <code>github.com/segmentio/kafka-go v0.4.47</code> 与 Kafka 3.x / 4.0）。
 </div>
 
 <!-- ==================== 03.1 下单后异步发券、发短信 ==================== -->
 <div class="wb-card" id="sc-fanout" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">📣 03.1 · 场景一：下单/注册后异步发券与发短信（多消费组各自消费一份）</div>
-  <h3>📣 03.1 下单后异步发券、发短信</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-horn"></use></svg> 03.1 · 场景一：下单/注册后异步发券与发短信（多消费组各自消费一份）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-horn"></use></svg> 03.1 下单后异步发券、发短信</h3>
 
   <ul>
     <li><strong>需求</strong>：用户支付订单成功后，需要给账户发放满减返利券，同时发送支付成功通知短信；未来还可能增加会员积分统计，且不能拖慢支付回调主接口。</li>
@@ -31,7 +31,7 @@
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 order_fanout.go · 支付事件发布 + 多消费组独立订阅手动提交 [Go · kafka-go v0.4.47]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> order_fanout.go · 支付事件发布 + 多消费组独立订阅手动提交 [Go · kafka-go v0.4.47]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-fanout', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-sc-fanout"><code><span class="c-kw">package</span> ordermq
@@ -92,20 +92,20 @@
   </div>
 
   <div class="plop-callout warn" style="margin:10px 0 8px;">
-    <strong>⚠️ 两个高频踩坑点：</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 两个高频踩坑点：</strong><br>
     1. <strong>切忌在同一个消费者函数里串行写 <code>发券() + 发短信()</code></strong>：一旦发券成功但短信接口超时报错触发重试，若发券没做严格幂等就会白送多张券，且慢速外部短信会把快速内部发券堵死——<strong>一个独立业务动作配一个独立 <code>GroupID</code></strong>。<br>
     2. <code>kafka-go</code> 中 <code>r.ReadMessage(ctx)</code> 默认开启了自动提交，拉出消息瞬间就算没处理完也会提交 Offset；生产业务一律改用 <strong><code>r.FetchMessage(ctx)</code> + 处理成功后调 <code>r.CommitMessages(ctx, msg)</code></strong>。
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:0;">
-    💡 <strong>背后的原理：</strong>多个消费组同时拉取同一份分区文件时，Broker 如何靠内核页缓存（PageCache）让多方零磁盘寻道读取？详见 <a href="principles.html#push-pull">《📘 核心原理篇 · 00 推与拉》</a> 与 <a href="principles.html#fast">《03.1 PageCache 与零拷贝》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>多个消费组同时拉取同一份分区文件时，Broker 如何靠内核页缓存（PageCache）让多方零磁盘寻道读取？详见 <a href="principles.html#push-pull">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 00 推与拉》</a> 与 <a href="principles.html#fast">《03.1 PageCache 与零拷贝》</a>。
   </p>
 </div>
 
 <!-- ==================== 03.2 秒杀削峰与耗时任务异步排队 ==================== -->
 <div class="wb-card" id="sc-peak" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🌊 03.2 · 场景二：秒杀流量削峰与耗时任务排队（网关快速入队 + 消费端限速执行）</div>
-  <h3>🌊 03.2 秒杀削峰与耗时任务异步排队</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> 03.2 · 场景二：秒杀流量削峰与耗时任务排队（网关快速入队 + 消费端限速执行）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> 03.2 秒杀削峰与耗时任务异步排队</h3>
 
   <ul>
     <li><strong>需求 A（秒杀削峰）</strong>：整点秒杀 1,000 件商品，第 1 秒涌入 30,000 次下单请求，而底层 MySQL 订单库最高只能承受 1,500 TPS 写入。</li>
@@ -122,7 +122,7 @@
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 seckill_peak_shaving.go · 入口快速入队返回排队态 + 消费端限速落库 [Go · kafka-go + x/time/rate]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> seckill_peak_shaving.go · 入口快速入队返回排队态 + 消费端限速落库 [Go · kafka-go + x/time/rate]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-peak', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-sc-peak"><code><span class="c-cm">// go get golang.org/x/time/rate</span>
@@ -174,15 +174,15 @@
   </div>
 
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
-    ⚠️ <strong>常见坑：</strong>① 改成入队削峰后，接口返回的只是「已受理排队」，前端必须轮询 <code>GET /seckill/result?reqId=xxx</code> 查看最终是否下单成功；② 做<strong>耗时导出/转码排队</strong>时，如果单条消息执行超过 5 分钟（Kafka 默认 <code>max.poll.interval.ms</code>），Broker 会判定消费者假死并将其踢出消费组，导致该重任务被别的机器重复拉走再跑一遍——务必调小单批拉取数并调大超时阈值（详见 <a href="#rebalance-tuning">07.3 防踢调参</a>）。 ｜ 💡 <strong>背后的原理：</strong>为什么 Pull 模型天生不怕流量洪峰冲垮消费者？见 <a href="principles.html#push-pull">《📘 核心原理篇 · 00 推与拉》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>常见坑：</strong>① 改成入队削峰后，接口返回的只是「已受理排队」，前端必须轮询 <code>GET /seckill/result?reqId=xxx</code> 查看最终是否下单成功；② 做<strong>耗时导出/转码排队</strong>时，如果单条消息执行超过 5 分钟（Kafka 默认 <code>max.poll.interval.ms</code>），Broker 会判定消费者假死并将其踢出消费组，导致该重任务被别的机器重复拉走再跑一遍——务必调小单批拉取数并调大超时阈值（详见 <a href="#rebalance-tuning">07.3 防踢调参</a>）。 ｜ <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>为什么 Pull 模型天生不怕流量洪峰冲垮消费者？见 <a href="principles.html#push-pull">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 00 推与拉》</a>。
   </p>
 </div>
 
 <!-- ==================== 03.3 日志与埋点采集 ==================== -->
 <div class="wb-card" id="sc-log" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">📊 03.3 · 场景三：日志与埋点高吞吐采集（批量攒包 + 压缩异步发送）</div>
-  <h3>📊 03.3 日志与用户行为埋点采集</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 03.3 · 场景三：日志与埋点高吞吐采集（批量攒包 + 压缩异步发送）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 03.3 日志与用户行为埋点采集</h3>
 
   <ul>
     <li><strong>需求</strong>：App 首页曝光、按钮点击埋点与微服务访问日志每秒产生 50,000 条记录，需要收集后导入 ClickHouse 或大数据数仓做漏斗分析。</li>
@@ -198,7 +198,7 @@
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 telemetry_batch_writer.go · 埋点日志异步攒批与 LZ4 压缩配置 [Go · kafka-go v0.4.47]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> telemetry_batch_writer.go · 埋点日志异步攒批与 LZ4 压缩配置 [Go · kafka-go v0.4.47]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-log', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-sc-log"><code><span class="c-kw">func</span> NewTelemetryWriter(brokers []<span class="c-kw">string</span>) *kafka.Writer {
@@ -218,15 +218,15 @@
   </div>
 
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
-    ⚠️ <strong>常见坑：</strong>① 千万别把日志配置（<code>Async: true</code> + <code>RequireOne</code>）照抄到订单扣款业务上，否则机器断电会丢账；② 开启 <code>Async: true</code> 后，进程重启停机前若不调 <code>writer.Close()</code>，还在内存缓冲区排队的最后几十毫秒日志会丢失。 ｜ 💡 <strong>背后的原理：</strong>为什么开启批量压缩后，Kafka 连解压都不用做就能原样落盘并零拷贝推给消费者？详见 <a href="principles.html#fast">《📘 核心原理篇 · 03.1 百万吞吐五大加速引擎》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>常见坑：</strong>① 千万别把日志配置（<code>Async: true</code> + <code>RequireOne</code>）照抄到订单扣款业务上，否则机器断电会丢账；② 开启 <code>Async: true</code> 后，进程重启停机前若不调 <code>writer.Close()</code>，还在内存缓冲区排队的最后几十毫秒日志会丢失。 ｜ <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>为什么开启批量压缩后，Kafka 连解压都不用做就能原样落盘并零拷贝推给消费者？详见 <a href="principles.html#fast">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 03.1 百万吞吐五大加速引擎》</a>。
   </p>
 </div>
 
 <!-- ==================== 03.4 数据同步（数据库变更 → 搜索 / 缓存） ==================== -->
 <div class="wb-card" id="sc-sync" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🔄 03.4 · 场景四：异构数据同步（数据库变更事件 → 刷新搜索索引与删除缓存）</div>
-  <h3>🔄 03.4 数据同步：数据库变更 → 搜索索引 / 缓存</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 03.4 · 场景四：异构数据同步（数据库变更事件 → 刷新搜索索引与删除缓存）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 03.4 数据同步：数据库变更 → 搜索索引 / 缓存</h3>
 
   <ul>
     <li><strong>需求</strong>：商家在后台修改了商品价格或上下架状态并落入 MySQL 后，需要把最新商品信息同步到 Elasticsearch 供全站全文搜索，并删除 Redis 里的旧商品详情缓存（见 <a href="../redis/index.html#consistency">Redis 笔记 03.1 Cache-Aside</a>）。</li>
@@ -242,7 +242,7 @@
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 product_sync_worker.go · 消费商品变更事件：带版本号防旧覆盖更新 ES 与删缓存 [Go]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> product_sync_worker.go · 消费商品变更事件：带版本号防旧覆盖更新 ES 与删缓存 [Go]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sync', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-sc-sync"><code><span class="c-kw">type</span> ProductChangeEvent <span class="c-kw">struct</span> {
@@ -262,23 +262,23 @@
   </div>
 
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
-    ⚠️ <strong>常见坑：</strong>① 漏设 <code>Key = sku_id</code> 导致两次连续改价落进不同分区，慢消费者后跑完旧消息把价格改回老值（详见 <a href="#partition-order">05.1 局部顺序保证</a>）；② 消息体里建议带上数据库的单调递增 <code>version</code>，让下游存储具备最后一道防旧值覆盖的能力。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>常见坑：</strong>① 漏设 <code>Key = sku_id</code> 导致两次连续改价落进不同分区，慢消费者后跑完旧消息把价格改回老值（详见 <a href="#partition-order">05.1 局部顺序保证</a>）；② 消息体里建议带上数据库的单调递增 <code>version</code>，让下游存储具备最后一道防旧值覆盖的能力。
   </p>
 </div>
 
 <!-- ==================== 03.5 下单与发消息的一致性：本地消息表 ==================== -->
 <div class="wb-card" id="sc-tx" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🤝 03.5 · 场景五：下单写库与发消息的一致性（本地消息表 Outbox vs RocketMQ 事务消息）</div>
-  <h3>🤝 03.5 下单与发消息的一致性：本地消息表实战</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 03.5 · 场景五：下单写库与发消息的一致性（本地消息表 Outbox vs RocketMQ 事务消息）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 03.5 下单与发消息的一致性：本地消息表实战</h3>
 
   <p>
     在订单支付场景里，我们需要同时完成<strong>「① 修改本地 MySQL 订单为已支付」</strong>和<strong>「② 向 Kafka 发送支付消息」</strong>。为什么不能直接写两行代码？因为跨了两个系统，怎么排顺序都有漏洞：
   </p>
   <ul>
-    <li><strong>❌ 先写 MySQL 提交，再发 MQ</strong>：刚提交完事务进程崩溃或网络闪断，消息没发出去 👉 <strong>钱扣了，下游永远收不到通知</strong>。</li>
-    <li><strong>❌ 先发 MQ，再写 MySQL 提交</strong>：消息一发出就被下游消费发了券，结果本地数据库唯一键冲突回滚了 👉 <strong>单没下成，白发了优惠券</strong>。</li>
-    <li><strong>❌ 在数据库事务 <code>BEGIN...COMMIT</code> 里同步调 MQ</strong>：发 MQ 网络卡顿 2 秒会把数据库行锁与连接占住 2 秒拖垮连接池；且发完 MQ 后若在 <code>COMMIT</code> 那一瞬间断电回滚，已经发出去的消息同样撤不回来。</li>
+    <li><strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 先写 MySQL 提交，再发 MQ</strong>：刚提交完事务进程崩溃或网络闪断，消息没发出去 <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>钱扣了，下游永远收不到通知</strong>。</li>
+    <li><strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 先发 MQ，再写 MySQL 提交</strong>：消息一发出就被下游消费发了券，结果本地数据库唯一键冲突回滚了 <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>单没下成，白发了优惠券</strong>。</li>
+    <li><strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 在数据库事务 <code>BEGIN...COMMIT</code> 里同步调 MQ</strong>：发 MQ 网络卡顿 2 秒会把数据库行锁与连接占住 2 秒拖垮连接池；且发完 MQ 后若在 <code>COMMIT</code> 那一瞬间断电回滚，已经发出去的消息同样撤不回来。</li>
   </ul>
 
   <p>
@@ -358,7 +358,7 @@
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 outbox_tx.go · 本地消息表建表 SQL + Go 同事务双写与后台轮询投递 [Go · database/sql + kafka-go]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> outbox_tx.go · 本地消息表建表 SQL + Go 同事务双写与后台轮询投递 [Go · database/sql + kafka-go]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-outbox', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-sc-outbox"><code><span class="c-cm">/* 建表 SQL（与 orders 表在同一个 MySQL 库）：
@@ -431,20 +431,20 @@ CREATE TABLE outbox_messages (
   </div>
 
   <div class="plop-callout info" style="margin:12px 0 8px;">
-    <strong>🚀 另一种主流做法 —— RocketMQ 原生事务消息：</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 另一种主流做法 —— RocketMQ 原生事务消息：</strong><br>
     如果团队选型的是 <strong>RocketMQ</strong>，无需自己在业务库建 <code>outbox_messages</code> 表。RocketMQ 原生提供了「<strong>先发对消费者隐身的半消息（Half Message）→ 执行本地 DB 事务 → 发 Commit 转正（若断电未发则由 Broker 主动回调反查 DB 状态）</strong>」机制，达成完全相同的最终一致性效果。<br>
-    ⚠️ <strong>共同边界</strong>：无论是本地消息表还是 RocketMQ 事务消息，都属于<strong>最终一致性方案</strong>——Relay 发成功但改 <code>SENT</code> 前崩溃会重发一次，因此<strong>下游消费者必须做幂等（见 <a href="#idempotent">04.2</a>）</strong>；且下游若消费报错不会回滚上游已支付的订单，而是走 <a href="#sc-dlq">03.7 重试与死信</a> 补偿。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>共同边界</strong>：无论是本地消息表还是 RocketMQ 事务消息，都属于<strong>最终一致性方案</strong>——Relay 发成功但改 <code>SENT</code> 前崩溃会重发一次，因此<strong>下游消费者必须做幂等（见 <a href="#idempotent">04.2</a>）</strong>；且下游若消费报错不会回滚上游已支付的订单，而是走 <a href="#sc-dlq">03.7 重试与死信</a> 补偿。
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:0;">
-    💡 <strong>背后的原理：</strong>RocketMQ 的半消息具体存在哪里、Broker 定时事务反查是如何运转的？详见 <a href="principles.html#tx-msg">《📘 核心原理篇 · 02.1 事务消息半消息与反查实现》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>RocketMQ 的半消息具体存在哪里、Broker 定时事务反查是如何运转的？详见 <a href="principles.html#tx-msg">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 02.1 事务消息半消息与反查实现》</a>。
   </p>
 </div>
 
 <!-- ==================== 03.6 延迟任务：订单超时取消 ==================== -->
 <div class="wb-card" id="sc-delay" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">⏱️ 03.6 · 场景六：延迟任务（订单 30 分钟超时取消与四大技术方案对比）</div>
-  <h3>⏱️ 03.6 延迟任务：订单超时未支付自动取消</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 03.6 · 场景六：延迟任务（订单 30 分钟超时取消与四大技术方案对比）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 03.6 延迟任务：订单超时未支付自动取消</h3>
 
   <ul>
     <li><strong>需求</strong>：用户提交订单后锁定库存，若 30 分钟仍未付款，系统自动关闭订单并释放库存；不能每分钟跑 <code>SELECT * FROM orders</code> 扫千万级全表。</li>
@@ -470,7 +470,7 @@ CREATE TABLE outbox_messages (
         <tr>
           <td><strong>② RabbitMQ 延迟方案</strong></td>
           <td>方案 A：无消费者的缓冲队列设 <code>TTL</code> + 绑定 <code>DLX（Dead Letter Exchange，死信交换机）</code>；<br>方案 B：安装官方 <code>rabbitmq_delayed_message_exchange</code> 插件。</td>
-          <td>⚠️ <strong>方案 A 有严重的队头阻塞坑</strong>：RabbitMQ 只检查队列第 1 条消息是否过期——若前一条设 30m、后一条设 1m，1m 的消息会被堵满 30m 才出来！混用不同时长务必选插件或按时长拆独立队列。</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>方案 A 有严重的队头阻塞坑</strong>：RabbitMQ 只检查队列第 1 条消息是否过期——若前一条设 30m、后一条设 1m，1m 的消息会被堵满 30m 才出来！混用不同时长务必选插件或按时长拆独立队列。</td>
         </tr>
         <tr>
           <td><strong>③ <a href="../redis/index.html#sc-delay">Redis ZSet</a> + Kafka</strong><br><span style="font-size:11.5px; color:var(--plop-tomato);">Kafka 栈最常用组合</span></td>
@@ -488,7 +488,7 @@ CREATE TABLE outbox_messages (
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 cancel_unpaid_consumer.go · 无论用哪种延迟触发器，关单消费端都必须写条件幂等 SQL [Go]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> cancel_unpaid_consumer.go · 无论用哪种延迟触发器，关单消费端都必须写条件幂等 SQL [Go]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-delay', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-sc-delay"><code><span class="c-cm">// 消费到期关单事件：用户可能在第 29 分 59 秒刚付完款，因此关单 SQL 必须校验 status='UNPAID'</span>
@@ -510,15 +510,15 @@ CREATE TABLE outbox_messages (
   </div>
 
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
-    💡 <strong>背后的原理：</strong>RocketMQ 5.0 是怎么做到把百万条不同时刻到期的定时消息按 <code>O(1)</code> 复杂度写盘并准点触发的？详见 <a href="principles.html#timing-wheel">《📘 核心原理篇 · 02.2 18 级队列与分层时间轮实现》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>RocketMQ 5.0 是怎么做到把百万条不同时刻到期的定时消息按 <code>O(1)</code> 复杂度写盘并准点触发的？详见 <a href="principles.html#timing-wheel">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 02.2 18 级队列与分层时间轮实现》</a>。
   </p>
 </div>
 
 <!-- ==================== 03.7 失败重试与死信队列 ==================== -->
 <div class="wb-card" id="sc-dlq" style="background:var(--plop-paper);">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🛟 03.7 · 场景七：失败重试与死信队列（阶梯重试 Topic + DLQ 隔离兜底）</div>
-  <h3>🛟 03.7 失败重试与死信队列（DLQ）</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 03.7 · 场景七：失败重试与死信队列（阶梯重试 Topic + DLQ 隔离兜底）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 03.7 失败重试与死信队列（DLQ）</h3>
 
   <ul>
     <li><strong>需求</strong>：消费订单消息调用电子发票服务时，偶尔遇到对方网关抖动超时，或者某条消息因历史脏数据导致解析必报错（俗称「毒丸消息 Poison Pill」）。</li>
@@ -533,7 +533,7 @@ CREATE TABLE outbox_messages (
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 retry_and_dlq.go · Kafka 消费失败自动升级重试计数与超限转入 DLQ [Go · kafka-go v0.4.47]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> retry_and_dlq.go · Kafka 消费失败自动升级重试计数与超限转入 DLQ [Go · kafka-go v0.4.47]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-dlq', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-sc-dlq"><code><span class="c-kw">import</span> <span class="c-str">"strconv"</span>
@@ -583,11 +583,11 @@ CREATE TABLE outbox_messages (
   </div>
 
   <div class="plop-callout info" style="margin:12px 0 14px;">
-    <strong>⏪ 补充技巧 —— 历史消息回溯（Message Replay）：</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 补充技巧 —— 历史消息回溯（Message Replay）：</strong><br>
     如果下午 2:00 发版引入了一个计算逻辑 Bug（代码没报错，但把积分少算了一半），死信队列不会抓到它。此时只需修复代码重新上线，在停掉消费组后用命令行把该组的 Offset 重置回下午 2:00（见 <a href="#backlog">05.2 回溯命令</a>），配合消费幂等就能把这期间的消息完整重算修复。
   </div>
 
-  <h4 id="quiz-03" style="margin:0 0 8px;">☑️ 本章即时场景题（先想答案，再点击展开）</h4>
+  <h4 id="quiz-03" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
   <details class="plop-drawer">
     <summary><span class="plop-drawer-title">1. 在本地消息表（Outbox）方案中，如果后台 Relay 协程已经把消息成功发到了 Kafka，但刚要执行 <code>UPDATE outbox_messages SET status='SENT'</code> 时机器断电了，会发生什么？怎么防？</span></summary>
     <div class="drawer-body">

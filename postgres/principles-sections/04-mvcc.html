@@ -10,8 +10,8 @@
 <!-- 04.1 · 23 字节 HeapTupleHeaderData、CLOG 与 Hint Bits -->
 <div class="wb-card" id="mvcc-tuple-header" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🧬 04.1 · 元组头解剖：23 字节 HeapTupleHeaderData、CLOG 与 Hint Bits 延迟标记</div>
-  <h3>🧬 04.1 23 字节元组头物理位域与堆内多版本正向链</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.1 · 元组头解剖：23 字节 HeapTupleHeaderData、CLOG 与 Hint Bits 延迟标记</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.1 23 字节元组头物理位域与堆内多版本正向链</h3>
 
         <p>PostgreSQL 没有使用单独的回滚段（Rollback Segment / Undo Log）来保存旧版本数据，而是将<strong>所有历史版本与当前版本直接并排存放在同一个数据表（Heap）的 8 KiB 数据页中</strong>。为了判断某一行物理元组对当前事务是否可见，内核在每一条元组的头部都嵌入了固定 <strong>23 字节的 <code>HeapTupleHeaderData</code> 元数据（加上最少 1 字节填充对齐后为 24 字节偏移）</strong>。</p>
 
@@ -137,7 +137,7 @@
         </ul>
 
         <div class="plop-callout info" style="margin-bottom:0;">
-          <strong>💡 CLOG (pg_xact) 提交日志与 Hint Bits 提示位延迟落盘机制：</strong><br>
+          <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> CLOG (pg_xact) 提交日志与 Hint Bits 提示位延迟落盘机制：</strong><br>
           当事务 <code>T1 (XID = 100)</code> 执行 <code>COMMIT</code> 时，如果去修改它写过的成千上万个数据页上的元组状态，提交延迟会变得不可接受。因此 PostgreSQL 在提交时<strong>只做两件事</strong>：把提交日志刷入 WAL，并在全局提交状态数组 <strong><code>pg_xact</code>（旧称 <code>CLOG</code>，每个事务仅占 2 bit：<code>00=IN_PROGRESS</code>、<code>01=COMMITTED</code>、<code>10=ABORTED</code>、<code>11=SUB_COMMITTED</code>）</strong>中将 <code>XID=100</code> 标记为已提交。<br>
           随后，当<strong>第一个后续事务（哪怕只是一条纯只读的 <code>SELECT</code>）</strong>访问到 <code>XID=100</code> 插入的元组时，发现该元组 <code>t_infomask</code> 中还没有设置提交提示位（<code>HEAP_XMIN_COMMITTED</code> 或 <code>HEAP_XMIN_INVALID</code>），就会去查一次 <code>pg_xact</code>。查明已提交后，<strong>这个 <code>SELECT</code> 进程会顺手把结果回写到该元组头的 <code>t_infomask</code> 提示位（Hint Bits）中，并将所在的 8 KiB 数据页标记为脏页（Dirty Page）</strong>。这样后续所有读者只需看一眼元组头的位标记即可判定可见性，无需再查 <code>pg_xact</code>。这就是为什么在大批量导入数据后，第一次执行全表 <code>SELECT COUNT(*)</code> 会触发大量物理写盘的根本原因。
         </div>
@@ -146,8 +146,8 @@
 <!-- 04.2 · 事务快照与可见性判断 -->
 <div class="wb-card" id="mvcc-snapshot-epq" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">📸 04.2 · 事务快照与可见性判断：SnapshotData 三元组与 EvalPlanQual 并发重评</div>
-  <h3>📸 04.2 事务快照 <code>SnapshotData</code> 三元组与 <code>EvalPlanQual</code> 机制</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-video"></use></svg> 04.2 · 事务快照与可见性判断：SnapshotData 三元组与 EvalPlanQual 并发重评</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-video"></use></svg> 04.2 事务快照 <code>SnapshotData</code> 三元组与 <code>EvalPlanQual</code> 机制</h3>
 
         <p>当事务获取快照（在 <code>Read Committed</code> 下每条 SQL 语句开始时获取一次，在 <code>Repeatable Read / Serializable</code> 下事务内第一条语句开始时获取并复用到底）时，后台进程会扫描共享内存中的 <code>ProcArray</code>，生成一份 <strong><code>SnapshotData</code> 三元组（可通过内置函数 <code>pg_current_snapshot()</code> 查看，格式为 <code>xmin:xmax:xip_list</code>）</strong>：</p>
 
@@ -182,7 +182,7 @@
 
         <div class="plop-code-box" style="margin:14px 0;">
           <div class="plop-code-head">
-            <span>🔍 HeapTupleSatisfiesMVCC · 元组可见性判定核心布尔逻辑（src/backend/access/heap/heapam_visibility.c）</span>
+            <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> HeapTupleSatisfiesMVCC · 元组可见性判定核心布尔逻辑（src/backend/access/heap/heapam_visibility.c）</span>
             <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mvcc-vis', this)">复制代码</button>
           </div>
           <pre class="plop-code-pre" id="code-mvcc-vis"><code><span class="c-cm">// 给定一条物理元组 tuple 与当前查询快照 snapshot，判断 tuple 是否对当前语句可见：</span>
@@ -220,8 +220,8 @@
 <!-- 04.3 · SSI 可串行化快照隔离、行级锁 MultiXact 与死锁检测 -->
 <div class="wb-card" id="mvcc-ssi-locks" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🛡️ 04.3 · SSI 可串行化快照隔离、行级锁 MultiXact 与死锁检测</div>
-  <h3>🛡️ 04.3 <code>SSI</code> 谓词锁与元组头行级锁机制</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.3 · SSI 可串行化快照隔离、行级锁 MultiXact 与死锁检测</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.3 <code>SSI</code> 谓词锁与元组头行级锁机制</h3>
 
         <h4>写偏序（Write Skew）异常与 <code>SSI</code> 谓词锁的无阻塞检测机制</h4>
         <p>在传统的实现中（如早期数据库或 MySQL InnoDB），<code>SERIALIZABLE</code> 往往通过把所有普通 <code>SELECT</code> 强制降级为加共享间隙锁（<code>SELECT ... FOR SHARE</code> + Next-Key Lock）来实现，这会导致读写严重阻塞。PostgreSQL 9.1 引入了学术界里程碑式的 <strong>可串行化快照隔离（Serializable Snapshot Isolation, SSI）</strong>：<strong>读仍然完全不阻塞写，写也完全不阻塞读</strong>。</p>
@@ -268,7 +268,7 @@
         </div>
 
         <div class="plop-callout tip" style="margin-bottom:0;">
-          <strong>⚙️ 元组头行锁存储与 <code>MultiXactId</code> 组合事务锁机制：</strong><br>
+          <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 元组头行锁存储与 <code>MultiXactId</code> 组合事务锁机制：</strong><br>
           许多数据库把行锁存放在内存锁哈希表中，一旦单事务锁住百万行就会触发锁表内存溢出（Lock Escalation 锁升级为表锁）。PostgreSQL 采取了巧妙的设计：<strong>行级锁直接利用数据页元组头的 <code>t_xmax</code> 与 <code>t_infomask</code> 存储在磁盘数据页上，因此在 PG 中即使一个事务锁定 1 亿行，也绝不会耗尽共享内存锁表，更不存在「行锁自动升级为表锁」的现象</strong>。<br>
           如果<strong>多个并发事务同时对同一行加共享锁（<code>FOR KEY SHARE / FOR SHARE</code>）</strong>，单个 4 字节的 <code>t_xmax</code> 会写入一个组合 ID —— <strong><code>MultiXactId</code></strong>，并将真实的多个成员事务 XID 列表记录在 <code>pg_multixact/</code> 子目录中。此外，当事务等待锁超过 <strong><code>deadlock_timeout</code>（默认 <code>1s</code>）</strong>时，后台进程才会唤醒死锁检测算法（构造 Wait-For Graph 有向等待图寻找环路），从而让 99.9% 在几毫秒内就能拿到的正常锁等待省去死锁图遍历开销。
         </div>

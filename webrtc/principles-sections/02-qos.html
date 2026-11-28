@@ -10,8 +10,8 @@
 <!-- 02.1 · 单端口多路复用首字节分流与双轨加密协议栈 -->
 <div class="wb-card" id="protocol-demux-stack" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🔐 02.1 · 传输底座：UDP 防队头阻塞推导、单端口首字节分流（RFC 7983）与 DTLS-SRTP 密钥导出</div>
-  <h3>🔐 02.1 单端口多路复用协议栈与强制加密握手</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 02.1 · 传输底座：UDP 防队头阻塞推导、单端口首字节分流（RFC 7983）与 DTLS-SRTP 密钥导出</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 02.1 单端口多路复用协议栈与强制加密握手</h3>
 
   <p>
     TCP 为了提供可靠字节流，在内核协议栈中强制实施<strong>严格按序上交（In-order Delivery）</strong>：即便只丢失了第 <code>10</code> 号分段，哪怕第 <code>11 ~ 35</code> 号最新语音帧早已抵达接收端内核缓冲区，<code>recv()</code> 系统调用也会被阻塞至少 <code>1 ~ 2 RTT</code> 等待第 10 号包重传到达，造成「先静音卡死、随后几句话挤压在一起快进播完」的队头阻塞（Head-of-Line Blocking）。WebRTC 选择直接构建在无序无连接的 <strong>UDP</strong> 之上，并在单个 UDP 端口上通过检查<strong>数据包第 1 个字节的取值范围（RFC 7983）</strong>同时承载四类协议：
@@ -115,8 +115,8 @@
 <!-- 02.2 · 出海弱网抗卡顿四件套与音画同步时钟推导 -->
 <div class="wb-card" id="weak-network-resilience" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🛡️ 02.2 · 弱网对抗：<code>JitterBuffer</code>、<code>NACK vs FEC</code> 适用边界、<code>GCC</code> 拥塞控制与音画同步</div>
-  <h3>🛡️ 02.2 跨国弱网抗抖动机制矩阵与音画同步原理</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 02.2 · 弱网对抗：<code>JitterBuffer</code>、<code>NACK vs FEC</code> 适用边界、<code>GCC</code> 拥塞控制与音画同步</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 02.2 跨国弱网抗抖动机制矩阵与音画同步原理</h3>
 
   <p>
     在东南亚、中东、拉美等移动网络波动剧烈的海外市场，UDP 本身不提供任何重传与流控，WebRTC 完全依靠应用层的以下五项协同机制实现「丢包 20% 仍能清晰对话」：
@@ -162,7 +162,7 @@
   </div>
 
   <div class="plop-callout tip" style="margin-bottom:0;">
-    <strong>⏱️ 音画同步（Lip-Sync）时钟锚定原理：</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 音画同步（Lip-Sync）时钟锚定原理：</strong><br>
     音频 RTP 流采用 <code>48kHz</code> 采样时钟，视频 RTP 流采用 <code>90kHz</code> 采样时钟，且视频编码耗时比音频慢得多，单独看各自的 RTP 时间戳无法对齐。发送端会周期性发送 <strong><code>RTCP SR（Sender Report）</code></strong>控制包，包内同时携带「64 位绝对物理墙上时间 <code>NTP Timestamp</code>」与「当前轨道对应的 <code>RTP Timestamp</code>」。接收端据此把音轨和画轨统一换算到同一把 NTP 绝对标尺上，并以<strong>连续不可跳变的音频播放时钟作为主基准（Master Clock）</strong>：视频帧若早到则挂起等待几毫秒再上屏，视频帧若落后过多则跳过非参考帧追赶声音。
   </div>
 </div>

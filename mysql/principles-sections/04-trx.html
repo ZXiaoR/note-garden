@@ -10,11 +10,11 @@
 <!-- 04.1 · MVCC 的三大底层基石：隐藏列、Undo Log 与逆向版本链 -->
 <div class="wb-card" id="mysql-mvcc-pillars" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🧬 04.1 · MVCC 三大基石：隐藏列（DB_TRX_ID / DB_ROLL_PTR）、两类 Undo Log 与聚簇索引逆向版本链</div>
-  <h3>🧬 04.1 InnoDB 原地更新下的多版本存储与两类 Undo Log 生命周期</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.1 · MVCC 三大基石：隐藏列（DB_TRX_ID / DB_ROLL_PTR）、两类 Undo Log 与聚簇索引逆向版本链</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.1 InnoDB 原地更新下的多版本存储与两类 Undo Log 生命周期</h3>
 
   <p>
-    在 <a href="index.html#trx" style="color:var(--plop-tomato);font-weight:800;">🌱 基础与实战篇 · 04 章</a> 中，我们通过双终端实验验证了 <code>READ COMMITTED (RC)</code> 与 <code>REPEATABLE READ (RR)</code> 下普通 <code>SELECT</code> 的可见性差异。与 PostgreSQL「每次更新在数据页内追加一条物理新元组（Append-only Tuple）」的设计不同，InnoDB 采用的是<strong>「聚簇索引原地更新最新值 + Undo Log 逆向串联历史差量版本 + ReadView 活跃事务水位快照」</strong>的多版本并发控制（MVCC）方案：
+    在 <a href="index.html#trx" style="color:var(--plop-tomato);font-weight:800;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇 · 04 章</a> 中，我们通过双终端实验验证了 <code>READ COMMITTED (RC)</code> 与 <code>REPEATABLE READ (RR)</code> 下普通 <code>SELECT</code> 的可见性差异。与 PostgreSQL「每次更新在数据页内追加一条物理新元组（Append-only Tuple）」的设计不同，InnoDB 采用的是<strong>「聚簇索引原地更新最新值 + Undo Log 逆向串联历史差量版本 + ReadView 活跃事务水位快照」</strong>的多版本并发控制（MVCC）方案：
   </p>
 
   <ul style="margin:0 0 12px; padding-left:20px; font-size:13.4px; line-height:1.72;">
@@ -32,8 +32,8 @@
 <!-- 04.2 · ReadView 结构体的四大水位字段与四步可见性判定算法 -->
 <div class="wb-card" id="mysql-readview-algorithm" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🔍 04.2 · ReadView 可见性状态机：四大水位字段与 C++ 内核 changes_visible() 四步判定漏斗</div>
-  <h3>🔍 04.2 ReadView 结构体的四大水位字段与四步可见性判定算法</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 04.2 · ReadView 可见性状态机：四大水位字段与 C++ 内核 changes_visible() 四步判定漏斗</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 04.2 ReadView 结构体的四大水位字段与四步可见性判定算法</h3>
 
   <p>
     当事务执行普通 <code>SELECT</code>（快照读，Snapshot Read）时，InnoDB 会获取一个一致性读视图（<code>ReadView</code>）。<code>ReadView</code> 并不拷贝整张表的数据，它只是一个极其轻量的内存结构体，记录了生成瞬间系统中所有活跃读写事务的状态快照：
@@ -201,8 +201,8 @@
 <!-- 04.3 · RC 与 RR 的本质差异，以及 RR 下快照读与当前读混用的幻读边界 -->
 <div class="wb-card" id="mysql-rc-rr-phantom" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">⚖️ 04.3 · RC vs RR 本质与幻读边界：ReadView 生成时机差异与「快照读 + UPDATE 当前读」显形推演</div>
-  <h3>⚖️ 04.3 RC 与 RR 的本质差异，以及 RR 下快照读与当前读混用的幻读边界</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 04.3 · RC vs RR 本质与幻读边界：ReadView 生成时机差异与「快照读 + UPDATE 当前读」显形推演</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 04.3 RC 与 RR 的本质差异，以及 RR 下快照读与当前读混用的幻读边界</h3>
 
   <p>
     理解了 <code>ReadView</code> 的判定算法后，<code>READ COMMITTED (RC)</code> 与 <code>REPEATABLE READ (RR)</code> 两个隔离级别的实现差异可以用一句话概括——<strong>仅仅是生成 <code>ReadView</code> 的时机不同</strong>：
@@ -219,7 +219,7 @@
 
   <div class="plop-code-box" style="margin-bottom:14px;">
     <div class="plop-code-head">
-      <span>🧪 rr_phantom_edge.sql · RR 隔离级别下先快照读、再 UPDATE 当前读触发幻影行显形的边界时序</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> rr_phantom_edge.sql · RR 隔离级别下先快照读、再 UPDATE 当前读触发幻影行显形的边界时序</span>
       <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-rr-phantom', this)">复制 SQL</button>
     </div>
     <pre class="plop-code-pre" id="code-mysql-rr-phantom"><code><span class="c-cm">-- 初始状态：accounts 表中只有 id = 1 一行记录，隔离级别为 REPEATABLE READ</span>
@@ -250,7 +250,7 @@
   </div>
 
   <div class="plop-callout">
-    <div class="plop-callout-title">💡 工程实践启示：如何在 RR 下从一开始就封死幻读窗口</div>
+    <div class="plop-callout-title"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 工程实践启示：如何在 RR 下从一开始就封死幻读窗口</div>
     <p style="margin:0; font-size:13.2px; line-height:1.68;">
       上述 T4~T5 出现「第三次普通 <code>SELECT</code> 多出一行」的根源，在于 T1 时刻执行的是不加锁的普通快照读，没有阻挡会话 B 的插入，而 T4 时刻的 <code>UPDATE</code> 当前读又将该行的 <code>DB_TRX_ID</code> 刷新成了当前事务 ID。如果业务需要在事务一开始读取某范围数据并根据读取结果做后续写入决策，应当在 T1 时刻直接使用当前读（<code>SELECT ... FOR UPDATE</code> 或 <code>FOR SHARE</code>），从第一条语句起就用 Next-Key Lock 锁住目标索引区间，避免在同一事务中将初期的快照读结论直接用于后续的范围写操作。
     </p>

@@ -10,8 +10,8 @@
 <!-- 04.1 · 从 DOM + CSSOM 到屏幕像素的完整六阶段渲染流水线 -->
 <div class="wb-card" id="blink-render-pipeline" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🖼️ 04.1 · 渲染引擎核心管线：主线程（Style → Layout → Layer → Paint）与合成线程（Tiling → Raster → DrawQuad）分工</div>
-  <h3>🖼️ 04.1 Blink + Viz 渲染流水线的六个核心阶段</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-video"></use></svg> 04.1 · 渲染引擎核心管线：主线程（Style → Layout → Layer → Paint）与合成线程（Tiling → Raster → DrawQuad）分工</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-video"></use></svg> 04.1 Blink + Viz 渲染流水线的六个核心阶段</h3>
 
   <p>
     当 DOM 树与 CSSOM 规则准备就绪后，Chromium 的渲染引擎（Blink）与合成器（CC / Viz）通过<strong>主线程 → 合成线程 → 光栅线程池 → GPU 进程</strong>的四级流水线，将内存中的树结构转化为屏幕上的像素帧：
@@ -109,8 +109,8 @@
 <!-- 04.2 · 重排（Reflow）、重绘（Repaint）与直接合成（Composite-only）三条渲染路径对比 -->
 <div class="wb-card" id="reflow-repaint-composite" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">⚡ 04.2 · 页面更新开销分级：为什么说「重排必引发重绘，而 <code>transform / opacity</code> 动画可以跳过主线程」？</div>
-  <h3>⚡ 04.2 重排（Reflow）、重绘（Repaint）与直接合成（Composite）对比</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 04.2 · 页面更新开销分级：为什么说「重排必引发重绘，而 <code>transform / opacity</code> 动画可以跳过主线程」？</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 04.2 重排（Reflow）、重绘（Repaint）与直接合成（Composite）对比</h3>
 
   <p>
     当页面初次渲染完成后，JavaScript 或 CSS 动画对元素样式的每一次修改，都会根据受影响的属性种类走完不同长度的流水线。理解这三条路径的成本差异，是前端渲染性能调优的核心：
@@ -143,7 +143,7 @@
           <td><strong>③ 仅合成<br>（Composite-only）</strong></td>
           <td><code>Style ➔ Composite</code>（<strong>完全跳过 Layout、Paint 与重新光栅化</strong>）</td>
           <td>在独立合成层上修改 <strong><code>transform</code>（平移/缩放/旋转）</strong> 与 <strong><code>opacity</code>（透明度）</strong></td>
-          <td>🟢 <strong>开销最低（硬件加速快车道）</strong>：图块纹理早已在 GPU 显存中，CSS 动画甚至可完全由<strong>合成线程与 GPU</strong> 通过矩阵变换直接合成新帧，主线程耗时为 <code>0</code>。</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> <strong>开销最低（硬件加速快车道）</strong>：图块纹理早已在 GPU 显存中，CSS 动画甚至可完全由<strong>合成线程与 GPU</strong> 通过矩阵变换直接合成新帧，主线程耗时为 <code>0</code>。</td>
         </tr>
       </tbody>
     </table>
@@ -152,7 +152,7 @@
   <div class="wb-grid-2" style="margin-bottom:0;">
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px;">
       <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:6px;">
-        ⚠️ 警惕一：强制同步布局（Forced Synchronous Layout / 布局抖动）
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 警惕一：强制同步布局（Forced Synchronous Layout / 布局抖动）
       </div>
       <p style="font-size:12.8px; margin:0; line-height:1.62; color:var(--plop-ink-text);">
         现代浏览器为了减少重排，会将同一轮 JS 任务中的多次样式修改放入队列<strong>延迟批量计算</strong>。但如果你在循环中<strong>刚写完 <code>el.style.width = ...</code>，紧接着立刻读取 <code>el.offsetWidth / offsetTop / scrollTop / getBoundingClientRect()</code></strong>，浏览器为了给你返回最新尺寸，会被迫放弃批量合并，在 JS 执行中途<strong>立即强制同步执行一次 Layout</strong>。解决原则：<strong>读写分离（先集中读完所有几何属性存入变量，再集中修改样式）</strong>。
@@ -161,7 +161,7 @@
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px;">
       <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:6px;">
-        ⚠️ 警惕二：独立合成层提升条件与「层爆炸（Layer Explosion）」
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 警惕二：独立合成层提升条件与「层爆炸（Layer Explosion）」
       </div>
       <p style="font-size:12.8px; margin:0; line-height:1.62; color:var(--plop-ink-text);">
         拥有 3D 变换（<code>translate3d / translateZ(0)</code>）、<code>&lt;video&gt; / &lt;canvas&gt;</code>、<code>transform / opacity</code> 过渡动画或显式声明 <code>will-change: transform</code> 的元素会被提升为<strong>独立合成层（Compositing Layer）</strong>。<br>

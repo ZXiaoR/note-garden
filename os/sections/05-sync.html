@@ -1,15 +1,15 @@
 <div class="wb-sec-header" id="race"><span class="wb-sec-num">05</span><span class="wb-sec-title">共享数据怎么保护 · 从一次加一开始</span><span class="plop-tag mint">先理解过程</span></div>
-<div class="wb-card" id="race-example" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3>🔢 05.1 两个人各加一次，为什么只加了一次？</h3><p>设共享计数器原来是 10。两个线程都想执行“加一”。这件事可以涉及读取旧值、计算新值和写回，两个线程的步骤可能交错：</p><div class="plop-code-box"><div class="plop-code-head"><span>按时间从上往下看 · 这是出错的执行顺序示意</span></div><pre class="plop-code-pre"><code>线程甲：读到 10
+<div class="wb-card" id="race-example" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 05.1 两个人各加一次，为什么只加了一次？</h3><p>设共享计数器原来是 10。两个线程都想执行“加一”。这件事可以涉及读取旧值、计算新值和写回，两个线程的步骤可能交错：</p><div class="plop-code-box"><div class="plop-code-head"><span>按时间从上往下看 · 这是出错的执行顺序示意</span></div><pre class="plop-code-pre"><code>线程甲：读到 10
 线程乙：也读到 10
 线程甲：算出 11，写回
 线程乙：也算出 11，再写回
 最后是 11，本来希望得到 12</code></pre></div><p>问题发生在“都基于旧值计算，再互相覆盖”。这种结果受执行时序影响的情况叫<strong>竞态条件</strong>。具体语言中，未经同步的数据竞争还可能有更严格的后果；这里先借步骤交错理解问题。</p></div>
-<div class="wb-card" id="lock" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape pink"></div><h3>🔒 05.2 把需要一起完成的步骤保护起来</h3><p>一种解决方式是使用<strong>互斥锁</strong>：先拿到锁，才允许执行受保护的步骤；执行完再放锁。另一个线程发现锁已被持有，就按规则等待。所有访问者必须遵守同一套保护规则。</p><div class="plop-code-box"><div class="plop-code-head"><span>保护一组操作 · 加锁与解锁要包住整个过程</span></div><pre class="plop-code-pre"><code>拿到同一把锁
+<div class="wb-card" id="lock" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape pink"></div><h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 05.2 把需要一起完成的步骤保护起来</h3><p>一种解决方式是使用<strong>互斥锁</strong>：先拿到锁，才允许执行受保护的步骤；执行完再放锁。另一个线程发现锁已被持有，就按规则等待。所有访问者必须遵守同一套保护规则。</p><div class="plop-code-box"><div class="plop-code-head"><span>保护一组操作 · 加锁与解锁要包住整个过程</span></div><pre class="plop-code-pre"><code>拿到同一把锁
 读取计数器 → 加一 → 写回
 释放锁</code></pre></div><p>被保护的这段操作叫<strong>临界区</strong>。重要的是操作中的约束和数据一致性，而不是“某个变量前面写过加锁”就永远安全。像单个计数的更新，也可能使用语言提供的原子操作完成。</p></div>
 <div class="wb-card" id="classic" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <h3>⏳ 05.3 等锁与等条件：拿到锁以后发现“还没有数据”怎么办？</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 05.3 等锁与等条件：拿到锁以后发现“还没有数据”怎么办？</h3>
   <p>
     05.2 的互斥锁解决了“不能两个线程同时修改共享数据”的问题。再往前推进一步：假设一个线程负责往队列里放文字（生产者），另一个线程负责从队列里取文字来统计（消费者）。当消费线程拿到锁进屋时，如果队列此刻还是空的，就会遇到新的问题：
   </p>
@@ -22,4 +22,4 @@
     注意一个细节：统计线程被铃声叫醒、重新排上队拿到钥匙进屋的那一瞬间，篮子里的文章可能<strong>已经被别的统计线程捷足先登拿走了</strong>。所以醒来进屋后的第一件事，必须用 <code>while</code> 循环<strong>再次看一眼篮子是不是真的有货</strong>（“只要还是空的，就继续交出钥匙等”）。
   </p>
 </div>
-<div class="wb-card" id="deadlock" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape periwinkle"></div><h3>🔄 05.4 为什么两个任务都不动了？</h3><p>甲拿着文件锁，等乙释放队列锁；乙拿着队列锁，等甲释放文件锁。双方都必须等对方先行动，却又都不释放手里的资源，于是可能一直卡住，这叫<strong>死锁</strong>。</p><p>一个实用的预防办法是：大家约定同样的加锁顺序，例如始终先拿文件锁、再拿队列锁。还要避免在持锁时等待不受自己控制的长时间操作。具体设计需要结合资源之间的依赖。</p></div><details class="plop-drawer"><summary><span class="plop-drawer-title">🧩 想一想：把“读计数器”放在锁外，只保护“写回”，能解决刚才的问题吗？</span></summary><div class="drawer-body"><p>不能。两个线程仍可能在锁外读到同一个旧值，再各自把相同结果写回。需要把相关的读取、计算和写回作为整体保护，或使用适合的原子操作。</p></div></details>
+<div class="wb-card" id="deadlock" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape periwinkle"></div><h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 05.4 为什么两个任务都不动了？</h3><p>甲拿着文件锁，等乙释放队列锁；乙拿着队列锁，等甲释放文件锁。双方都必须等对方先行动，却又都不释放手里的资源，于是可能一直卡住，这叫<strong>死锁</strong>。</p><p>一个实用的预防办法是：大家约定同样的加锁顺序，例如始终先拿文件锁、再拿队列锁。还要避免在持锁时等待不受自己控制的长时间操作。具体设计需要结合资源之间的依赖。</p></div><details class="plop-drawer"><summary><span class="plop-drawer-title"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-puzzle"></use></svg> 想一想：把“读计数器”放在锁外，只保护“写回”，能解决刚才的问题吗？</span></summary><div class="drawer-body"><p>不能。两个线程仍可能在锁外读到同一个旧值，再各自把相同结果写回。需要把相关的读取、计算和写回作为整体保护，或使用适合的原子操作。</p></div></details>

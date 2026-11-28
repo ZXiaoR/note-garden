@@ -10,8 +10,8 @@
 <!-- 00.1 · 三大底层设计分水岭：PostgreSQL 堆表 vs MySQL InnoDB 聚簇索引 -->
 <div class="wb-card" id="heap-vs-iot" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🧭 00.1 · 存储架构分水岭：无序堆表（Heap Table）+ 页内多版本追加 vs 聚簇索引组织表（IOT）+ Undo 回滚段</div>
-  <h3>🧭 00.1 PostgreSQL 与 MySQL InnoDB 的三大底层架构分水岭</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 00.1 · 存储架构分水岭：无序堆表（Heap Table）+ 页内多版本追加 vs 聚簇索引组织表（IOT）+ Undo 回滚段</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 00.1 PostgreSQL 与 MySQL InnoDB 的三大底层架构分水岭</h3>
 
   <p>
     关系型数据库在工程实现上面临两个最基础的物理存储问题：<strong>第一，一张表的数据行在磁盘页面上按什么顺序组织？第二，当更新一行数据时，历史旧版本存放在哪里？</strong> PostgreSQL 与 MySQL（InnoDB 存储引擎）在这两个问题上做出了截然不同的设计抉择，并由此衍生出两者在读写性能、索引维护与空间治理上的全部差异：
@@ -58,8 +58,8 @@
       <thead>
         <tr>
           <th style="width:16%;">内核维度</th>
-          <th style="width:42%;">🐘 PostgreSQL (16 / 17 内核机制)</th>
-          <th style="width:42%;">🐬 MySQL (8.0 / 8.4 InnoDB 内核机制)</th>
+          <th style="width:42%;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pg"></use></svg> PostgreSQL (16 / 17 内核机制)</th>
+          <th style="width:42%;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> MySQL (8.0 / 8.4 InnoDB 内核机制)</th>
         </tr>
       </thead>
       <tbody>
@@ -121,8 +121,8 @@
 <!-- 00.2 · 8 KiB 数据页（PageHeaderData）物理内存布局 -->
 <div class="wb-card" id="page-layout" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">📐 00.2 · 物理页面布局：<code>8 KiB</code> 堆表页内部结构、行指针数组 <code>ItemIdData</code> 与元组双向相向生长机制</div>
-  <h3>📐 00.2 <code>8 KiB</code> 数据页物理布局与 <code>Line Pointer</code> 间接寻址</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 00.2 · 物理页面布局：<code>8 KiB</code> 堆表页内部结构、行指针数组 <code>ItemIdData</code> 与元组双向相向生长机制</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 00.2 <code>8 KiB</code> 数据页物理布局与 <code>Line Pointer</code> 间接寻址</h3>
 
   <p>
     在 PostgreSQL 中，无论是堆表还是索引，磁盘与共享内存之间读写的最小基本单位都是固定大小的<strong>页面（Page / Block，默认 <code>BLCKSZ = 8192 Bytes = 8 KiB</code>）</strong>。打开源码 <code>src/include/storage/bufpage.h</code>，一个标准的 8KB 数据页由四部分组成，并采用<strong>“行指针从前往后增长、真实数据元组从后往前增长”的双向相向填充结构</strong>：
@@ -259,8 +259,8 @@
 <!-- 00.3 · 变长属性 varlena 与超大字段 TOAST 切片压缩机制 -->
 <div class="wb-card" id="toast-mechanism" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🗜️ 00.3 · 大字段存储：变长结构体 <code>varlena</code> 头部编码与 <code>TOAST</code>（压缩 + 附属表 2KB 切片）机制</div>
-  <h3>🗜️ 00.3 变长结构 <code>varlena</code> 与 <code>TOAST</code> 超大字段切片原理</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 00.3 · 大字段存储：变长结构体 <code>varlena</code> 头部编码与 <code>TOAST</code>（压缩 + 附属表 2KB 切片）机制</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 00.3 变长结构 <code>varlena</code> 与 <code>TOAST</code> 超大字段切片原理</h3>
 
   <p>
     由于 PostgreSQL 数据页固定为 <code>8 KiB</code>，且内核规定<strong>单条物理元组不允许跨页存储</strong>，如果用户向 <code>text</code>、<code>jsonb</code> 或 <code>bytea</code> 列写入一段 500 KB 的长文，数据页该如何容纳？答案是 <strong><code>varlena</code>（Variable-Length Attribute）多态头部编码</strong>配合 <strong><code>TOAST</code>（The Oversized-Attribute Storage Technique）机制</strong>：
@@ -318,7 +318,7 @@
       </div>
 
       <div class="plop-callout tip" style="margin-top:10px; margin-bottom:0;">
-        <strong>💡 工程启示：为什么在含大字段的表上应避免写 <code>SELECT *</code>？</strong><br>
+        <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 工程启示：为什么在含大字段的表上应避免写 <code>SELECT *</code>？</strong><br>
         当大字段已移入线外 TOAST 表时，如果 SQL 只查询 <code>SELECT id, status FROM articles</code>，执行器只需扫描紧凑的主表页，<strong>完全不会去触碰附属 TOAST 表及其 B-tree 索引</strong>；而一旦写成 <code>SELECT *</code>，每命中一行都要拿着 18 字节指针额外去 TOAST 表执行一次索引查找并重组切片、解压内存，I/O 与 CPU 开销相差数倍。
       </div>
     </div>

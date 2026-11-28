@@ -10,8 +10,8 @@
 <!-- 02.1 · libuv 六大阶段全景解剖与 setTimeout vs setImmediate -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">⏱️ 02.1 · 事件循环阶段流转：uv_run 六大阶段与 setTimeout / setImmediate 执行顺序</div>
-  <h3>🎡 02.1 <code>libuv</code> 事件循环六大阶段（<code>uv_run</code>）与 <code>poll</code> 阶段阻塞唤醒机制</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 02.1 · 事件循环阶段流转：uv_run 六大阶段与 setTimeout / setImmediate 执行顺序</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 02.1 <code>libuv</code> 事件循环六大阶段（<code>uv_run</code>）与 <code>poll</code> 阶段阻塞唤醒机制</h3>
 
   <p>
     在 Node.js 后端运行环境中，主线程需要协同处理<strong>定时器到期、TCP 异常回调、网络与文件 I/O 读写、<code>setImmediate</code> 任务以及句柄关闭清理</strong>。为此 <code>libuv</code> 将单轮事件循环划分为<strong>按固定顺序循环执行的 6 个阶段（Phases）</strong>，每个阶段维护各自独立的先进先出（FIFO）回调队列。
@@ -20,7 +20,7 @@
   <div class="wb-grid-2" style="margin-bottom:12px;">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🎲 timeout_vs_immediate.js · 顶层调用与 I/O 回调内部调用的执行顺序对比</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-dice"></use></svg> timeout_vs_immediate.js · 顶层调用与 I/O 回调内部调用的执行顺序对比</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-timer-imm', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-timer-imm"><code><span class="c-kw">const</span> fs = <span class="c-fn">require</span>(<span class="c-str">'node:fs'</span>);
@@ -38,7 +38,7 @@ fs.<span class="c-fn">readFile</span>(__filename, () =&gt; {
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 执行顺序差异解析：顶层调用与 I/O 回调内部调用</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 执行顺序差异解析：顶层调用与 I/O 回调内部调用</div>
       <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
         <li><strong>1. 场景 A（顶层调用顺序不固定）</strong>：Node.js 将 <code>setTimeout(fn, 0)</code> 的最小延迟规范化为 <code>1ms</code>。当进入事件循环第 ① 站 <strong><code>timers</code> 阶段</strong>时，若主线程初始化耗时已满 <code>1ms</code> 则先执行 <code>A1</code>；若不足 <code>1ms</code> 则跳过 <code>timers</code>，继续向下走到第 ⑤ 站 <strong><code>check</code> 阶段</strong>先执行 <code>A2</code>。</li>
         <li><strong>2. 场景 B（I/O 回调内 <code>setImmediate</code> 始终先执行）</strong>：<code>fs.readFile</code> 的回调函数本身在第 ④ 站 <strong><code>poll</code> 阶段</strong>执行。<code>poll</code> 阶段结束后的紧邻下一站正是第 ⑤ 站 <strong><code>check</code> 阶段（专门执行 <code>setImmediate</code>）</strong>，而 <code>setTimeout</code> 则需要等下一轮循环回到第 ① 站 <code>timers</code> 阶段才会执行。</li>
@@ -140,14 +140,14 @@ fs.<span class="c-fn">readFile</span>(__filename, () =&gt; {
   </svg>
 
   <details class="plop-drawer">
-    <summary>🔍 深入 libuv C 源码：deps/uv/src/unix/core.c 中 uv_run() 主循环与 poll 阻塞超时计算实现</summary>
+    <summary><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 深入 libuv C 源码：deps/uv/src/unix/core.c 中 uv_run() 主循环与 poll 阻塞超时计算实现</summary>
     <div class="drawer-body">
       <p style="margin:0 0 8px;">
         当服务端处于空闲等待请求状态时，Node.js 进程不会退出且 CPU 占用率为 <code>0%</code>，原因在于主线程阻塞停留在第 ④ 阶段 <code>uv__io_poll</code>（底层调用 Linux <code>epoll_wait</code>）上等待内核事件唤醒：
       </p>
       <div class="plop-code-box" style="margin:6px 0 0;">
         <div class="plop-code-head">
-          <span>🔥 deps/uv/src/unix/core.c · uv_run 核心主循环精简源码</span>
+          <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> deps/uv/src/unix/core.c · uv_run 核心主循环精简源码</span>
           <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-uv-run', this)">复制源码</button>
         </div>
         <pre class="plop-code-pre" id="code-uv-run"><code><span class="c-kw">int</span> <span class="c-fn">uv_run</span>(uv_loop_t* loop, uv_run_mode mode) {
@@ -176,8 +176,8 @@ fs.<span class="c-fn">readFile</span>(__filename, () =&gt; {
 <!-- 02.2 · 微任务双队列：process.nextTick vs Promise 与输出顺序推演 -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">⚡ 02.2 · 微任务调度规则：process.nextTick 与 Promise 队列优先级及执行顺序推演</div>
-  <h3>🎯 02.2 微任务队列优先级（<code>nextTick &gt; Promise</code>）及异步代码执行顺序</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 02.2 · 微任务调度规则：process.nextTick 与 Promise 队列优先级及执行顺序推演</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 02.2 微任务队列优先级（<code>nextTick &gt; Promise</code>）及异步代码执行顺序</h3>
 
   <p>
     分析包含微任务与宏任务的异步代码输出顺序时，遵循以下三条调度规则：<br>
@@ -189,7 +189,7 @@ fs.<span class="c-fn">readFile</span>(__filename, () =&gt; {
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🧪 eventloop_order.js · 同步代码、微任务与事件循环阶段综合执行示例</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> eventloop_order.js · 同步代码、微任务与事件循环阶段综合执行示例</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-el-order', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-el-order"><code><span class="c-kw">const</span> fs = <span class="c-fn">require</span>(<span class="c-str">'node:fs'</span>);
@@ -217,7 +217,7 @@ console.<span class="c-fn">log</span>(<span class="c-str">'3. sync end'</span>);
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>❌ vs ✅ nexttick_starvation.js · 递归微任务饥饿问题与正确异步拆分写法</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> vs <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> nexttick_starvation.js · 递归微任务饥饿问题与正确异步拆分写法</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-nexttick-fix', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-nexttick-fix"><code><span class="c-cm">// ❌ 错误写法：递归调用 process.nextTick</span>
@@ -246,8 +246,8 @@ console.<span class="c-fn">log</span>(<span class="c-str">'3. sync end'</span>);
 <!-- 02.3 · 异步底层双通道：哪些走 OS 内核 epoll？哪些走 libuv 4 线程池？ -->
 <div class="wb-card" id="threadpool" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🧵 02.3 · 异步底层双通道：操作系统内核多路复用（epoll/kqueue）与 libuv 工作线程池</div>
-  <h3>⚙️ 02.3 内核事件多路复用与 <code>libuv</code> 工作线程池（<code>UV_THREADPOOL_SIZE = 4</code>）</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 02.3 · 异步底层双通道：操作系统内核多路复用（epoll/kqueue）与 libuv 工作线程池</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 02.3 内核事件多路复用与 <code>libuv</code> 工作线程池（<code>UV_THREADPOOL_SIZE = 4</code>）</h3>
 
   <p>
     操作系统的 <code>epoll</code>（Linux）与 <code>kqueue</code>（macOS）主要针对网络 Socket（TCP/UDP）和管道提供非阻塞事件通知；对于<strong>本地磁盘文件读写、以及 C 标准库同步实现的 <code>getaddrinfo</code> 域名解析</strong>，无法直接通过 <code>epoll</code> 实现异步回调。因此 <code>libuv</code> 内置了一个<strong>默认包含 4 个线程的 C++ 工作线程池</strong>，专门在后台执行这类阻塞型调用：
@@ -280,7 +280,7 @@ console.<span class="c-fn">log</span>(<span class="c-str">'3. sync end'</span>);
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🔬 threadpool_proof.js · 验证 libuv 默认 4 线程池的并发批次表现</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> threadpool_proof.js · 验证 libuv 默认 4 线程池的并发批次表现</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-uv-pool', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-uv-pool"><code><span class="c-cm">// 可在启动时通过环境变量扩容: UV_THREADPOOL_SIZE=8 node threadpool_proof.js</span>
@@ -297,7 +297,7 @@ console.<span class="c-fn">log</span>(<span class="c-str">'3. sync end'</span>);
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;">🛡️ 生产环境线程池优化建议：</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 生产环境线程池优化建议：</div>
       <ol style="margin:0; padding-left:18px; font-size:13px; line-height:1.65;">
         <li><strong>按需扩容线程池</strong>：对于包含大量文件读写或加解密的服务，可在启动进程前设置环境变量 <strong><code>UV_THREADPOOL_SIZE=64</code></strong>（必须在首次调用线程池前生效）。</li>
         <li><strong>配置应用层 DNS 缓存</strong>：高频请求外部域名时，引入 <code>cacheable-lookup</code> 或使用走网络异步的 <code>dns.resolve4</code>，避免每次请求调用 <code>dns.lookup</code> 争抢工作线程。</li>
@@ -308,5 +308,5 @@ console.<span class="c-fn">log</span>(<span class="c-str">'3. sync end'</span>);
 </div>
 
 <div class="plop-bridge">
-  🔗 了解 <code>libuv</code> 事件调度后，接下来进入 <strong>第 03 章</strong>：探讨高吞吐字节流场景下的 <strong><code>Buffer</code> 8KB 共享内存池与 <code>Stream</code> 背压限流机制</strong> ➔
+  <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 了解 <code>libuv</code> 事件调度后，接下来进入 <strong>第 03 章</strong>：探讨高吞吐字节流场景下的 <strong><code>Buffer</code> 8KB 共享内存池与 <code>Stream</code> 背压限流机制</strong> ➔
 </div>

@@ -8,14 +8,14 @@
 </div>
 
 <div class="plop-callout tip" style="margin-bottom:18px;">
-  <strong>🎯 学完本章你能做什么：</strong>用业务单号作 Key 写出保证同一笔订单状态严格按序流转的代码；遇到线上消息积压告警时，敲出排障命令在 5 分钟内分清是消费挂了还是消费慢，并按标准流程扩容恢复。
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>用业务单号作 Key 写出保证同一笔订单状态严格按序流转的代码；遇到线上消息积压告警时，敲出排障命令在 5 分钟内分清是消费挂了还是消费慢，并按标准流程扩容恢复。
 </div>
 
 <!-- 05.1 · 同一订单号作 Key 保证局部有序 -->
 <div class="wb-card" id="partition-order" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">📏 05.1 · 局部顺序保证：为什么会乱序，以及用同一订单号作 Key 的保序代码</div>
-  <h3>📏 05.1 同一订单号作 Key 保证局部有序</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 05.1 · 局部顺序保证：为什么会乱序，以及用同一订单号作 Key 的保序代码</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 05.1 同一订单号作 Key 保证局部有序</h3>
 
   <p>
     同一笔订单依次产生 <code>创建 → 支付 → 发货</code> 三条事件，或数据库同步依次产生 <code>INSERT → UPDATE → DELETE</code>，一旦下游先执行了后一条就会把状态冲乱。先看清哪 3 个环节会把顺序打乱，再逐一锁住：
@@ -25,17 +25,17 @@
     <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:10px 12px; font-size:12.8px; line-height:1.55;">
       <strong style="color:var(--plop-tomato);">乱序点 ①：无 Key 轮询进不同分区</strong><br>
       <code>创建</code> 进了 P0、<code>支付</code> 进了 P1，两个消费者各自拉取，快慢不一必然乱序。<br>
-      ✅ <strong>解法：指定 <code>Key = orderNo</code> 哈希进同一分区。</strong>
+      <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> <strong>解法：指定 <code>Key = orderNo</code> 哈希进同一分区。</strong>
     </div>
     <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:10px 12px; font-size:12.8px; line-height:1.55;">
       <strong style="color:var(--plop-tomato);">乱序点 ②：异步管道重试超车</strong><br>
       第 1 条网络超时准备重发时，同一连接上的第 2 条先写成功了。<br>
-      ✅ <strong>解法：同步按序发送，或开启幂等生产者（<code>in.flight &lt;= 5</code>）。</strong>
+      <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> <strong>解法：同步按序发送，或开启幂等生产者（<code>in.flight &lt;= 5</code>）。</strong>
     </div>
     <div style="background:#FFF0F5; border:1.8px solid var(--plop-tomato); border-radius:9px; padding:10px 12px; font-size:12.8px; line-height:1.55;">
       <strong style="color:var(--plop-tomato);">乱序点 ③：消费端丢进无序协程池</strong><br>
       从同一分区按序拉出两条消息，却起两个无序 <code>goroutine</code> 并发跑。<br>
-      ✅ <strong>解法：单分区单协程串行，或按 <code>orderNo</code> 哈希到固定内存单队列。</strong>
+      <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> <strong>解法：单分区单协程串行，或按 <code>orderNo</code> 哈希到固定内存单队列。</strong>
     </div>
   </div>
 
@@ -45,7 +45,7 @@
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 order_sequence.go · 生产端指定 orderNo 作 Key + 消费端单分区严格按序执行 [Go · kafka-go v0.4.47]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> order_sequence.go · 生产端指定 orderNo 作 Key + 消费端单分区严格按序执行 [Go · kafka-go v0.4.47]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ord-seq', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-ord-seq"><code><span class="c-cm">// 1. 生产端：Balancer 必须使用 &amp;kafka.Hash{}（对 Key 计算哈希取模，保证相同 orderNo 100% 落入同一分区）</span>
@@ -98,15 +98,15 @@
   </div>
 
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
-    💡 <strong>背后的原理：</strong>如果这个顺序 Topic 运行半年后流量翻倍，运维在线把分区数从 <code>6</code> 扩到了 <code>12</code>，为什么那一瞬间正在流转的旧订单会短暂乱序？怎么平滑过渡？详见 <a href="principles.html#expand-drift">《📘 核心原理篇 · 06.1 顺序消息扩分区哈希漂移》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>如果这个顺序 Topic 运行半年后流量翻倍，运维在线把分区数从 <code>6</code> 扩到了 <code>12</code>，为什么那一瞬间正在流转的旧订单会短暂乱序？怎么平滑过渡？详见 <a href="principles.html#expand-drift">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 06.1 顺序消息扩分区哈希漂移》</a>。
   </p>
 </div>
 
 <!-- 05.2 · 积压排查：怎么看 Lag、怎么判断慢还是挂、怎么扩容 -->
 <div class="wb-card" id="backlog" style="background:var(--plop-paper);">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🚒 05.2 · 线上积压排障：查看 Lag 命令、定因诊断表与 10 倍分区紧急泄洪</div>
-  <h3>🚒 05.2 积压排查：看 Lag、定病根、扩容恢复</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 05.2 · 线上积压排障：查看 Lag 命令、定因诊断表与 10 倍分区紧急泄洪</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 05.2 积压排查：看 Lag、定病根、扩容恢复</h3>
 
   <p>
     <strong>消费积压量 <code>Lag = 分区最新写入位置（LOG-END-OFFSET） − 消费组已提交位置（CURRENT-OFFSET）</code></strong>。收到积压告警时别急着盲目重启，先敲下面第 ① 条命令看现场，对照诊断表 3 分钟定位根因：
@@ -114,7 +114,7 @@
 
   <div class="plop-code-box" style="margin-bottom:14px;">
     <div class="plop-code-head">
-      <span>🔎 mq_ops_troubleshooting.sh · 查看 Lag、扩分区与按时间点重置 Offset 排障命令 [Kafka 3.x / 4.0]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> mq_ops_troubleshooting.sh · 查看 Lag、扩分区与按时间点重置 Offset 排障命令 [Kafka 3.x / 4.0]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mq-ops', this)">复制命令</button>
     </div>
     <pre class="plop-code-pre" id="code-mq-ops"><code><span class="c-cm"># ① 第一时间执行：查看消费组每个分区的 CURRENT-OFFSET、LOG-END-OFFSET、LAG 与当前挂载的 CONSUMER-ID</span>
@@ -140,7 +140,7 @@
   --reset-offsets --to-datetime 2026-11-28T14:00:00.000 --dry-run</code></pre>
   </div>
 
-  <h4>🩺 第二步：怎么一眼分清是「消费挂了」还是「消费太慢」？</h4>
+  <h4><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 第二步：怎么一眼分清是「消费挂了」还是「消费太慢」？</h4>
   <div class="table-wrap" style="margin-bottom:14px;">
     <table class="plop-table">
       <thead>
@@ -175,7 +175,7 @@
     </table>
   </div>
 
-  <h4>🚀 第三步：怎么扩容把积压快速清零？</h4>
+  <h4><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 第三步：怎么扩容把积压快速清零？</h4>
   <p style="font-size:13.3px;">
     根据第 01 章学过的「同一消费组有效消费者数 ≤ 分区数」，分两种情况处理：
   </p>
@@ -241,7 +241,7 @@
     </div>
   </figure>
 
-  <h4 id="quiz-05" style="margin:0 0 8px;">☑️ 本章即时场景题（先想答案，再点击展开）</h4>
+  <h4 id="quiz-05" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
   <details class="plop-drawer">
     <summary><span class="plop-drawer-title">1. 生产端已经用 <code>orderNo</code> 作 Key 写进了同一个分区，为什么线上偶尔还是出现同一笔订单「先收到发货、后收到支付」？</span></summary>
     <div class="drawer-body">

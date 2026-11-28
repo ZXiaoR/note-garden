@@ -10,15 +10,15 @@
 <!-- 00.1 · 音频数字化账本与 Opus 编码 + 3A 信号处理流水线 -->
 <div class="wb-card" id="audio-pcm-opus" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🎙️ 00.1 · 音频管线：PCM 原始码率公式、3A 前置信号处理顺序与 Opus 双核混合编码机制</div>
-  <h3>🎙️ 00.1 音频采样量化、3A 处理管线与 Opus 编码原理</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-horn"></use></svg> 00.1 · 音频管线：PCM 原始码率公式、3A 前置信号处理顺序与 Opus 双核混合编码机制</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-horn"></use></svg> 00.1 音频采样量化、3A 处理管线与 Opus 编码原理</h3>
 
   <p>
     声带振动产生的连续声波经麦克风模数转换后，生成未压缩的 <strong>PCM（Pulse Code Modulation，脉冲编码调制）</strong>裸字节流。其每秒原始比特率严格由三个物理量相乘决定：
   </p>
 
   <div class="plop-callout info">
-    <strong>📐 原始音频码率公式：</strong><code>Bitrate = 采样率 (Hz) × 位深 (bit) × 声道数</code>。<br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 原始音频码率公式：</strong><code>Bitrate = 采样率 (Hz) × 位深 (bit) × 声道数</code>。<br>
     以高清双声道通话（<code>48,000 Hz</code> 采样率、<code>16-bit</code> 有符号整型量化、<code>2</code> 立体声道）为例：每秒产生的未压缩数据量为 <code>48,000 × 16 × 2 = 1,536,000 bps ≈ 1.54 Mbps</code>（约 <code>192 KB/s</code>）。仅音频单路就占去近 2 兆带宽，因此送入网络前必须经过前置净音与有损感知编码。
   </div>
 
@@ -64,8 +64,8 @@
 <!-- 00.2 · 视频空间与时间冗余压缩：YUV 4:2:0 与 I/P/B 帧解码依赖 -->
 <div class="wb-card" id="video-yuv-gop" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🎬 00.2 · 视频管线：<code>YUV 4:2:0</code> 色度抽样空间省流账本，以及实时通话禁用 <code>B 帧</code> 的延迟推导</div>
-  <h3>🎬 00.2 视频色度抽样（YUV 4:2:0）与帧间预测模型（I / P / B 帧）</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-video"></use></svg> 00.2 · 视频管线：<code>YUV 4:2:0</code> 色度抽样空间省流账本，以及实时通话禁用 <code>B 帧</code> 的延迟推导</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-video"></use></svg> 00.2 视频色度抽样（YUV 4:2:0）与帧间预测模型（I / P / B 帧）</h3>
 
   <p>
     未压缩视频的数据量远比音频惊人：一帧 <code>1920 × 1080</code> 分辨率的 24 位 <code>RGB</code>（每个像素红、绿、蓝各占 1 字节 = <code>3 字节</code>）图像体积为 <code>1920 × 1080 × 3 = 6,220,800 Bytes ≈ 6.22 MB</code>；按每秒 30 帧（<code>30 fps</code>）计算，每秒高达 <code>186.6 MB/s ≈ 1.49 Gbps</code>。视频编码器（<code>H.264 / VP8 / VP9 / AV1</code>）通过两步压缩将其压到 <code>800 kbps ~ 2 Mbps</code>（压缩近千倍）：
@@ -91,7 +91,7 @@
   </div>
 
   <div class="plop-callout warn" style="margin-bottom:0;">
-    <strong>⚠️ 帧序权衡：点播短视频启用 B 帧与 WebRTC 实时通话强制禁用 B 帧的延迟根因</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 帧序权衡：点播短视频启用 B 帧与 WebRTC 实时通话强制禁用 B 帧的延迟根因</strong><br>
     假设显示顺序为 <code>I<sub>1</sub> → B<sub>2</sub> → B<sub>3</sub> → P<sub>4</sub></code>（<code>30fps</code> 下每帧间隔 <code>33.3ms</code>）。因为 <code>B<sub>2</sub></code> 和 <code>B<sub>3</sub></code> 依赖未来的 <code>P<sub>4</sub></code> 才能算出插值，发送端摄像头拍完第 2 帧后<strong>不能立刻编码发出，必须等待 <code>66.6ms</code> 把第 4 帧拍出来编成 <code>P<sub>4</sub></code> 后才能回头编 <code>B<sub>2</sub></code></strong>；接收端同样要乱序缓存重排。仅仅这一项编码等待就会平白增加 <code>70 ~ 130ms</code> 的固定算法延迟，还会拉高移动端芯片功耗。因此 WebRTC 视频流（如 <code>H.264 Constrained Baseline Profile</code>）统一采用无 B 帧的 <code>I → P → P → P...</code> 低延迟帧序列。
   </div>
 </div>

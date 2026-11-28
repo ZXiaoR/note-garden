@@ -10,11 +10,11 @@
 <!-- 02.1 · RocketMQ 事务消息实现：半消息 + 反查 -->
 <div class="wb-card" id="tx-msg" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🤝 02.1 · 分布式事务消息内核：RocketMQ 半消息暂存转发与 Broker 定时状态反查</div>
-  <h3>🤝 02.1 RocketMQ 事务消息：两阶段半消息与反查实现 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 02.1 · 分布式事务消息内核：RocketMQ 半消息暂存转发与 Broker 定时状态反查</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 02.1 RocketMQ 事务消息：两阶段半消息与反查实现 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
 
   <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
-    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-tx">实战篇 03.5 下单与发消息的一致性</a> —— 如果不想在业务 MySQL 里建 <code>outbox_messages</code> 本地消息表，RocketMQ 在 Broker 内部是如何实现「先发消息暂存隐身，等本地数据库提交后再放行」的？
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-tx">实战篇 03.5 下单与发消息的一致性</a> —— 如果不想在业务 MySQL 里建 <code>outbox_messages</code> 本地消息表，RocketMQ 在 Broker 内部是如何实现「先发消息暂存隐身，等本地数据库提交后再放行」的？
   </p>
 
   <p>
@@ -32,8 +32,8 @@
     </div>
     <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px; font-size:12.8px; line-height:1.55;">
       <div style="font-weight:900; color:var(--plop-ink-text); margin-bottom:4px;">Step ③：Commit / Rollback</div>
-      • 本地事务提交成功 👉 发 <code>COMMIT</code>：Broker 从半消息主题读出原消息，恢复真实业务 Topic 重新追加写入 <code>CommitLog</code>（消费者立即可见），并向 <code>RMQ_SYS_TRANS_OP_HALF_TOPIC</code> 写一条 <code>d</code> 删除标记。<br>
-      • 本地事务回滚 👉 发 <code>ROLLBACK</code>：只写 <code>d</code> 删除标记丢弃半消息。
+      • 本地事务提交成功 <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 发 <code>COMMIT</code>：Broker 从半消息主题读出原消息，恢复真实业务 Topic 重新追加写入 <code>CommitLog</code>（消费者立即可见），并向 <code>RMQ_SYS_TRANS_OP_HALF_TOPIC</code> 写一条 <code>d</code> 删除标记。<br>
+      • 本地事务回滚 <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 发 <code>ROLLBACK</code>：只写 <code>d</code> 删除标记丢弃半消息。
     </div>
     <div style="background:var(--plop-periwinkle); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 12px; font-size:12.8px; line-height:1.55;">
       <div style="font-weight:900; color:var(--plop-tomato); margin-bottom:4px;">Step ④：超时事务状态反查</div>
@@ -42,11 +42,11 @@
   </div>
 
   <details class="plop-drawer">
-    <summary><span class="plop-drawer-title">📄 附：RocketMQ 事务消息生产者回调接口参考代码（Java SDK 标准形态）</span></summary>
+    <summary><span class="plop-drawer-title"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> 附：RocketMQ 事务消息生产者回调接口参考代码（Java SDK 标准形态）</span></summary>
     <div class="drawer-body">
       <div class="plop-code-box" style="margin:6px 0 0;">
         <div class="plop-code-head">
-          <span>☕ RocketMQTxDemo.java · executeLocalTransaction 与 checkLocalTransaction 接口闭环</span>
+          <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> RocketMQTxDemo.java · executeLocalTransaction 与 checkLocalTransaction 接口闭环</span>
           <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-rmq-tx-prin', this)">复制代码</button>
         </div>
         <pre class="plop-code-pre" id="code-rmq-tx-prin"><code>TransactionMQProducer txProducer = <span class="c-kw">new</span> TransactionMQProducer(<span class="c-str">"tx-order-producer-grp"</span>);
@@ -75,11 +75,11 @@ txProducer.setTransactionListener(<span class="c-kw">new</span> TransactionListe
 <!-- 02.2 · 延迟消息实现：18 级定时队列 vs 分层时间轮 -->
 <div class="wb-card" id="timing-wheel" style="background:var(--plop-paper);">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">⏱️ 02.2 · 定时引擎内核：从 18 个固定延迟等级队列到分层时间轮（Timing Wheel）</div>
-  <h3>⏱️ 02.2 延迟消息底层是如何避免百万消息全局排序的 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 02.2 · 定时引擎内核：从 18 个固定延迟等级队列到分层时间轮（Timing Wheel）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 02.2 延迟消息底层是如何避免百万消息全局排序的 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
 
   <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
-    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-delay">实战篇 03.6 延迟任务</a> —— 如果每秒涌入上万笔任意时刻到期的定时消息，直接塞进小顶堆（<code>O(log N)</code>）或数据库排序会把内存与磁盘随机 I/O 拖垮，现代 MQ 内部是怎么做到 <code>O(1)</code> 写入与准点触发的？
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-delay">实战篇 03.6 延迟任务</a> —— 如果每秒涌入上万笔任意时刻到期的定时消息，直接塞进小顶堆（<code>O(log N)</code>）或数据库排序会把内存与磁盘随机 I/O 拖垮，现代 MQ 内部是怎么做到 <code>O(1)</code> 写入与准点触发的？
   </p>
 
   <div class="wb-grid-2">

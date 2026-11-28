@@ -10,8 +10,8 @@
 <!-- 01.1 · 实例逻辑层次与一条 SQL 的两层执行链路 -->
 <div class="wb-card" id="mysql-arch-flow" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🏛️ 01.1 · 体系结构：实例逻辑层次（Database ≡ Schema）与 Server 层 / InnoDB 引擎层两层协作</div>
-  <h3>🏛️ 01.1 实例逻辑层次与一条 SQL 的两层执行链路</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 01.1 · 体系结构：实例逻辑层次（Database ≡ Schema）与 Server 层 / InnoDB 引擎层两层协作</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 01.1 实例逻辑层次与一条 SQL 的两层执行链路</h3>
 
   <p>
     首先厘清一个经常与其他数据库混淆的术语：在 MySQL 中，<strong><code>Database</code> 与 <code>Schema</code> 是完全同义词</strong>（执行 <code>CREATE SCHEMA app_db;</code> 与 <code>CREATE DATABASE app_db;</code> 效果完全相同），因此 MySQL 的逻辑目录是三层结构：<strong>实例（MySQL Instance）→ 数据库（Database / Schema）→ 数据表（Table）</strong>。在同一个 MySQL 实例下，只要当前账号拥有权限，就可以直接在一条 SQL 中通过 <code>库名.表名</code>（如 <code>SELECT * FROM auth_db.users JOIN order_db.orders ...</code>）跨库关联查询。
@@ -120,7 +120,7 @@
   </figure>
 
   <div class="plop-callout info" style="margin-bottom:0;">
-    <strong>📌 架构分工核心要点：</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 架构分工核心要点：</strong><br>
     1. <strong>为什么区分 Server 层与引擎层日志</strong>：<code>binlog</code>（二进制归档日志）位于 Server 层，任何存储引擎都可以使用它做主从复制与时间点恢复；而 <code>redo log</code>（重做日志）与 <code>undo log</code>（回滚日志）是 InnoDB 引擎专有的，用于实现 WAL 崩溃恢复与 MVCC 多版本读。<br>
     2. <strong>为什么 MySQL 8.0 彻底删掉了旧的 Query Cache</strong>：旧版 Query Cache 以“SQL 文本哈希 → 结果集”缓存，但只要某张表发生任何一次 <code>INSERT / UPDATE / DELETE</code>，该表关联的所有 Query Cache 条目就会全部清空失效，高并发读写下反而成为严重的全局锁瓶颈。注意：删除 Query Cache 并不影响 InnoDB 的 <strong><code>Buffer Pool</code></strong>（缓存 16KB 数据页），后者始终是 MySQL 高性能的核心。
   </div>
@@ -129,8 +129,8 @@
 <!-- 01.2 · 账号创建、最小权限授权与认证插件 -->
 <div class="wb-card" id="mysql-rbac" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🔐 01.2 · 权限管理：MySQL 8.0 账号身份（<code>'user'@'host'</code>）、两步法授权与最小权限规范</div>
-  <h3>🔐 01.2 账号创建與最小权限控制（RBAC）</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 01.2 · 权限管理：MySQL 8.0 账号身份（<code>'user'@'host'</code>）、两步法授权与最小权限规范</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 01.2 账号创建與最小权限控制（RBAC）</h3>
 
   <p>
     在 MySQL 中，一个账号的完整唯一标识由 <strong><code>'用户名'@'允许连接的客户端主机地址'</code></strong> 共同组成（例如 <code>'app_rw'@'10.0.%'</code> 与 <code>'app_rw'@'localhost'</code> 在数据库内部是两个完全独立的账号）。在 MySQL 8.0+ 中，<strong>不再允许使用一条 <code>GRANT ... IDENTIFIED BY</code> 隐式创建用户，必须严格分两步执行：先 <code>CREATE USER</code>，再 <code>GRANT</code> 授权</strong>：
@@ -139,7 +139,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🛡️ 生产环境标准账号创建与最小权限授权脚本</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 生产环境标准账号创建与最小权限授权脚本</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-grant', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="code-mysql-grant"><code><span class="c-cm">-- 1. 创建业务读写账号（仅允许内网 10.0.x.x 网段连接，禁止直接使用 root）</span>
@@ -158,7 +158,7 @@
     </div>
 
     <div>
-      <h4>⚙️ 主机匹配符与核心服务端配置（<code>my.cnf</code>）</h4>
+      <h4><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 主机匹配符与核心服务端配置（<code>my.cnf</code>）</h4>
       <div class="table-wrap">
         <table class="plop-table">
           <thead>
@@ -194,8 +194,8 @@
 <!-- 01.3 · 应用层连接串参数与连接池配置规范 -->
 <div class="wb-card" id="mysql-connection-pool" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🔌 01.3 · 连接管理：后端标准连接串参数（时区、字符集、超时）与连接池防断连配置</div>
-  <h3>🔌 01.3 后端连接串参数与连接池配置规范</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 01.3 · 连接管理：后端标准连接串参数（时区、字符集、超时）与连接池防断连配置</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 01.3 后端连接串参数与连接池配置规范</h3>
 
   <p>
     在 Go、Java（JDBC / HikariCP）、Node.js 或 Python 中连接 MySQL 时，连接串中的查询参数直接决定了字符集编码、时间戳解析时区以及网络超时行为：
@@ -203,7 +203,7 @@
 
   <div class="plop-code-box" style="margin-bottom:14px;">
     <div class="plop-code-head">
-      <span>🔗 Go (go-sql-driver/mysql) 与 Java (JDBC) 标准生产连接串格式</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> Go (go-sql-driver/mysql) 与 Java (JDBC) 标准生产连接串格式</span>
       <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-dsn', this)">复制连接串</button>
     </div>
     <pre class="plop-code-pre" id="code-mysql-dsn"><code><span class="c-cm"># 1. Go DSN 标准格式（必加 parseTime=true 与 loc=Asia%2FShanghai，否则 DATETIME 读写相差 8 小时）</span>
@@ -243,6 +243,6 @@
   </div>
 
   <div class="plop-callout info" style="margin-bottom:0;">
-    <strong>📘 底层原理延伸：</strong>想深入了解 InnoDB 内部的 <code>Buffer Pool</code> 如何通过 <code>Free / Flush / LRU</code> 三大链表管理内存页、为什么采用 5:3 冷热分区防御全表扫描冲刷缓存，以及 <code>Change Buffer</code> 写缓冲的合并机制，可点击查看 <a href="principles.html#arch">📘 核心原理篇 · 01 缓冲池与后台线程 ↗</a>。
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 底层原理延伸：</strong>想深入了解 InnoDB 内部的 <code>Buffer Pool</code> 如何通过 <code>Free / Flush / LRU</code> 三大链表管理内存页、为什么采用 5:3 冷热分区防御全表扫描冲刷缓存，以及 <code>Change Buffer</code> 写缓冲的合并机制，可点击查看 <a href="principles.html#arch"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 01 缓冲池与后台线程 ↗</a>。
   </div>
 </div>

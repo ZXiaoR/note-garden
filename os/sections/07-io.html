@@ -1,8 +1,8 @@
 <div class="wb-sec-header" id="fs"><span class="wb-sec-num">07</span><span class="wb-sec-title">文件怎样读写 · 缓存、落盘与等待多个连接</span><span class="plop-tag mint">先理解过程</span></div>
-<div class="wb-card" id="file-handle" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3>📂 07.1 打开文件以后，为什么会拿到一个编号？</h3><p>文件名帮助内核找到文件。程序请求打开文件后，内核建立这次打开所需的状态，并给程序一个小整数编号，以后读写时就用这个编号引用它。<strong>这个编号叫文件描述符。</strong></p><p>可以把它理解成这次打开的取件号：它不是文件内容，也不是磁盘地址；同一个编号在另一个进程里，可能指向不同对象。文件、管道和网络连接等对象都可以通过这类编号使用。</p><ol><li>打开文件，取得编号。</li><li>用编号请求读取，把得到的数据放进程序的缓冲区。</li><li>处理数据；需要时继续读取。</li><li>用完关闭，释放这次打开的引用。</li></ol></div>
+<div class="wb-card" id="file-handle" style="background:var(--plop-paper); margin-bottom:20px;"><div class="washi-tape mint"></div><h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 07.1 打开文件以后，为什么会拿到一个编号？</h3><p>文件名帮助内核找到文件。程序请求打开文件后，内核建立这次打开所需的状态，并给程序一个小整数编号，以后读写时就用这个编号引用它。<strong>这个编号叫文件描述符。</strong></p><p>可以把它理解成这次打开的取件号：它不是文件内容，也不是磁盘地址；同一个编号在另一个进程里，可能指向不同对象。文件、管道和网络连接等对象都可以通过这类编号使用。</p><ol><li>打开文件，取得编号。</li><li>用编号请求读取，把得到的数据放进程序的缓冲区。</li><li>处理数据；需要时继续读取。</li><li>用完关闭，释放这次打开的引用。</li></ol></div>
 <div class="wb-card" id="pagecache" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <h3>📚 07.2 为什么第二次读可能更快？为什么写完还可能怕断电？</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 07.2 为什么第二次读可能更快？为什么写完还可能怕断电？</h3>
   <p>
     第 00 章讲过，硬盘比内存条慢上千倍。如果每次程序调用 <code>read / write</code> 都直接去读写慢吞吞的硬盘，电脑就会非常卡。为此，操作系统内核会在<strong>内存条</strong>里专门划出一块区域，用来缓存硬盘文件的内容——这就叫<strong>「页缓存（Page Cache）」</strong>：
   </p>
@@ -10,7 +10,7 @@
   <!-- 三栏图解：程序内存 ↔ 内核页缓存（内存条断电即空） ↔ 物理硬盘（断电不丢） -->
   <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:12px 0; box-shadow:2px 3px 0 var(--plop-shadow);">
     <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:10px;">
-      🗺️ 图解「页缓存 (Page Cache)」读写链路：为什么写成功 ≠ 已经落入硬盘？
+      <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 图解「页缓存 (Page Cache)」读写链路：为什么写成功 ≠ 已经落入硬盘？
     </div>
 
     <div style="display:grid; grid-template-columns:1fr auto 1.35fr auto 1fr; gap:8px; align-items:center; text-align:center; font-size:12.4px;">
@@ -62,7 +62,7 @@
 
 <div class="wb-card" id="epoll" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <h3>📮 07.3 同时等待一万个连接：为什么需要「多路复用 (`epoll`)」？</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 07.3 同时等待一万个连接：为什么需要「多路复用 (`epoll`)」？</h3>
   <p>
     07.1 提到过，不仅打开硬盘上的文件会拿到文件描述符编号 <code>fd</code>，每一个连进来的客户端网络连接（<code>Socket</code>）在内核里也同样是一个编号 <code>fd</code>。<br/>
     但读「网络连接的 <code>fd</code>」和读「本地硬盘文件的 <code>fd</code>」有一个很大不同：本地文件随时在硬盘上，读一下很快就能拿到；而如果服务器同时连着<strong>一万个客户端（一万个 Socket <code>fd</code>）</strong>，大部分连接在多数时间里并没有发数据过来，只有少数几个连接真正有数据可读：
@@ -71,7 +71,7 @@
   <!-- 双栏对比图：传统死等/挨个问 vs epoll 就绪名单通知 -->
   <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; margin:12px 0; box-shadow:2px 3px 0 var(--plop-shadow);">
     <div style="font-weight:900; font-size:13.8px; color:var(--plop-ink); margin-bottom:10px;">
-      🗺️ 图解管理 10,000 个网络连接：笨办法（死等/挨个问） vs 聪明办法（`epoll` 就绪通知）
+      <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 图解管理 10,000 个网络连接：笨办法（死等/挨个问） vs 聪明办法（`epoll` 就绪通知）
     </div>
 
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; align-items:stretch; font-size:12.5px;">
@@ -95,7 +95,7 @@
       <!-- 右：epoll 聪明办法 -->
       <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:11px 13px;">
         <div style="font-weight:900; font-size:13.2px; color:#15803d; margin-bottom:6px;">
-          🚀 聪明办法：多路复用 `epoll`（1 个线程只处理“亮灯的就绪名单”）
+          <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 聪明办法：多路复用 `epoll`（1 个线程只处理“亮灯的就绪名单”）
         </div>
         <div style="background:#FFFFFF; border:1.6px solid var(--plop-ink); border-radius:7px; padding:8px; font-family:var(--font-mono); font-size:11.6px; font-weight:900; line-height:1.6; margin-bottom:6px;">
           ① 1万个 fd 登记在内核 ──▶ 网卡收到 <code>fd=4, fd=89</code> 的包<br/>
@@ -116,11 +116,11 @@
 </div>
 <div class="wb-card" id="zerocopy" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <h3>🚚 07.4 原样转发文件：怎样减少中间搬运（零拷贝）？</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> 07.4 原样转发文件：怎样减少中间搬运（零拷贝）？</h3>
   <p>
     现在把前面两节合在一起看一个最常见的场景：别人通过网络连上你的服务器，想下载硬盘上的那篇文字文件。<br/>
     • <strong>普通做法（来回搬运）：</strong>先调 <code>read</code> 把文件从内核的<strong>页缓存（07.2）</strong>搬进你程序的内存里，你程序一字不改，紧接着又调 <code>write</code> 把这段文字从你的程序搬回内核的<strong>网络发送区（07.3）</strong>发走——数据白白进出你的程序折腾了两趟。<br/>
     • <strong>零拷贝做法（如 <code>sendfile</code>）：</strong>既然你的程序根本不需要修改文件里的字，那就直接吩咐内核一句：“请把<strong>几号文件 <code>fd</code></strong> 缓存里的数据，直接发给<strong>几号网络 <code>fd</code></strong>”——数据全程在内核与网卡之间走完，<strong>0 次经过用户程序搬运</strong>，这就是<strong>零拷贝（Zero-Copy）</strong>。
   </p>
   <div class="plop-callout tip">先分清这四节的递进关系：<strong>07.1 打开任何文件或网络连接都拿编号 <code>fd</code> ──▶ 07.2 本地文件靠「页缓存」加速读写 ──▶ 07.3 海量网络 <code>fd</code> 靠「<code>epoll</code>」集中等待 ──▶ 07.4 把本地文件 <code>fd</code> 原样发往网络 <code>fd</code> 靠「零拷贝」省去中间搬运。</strong></div>
-</div><details class="plop-drawer"><summary><span class="plop-drawer-title">🧩 想一想：收到连接“可以读”的通知，是不是程序已经拿到了完整请求？</span></summary><div class="drawer-body"><p>不是。程序仍需尝试读取并按协议组织数据，可能只得到部分内容。通知的是可以尝试的条件，不是完整业务处理的结果。</p></div></details>
+</div><details class="plop-drawer"><summary><span class="plop-drawer-title"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-puzzle"></use></svg> 想一想：收到连接“可以读”的通知，是不是程序已经拿到了完整请求？</span></summary><div class="drawer-body"><p>不是。程序仍需尝试读取并按协议组织数据，可能只得到部分内容。通知的是可以尝试的条件，不是完整业务处理的结果。</p></div></details>

@@ -10,8 +10,8 @@
 <!-- 02.1 · Slice 切片底层、共享数组与平滑扩容 -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">📐 02.1 · 动态数组视图：<code>slice</code> 截取语法、24 字节表头结构与扩容机制</div>
-  <h3>🔪 02.1 <code>slice</code> 切片：截取语法、24 字节视图表头与扩容规则</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 02.1 · 动态数组视图：<code>slice</code> 截取语法、24 字节表头结构与扩容机制</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 02.1 <code>slice</code> 切片：截取语法、24 字节视图表头与扩容规则</h3>
 
   <!-- Step 1: 概念说明 -->
   <p>
@@ -22,7 +22,7 @@
   <div class="wb-grid-2" style="margin-bottom:12px;">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🐹 slice_basic.go · 切片截取与底层数组共享示例</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> slice_basic.go · 切片截取与底层数组共享示例</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-basic', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-slice-basic"><code>a := []<span class="c-fn">int</span>{10, 20, 30, 40} <span class="c-cm">// 下标: [0]=10, [1]=20, [2]=30, [3]=40</span>
@@ -38,7 +38,7 @@ fmt.<span class="c-fn">Println</span>(<span class="c-str">"a ="</span>, a)      
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 切片截取与 <code>len / cap</code> 计算规则：</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 切片截取与 <code>len / cap</code> 计算规则：</div>
       <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.62;">
         <li><strong>1. 左闭右开区间 <code>a[1:3]</code></strong>：从下标 <code>1</code> 截取至下标 <code>3</code> 之前（即 <code>a[1]</code> 与 <code>a[2]</code>），因此 <code>b</code> 的内容为 <code>[20, 30]</code>，<strong>长度 <code>len = 3 - 1 = 2</code></strong>（注：<code>a[:3]</code> 为 <code>a[0:3]</code> 的简写）。</li>
         <li><strong>2. 容量 <code>cap(b)</code> 的计算</strong>：截取操作不会复制底层数组，<code>b</code> 的内部指针直接指向原数组的 <code>a[1]</code>；从 <code>a[1]</code> 到原数组末尾共有 3 个元素槽位（<code>a[1], a[2], a[3]</code>），因此 <strong><code>cap = 4 - 1 = 3</code></strong>。</li>
@@ -118,7 +118,7 @@ fmt.<span class="c-fn">Println</span>(<span class="c-str">"a ="</span>, a)      
 
   <!-- Step 3.5: 切片扩容机制与两步容量计算规则 -->
   <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:16px 18px; margin-top:12px;">
-    <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:8px;">📈 切片扩容机制与容量计算规则（Go 1.18+）</div>
+    <div style="font-weight:900; font-size:15px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 切片扩容机制与容量计算规则（Go 1.18+）</div>
     <p style="margin:0 0 10px; font-size:13.8px; line-height:1.7;">
       调用 <code>append(s, x...)</code> 追加元素时，运行时会先检查当前底层数组的剩余空间是否足够（设原长度为 <code>oldLen</code>、原容量为 <code>oldCap</code>、追加后的期望总长度为 <code>newLen</code>）：
     </p>
@@ -173,7 +173,7 @@ fmt.<span class="c-fn">Println</span>(<span class="c-str">"a ="</span>, a)      
       算出第一步的预估容量 <code>newcap</code> 后，往往还不是最终的 <code>cap(s)</code>。因为 Go 的内存分配器不是按任意字节数分配内存的，而是划分了固定的<strong>内存规格档位（Size Classes：<code>8B, 16B, 24B, 32B, 48B, 64B, 80B...</code>，详见 05.3 节）</strong>。<br>
       运行时会先计算所需总字节数 <code>所需字节 = newcap × 单个元素字节大小</code>，再去匹配<strong>大于等于该字节数的最小规格档位</strong>，最后除以单个元素大小得到最终容量：<br>
       <span style="display:inline-block; margin-top:5px; padding:5px 10px; background:#F4EFE6; border:1.5px solid var(--plop-ink); border-radius:6px; font-size:13px;">
-        <strong>💡 经典验证示例</strong>：<code>s := []int{1, 2}</code>（<code>oldCap = 2</code>，64 位下每个 <code>int</code> 占 <code>8B</code>），执行 <code>s = append(s, 3, 4, 5)</code>（期望长度 <code>newLen = 5</code>）：<br>
+        <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 经典验证示例</strong>：<code>s := []int{1, 2}</code>（<code>oldCap = 2</code>，64 位下每个 <code>int</code> 占 <code>8B</code>），执行 <code>s = append(s, 3, 4, 5)</code>（期望长度 <code>newLen = 5</code>）：<br>
         <strong>第一步预估</strong>：因为 <code>newLen(5) &gt; 2 * oldCap(4)</code>，走分支 1 得到预估容量 <code>newcap = 5</code>；<br>
         <strong>第二步对齐</strong>：<code>5 个 int × 8B = 40 Bytes</code> → 内存分配器没有 <code>40B</code> 档位，向上匹配到 <strong><code>48 Bytes</code></strong> 档位 → 最终实际容量 <code>cap(s) = 48B / 8B = 6</code>（而不是 5）。
       </span>
@@ -183,7 +183,7 @@ fmt.<span class="c-fn">Println</span>(<span class="c-str">"a ="</span>, a)      
   <!-- Step 4: 常见工程场景与误区修复对照 -->
   <div class="wb-grid-2" style="margin-top:12px;">
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
-      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;">🛠️ 切片工程开发常见规范</div>
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 切片工程开发常见规范</div>
       <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.68;">
         <li><strong>已知容量上限时优先预分配</strong>：使用 <code>make([]T, 0, n)</code> 一次性分配好底层数组，避免循环 <code>append</code> 过程中多次分配新数组与拷贝旧数据。</li>
         <li><strong><code>nil</code> 切片与空切片的区分</strong>：<br>
@@ -196,7 +196,7 @@ fmt.<span class="c-fn">Println</span>(<span class="c-str">"a ="</span>, a)      
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>⚠️ slice_traps.go · 三索引切片隔离与大切片内存释放</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> slice_traps.go · 三索引切片隔离与大切片内存释放</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-trap', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-slice-trap"><code><span class="c-cm">// 场景①：使用三索引切片 a[low:high:max] 锁死子切片容量，避免 append 改写原数组</span>
@@ -215,14 +215,14 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
   </div>
 
   <details class="plop-drawer">
-    <summary>🔍 源码细节：runtime/slice.go 中的 growslice 与 nextslicecap 实现</summary>
+    <summary><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 源码细节：runtime/slice.go 中的 growslice 与 nextslicecap 实现</summary>
     <div class="drawer-body">
       <p style="margin:0 0 8px;">
         以下是 Go 运行时 <code>runtime/slice.go</code> 中计算扩容容量的核心逻辑简化实现，对应上面讲到的“三分支预估 + 规格档位向上对齐”两个阶段：
       </p>
       <div class="plop-code-box" style="margin:6px 0 0;">
         <div class="plop-code-head">
-          <span>🔥 runtime/slice.go · nextslicecap + roundupsize 核心逻辑</span>
+          <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> runtime/slice.go · nextslicecap + roundupsize 核心逻辑</span>
           <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-grow', this)">复制代码</button>
         </div>
         <pre class="plop-code-pre" id="code-slice-grow"><code><span class="c-kw">func</span> <span class="c-fn">nextslicecap</span>(newLen, oldCap <span class="c-fn">int</span>) <span class="c-fn">int</span> {
@@ -256,11 +256,11 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
 <!-- 02.2 · Map 哈希表底层：hmap + bmap 内存布局、寻址过程与渐进式扩容 -->
 <div class="wb-card" id="map" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🗂️ 02.2 · 哈希表底层：<code>hmap + bmap</code> 三层内存布局、哈希寻址与渐进式扩容</div>
-  <h3>🧭 02.2 <code>map</code> 哈希表底层：<code>hmap + bmap</code> 内存布局与渐进式扩容</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 02.2 · 哈希表底层：<code>hmap + bmap</code> 三层内存布局、哈希寻址与渐进式扩容</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 02.2 <code>map</code> 哈希表底层：<code>hmap + bmap</code> 内存布局与渐进式扩容</h3>
 
   <p style="margin:6px 0 8px;">
-    （<code>map</code> 的日常增删改查用法见 <a href="index.html#map">🌱 基础与实战篇 · 02.2 字典日常用法</a>）<br>
+    （<code>map</code> 的日常增删改查用法见 <a href="index.html#map"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇 · 02.2 字典日常用法</a>）<br>
     <strong>1. <code>map</code> 在内存里长什么样？（三层结构：指针 → 表头 <code>hmap</code> → 哈希桶数组 <code>[]bmap</code>）</strong>
   </p>
   <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.7;">
@@ -378,7 +378,7 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
 
   <!-- 把查找过程用一段通俗文字串起来 -->
   <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:12px 15px; margin:10px 0 14px; font-size:13.4px; line-height:1.7;">
-    <strong>🔍 对照上图，把查找 <code>m["alice"]</code> 的过程串起来只要三步：</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 对照上图，把查找 <code>m["alice"]</code> 的过程串起来只要三步：</strong><br>
     <strong>第一步（看二进制最后 <code>B</code> 位选桶）</strong>：把 <code>"alice"</code> 代入哈希函数算出 64 位二进制哈希值。因为当前 <code>B = 2</code>（代表共有 <code>2^2 = 4</code> 个桶，编号 <code>0 ~ 3</code> 对应二进制 <code>00 ~ 11</code>），所以直接截取哈希值的<strong>最后 2 个二进制位</strong>（图中为 <code>01</code>，即十进制 <code>1</code>），立马锁定去 <strong><code>bucket[1]</code> 号桶</strong>找。<br>
     <strong>第二步（看高 8 位指纹快速筛查）</strong>：进到 <code>bucket[1]</code> 号桶后，先拿哈希值的<strong>高 8 位（<code>10100101</code> 即 <code>0xA5</code>）</strong>去跟桶开头的 <code>tophash[0..7]</code> 做 1 字节整数比对——发现只有<strong>槽位 2（<code>tophash[2] == 0xA5</code>）</strong>匹配。<br>
     <strong>第三步（核对完整 Key 并取值）</strong>：再去核对第 2 号槽位的完整 Key（<code>keys[2] == "alice"</code>），确认相等后，直接取出第 2 号槽位的 Value（<code>elems[2] = 95</code>）返回！
@@ -423,11 +423,11 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
 <!-- 02.3 · defer 开放编码演进与 panic / recover 异常恢复机制 -->
 <div class="wb-card" id="defer" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">⏱️ 02.3 · 延迟调用与异常恢复：<code>defer</code> 开放编码演进、<code>panic</code> 栈展开与 <code>recover</code> 捕获实战</div>
-  <h3>🪃 02.3 <code>defer</code> 底层演进与 <code>panic / recover</code> 异常捕获机制</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 02.3 · 延迟调用与异常恢复：<code>defer</code> 开放编码演进、<code>panic</code> 栈展开与 <code>recover</code> 捕获实战</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 02.3 <code>defer</code> 底层演进与 <code>panic / recover</code> 异常捕获机制</h3>
 
   <p>
-    （<code>defer</code> 的先进后出 LIFO 栈结构与 <code>return</code> 三步执行时机见 <a href="index.html#channel">🌱 基础与实战篇 · 04.2 节</a>）<br>
+    （<code>defer</code> 的先进后出 LIFO 栈结构与 <code>return</code> 三步执行时机见 <a href="index.html#channel"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇 · 04.2 节</a>）<br>
     当程序遇到不可继续执行的运行时致命错误（如数组越界、空指针解引用、向已关闭通道发送数据，或主动调用 <code>panic("...")</code>）时，当前协程会立刻停止往下执行，开始<strong>沿着调用栈自底向上逐层弹出并执行已注册的 <code>defer</code> 函数（栈展开 Stack Unwinding）</strong>。<br>
     如果在某个 <code>defer</code> 匿名函数里调用了 <strong><code>recover()</code></strong>，就能拦截这次崩溃、将程序恢复到正常执行流；若一直回溯到该协程栈顶都没有 <code>recover()</code> 拦截，<strong>整个 Go 进程会直接打印调用栈并崩溃退出</strong>：
   </p>
@@ -435,7 +435,7 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
   <div class="wb-grid-2" style="margin-bottom:12px;">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🛡️ panic_recover.go · 用 defer + recover 拦截崩溃并转为 error 返回</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> panic_recover.go · 用 defer + recover 拦截崩溃并转为 error 返回</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-defer-rules', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-defer-rules"><code><span class="c-cm">// 场景 1：拦截函数内部的 panic，并通过命名返回值 err 优雅返回给调用方</span>
@@ -460,7 +460,7 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🐹 safe_goroutine.go · 工程必备：防止后台子协程 panic 搞崩整个服务</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> safe_goroutine.go · 工程必备：防止后台子协程 panic 搞崩整个服务</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-safe-go', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-safe-go"><code><span class="c-cm">// ⚠️ 核心边界：每个协程拥有自己独立的调用栈与 _defer 链表，</span>
@@ -484,15 +484,15 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
 
   <div class="wb-grid-2" style="margin-bottom:10px;">
     <div class="plop-callout warn" style="margin:0;">
-      <strong>⚠️ 为什么 <code>recover()</code> 必须在 <code>defer func()</code> 第一层直接调用？</strong><br>
+      <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 为什么 <code>recover()</code> 必须在 <code>defer func()</code> 第一层直接调用？</strong><br>
       底层函数 <code>runtime.gorecover</code> 会严格校验调用栈帧指针（<code>gp._panic.argp == getcallersp()</code>）：<br>
-      • ❌ <strong>直接写 <code>defer recover()</code> 无效</strong>（注册时当场求值，此时还没发生 panic）；<br>
-      • ❌ <strong>多套一层辅助函数 <code>defer func() { myRecover() }()</code> 也无效</strong>（栈帧隔了一层，<code>argp</code> 校验不匹配，返回 <code>nil</code>）；<br>
-      • ⚠️ <strong>不可恢复的 Fatal Throw</strong>：像<strong>并发写同一个 <code>map</code></strong>、栈内存耗尽（Stack Overflow）调用的是底层 <code>runtime.fatal / throw</code>，<strong><code>recover()</code> 无法拦截</strong>，进程必定直接终止。
+      • <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> <strong>直接写 <code>defer recover()</code> 无效</strong>（注册时当场求值，此时还没发生 panic）；<br>
+      • <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> <strong>多套一层辅助函数 <code>defer func() { myRecover() }()</code> 也无效</strong>（栈帧隔了一层，<code>argp</code> 校验不匹配，返回 <code>nil</code>）；<br>
+      • <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>不可恢复的 Fatal Throw</strong>：像<strong>并发写同一个 <code>map</code></strong>、栈内存耗尽（Stack Overflow）调用的是底层 <code>runtime.fatal / throw</code>，<strong><code>recover()</code> 无法拦截</strong>，进程必定直接终止。
     </div>
 
     <div class="plop-callout tip" style="margin:0;">
-      <strong>⚡ <code>defer</code> 三代底层实现演进（为什么现代 Go <code>defer</code> 几乎零开销？）：</strong><br>
+      <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> <code>defer</code> 三代底层实现演进（为什么现代 Go <code>defer</code> 几乎零开销？）：</strong><br>
       • <strong>Go 1.12 前（堆分配 <code>~35ns</code>）</strong>：每次 <code>defer</code> 都在堆上分配 <code>_defer</code> 节点挂入协程链表，增加 GC 负担。<br>
       • <strong>Go 1.13（栈分配 <code>~25ns</code>）</strong>：非循环内的 <code>defer</code> 改为在当前函数栈帧上分配。<br>
       • <strong>Go 1.14+（开放编码 Open-coded Defer <code>~1ns</code>）</strong>：当函数内 <code>defer &lt;= 8</code> 个且不在循环中时，编译器直接在栈上用 <strong>1 字节位掩码（<code>deferBits</code>，每位代表一个 <code>defer</code> 是否已注册）</strong> 记录状态，并在函数退出处像普通函数一样直接内联展开调用！
@@ -503,12 +503,12 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
 <!-- 02.4 · Interface 底层 eface / iface 双指针结构与判空原理 -->
 <div class="wb-card" id="interface" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill" id="error">🧩 02.4 · 接口底层结构：<code>eface / iface</code> 16 字节双指针布局、方法集匹配与 <code>nil</code> 判等原理</div>
-  <h3>🎭 02.4 <code>interface</code> 底层：<code>eface / iface</code> 16 字节双指针结构与 <code>nil</code> 判空原理</h3>
+  <div class="chapter-q-pill" id="error"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-puzzle"></use></svg> 02.4 · 接口底层结构：<code>eface / iface</code> 16 字节双指针布局、方法集匹配与 <code>nil</code> 判等原理</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 02.4 <code>interface</code> 底层：<code>eface / iface</code> 16 字节双指针结构与 <code>nil</code> 判空原理</h3>
 
   <!-- Step 1: 概念说明 -->
   <p>
-    （接口与 <code>error</code> 的日常用法见 <a href="index.html#gmp">🌱 基础与实战篇 · 03.3 &amp; 04.3</a>）<br>
+    （接口与 <code>error</code> 的日常用法见 <a href="index.html#gmp"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇 · 03.3 &amp; 04.3</a>）<br>
     在 Go 运行时中，任何一个接口变量在内存里都固定占用 <strong>16 个字节（两个 8 字节指针：<code>类型信息指针</code> + <code>数据指针 data</code>）</strong>。根据接口是否包含方法，底层分为两种结构：
   </p>
   <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.7;">
@@ -608,7 +608,7 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🔌 interface_receiver.go · 方法接收者对接口赋值的影响</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> interface_receiver.go · 方法接收者对接口赋值的影响</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-iface-recv', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-iface-recv"><code><span class="c-kw">type</span> Runner <span class="c-kw">interface</span> { <span class="c-fn">Run</span>() }
@@ -627,7 +627,7 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>⚠️ nil_interface_trap.go · 接口变量的 nil 判等条件</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> nil_interface_trap.go · 接口变量的 nil 判等条件</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-nil-iface', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-nil-iface"><code><span class="c-kw">type</span> MyError <span class="c-kw">struct</span>{ Msg <span class="c-fn">string</span> }
@@ -645,7 +645,7 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
 
   <!-- Step 3: 底层原理拆解 -->
   <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px; margin-top:12px;">
-    <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">📖 结合 16 字节双指针结构解释上面两个现象：</div>
+    <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 结合 16 字节双指针结构解释上面两个现象：</div>
     <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.68;">
       <li><strong>为什么值类型 <code>Dog</code> 不能赋值给要求指针接收者方法的接口？（左图）</strong>：把值 <code>d</code> 装进接口盒子时，<code>iface.data</code> 指向的是堆上新拷贝的一份不可寻址（Unaddressable）副本，如果允许对副本调用指针方法 <code>(*Dog).Run()</code>，任何字段修改都会改在副本上并丢失，因此编译器直接禁止。反之，若方法定义为值接收者 <code>(d Dog)</code>，则 <code>Dog</code> 与 <code>*Dog</code> 均满足该接口。</li>
       <li><strong>为什么 <code>badCall()</code> 返回了值为 <code>nil</code> 的指针，外层判断 <code>err != nil</code> 却是 <code>true</code>？（右图）</strong>：因为接口变量是双指针结构 <code>{tab, data}</code>，<strong>只有当 <code>tab == nil</code> 且 <code>data == nil</code> 两个格子全为空时，接口才等于 <code>nil</code></strong>。当返回 <code>var p *MyError = nil</code> 时，虽然 <code>data = nil</code>，但第一个格子 <code>tab</code> 已经填上了 <code>*MyError</code> 的类型描述信息，所以整个接口盒子不再是 <code>nil</code>。</li>
@@ -654,5 +654,5 @@ b = <span class="c-fn">append</span>(b, 99)   <span class="c-cm">//    因 len==
 </div>
 
 <div class="plop-bridge">
-  🔗 梳理完单机内存中的核心数据结构后，接下来进入 <strong>第 03 章</strong>，学习 Goroutine 轻量级协程与 GMP 并发调度器的运行机制 ➔
+  <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 梳理完单机内存中的核心数据结构后，接下来进入 <strong>第 03 章</strong>，学习 Goroutine 轻量级协程与 GMP 并发调度器的运行机制 ➔
 </div>

@@ -10,8 +10,8 @@
 <!-- 05.1 · 常见索引分类、创建语法与 MySQL 8.0 新特性 -->
 <div class="wb-card" id="mysql-index-types" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🗂️ 05.1 · 索引分类与语法：聚簇/唯一/联合/前缀索引，以及 MySQL 8.0 函数索引与不可见索引</div>
-  <h3>🗂️ 05.1 InnoDB 常见索引类型与创建管理语法</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 05.1 · 索引分类与语法：聚簇/唯一/联合/前缀索引，以及 MySQL 8.0 函数索引与不可见索引</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 05.1 InnoDB 常见索引类型与创建管理语法</h3>
 
   <p>
     在 InnoDB 中，按物理存储组织方式可分为<strong>聚簇索引（Clustered Index，即主键索引，叶子节点直接存放整行数据）</strong>与<strong>二级索引（Secondary Index，也称辅助索引，叶子节点存放“索引列值 + 主键 ID”）</strong>；按应用功能与语法则分为以下常见形态：
@@ -20,7 +20,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🛠️ create_indexes.sql · 6 类常用索引创建与灰度停用语法</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> create_indexes.sql · 6 类常用索引创建与灰度停用语法</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-idx-ddl', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="code-mysql-idx-ddl"><code><span class="c-cm">-- 1. 唯一索引（保证手机号全局不重复）</span>
@@ -46,7 +46,7 @@
     </div>
 
     <div>
-      <h4>🔑 回表（Bookmark Lookup）与覆盖索引（Covering Index）</h4>
+      <h4><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 回表（Bookmark Lookup）与覆盖索引（Covering Index）</h4>
       <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:10px; padding:11px 12px; margin:8px 0 10px; font-family:var(--font-mono); font-size:12.4px; font-weight:800; line-height:1.6;">
         1. 需回表：SELECT * FROM users WHERE city = '杭州'<br>
         <span style="color:var(--plop-tomato);">二级索引 idx_city_age ('杭州' → id=1) ──回表查聚簇索引──▶ PRIMARY (id=1 → 整行)</span><br>
@@ -64,8 +64,8 @@
 <!-- 05.2 · 联合索引最左前缀原则与 7 类常见索引失效改写 -->
 <div class="wb-card" id="mysql-leftmost-and-anti" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">📐 05.2 · 最左前缀与失效排查：联合索引 (a, b, c) 匹配规则与 7 类索引失效改写对照</div>
-  <h3>📐 05.2 联合索引最左前缀原则与 7 类常见索引失效改写</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 05.2 · 最左前缀与失效排查：联合索引 (a, b, c) 匹配规则与 7 类索引失效改写对照</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 05.2 联合索引最左前缀原则与 7 类常见索引失效改写</h3>
 
   <p>
     以联合索引 <strong><code>idx_abc (a, b, c)</code></strong> 为例：B+ 树会先按 <code>a</code> 升序排列；<strong>只有当 <code>a</code> 相同时，<code>b</code> 才是有序的；只有当 <code>a</code> 和 <code>b</code> 都相同时，<code>c</code> 才是有序的</strong>。这就决定了检索时必须从最左边的列 <code>a</code> 开始连续匹配（注：<code>WHERE b = 2 AND a = 1</code> 把顺序颠倒写没有关系，优化器会自动重排为 <code>a = 1 AND b = 2</code> 命中索引）：
@@ -84,37 +84,37 @@
         <tr>
           <td><strong>1. 违背最左前缀（跳过首列）</strong></td>
           <td><code>WHERE b = 2 AND c = 3</code></td>
-          <td>缺少首列 <code>a</code>，<code>b</code> 在全局上是乱序的，无法做 B+ 树二分定位。<br>👉 <strong>改写</strong>：补充首列条件，或为高频单独查询的 <code>b</code> 建立以 <code>b</code> 开头的索引。</td>
+          <td>缺少首列 <code>a</code>，<code>b</code> 在全局上是乱序的，无法做 B+ 树二分定位。<br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>改写</strong>：补充首列条件，或为高频单独查询的 <code>b</code> 建立以 <code>b</code> 开头的索引。</td>
         </tr>
         <tr>
           <td><strong>2. 范围查询（<code>&gt; / &lt; / BETWEEN</code>）后的列无法继续做树搜索定位</strong></td>
           <td><code>WHERE a = 1 AND b &gt; 10 AND c = 3</code></td>
-          <td>在满足 <code>a = 1 AND b &gt; 10</code> 的区间内，<code>c</code> 是无序的，因此 <code>c = 3</code> 无法用于缩小 B+ 树扫描起始边界。<br>👉 <strong>改写</strong>：设计联合索引时遵循<strong>“等值列放左边，范围列放右边”</strong>，将索引建为 <code>(a, c, b)</code>；注：即便索引是 <code>(a, b, c)</code>，MySQL 5.6+ 的<strong>索引条件下推（ICP，<code>Using index condition</code>）</strong>依然能在索引层直接用 <code>c = 3</code> 过滤掉不满足的记录，避免无效回表。</td>
+          <td>在满足 <code>a = 1 AND b &gt; 10</code> 的区间内，<code>c</code> 是无序的，因此 <code>c = 3</code> 无法用于缩小 B+ 树扫描起始边界。<br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>改写</strong>：设计联合索引时遵循<strong>“等值列放左边，范围列放右边”</strong>，将索引建为 <code>(a, c, b)</code>；注：即便索引是 <code>(a, b, c)</code>，MySQL 5.6+ 的<strong>索引条件下推（ICP，<code>Using index condition</code>）</strong>依然能在索引层直接用 <code>c = 3</code> 过滤掉不满足的记录，避免无效回表。</td>
         </tr>
         <tr>
           <td><strong>3. 对索引列做函数或算术运算</strong></td>
           <td><code>WHERE DATE(created_at) = '2026-11-15'</code><br><code>WHERE amount + 10 = 100</code></td>
-          <td>B+ 树里存的是列原始值而非函数计算后的结果。<br>👉 <strong>改写</strong>：改为等价范围条件 <code>WHERE created_at &gt;= '2026-11-15 00:00:00' AND created_at &lt; '2026-11-16 00:00:00'</code>，以及 <code>WHERE amount = 90</code>。</td>
+          <td>B+ 树里存的是列原始值而非函数计算后的结果。<br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>改写</strong>：改为等价范围条件 <code>WHERE created_at &gt;= '2026-11-15 00:00:00' AND created_at &lt; '2026-11-16 00:00:00'</code>，以及 <code>WHERE amount = 90</code>。</td>
         </tr>
         <tr>
           <td><strong>4. 隐式类型转换（字符串列传数字）</strong></td>
           <td><code>phone</code> 列为 <code>VARCHAR(20)</code>，但写成了：<br><code>WHERE phone = 13800138000</code>（未加单引号）</td>
-          <td>MySQL 比较字符串与数字时，会把字符串转换为浮点数，相当于对索引列套了函数 <code>WHERE CAST(phone AS DOUBLE) = 13800138000</code>，导致全表扫描。<br>👉 <strong>改写</strong>：严格保证传入参数类型与列定义一致：<code>WHERE phone = '13800138000'</code>。</td>
+          <td>MySQL 比较字符串与数字时，会把字符串转换为浮点数，相当于对索引列套了函数 <code>WHERE CAST(phone AS DOUBLE) = 13800138000</code>，导致全表扫描。<br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>改写</strong>：严格保证传入参数类型与列定义一致：<code>WHERE phone = '13800138000'</code>。</td>
         </tr>
         <tr>
           <td><strong>5. 两表关联字符集或排序规则不一致</strong></td>
           <td>左表 <code>utf8mb4_0900_ai_ci</code> 关联右表 <code>utf8mb4_general_ci</code></td>
-          <td>被驱动表关联列被迫执行隐式字符集转换 <code>CONVERT()</code> 导致索引失效。<br>👉 <strong>改写</strong>：全库统一使用 <code>utf8mb4</code> 与相同的 <code>COLLATE</code>。</td>
+          <td>被驱动表关联列被迫执行隐式字符集转换 <code>CONVERT()</code> 导致索引失效。<br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>改写</strong>：全库统一使用 <code>utf8mb4</code> 与相同的 <code>COLLATE</code>。</td>
         </tr>
         <tr>
           <td><strong>6. 前导通配符模糊匹配</strong></td>
           <td><code>WHERE name LIKE '%小林%'</code></td>
-          <td>百分比号在最左侧无法利用字典序前缀定位（<code>LIKE '小林%'</code> 右通配可以正常走 <code>range</code> 索引）。<br>👉 <strong>改写</strong>：改用前缀匹配、覆盖索引扫描，或接入全文索引 / Elasticsearch。</td>
+          <td>百分比号在最左侧无法利用字典序前缀定位（<code>LIKE '小林%'</code> 右通配可以正常走 <code>range</code> 索引）。<br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>改写</strong>：改用前缀匹配、覆盖索引扫描，或接入全文索引 / Elasticsearch。</td>
         </tr>
         <tr>
           <td><strong>7. <code>OR</code> 连接了未建索引的列</strong></td>
           <td><code>WHERE id = 1 OR age = 25</code>（<code>age</code> 无单列索引）</td>
-          <td>只要 <code>OR</code> 一侧没有索引就必须全表扫描，导致另一侧有索引也白费。<br>👉 <strong>改写</strong>：为两侧列都建索引（触发 <code>index_merge</code>）或改写为 <code>UNION ALL</code>。</td>
+          <td>只要 <code>OR</code> 一侧没有索引就必须全表扫描，导致另一侧有索引也白费。<br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>改写</strong>：为两侧列都建索引（触发 <code>index_merge</code>）或改写为 <code>UNION ALL</code>。</td>
         </tr>
       </tbody>
     </table>
@@ -124,8 +124,8 @@
 <!-- 05.3 · EXPLAIN 与 EXPLAIN ANALYZE 执行计划判读 -->
 <div class="wb-card" id="mysql-explain-guide" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🔬 05.3 · 执行计划诊断：EXPLAIN 核心列（type / key_len / Extra）与 EXPLAIN ANALYZE 实测解读</div>
-  <h3>🔬 05.3 <code>EXPLAIN</code> 核心字段速查与慢查询调优</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 05.3 · 执行计划诊断：EXPLAIN 核心列（type / key_len / Extra）与 EXPLAIN ANALYZE 实测解读</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 05.3 <code>EXPLAIN</code> 核心字段速查与慢查询调优</h3>
 
   <p>
     拿到一条慢 SQL 时，第一步是在语句前加上 <strong><code>EXPLAIN</code></strong>（只输出优化器估算计划，不真正执行 SQL）或 MySQL 8.0.18+ 的 <strong><code>EXPLAIN ANALYZE</code></strong>（真正执行 SQL 并输出每个迭代器节点的实测毫秒耗时与实际循环行数）：
@@ -133,7 +133,7 @@
 
   <div class="plop-code-box" style="margin-bottom:14px;">
     <div class="plop-code-head">
-      <span>🔬 explain_demo.sql · 使用 EXPLAIN 与 EXPLAIN ANALYZE 检验索引命中情况</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> explain_demo.sql · 使用 EXPLAIN 与 EXPLAIN ANALYZE 检验索引命中情况</span>
       <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('sql-explain-demo', this)">复制 SQL</button>
     </div>
     <pre class="plop-code-pre" id="sql-explain-demo"><code><span class="c-cm">-- 1. 查看传统表格形式的优化器执行计划</span>
@@ -183,6 +183,6 @@
   </div>
 
   <div class="plop-callout info" style="margin-bottom:0;">
-    <strong>📘 底层原理延伸：</strong>想深入理解为什么范围查询有时明明有索引，优化器却评估回表代价过高而主动放弃索引选 <code>ALL</code>，或者想看 <code>Record Lock / Gap Lock / Next-Key Lock</code> 如何挂在索引记录与间隙上，可点击查看 <a href="principles.html#index">📘 核心原理篇 · 05 锁机制与加锁退化规则 ↗</a>。
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 底层原理延伸：</strong>想深入理解为什么范围查询有时明明有索引，优化器却评估回表代价过高而主动放弃索引选 <code>ALL</code>，或者想看 <code>Record Lock / Gap Lock / Next-Key Lock</code> 如何挂在索引记录与间隙上，可点击查看 <a href="principles.html#index"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 05 锁机制与加锁退化规则 ↗</a>。
   </div>
 </div>

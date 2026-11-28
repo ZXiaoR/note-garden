@@ -10,11 +10,11 @@
 <!-- 05.1 · GroupCoordinator 两阶段握手协议与全组 STW 成因 -->
 <div class="wb-card" id="rebalance-proto" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🔄 05.1 · 重平衡协调协议：FindCoordinator / JoinGroup / SyncGroup 与客户端算方案的原因</div>
-  <h3>🔄 05.1 消费者组 Rebalance 的两阶段握手与 STW 成因 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 05.1 · 重平衡协调协议：FindCoordinator / JoinGroup / SyncGroup 与客户端算方案的原因</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 05.1 消费者组 Rebalance 的两阶段握手与 STW 成因 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
 
   <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
-    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#rebalance-tuning">实战篇 07.3 消费超时与被踢出组</a> —— 当组内增减机器或某台消费者超时被踢时，分区所有权在底层是怎么重新洗牌的？为什么传统重平衡会让整个消费组全部暂停工作？
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#rebalance-tuning">实战篇 07.3 消费超时与被踢出组</a> —— 当组内增减机器或某台消费者超时被踢时，分区所有权在底层是怎么重新洗牌的？为什么传统重平衡会让整个消费组全部暂停工作？
   </p>
 
   <p>
@@ -41,19 +41,19 @@
   </div>
 
   <p style="font-size:13.2px; margin-bottom:0;">
-    💡 <strong>为什么让客户端班长算分配方案，而不是让 Broker 直接算？</strong>这样做既把计算开销从服务端卸载到了客户端，又让业务团队可以<strong>自由实现自定义的分区分配策略（如按机房就近分配）而完全无需修改或重启 Broker 集群</strong>。<br>
-    ⚠️ <strong>为什么传统 Eager（急切式）模式会导致全组 <code>STW（Stop-The-World，全局消费停顿）</code>？</strong>因为在 Eager 协议下，组员发 <code>JoinGroup</code> 之前必须<strong>无条件先交出自己手上全部的分区所有权并停止拉取</strong>，等最慢的那台成员也对齐完成 <code>Join + Sync</code> 后大家才能重新开始消费——组内若有上百个实例，一次滚动发版就会造成数十秒甚至数分钟的全组零吞吐。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>为什么让客户端班长算分配方案，而不是让 Broker 直接算？</strong>这样做既把计算开销从服务端卸载到了客户端，又让业务团队可以<strong>自由实现自定义的分区分配策略（如按机房就近分配）而完全无需修改或重启 Broker 集群</strong>。<br>
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>为什么传统 Eager（急切式）模式会导致全组 <code>STW（Stop-The-World，全局消费停顿）</code>？</strong>因为在 Eager 协议下，组员发 <code>JoinGroup</code> 之前必须<strong>无条件先交出自己手上全部的分区所有权并停止拉取</strong>，等最慢的那台成员也对齐完成 <code>Join + Sync</code> 后大家才能重新开始消费——组内若有上百个实例，一次滚动发版就会造成数十秒甚至数分钟的全组零吞吐。
   </p>
 </div>
 
 <!-- 05.2 · 增量协作式重平衡原理 -->
 <div class="wb-card" id="coop-sticky" style="background:var(--plop-paper);">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🔬 05.2 · 无停顿重平衡：CooperativeStickyAssignor 两小步增量剥离机制</div>
-  <h3>🔬 05.2 增量协作式重平衡是如何消除全局 STW 的 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 05.2 · 无停顿重平衡：CooperativeStickyAssignor 两小步增量剥离机制</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 05.2 增量协作式重平衡是如何消除全局 STW 的 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
 
   <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
-    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#rebalance-tuning">实战篇 07.3 调优项 ④</a> —— 开启 <code>CooperativeStickyAssignor</code> 后，新扩容一台消费者 C3 时，原本正在消费 P0～P5 的 C1、C2 是怎么做到不中断消费就把分区让出一部分的？
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#rebalance-tuning">实战篇 07.3 调优项 ④</a> —— 开启 <code>CooperativeStickyAssignor</code> 后，新扩容一台消费者 C3 时，原本正在消费 P0～P5 的 C1、C2 是怎么做到不中断消费就把分区让出一部分的？
   </p>
 
   <p style="font-size:13.3px; margin-bottom:0;">

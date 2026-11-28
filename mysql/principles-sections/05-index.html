@@ -10,8 +10,8 @@
 <!-- 05.1 · 全局锁与四类表级锁（表锁 / MDL 元数据锁 / 意向锁 / AUTO-INC 锁） -->
 <div class="wb-card" id="mysql-global-table-locks" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🔒 05.1 · 全局锁与表级锁：FTWRL、MDL 元数据锁排队雪崩、意向锁 IS/IX 与 AUTO-INC 自增锁</div>
-  <h3>🔒 05.1 全局锁与四类表级锁（表锁 / MDL / 意向锁 / AUTO-INC 锁）</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 05.1 · 全局锁与表级锁：FTWRL、MDL 元数据锁排队雪崩、意向锁 IS/IX 与 AUTO-INC 自增锁</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 05.1 全局锁与四类表级锁（表锁 / MDL / 意向锁 / AUTO-INC 锁）</h3>
 
   <p>
     如果说 MVCC 与 <code>ReadView</code> 解决了「读-写」并发时的无锁非阻塞读取，那么当多个事务同时执行<strong>当前读（<code>SELECT ... FOR UPDATE / FOR SHARE</code>）或写操作（<code>INSERT / UPDATE / DELETE</code>）</strong>时，就必须依靠锁机制来保证数据一致性。按锁定的粒度从大到小划分，MySQL 的锁体系分为<strong>全局锁、表级锁和 InnoDB 行级锁</strong>三个层次。在深入行锁之前，必须先厘清在全局与表级维度维护的四类锁机制：
@@ -66,8 +66,8 @@
 <!-- 05.2 · InnoDB 行级锁的四类基本形态：锁加在索引上而非物理行上 -->
 <div class="wb-card" id="mysql-row-lock-types" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">📏 05.2 · 行锁四类形态：Record Lock、Gap Lock、Next-Key Lock 与 Insert Intention Lock 冲突关系</div>
-  <h3>📏 05.2 InnoDB 行级锁的四类基本形态与 Gap Lock 并发死锁推演</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 05.2 · 行锁四类形态：Record Lock、Gap Lock、Next-Key Lock 与 Insert Intention Lock 冲突关系</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 05.2 InnoDB 行级锁的四类基本形态与 Gap Lock 并发死锁推演</h3>
 
   <p>
     理解 InnoDB 行锁的第一条基本原理是：<strong>InnoDB 的行锁是加在索引项（Index Record）及索引项之间的间隙（Gap）上的</strong>。如果一条 <code>UPDATE</code> 或 <code>SELECT ... FOR UPDATE</code> 语句没有命中任何有效索引而走了全表扫描，InnoDB 会把聚簇索引上的<strong>每一条记录以及所有间隙全部锁住</strong>，在并发表现上等效于锁住了整张表。围绕 B+ 树有序索引构成的数轴，InnoDB 设计了以下四类行级锁形态：
@@ -166,8 +166,8 @@
 <!-- 05.3 · RR 隔离级别下 Next-Key Lock 的加锁与退化规则完整推演 -->
 <div class="wb-card" id="mysql-lock-degradation-rules" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🧭 05.3 · 加锁退化法则：唯一索引与普通索引在等值存在、等值不存在及范围查询下的精确锁范围</div>
-  <h3>🧭 05.3 RR 隔离级别下 Next-Key Lock 的加锁与退化规则完整推演</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 05.3 · 加锁退化法则：唯一索引与普通索引在等值存在、等值不存在及范围查询下的精确锁范围</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 05.3 RR 隔离级别下 Next-Key Lock 的加锁与退化规则完整推演</h3>
 
   <p>
     在 <code>REPEATABLE READ</code> 隔离级别下，InnoDB 对扫描到的每一条索引记录默认都会先加上 <strong>Next-Key Lock（左开右闭区间）</strong>；但在特定条件下，如果更小范围的锁已经足以排除幻读风险，InnoDB 会将 Next-Key Lock <strong>退化（Degrade）为 Record Lock 或 Gap Lock</strong>。假设表 <code>users(id PRIMARY KEY, age KEY, name)</code> 中当前共有 3 条记录：<code>(10, 10, 'A')</code>、<code>(20, 20, 'B')</code>、<code>(30, 30, 'C')</code>，下表汇总了 5 种核心查询场景的加锁退化结果（可在 MySQL 8.0 中通过 <code>SELECT * FROM performance_schema.data_locks;</code> 实测验证）：
@@ -219,7 +219,7 @@
   </div>
 
   <div class="plop-callout">
-    <div class="plop-callout-title">💡 互联网高并发核心库常将隔离级别调为 READ COMMITTED 的原因</div>
+    <div class="plop-callout-title"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 互联网高并发核心库常将隔离级别调为 READ COMMITTED 的原因</div>
     <p style="margin:0; font-size:13.2px; line-height:1.68;">
       从上表可以看到，在默认的 <code>REPEATABLE READ</code> 隔离级别下，任何范围更新或未命中唯一索引的更新都会引入大面积的 <strong>Gap Lock 与 Next-Key Lock</strong>，大幅提高了并发写入时的锁冲突与死锁概率。而在 <strong><code>READ COMMITTED (RC)</code> + <code>binlog_format = ROW</code></strong> 组合下，除了外键约束检查与唯一键冲突检查（Duplicate-Key Checking）仍需短暂使用 Gap Lock 外，普通的查询与更新<strong>全部只加 Record Lock（单点记录锁），完全移除了 Gap Lock</strong>，并且 InnoDB 还会开启<strong>半一致读（Semi-consistent Read）</strong>：当 <code>UPDATE</code> 扫描到一行已被其他事务锁住的记录时，先通过 MVCC 读取该行的最新提交版本判断是否满足 <code>WHERE</code> 条件，若不满足则直接跳过不锁，从而显著提升高并发写吞吐。
     </p>

@@ -8,14 +8,14 @@
 </div>
 
 <div class="plop-callout tip" style="margin-bottom:18px;">
-  <strong>🎯 学完本章你能做什么：</strong>配齐生产端、Broker、消费端三段「零丢失」参数与手动提交 Offset 代码，并用数据库唯一索引、状态机条件更新或 Redis 状态机写出防重复消费的幂等逻辑。
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>配齐生产端、Broker、消费端三段「零丢失」参数与手动提交 Offset 代码，并用数据库唯一索引、状态机条件更新或 Redis 状态机写出防重复消费的幂等逻辑。
 </div>
 
 <!-- 04.1 · 生产端、Broker、消费端三段防丢：配置与代码 -->
 <div class="wb-card" id="lost" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🛡️ 04.1 · 消息不丢失三段闭环：生产发送、Broker 多副本存储与消费手动提交配置</div>
-  <h3>🛡️ 04.1 消息不丢失：把「生产 → Broker → 消费」三段逐一配齐</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.1 · 消息不丢失三段闭环：生产发送、Broker 多副本存储与消费手动提交配置</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.1 消息不丢失：把「生产 → Broker → 消费」三段逐一配齐</h3>
 
   <p>
     一条消息从业务发出到真正落库生效，一共跨越三个阶段，任何一个阶段漏配参数都可能在断电或重启时丢数据。工程上必须沿着<strong>「第一段：生产发送 → 第二段：Broker 存储 → 第三段：消费提交」</strong>逐段加固：
@@ -64,7 +64,7 @@
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🛡️ reliable_pipeline.go · Broker 建 Topic 命令 + Go 零丢失生产与手动提交消费模板 [Kafka 3.x / 4.0]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> reliable_pipeline.go · Broker 建 Topic 命令 + Go 零丢失生产与手动提交消费模板 [Kafka 3.x / 4.0]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-rel-consumer', this)">复制代码</button>
     </div>
     <pre class="plop-code-pre" id="code-rel-consumer"><code><span class="c-cm">/* 1. 生产集群建 Topic 命令（3 副本 + 至少 2 个同步副本在位才允许 acks=all 写入）：
@@ -111,15 +111,15 @@ kafka-topics.sh --bootstrap-server broker1:9092 --create --topic trade.order.pai
   </div>
 
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:10px 0 0;">
-    💡 <strong>背后的原理：</strong>多副本之间 <code>ISR</code>、<code>LEO</code> 与高水位 <code>HW</code> 是如何配合推进的？为什么副本重启时还需要 <code>Leader Epoch</code> 防丢数据？详见 <a href="principles.html#isr">《📘 核心原理篇 · 04 副本与高可用》</a>。（若使用 RocketMQ 则对应同步刷盘 <code>SYNC_FLUSH</code> + 同步复制/DLedger；RabbitMQ 则对应持久化标志 + <code>Publisher Confirm</code> + <code>Quorum 仲裁队列</code>）。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>多副本之间 <code>ISR</code>、<code>LEO</code> 与高水位 <code>HW</code> 是如何配合推进的？为什么副本重启时还需要 <code>Leader Epoch</code> 防丢数据？详见 <a href="principles.html#isr">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 04 副本与高可用》</a>。（若使用 RocketMQ 则对应同步刷盘 <code>SYNC_FLUSH</code> + 同步复制/DLedger；RabbitMQ 则对应持久化标志 + <code>Publisher Confirm</code> + <code>Quorum 仲裁队列</code>）。
   </p>
 </div>
 
 <!-- 04.2 · 消费端幂等：唯一索引、状态机、Redis SET NX 各给一段代码 -->
 <div class="wb-card" id="idempotent" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">♻️ 04.2 · 消费端幂等实战：唯一索引、状态机乐观锁与 Redis SET NX 三种写法</div>
-  <h3>♻️ 04.2 消费端幂等：防重复执行的 3 套标准代码</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 04.2 · 消费端幂等实战：唯一索引、状态机乐观锁与 Redis SET NX 三种写法</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 04.2 消费端幂等：防重复执行的 3 套标准代码</h3>
 
   <p>
     在分布式网络里，只要按 04.1 做到了「不丢消息」（生产超时重发 + 消费先落库后提交 Offset），<strong>重复投递就一定会发生</strong>：比如消费者刚给用户加完 100 积分，还没来得及执行下一行 <code>CommitMessages</code> 容器就重启了，新实例接管分区后会把同一条消息再拉出来执行一遍。
@@ -135,7 +135,7 @@ kafka-topics.sh --bootstrap-server broker1:9092 --create --topic trade.order.pai
   </p>
   <div class="plop-code-box" style="margin-bottom:16px;">
     <div class="plop-code-head">
-      <span>🐹 idem_unique_key.go · 写法一：同事务插入唯一键防重表 + 累加积分 [Go + MySQL]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> idem_unique_key.go · 写法一：同事务插入唯一键防重表 + 累加积分 [Go + MySQL]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-idem-uk', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-idem-uk"><code><span class="c-kw">import</span> <span class="c-str">"github.com/go-sql-driver/mysql"</span>
@@ -174,7 +174,7 @@ kafka-topics.sh --bootstrap-server broker1:9092 --create --topic trade.order.pai
   </p>
   <div class="plop-code-box" style="margin-bottom:16px;">
     <div class="plop-code-head">
-      <span>🐹 idem_state_machine.go · 写法二：带前置状态的单条原子条件更新 [Go + SQL]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> idem_state_machine.go · 写法二：带前置状态的单条原子条件更新 [Go + SQL]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-idem-sm', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-idem-sm"><code><span class="c-kw">func</span> MarkOrderPaidIdempotent(ctx context.Context, db *sql.DB, orderNo <span class="c-kw">string</span>) <span class="c-kw">error</span> {
@@ -198,11 +198,11 @@ kafka-topics.sh --bootstrap-server broker1:9092 --create --topic trade.order.pai
   <!-- 写法 3：Redis SET NX 状态机 -->
   <h4>写法 ③：Redis <code>SET NX</code> 三态状态机（调第三方发短信等无本地 DB 事务场景）</h4>
   <p style="font-size:13.3px; margin:4px 0 8px;">
-    ⚠️ <strong>避坑重点</strong>：千万不能简单写成「一上来 <code>SETNX</code>，发现 Key 已存在就直接跳过并提交 Offset」——因为万一上次刚执行完 <code>SETNX</code> 还没发出短信进程就崩溃了，重启重投时看到 Key 存在直接跳过，<strong>这条短信就永远漏发了</strong>！正确写法是区分 <code>PROCESSING</code>（处理中租约）与 <code>DONE</code>（已完成）：
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <strong>避坑重点</strong>：千万不能简单写成「一上来 <code>SETNX</code>，发现 Key 已存在就直接跳过并提交 Offset」——因为万一上次刚执行完 <code>SETNX</code> 还没发出短信进程就崩溃了，重启重投时看到 Key 存在直接跳过，<strong>这条短信就永远漏发了</strong>！正确写法是区分 <code>PROCESSING</code>（处理中租约）与 <code>DONE</code>（已完成）：
   </p>
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 idem_redis_nx.go · 写法三：Redis PROCESSING / DONE 状态机防崩溃漏处理 [Go · go-redis/v9]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> idem_redis_nx.go · 写法三：Redis PROCESSING / DONE 状态机防崩溃漏处理 [Go · go-redis/v9]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-idem-redis', this)">复制 Go</button>
     </div>
     <pre class="plop-code-pre" id="code-idem-redis"><code><span class="c-kw">func</span> SendSMSIdempotent(ctx context.Context, rdb *redis.Client, eventID, phone <span class="c-kw">string</span>) <span class="c-kw">error</span> {
@@ -238,8 +238,8 @@ kafka-topics.sh --bootstrap-server broker1:9092 --create --topic trade.order.pai
 <!-- 04.3 · Kafka 幂等生产者与 EOS：只留结论和配置 -->
 <div class="wb-card" id="eos-summary" style="background:var(--plop-paper);">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">📌 04.3 · 结论速查：Kafka 幂等生产者与 EOS（精确一次语义）能做什么、不能做什么</div>
-  <h3>📌 04.3 Kafka 幂等生产者与 EOS：工程结论与配置</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 04.3 · 结论速查：Kafka 幂等生产者与 EOS（精确一次语义）能做什么、不能做什么</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 04.3 Kafka 幂等生产者与 EOS：工程结论与配置</h3>
 
   <p>
     看文档时常会遇到「Kafka 支持幂等生产者和 <code>EOS（Exactly-Once Semantics，精确一次语义）</code>」。实际开发只需记住以下两条工程结论，不必混淆概念：
@@ -260,10 +260,10 @@ kafka-topics.sh --bootstrap-server broker1:9092 --create --topic trade.order.pai
   </ul>
 
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 14px;">
-    💡 <strong>背后的原理：</strong>Broker 是如何用 <code>PID + Sequence Number</code> 在内存里做滑动窗口去重的？流处理跨分区两阶段提交又是怎么跑的？详见 <a href="principles.html#eos">《📘 核心原理篇 · 01 幂等生产者与投递语义》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>Broker 是如何用 <code>PID + Sequence Number</code> 在内存里做滑动窗口去重的？流处理跨分区两阶段提交又是怎么跑的？详见 <a href="principles.html#eos">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 01 幂等生产者与投递语义》</a>。
   </p>
 
-  <h4 id="quiz-04" style="margin:0 0 8px;">☑️ 本章即时场景题（先想答案，再点击展开）</h4>
+  <h4 id="quiz-04" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
   <details class="plop-drawer">
     <summary><span class="plop-drawer-title">1. 生产端已经配了 <code>acks=all</code>，但 Topic 的 <code>min.insync.replicas</code> 保持了默认值 <code>1</code>，集群遇到什么故障时照样会丢消息？</span></summary>
     <div class="drawer-body">

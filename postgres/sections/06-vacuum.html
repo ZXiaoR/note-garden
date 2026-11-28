@@ -10,8 +10,8 @@
 <!-- 06.1 · 生产环境大表在线无锁变更规范（Online DDL） -->
 <div class="wb-card" id="online-ddl" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🛡️ 06.1 · 在线变更规范：<code>SET lock_timeout</code>、<code>CREATE INDEX CONCURRENTLY</code> 与无锁添加约束</div>
-  <h3>🛡️ 06.1 生产环境大表在线安全变更规范</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.1 · 在线变更规范：<code>SET lock_timeout</code>、<code>CREATE INDEX CONCURRENTLY</code> 与无锁添加约束</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.1 生产环境大表在线安全变更规范</h3>
 
   <p>
     在生产环境中对数百万至上亿行的大表执行表结构变更（DDL）或新建索引时，若直接使用默认语法，可能会长时间持有高级别表锁并阻塞线上正常的读写请求。日常运维发布数据库变更脚本时，应遵循以下四项安全规范：
@@ -20,7 +20,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🐘 safe_online_ddl.sql · 生产大表无锁变更标准写法</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pg"></use></svg> safe_online_ddl.sql · 生产大表无锁变更标准写法</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-online-ddl', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="code-pg-online-ddl"><code><span class="c-cmt">-- 规范 1：执行 ALTER TABLE 前先设置锁等待超时（拿不到锁立即退出，不堵队列）</span>
@@ -43,7 +43,7 @@
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📖 为什么要格外注意 <code>lock_timeout</code> 与 <code>CONCURRENTLY</code>？</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 为什么要格外注意 <code>lock_timeout</code> 与 <code>CONCURRENTLY</code>？</div>
       <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
         <li><strong>锁等待队列的连锁阻塞效应</strong>：<code>ALTER TABLE</code> 需要在极短瞬间获取表级排他锁（<code>ACCESS EXCLUSIVE</code>）。如果此时表上恰好有一条执行了 30 秒的慢查询未结束，<code>ALTER TABLE</code> 会排在慢查询后面等待；而后续到达的所有普通 <code>SELECT</code> 查询又会排在 <code>ALTER TABLE</code> 后面等待，导致整张表在 30 秒内无法读取。加上 <code>SET lock_timeout = '2s'</code> 后，若 2 秒内拿不到锁则立即放弃并稍后重试，保障线上业务平稳。</li>
         <li><strong><code>CREATE INDEX CONCURRENTLY</code> 的注意事项</strong>：普通 <code>CREATE INDEX</code> 在构建期间会禁止对该表执行写入操作；加上 <code>CONCURRENTLY</code> 后会分两次扫描表并在后台合入增量变更，不阻塞线上读写。若中途因唯一键冲突或超时中断，会留下一个标记为 <code>INVALID</code> 的无效索引，需先执行 <code>DROP INDEX CONCURRENTLY 索引名;</code> 清理后再重新创建。</li>
@@ -55,8 +55,8 @@
 <!-- 06.2 · 视图/物化视图、声明式范围分区表与 pgvector 向量检索 -->
 <div class="wb-card" id="ext" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🌐 06.2 · 进阶特性：物化视图、声明式范围分区表（<code>PARTITION BY RANGE</code>）与 <code>pgvector</code> 向量检索</div>
-  <h3>🌐 06.2 物化视图、声明式分区表与 <code>pgvector</code> 实战</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 06.2 · 进阶特性：物化视图、声明式范围分区表（<code>PARTITION BY RANGE</code>）与 <code>pgvector</code> 向量检索</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 06.2 物化视图、声明式分区表与 <code>pgvector</code> 实战</h3>
 
   <div class="wb-grid-2">
     <div>
@@ -89,7 +89,7 @@
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🐘 partitioning_and_vector.sql · 范围分区表与 AI 向量检索</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pg"></use></svg> partitioning_and_vector.sql · 范围分区表与 AI 向量检索</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-part-vec', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="pg-part-vec"><code><span class="c-cmt">-- 1. 创建按月范围分区的日志主表与月份子表</span>
@@ -124,13 +124,13 @@
 <!-- 06.3 · 日常运维监控 SQL 与后端连接池事务实战 -->
 <div class="wb-card" id="cheat" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">💻 06.3 · 运维与代码实战：线上锁阻塞排查、备份恢复命令与 Node.js / TypeScript 事务代码模板</div>
-  <h3>💻 06.3 日常监控排障 SQL 与后端应用连接池实战</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 06.3 · 运维与代码实战：线上锁阻塞排查、备份恢复命令与 Node.js / TypeScript 事务代码模板</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 06.3 日常监控排障 SQL 与后端应用连接池实战</h3>
 
   <div class="wb-grid-2" style="margin-bottom:14px;">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🔎 线上锁等待排查、表体积查看与备份恢复命令</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 线上锁等待排查、表体积查看与备份恢复命令</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('pg-lock-inspect', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="pg-lock-inspect"><code><span class="c-cmt">-- 1. 一键查询当前正在发生锁等待的会话及阻塞源头 PID 与 SQL</span>
@@ -158,7 +158,7 @@
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🟢 order_service.ts · 后端使用 pg 连接池执行参数化事务</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> order_service.ts · 后端使用 pg 连接池执行参数化事务</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pg-node-pool', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-pg-node-pool"><code><span class="c-kw">import</span> { Pool } <span class="c-kw">from</span> <span class="c-str">'pg'</span>;
@@ -203,6 +203,6 @@
   </div>
 
   <div class="plop-callout tip" style="margin-bottom:0;">
-    <strong>📘 进军核心原理篇：</strong>至此，你已经完整掌握了 PostgreSQL 日常建模、高级 SQL 编写、并发加锁与生产安全运维的全部实战技能。接下来可以点击顶部切换栏或右侧直达链接进入 <a href="principles.html">📘 核心原理篇 ↗</a>，深入探索 <strong>8KB 堆表数据页物理结构、Clock-Sweep 缓冲池、23B 元组头 MVCC 与快照算法、SSI 谓词锁、Lehman-Yao B-tree / GIN / BRIN 内部结构、Visibility Map、HOT 页内更新以及 32 位事务 ID 回卷冻结机制</strong>。
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 进军核心原理篇：</strong>至此，你已经完整掌握了 PostgreSQL 日常建模、高级 SQL 编写、并发加锁与生产安全运维的全部实战技能。接下来可以点击顶部切换栏或右侧直达链接进入 <a href="principles.html"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 ↗</a>，深入探索 <strong>8KB 堆表数据页物理结构、Clock-Sweep 缓冲池、23B 元组头 MVCC 与快照算法、SSI 谓词锁、Lehman-Yao B-tree / GIN / BRIN 内部结构、Visibility Map、HOT 页内更新以及 32 位事务 ID 回卷冻结机制</strong>。
   </div>
 </div>

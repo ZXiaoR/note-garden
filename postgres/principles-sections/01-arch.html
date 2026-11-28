@@ -10,8 +10,8 @@
 <!-- 01.1 · 多进程（Process-per-Connection）架构与私有/共享内存模型 -->
 <div class="wb-card" id="process-memory-arch" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🏛️ 01.1 · 进程与内存拓扑：<code>postmaster</code> 守护进程、<code>Backend</code> 私有内存乘数效应与后台进程协作</div>
-  <h3>🏛️ 01.1 多进程架构与私有/共享内存边界拆解</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 01.1 · 进程与内存拓扑：<code>postmaster</code> 守护进程、<code>Backend</code> 私有内存乘数效应与后台进程协作</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 01.1 多进程架构与私有/共享内存边界拆解</h3>
 
   <p>
     PostgreSQL 实例启动时，由主守护进程 <code>postgres</code>（传统名称为 <strong><code>postmaster</code></strong>）通过 <code>mmap</code> 或 System V IPC 分配一块全局<strong>共享内存区（Shared Memory）</strong>，随后派生出多个各司其职的后台守护进程。每当客户端通过 TCP <code>5432</code> 端口完成认证，<code>postmaster</code> 便调用 <code>fork()</code> 启动一个独立的 <strong><code>Backend</code> 会话进程</strong>专门处理该连接上的所有 SQL 请求：
@@ -145,7 +145,7 @@
   </figure>
 
   <div class="plop-callout warn">
-    <strong>⚠️ 内存调优关键误区：<code>work_mem</code> 的乘数放大效应与 <code>Catalog Cache</code> 膨胀</strong>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 内存调优关键误区：<code>work_mem</code> 的乘数放大效应与 <code>Catalog Cache</code> 膨胀</strong>
     <ul style="margin:6px 0 0; padding-left:18px;">
       <li><strong><code>work_mem</code>（默认 <code>4MB</code>）不是单个连接的总上限，而是单个执行算子（Operator）的上限</strong>：一条复杂分析 SQL 如果包含 4 个 <code>Sort</code> 或 <code>Hash Join</code> 节点，并且开启了 4 个并行 Worker 进程，那么单条 SQL 就可能瞬时申请 <code>4 个算子 × 4 个进程 × work_mem</code> 的内存。若将全局 <code>work_mem</code> 盲目调大到 <code>256MB</code>，上百个并发查询同时执行时极易触发操作系统 OOM Killer 强杀数据库进程。正确做法是全局保持 <code>16MB~64MB</code>，仅在特定报表会话内临时执行 <code>SET LOCAL work_mem = '256MB';</code>。</li>
       <li><strong>系统目录缓存（<code>Catalog Cache / relcache</code>）只增不减</strong>：每个 <code>Backend</code> 进程都会在私有内存中缓存它访问过的表结构与统计信息元数据。如果单个库里有数万张分区表且使用长连接，每个 <code>Backend</code> 进程的 <code>catcache</code> 都可能膨胀到上百 MB。</li>
@@ -156,8 +156,8 @@
 <!-- 01.2 · Shared Buffers 内部结构与 Clock-Sweep（时钟扫描）淘汰算法 -->
 <div class="wb-card" id="clock-sweep" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">⏱️ 01.2 · 缓冲池淘汰：<code>BufferDesc</code> 描述符数组、<code>Clock-Sweep</code> 时钟扫描算法与双层缓存机制</div>
-  <h3>⏱️ 01.2 <code>Shared Buffers</code> 时钟扫描算法与双层缓存</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 01.2 · 缓冲池淘汰：<code>BufferDesc</code> 描述符数组、<code>Clock-Sweep</code> 时钟扫描算法与双层缓存机制</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 01.2 <code>Shared Buffers</code> 时钟扫描算法与双层缓存</h3>
 
   <p>
     <code>Shared Buffers</code> 被划分为成千上万个固定 <code>8 KiB</code> 的缓冲槽（Buffer Slot），每个槽位配有一个 64 字节的元数据头 <strong><code>BufferDesc</code>（缓冲描述符）</strong>，内部维护两个核心计数值：
@@ -211,8 +211,8 @@
 <!-- 01.3 · 高并发连接瓶颈与 PgBouncer 三级池化底层机制 -->
 <div class="wb-card" id="pgbouncer-internals" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🛡️ 01.3 · 连接池内核：高并发直连下的 <code>ProcArrayLock</code> 争用与 <code>PgBouncer</code> 三级池化模式对比</div>
-  <h3>🛡️ 01.3 高并发连接瓶颈与 <code>PgBouncer</code> 池化模式剖析</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 01.3 · 连接池内核：高并发直连下的 <code>ProcArrayLock</code> 争用与 <code>PgBouncer</code> 三级池化模式对比</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 01.3 高并发连接瓶颈与 <code>PgBouncer</code> 池化模式剖析</h3>
 
   <p>
     当应用集群直连 PostgreSQL 的活躍进程数达到上千个时，除了进程私有内存消耗外，更严重的性能衰减来自内核<strong>全局进程数组锁（<code>ProcArrayLock</code>）争用与快照生成开销</strong>：每次生成事务快照 <code>GetSnapshotData()</code> 时，都需要遍历全局活跃进程数组 <code>PGPROC</code> 收集所有未提交事务 ID；连接数越多，数组越长、CPU L1/L2 缓存缺失越严重。通过前置单进程事件驱动的 <strong><code>PgBouncer</code></strong>，可将数千客户端连接收敛复用在 100~200 个真实 <code>Backend</code> 进程上：

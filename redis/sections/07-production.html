@@ -8,14 +8,14 @@
 </div>
 
 <div class="plop-callout tip" style="margin-bottom:18px;">
-  <strong>🎯 学完本章你能做什么：</strong>对照上线 Checklist 自查代码与配置，避开 <code>KEYS</code> 锁死实例、循环发命令拖慢接口、Redis 故障拖垮主站以及公网裸奔等常见线上事故。
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>对照上线 Checklist 自查代码与配置，避开 <code>KEYS</code> 锁死实例、循环发命令拖慢接口、Redis 故障拖垮主站以及公网裸奔等常见线上事故。
 </div>
 
 <!-- 07.1 & 07.2 · Key 规范、禁用命令与 SCAN + UNLINK -->
 <div class="wb-card" id="production-keys" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🔑 07.1–07.2 · 键空间与命令红线：分段命名、必设 TTL、禁用 KEYS 并改用 SCAN + UNLINK</div>
-  <h3>🔑 07.1 Key 命名规范与禁用高危阻塞命令</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 07.1–07.2 · 键空间与命令红线：分段命名、必设 TTL、禁用 KEYS 并改用 SCAN + UNLINK</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 07.1 Key 命名规范与禁用高危阻塞命令</h3>
 
   <h4>1. Key 命名与生命周期两条准则</h4>
   <ul>
@@ -34,7 +34,7 @@
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 scan_unlink.go · 线上安全分批扫描并异步清理指定前缀键 [Go · go-redis/v9 · Redis 6.x/7.x]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> scan_unlink.go · 线上安全分批扫描并异步清理指定前缀键 [Go · go-redis/v9 · Redis 6.x/7.x]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-scan', this)">复制 Go 代码</button>
     </div>
     <pre class="plop-code-pre" id="code-redis-scan"><code><span class="c-kw">func</span> CleanPrefixSafely(ctx context.Context, rdb *redis.Client, pattern <span class="c-kw">string</span>) <span class="c-kw">error</span> {
@@ -60,15 +60,15 @@
   </div>
 
   <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:8px 0 0;">
-    💡 <strong>背后的原理：</strong>Redis 单线程事件循环与 6.0+ 多线程网络 I/O、<code>bio</code> 异步释放队列的协作机制，详见 <a href="principles.html#fast">《📘 核心原理篇 · 01》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>Redis 单线程事件循环与 6.0+ 多线程网络 I/O、<code>bio</code> 异步释放队列的协作机制，详见 <a href="principles.html#fast">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 01》</a>。
   </p>
 </div>
 
 <!-- 07.3 · Pipeline 与 MGET 批量操作 -->
 <div class="wb-card" id="production-batch" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">⚡ 07.3 · 消灭 for 循环慢请求：用 MGET 与 Pipeline 把 N 次网络往返压缩为 1 次</div>
-  <h3>⚡ 07.3 批量操作：别在 <code>for</code> 循环里逐条调 Redis</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 07.3 · 消灭 for 循环慢请求：用 MGET 与 Pipeline 把 N 次网络往返压缩为 1 次</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 07.3 批量操作：别在 <code>for</code> 循环里逐条调 Redis</h3>
 
   <p>
     代码审查时最常见的性能隐患就是在循环里连发几十次 <code>rdb.Get()</code>：虽然 Redis 内存里跑一条命令只要 <code>0.001ms</code>，但来回走一趟网络要 <code>0.5ms</code>，循环 100 次接口就凭空慢了 <code>50ms</code>。
@@ -147,7 +147,7 @@
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🐹 pipeline_batch.go · 用 Pipeline 一次网络往返完成多命令组合 [Go · go-redis/v9]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> pipeline_batch.go · 用 Pipeline 一次网络往返完成多命令组合 [Go · go-redis/v9]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-pipe', this)">复制 Go 代码</button>
     </div>
     <pre class="plop-code-pre" id="code-redis-pipe"><code>pipe := rdb.Pipeline()
@@ -167,8 +167,8 @@ fmt.Println(<span class="c-str">"今日 PV:"</span>, incrCmd.Val(), <span class=
 <!-- 07.4 & 07.5 · 客户端连接池、Redis 宕机降级与 JSON vs Hash 序列化取舍 -->
 <div class="wb-card" id="production-serial" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🛡️ 07.4–07.5 · 客户端韧性与对象存储：连接池超时、Redis 宕机业务降级与 JSON vs Hash 取舍</div>
-  <h3>🛡️ 07.4 客户端超时配置、故障降级与序列化选型</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 07.4–07.5 · 客户端韧性与对象存储：连接池超时、Redis 宕机业务降级与 JSON vs Hash 取舍</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 07.4 客户端超时配置、故障降级与序列化选型</h3>
 
   <h4>1. 连接池超时配置与「Redis 挂了业务怎么降级」</h4>
   <p>
@@ -178,7 +178,7 @@ fmt.Println(<span class="c-str">"今日 PV:"</span>, incrCmd.Val(), <span class=
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 prod_client.go · 生产级连接池与快速超时参数 [Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> prod_client.go · 生产级连接池与快速超时参数 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-prod-pool', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-prod-pool"><code>rdb := redis.NewClient(&amp;redis.Options{
@@ -196,7 +196,7 @@ fmt.Println(<span class="c-str">"今日 PV:"</span>, incrCmd.Val(), <span class=
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 fallback_demo.go · Redis 宕机时读缓存接口安全降级写法 [Go]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> fallback_demo.go · Redis 宕机时读缓存接口安全降级写法 [Go]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-prod-fallback', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-prod-fallback"><code><span class="c-kw">func</span> GetBannerWithFallback(ctx context.Context, rdb *redis.Client, dbLimiter *rate.Limiter) (<span class="c-kw">string</span>, <span class="c-kw">error</span>) {
@@ -255,8 +255,8 @@ fmt.Println(<span class="c-str">"今日 PV:"</span>, incrCmd.Val(), <span class=
 <!-- 07.6 & 07.7 · 监控指标、慢日志与安全红线 -->
 <div class="wb-card" id="production-sec" style="background:var(--plop-paper);">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🔍 07.6–07.7 · 监控与安全：5 个核心指标、SLOWLOG 慢查询、ACL 权限与禁公网裸奔</div>
-  <h3>🔍 07.5 线上监控巡检与安全红线</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 07.6–07.7 · 监控与安全：5 个核心指标、SLOWLOG 慢查询、ACL 权限与禁公网裸奔</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 07.5 线上监控巡检与安全红线</h3>
 
   <h4>1. 必盯的 5 个监控指标与 <code>INFO / SLOWLOG</code> 诊断</h4>
   <ul>
@@ -274,7 +274,7 @@ fmt.Println(<span class="c-str">"今日 PV:"</span>, incrCmd.Val(), <span class=
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>⌨️ monitor_and_acl.redis · 线上巡检诊断与创建 ACL 最小权限业务账号 [Redis 6.x / 7.x]</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> monitor_and_acl.redis · 线上巡检诊断与创建 ACL 最小权限业务账号 [Redis 6.x / 7.x]</span>
       <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-prod-sec', this)">复制命令</button>
     </div>
     <pre class="plop-code-pre" id="code-prod-sec"><code><span class="c-cm"># 1. 查看内存、命中率与最近 10 条慢查询命令</span>
@@ -288,7 +288,7 @@ ACL SETUSER mall_svc on &gt;ProdSecret_2026 ~mall:* +@read +@write -@dangerous</
   </div>
 
   <details class="plop-drawer" style="margin-top:12px;">
-    <summary>📎 展开查看附录：生产环境 redis.conf 关键基础配置速查表</summary>
+    <summary><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 展开查看附录：生产环境 redis.conf 关键基础配置速查表</summary>
     <div class="drawer-body">
       <div class="table-wrap" style="margin:6px 0 0;">
         <table class="plop-table">

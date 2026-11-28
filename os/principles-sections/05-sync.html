@@ -1,11 +1,11 @@
 <div class="wb-sec-header" id="race"><span class="wb-sec-num">05</span><span class="wb-sec-title">并发、锁与死锁</span><span class="plop-tag periwinkle">原理篇</span></div>
-<div class="plop-callout tip"><strong>🧭 本章主线：</strong>从 <code>count++</code> 竞态拆解并发三要素，对比 <code>Mutex</code> 与自旋锁，看懂底层 <code>CAS</code> 原子指令、Linux <code>futex</code> 三阶段加锁，以及死锁四条件与预防。</div>
+<div class="plop-callout tip"><strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 本章主线：</strong>从 <code>count++</code> 竞态拆解并发三要素，对比 <code>Mutex</code> 与自旋锁，看懂底层 <code>CAS</code> 原子指令、Linux <code>futex</code> 三阶段加锁，以及死锁四条件与预防。</div>
 
 
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape"></div>
-          <div class="chapter-q-pill">❓ 05.1 · 两个线程各跑 10000 次 count++，为什么结果小于 20000？并发到底难在哪三个问题？</div>
-          <h3>💥 05.1 竞态条件（Race Condition）、并发三要素与临界区准则</h3>
+          <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 05.1 · 两个线程各跑 10000 次 count++，为什么结果小于 20000？并发到底难在哪三个问题？</div>
+          <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 05.1 竞态条件（Race Condition）、并发三要素与临界区准则</h3>
           <p>
             当多个线程/进程并发读写同一份共享数据，且<strong>最终结果取决于它们谁先谁后的微妙执行时序</strong>时，就发生了<strong>竞态条件（Race Condition）</strong>。最经典的例子就是一行看似简单的 <code>count++</code>，编译成汇编其实有 <strong>3 条独立机器指令（从内存读到寄存器 <code>MOV</code> ──▶ 寄存器加一 <code>ADD</code> ──▶ 写回内存 <code>MOV</code>）</strong>，随时可能在中间被时钟中断切走或与另一颗 CPU 核交错：
           </p>
@@ -13,7 +13,7 @@
 
           <div style="background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; padding:16px; margin:14px 0; box-shadow:3px 4px 0 var(--plop-shadow);">
             <div style="font-family:var(--font-mono); font-size:13px; background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:10px; padding:10px 14px; margin-bottom:12px;">
-              <strong style="color:var(--plop-tomato);">🎬 案发现场（初始 <code>count = 5</code>，两个核同时执行一次 <code>count++</code>）：</strong><br/>
+              <strong style="color:var(--plop-tomato);"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-video"></use></svg> 案发现场（初始 <code>count = 5</code>，两个核同时执行一次 <code>count++</code>）：</strong><br/>
               • <strong>CPU Core 1 (线程 A)：</strong>① 读 <code>count(=5)</code> 到 <code>eax</code> ──▶ ② <code>eax + 1 = 6</code> ──▶ ③ 把 <code>6</code> 写回内存<br/>
               • <strong>CPU Core 2 (线程 B)：</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;① 读 <code>count(=5)</code> 到 <code>ebx</code>（A还没写回！）──▶ ② <code>ebx + 1 = 6</code> ──▶ ③ 把 <code>6</code> 写回内存（<strong style="color:var(--plop-tomato);">覆盖了 A 的结果，白加一次！</strong>）
             </div>
@@ -44,7 +44,7 @@
           </div>
 
           <div class="plop-callout info">
-            <strong>📌 临界区（Critical Section）同步机制必须遵守的「四大准则」：</strong><br/>
+            <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 临界区（Critical Section）同步机制必须遵守的「四大准则」：</strong><br/>
             访问共享资源的那段代码叫<strong>临界区</strong>。任何合格的同步机制必须满足：① <strong>忙则等待（互斥）：</strong>同一时刻最多只准一个执行流进入临界区；② <strong>空闲让进：</strong>临界区没人时，必须允许请求进入的线程立刻进入；③ <strong>有限等待：</strong>请求进入的线程必须在有限时间内排上号，绝不能无限期饿死；④ <strong>让权等待（原则上）：</strong>当线程长时间进不了临界区时，应当主动让出 CPU 睡眠，别在 CPU 上死循环空转浪费算力。
           </div>
         </div>
@@ -52,8 +52,8 @@
 
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape mint"></div>
-          <div class="chapter-q-pill">❓ 05.2 · 互斥锁和自旋锁怎么选？条件变量为什么要写 while 循环？Linux 的 futex 快在哪里？</div>
-          <h3 id="lock">🔒 05.2 五大同步原语、底层 CAS 原子指令与 Linux <code>futex</code> <span class="plop-tag tomato">重点回顾</span></h3>
+          <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 05.2 · 互斥锁和自旋锁怎么选？条件变量为什么要写 while 循环？Linux 的 futex 快在哪里？</div>
+          <h3 id="lock"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 05.2 五大同步原语、底层 CAS 原子指令与 Linux <code>futex</code> <span class="plop-tag tomato">重点回顾</span></h3>
 
           <div class="table-wrap">
             <table class="plop-table">
@@ -74,7 +74,7 @@
                   <td><strong>自旋锁 (Spinlock)</strong></td>
                   <td>抢不到锁<strong>不睡觉、不让出 CPU</strong>，在原地死循环忙等（<code>while</code> 轮询），一释放立刻抢到。</td>
                   <td>适合<strong>多核 CPU + 临界区极短（几十纳秒、几条指令）</strong>的场景，省掉两次上下文切换开销。<br/>
-                  <strong style="color:var(--plop-tomato);">⚠️ 铁律：① 单核 CPU 上无抢占自旋毫无意义；② 持有自旋锁期间严禁调用任何可能睡眠阻塞的函数！</strong></td>
+                  <strong style="color:var(--plop-tomato);"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 铁律：① 单核 CPU 上无抢占自旋毫无意义；② 持有自旋锁期间严禁调用任何可能睡眠阻塞的函数！</strong></td>
                 </tr>
                 <tr>
                   <td><strong>读写锁 (RWLock)</strong></td>
@@ -89,7 +89,7 @@
                 <tr>
                   <td><strong>条件变量 (Condition Variable)</strong></td>
                   <td>配合 Mutex 使用：条件不满足时调 <code>cond_wait(&amp;cond, &amp;mutex)</code> <strong>原子地释放 Mutex 并睡眠</strong>；别人改完状态调 <code>signal/broadcast</code> 唤醒它重新拿锁。</td>
-                  <td><strong style="color:var(--plop-tomato);">⚠️ 使用要点：<code>cond_wait</code> 必须写在 <code>while (!ready)</code> 循环里，绝不能用 <code>if (!ready)</code>！</strong>因为存在操作系统层面的<strong>虚假唤醒（Spurious Wakeup）</strong>，或者被唤醒到重新抢到锁的空档期里资源已经被第三个线程抢先拿走了，醒来必须再次核验条件！</td>
+                  <td><strong style="color:var(--plop-tomato);"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 使用要点：<code>cond_wait</code> 必须写在 <code>while (!ready)</code> 循环里，绝不能用 <code>if (!ready)</code>！</strong>因为存在操作系统层面的<strong>虚假唤醒（Spurious Wakeup）</strong>，或者被唤醒到重新抢到锁的空档期里资源已经被第三个线程抢先拿走了，醒来必须再次核验条件！</td>
                 </tr>
               </tbody>
             </table>
@@ -101,19 +101,19 @@
 
               <div style="background:var(--plop-mustard); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
                 <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:6px;">
-                  ⚙️ 锁的地基：硬件原子指令 CAS 与 ABA 问题
+                  <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 锁的地基：硬件原子指令 CAS 与 ABA 问题
                 </div>
                 <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58;">
                   锁本身也是个变量，怎么保证“抢锁”这个动作本身是原子的？靠 CPU 硬件指令 <strong><code>CAS(V, Expected, New)</code>（x86 下是 <code>LOCK CMPXCHG</code>，锁定缓存行/总线）</strong>：<br/>
                   • <strong>逻辑：</strong>硬件一次性判断“内存当前值 <code>*V</code> 是否等于预期旧值 <code>Expected</code>？相等则更新为 <code>New</code> 返回成功，不等则放弃返回失败”。所有自旋锁、无锁队列、乐观锁都建立在 CAS 之上！<br/>
-                  • <strong>🚨 ABA 漏洞与解法：</strong>线程 1 读出值是 <code>A</code>；挂起期间线程 2 把 <code>A 改成 B</code>，又把 <code>B 改回 A</code>；线程 1 醒来执行 CAS 发现还是 <code>A</code> 就误以为没人动过（在无锁链表里会导致节点指针错乱）！<strong>解法：给值配一个单调递增的「版本号/时间戳」</strong>，每次变成 <code>(1A) → (2B) → (3A)</code>，带版本号做双字 CAS（如 Java <code>AtomicStampedReference</code>）。
+                  • <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> ABA 漏洞与解法：</strong>线程 1 读出值是 <code>A</code>；挂起期间线程 2 把 <code>A 改成 B</code>，又把 <code>B 改回 A</code>；线程 1 醒来执行 CAS 发现还是 <code>A</code> 就误以为没人动过（在无锁链表里会导致节点指针错乱）！<strong>解法：给值配一个单调递增的「版本号/时间戳」</strong>，每次变成 <code>(1A) → (2B) → (3A)</code>，带版本号做双字 CAS（如 Java <code>AtomicStampedReference</code>）。
                 </div>
               </div>
 
 
               <div style="background:var(--plop-mint); border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px;">
                 <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink-text); margin-bottom:6px;">
-                  🚀 Linux <code>futex</code> + 自适应自旋：为什么现代 Mutex 性能高？
+                  <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> Linux <code>futex</code> + 自适应自旋：为什么现代 Mutex 性能高？
                 </div>
                 <div style="background:#FFFFFF; border:1.8px solid var(--plop-ink); border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.58;">
                   如果每次调 <code>pthread_mutex_lock</code> 都要陷入内核态，开销就太大了。Linux 为此设计了 <strong><code>futex</code>（Fast Userspace Mutex，快速用户态互斥锁）</strong>，不同用户态锁可以借助它实现等待和唤醒。下面是常见思路，各运行时的自旋策略和实现并不相同：<br/>
@@ -129,8 +129,8 @@
 
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape periwinkle"></div>
-          <div class="chapter-q-pill">❓ 05.3 · 生产者消费者模型里，为什么先 P(mutex) 再 P(empty) 会当场死锁？</div>
-          <h3 id="classic">🧩 05.3 三大经典同步模型（生产者-消费者 · 读者-写者 · 哲学家就餐）</h3>
+          <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 05.3 · 生产者消费者模型里，为什么先 P(mutex) 再 P(empty) 会当场死锁？</div>
+          <h3 id="classic"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-puzzle"></use></svg> 05.3 三大经典同步模型（生产者-消费者 · 读者-写者 · 哲学家就餐）</h3>
 
           <div class="plop-code-box">
             <div class="plop-code-head">
@@ -149,19 +149,19 @@
           </div>
 
           <div class="plop-callout warn">
-            <strong>🚨 必考陷阱：为什么生产者里的 <code>P(empty)</code> 和 <code>P(mutex)</code> 顺序不能颠倒？</strong><br/>
+            <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 必考陷阱：为什么生产者里的 <code>P(empty)</code> 和 <code>P(mutex)</code> 顺序不能颠倒？</strong><br/>
             假如缓冲区已经满了（<code>empty = 0</code>），生产者如果<strong>先执行 <code>P(mutex)</code> 拿到了互斥锁，再去执行 <code>P(empty)</code> 就会抱着 <code>mutex</code> 锁阻塞睡眠</strong>。此时消费者想来取数据腾出空位，但消费者执行到 <code>P(mutex)</code> 时发现锁在睡眠的生产者手里，消费者也随之阻塞——<strong>双方互等，直接触发死锁</strong>（同理，<code>V(mutex)</code> 和 <code>V(full)</code> 都是释放操作，顺序颠倒不会死锁，但先放 <code>mutex</code> 锁能让临界区占用时间更短）。
           </div>
 
           <div class="wb-grid-2" style="margin-top:12px;">
             <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:12px 14px;">
-              <h4 style="margin:0 0 6px;">📖 模型二：读者-写者问题</h4>
+              <h4 style="margin:0 0 6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 模型二：读者-写者问题</h4>
               <p style="font-size:13px; margin:0; line-height:1.58;">
                 允许多个读者同时读，但写者必须独占：用计数器 <code>read_count</code> 记录当前读者数——<strong>第 1 个进来的读者负责替所有读者加写锁 <code>P(rw_mutex)</code>，最后 1 个离开的读者负责释放写锁 <code>V(rw_mutex)</code></strong>。若防止写者饿死，再加一把排队锁拦截后续新读者（写者优先）。
               </p>
             </div>
             <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:11px; padding:12px 14px;">
-              <h4 style="margin:0 0 6px;">🥢 模型三：哲学家就餐问题</h4>
+              <h4 style="margin:0 0 6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 模型三：哲学家就餐问题</h4>
               <p style="font-size:13px; margin:0; line-height:1.58;">
                 5 个哲学家围坐，每人必须同时拿到左右两根筷子才能吃饭。若 5 人同时拿起左筷等右筷 → 全体死锁！<strong>三大破局法：</strong>① 限制最多 4 人同时拿筷；② <strong>奇偶编号哲学家拿筷顺序相反（奇数先左后右，偶数先右后左，破坏循环等待，最推荐！）</strong>；③ 用互斥锁保护“一次性同时拿起左右两根筷子”。
               </p>
@@ -172,8 +172,8 @@
 
         <div class="wb-card" style="background:var(--plop-paper);">
           <div class="washi-tape pink"></div>
-          <div class="chapter-q-pill">❓ 05.4 · 死锁产生的四个必要条件是什么？工程上最实用的防死锁手段是什么？什么是优先级反转？</div>
-          <h3 id="deadlock">💀 05.4 死锁四大必要条件、工程破局策略与优先级反转 <span class="plop-tag tomato">重点回顾</span></h3>
+          <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 05.4 · 死锁产生的四个必要条件是什么？工程上最实用的防死锁手段是什么？什么是优先级反转？</div>
+          <h3 id="deadlock"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 05.4 死锁四大必要条件、工程破局策略与优先级反转 <span class="plop-tag tomato">重点回顾</span></h3>
           <p>
             <strong>死锁（Deadlock）</strong>是指两个或多个执行流各自持有部分资源，又互相等待对方手里的资源，导致所有相关执行流永久卡死。死锁的发生<strong>必须同时满足以下 4 个必要条件（缺一不可，因此只要破坏其中任意一个就能预防死锁）</strong>：
           </p>
@@ -233,21 +233,21 @@
 
           <div class="wb-grid-2" style="margin-top:14px;">
             <div class="plop-callout info" style="margin:0;">
-              <strong>🧭 死锁四大处理流派 &amp; 活锁 vs 饥饿：</strong><br/>
+              <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 死锁四大处理流派 &amp; 活锁 vs 饥饿：</strong><br/>
               • <strong>处理流派：</strong>① <strong>预防</strong>（破坏四条件之一，如固定加锁顺序）；② <strong>避免</strong>（<strong>银行家算法</strong>，分配前预演是否存在安全序列，操作系统实际极少用）；③ <strong>检测与解除</strong>（资源分配图找环，杀进程/回滚事务）；④ <strong>鸵鸟策略</strong>（Linux/Windows 内核对偶发死锁直接忽略，交给用户处理）。<br/>
               • <strong>活锁 (Livelock) vs 饥饿 (Starvation)：</strong>死锁是“大家都卡死睡觉”；<strong>活锁</strong>是“大家都醒着不停谦让退避重试（如两人迎面撞上同时往左让又同时往右让），CPU 忙得冒烟却毫无进展”（解法：引入<strong>随机退避时间 Random Backoff</strong>，如 Raft 选举超时）；<strong>饥饿</strong>是低优先级线程长期抢不到锁或 CPU。
             </div>
 
             <div class="plop-callout warn" style="margin:0;">
-              <strong>🚀 进阶必考：什么是「优先级反转 (Priority Inversion)」？（火星探路者号死机真凶）</strong><br/>
+              <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 进阶必考：什么是「优先级反转 (Priority Inversion)」？（火星探路者号死机真凶）</strong><br/>
               假设有高（H）、中（M）、低（L）三个优先级的线程：<br/>
               1. <strong>低优先级 L</strong> 先拿到了互斥锁 <code>Mutex</code>；<br/>
               2. <strong>高优先级 H</strong> 醒来抢 <code>Mutex</code> 拿不到，被迫阻塞等待 L 放锁；<br/>
               3. 此时<strong>中优先级 M（不需要这把锁的计算任务）</strong>就绪了！因为 M 优先级比 L 高，<strong>M 直接抢占了 L 的 CPU 一直跑</strong>，导致 L 根本没机会上 CPU 执行完临界区放锁，结果<strong>最高优先级的 H 反而被中优先级的 M 间接卡死了！</strong><br/>
-              👉 <strong>解法：优先级继承（Priority Inheritance）</strong>——当高优先级 H 等待低优先级 L 手里的锁时，内核临时<strong>把 L 的优先级直接拔高到和 H 一样高</strong>，让 L 不被 M 抢占，火速跑完放锁后再恢复原优先级！
+              <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>解法：优先级继承（Priority Inheritance）</strong>——当高优先级 H 等待低优先级 L 手里的锁时，内核临时<strong>把 L 的优先级直接拔高到和 H 一样高</strong>，让 L 不被 M 抢占，火速跑完放锁后再恢复原优先级！
             </div>
           </div>
 
-          <div class="plop-callout tip"><strong>📝 本章先记住：</strong>锁保护的是一组操作的规则；被唤醒后仍要重新检查等待条件。</div>
+          <div class="plop-callout tip"><strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 本章先记住：</strong>锁保护的是一组操作的规则；被唤醒后仍要重新检查等待条件。</div>
 
         </div>

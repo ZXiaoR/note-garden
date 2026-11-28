@@ -1,11 +1,11 @@
 <div class="wb-sec-header" id="link"><span class="wb-sec-num">08</span><span class="wb-sec-title">运行链路、排查与自测</span><span class="plop-tag periwinkle">原理篇</span></div>
-<div class="plop-callout tip"><strong>🧭 本章主线：</strong>把 <code>./a.out</code> 从启动到消亡的 6 步内核旅程串成闭环，掌握线上 CPU / 内存 / 磁盘 I/O 性能排查 SOP，并通过速记表与 8 道自测题完成复盘。</div>
+<div class="plop-callout tip"><strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 本章主线：</strong>把 <code>./a.out</code> 从启动到消亡的 6 步内核旅程串成闭环，掌握线上 CPU / 内存 / 磁盘 I/O 性能排查 SOP，并通过速记表与 8 道自测题完成复盘。</div>
 
         <!-- 08.1 · 一图串联：从敲下 ./a.out 到退出的 6 步内核全链路 (#link) -->
         <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape"></div>
-          <div class="chapter-q-pill">❓ 08.1 · 当你在终端敲下 <code>./a.out</code> 回车，到程序跑完退出，前 8 章的机制是怎么串成一条线的？</div>
-          <h3>🎬 08.1 全链路大串联：一个程序从诞生到消亡的 6 步内核旅程</h3>
+          <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 08.1 · 当你在终端敲下 <code>./a.out</code> 回车，到程序跑完退出，前 8 章的机制是怎么串成一条线的？</div>
+          <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-video"></use></svg> 08.1 全链路大串联：一个程序从诞生到消亡的 6 步内核旅程</h3>
           <p>
             把前 8 章的知识点串成一条完整的生命周期线——当你在 Bash Shell 里敲下 <code>./a.out</code> 回车时，Linux 内核在幕后依次完成了这 <strong>6 个步骤</strong>：
           </p>
@@ -47,25 +47,25 @@
         <!-- 08.2 · 线上 Linux 性能排查速查 SOP (#tools) -->
         <div class="wb-card" id="tools" style="background:var(--plop-paper); margin-bottom:20px;">
           <div class="washi-tape pink"></div>
-          <div class="chapter-q-pill">❓ 08.2 · 面试官问：“线上服务器突然卡顿 / CPU 飙高 / 内存告警，你的排查思路和命令是什么？”</div>
-          <h3>🛠️ 08.2 生产实战：Linux 线上性能排查 SOP（<code>load</code> vs <code>CPU%</code> · <code>free</code> · 八大神器） <span class="plop-tag tomato">重点回顾</span></h3>
+          <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 08.2 · 面试官问：“线上服务器突然卡顿 / CPU 飙高 / 内存告警，你的排查思路和命令是什么？”</div>
+          <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 08.2 生产实战：Linux 线上性能排查 SOP（<code>load</code> vs <code>CPU%</code> · <code>free</code> · 八大神器） <span class="plop-tag tomato">重点回顾</span></h3>
 
           <!-- 两大高频误区拆解：Load Average vs CPU% & free -h available -->
           <div class="wb-grid-2" style="margin:12px 0;">
             <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:3px 4px 0 var(--plop-shadow);">
               <div style="font-weight:900; font-size:14.5px; color:var(--plop-tomato); margin-bottom:6px;">
-                🚨 必考误区 ①：<code>load average</code>（平均负载）≠ CPU 使用率！
+                <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 必考误区 ①：<code>load average</code>（平均负载）≠ CPU 使用率！
               </div>
               <div style="font-size:13px; line-height:1.6; color:var(--plop-ink-text);">
                 <code>uptime / top</code> 顶部的 1 / 5 / 15 分钟 <code>load average</code>，统计的是单位时间内<strong>处于「可运行态 <code>R</code>」+「不可中断睡眠态 <code>D</code>（等磁盘/NFS I/O）」的平均任务数</strong>！<br/>
                 • <strong>为什么 Linux 要把等磁盘的 <code>D</code> 态也算进 Load？</strong>因为它们代表着“系统正在承受的总体工作需求”。<br/>
-                • <strong>🔥 黄金排障推论：</strong>假设一台 8 核服务器，<strong><code>load average</code> 飙到了 40，但 <code>top</code> 看 CPU 使用率 <code>%us</code> 只有 5%</strong>——发生了什么？说明<strong>根本不是 CPU 算力不够，而是磁盘 I/O 或 NFS 存储卡死了（观察 <code>%wa</code> 极高，大批线程卡在 <code>D</code> 状态排队等磁盘）</strong>！
+                • <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 黄金排障推论：</strong>假设一台 8 核服务器，<strong><code>load average</code> 飙到了 40，但 <code>top</code> 看 CPU 使用率 <code>%us</code> 只有 5%</strong>——发生了什么？说明<strong>根本不是 CPU 算力不够，而是磁盘 I/O 或 NFS 存储卡死了（观察 <code>%wa</code> 极高，大批线程卡在 <code>D</code> 状态排队等磁盘）</strong>！
               </div>
             </div>
 
             <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px; box-shadow:3px 4px 0 var(--plop-shadow);">
               <div style="font-weight:900; font-size:14.5px; color:#15803d; margin-bottom:6px;">
-                🚨 必考误区 ②：<code>free -h</code> 里 <code>free</code> 只剩 200MB 就是内存快爆了吗？
+                <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 必考误区 ②：<code>free -h</code> 里 <code>free</code> 只剩 200MB 就是内存快爆了吗？
               </div>
               <div style="font-size:13px; line-height:1.6; color:var(--plop-ink-text);">
                 <strong>完全不是！</strong>Linux 的信条是“空闲的内存就是浪费的内存”，它会把没用的物理内存全拿去做 <strong><code>buff/cache</code>（即第 07 章的 Page Cache 页缓存 + 可回收 Slab <code>SReclaimable</code>）</strong>。<br/>
@@ -75,7 +75,7 @@
             </div>
           </div>
 
-          <h4>📊 <code>top</code> 命令中 CPU 6 大百分比指标精准解读</h4>
+          <h4><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> <code>top</code> 命令中 CPU 6 大百分比指标精准解读</h4>
           <div class="table-wrap">
             <table class="plop-table">
               <thead>
@@ -118,7 +118,7 @@
           <!-- 可一键复制的三大排障脚本代码块（与右侧贴纸栏按钮对应） -->
           <div class="plop-code-box">
             <div class="plop-code-head">
-              <span>🔥 troubleshoot_cpu_io.sh · 线上 CPU 飙高 / 软中断 / 磁盘 I/O 卡顿黄金排障命令集</span>
+              <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> troubleshoot_cpu_io.sh · 线上 CPU 飙高 / 软中断 / 磁盘 I/O 卡顿黄金排障命令集</span>
               <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('os-troubleshoot-cmd', this)">复制命令</button>
             </div>
             <pre class="plop-code-pre" id="os-troubleshoot-cmd"><code><span class="c-cm"># ① 1秒1次全局体检：看 r(运行队列)、b(D态阻塞数)、si/so(Swap换页)、cs(上下文切换)、us/sy/wa</span>
@@ -141,7 +141,7 @@ iostat -xz 1</code></pre>
 
           <div class="plop-code-box" style="margin-top:12px;">
             <div class="plop-code-head">
-              <span>🧠 troubleshoot_mem_fd.sh · 内存泄漏 / PSS 统计 / OOM Killer 查凶 / 删文件不释放磁盘排查</span>
+              <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> troubleshoot_mem_fd.sh · 内存泄漏 / PSS 统计 / OOM Killer 查凶 / 删文件不释放磁盘排查</span>
               <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('os-fd-mem-cmd', this)">复制命令</button>
             </div>
             <pre class="plop-code-pre" id="os-fd-mem-cmd"><code><span class="c-cm"># ① 查看真实可用内存 available，以及某进程均摊共享库后的真实物理内存 PSS 与 Swap 占用</span>
@@ -161,8 +161,8 @@ lsof | grep deleted
         <!-- 08.3 · 高频面试速记表 + 8 题闭卷自测 (#cheat, #sources) -->
         <div class="wb-card" id="cheat" style="background:var(--plop-paper);">
           <div class="washi-tape mint"></div>
-          <div class="chapter-q-pill">🎯 08.3 · 核心问题速记表 + 8 道深度闭卷自测题</div>
-          <h3>⚡ 08.3 考前 5 分钟速记表 &amp; 闭卷自测问答</h3>
+          <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 08.3 · 核心问题速记表 + 8 道深度闭卷自测题</div>
+          <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 08.3 考前 5 分钟速记表 &amp; 闭卷自测问答</h3>
 
           <div class="table-wrap">
             <table class="plop-table">
@@ -250,7 +250,7 @@ lsof | grep deleted
             </table>
           </div>
 
-          <h4 style="margin-top:18px;">🎯 8 道深度闭卷自测题（先在心里作答，再点击展开核对边界）</h4>
+          <h4 style="margin-top:18px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 8 道深度闭卷自测题（先在心里作答，再点击展开核对边界）</h4>
           <div class="wb-grid-2">
             <div>
               <details class="plop-drawer">
@@ -310,20 +310,20 @@ lsof | grep deleted
         <!-- 核对依据与权威参考资料 -->
         <div class="wb-card" id="sources" style="background:var(--plop-sheet); margin-top:18px;">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
-            <h3 style="margin:0;">📚 核对依据与 Linux 内核权威参考（Linux 5.x / 6.x · x86-64）</h3>
+            <h3 style="margin:0;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 核对依据与 Linux 内核权威参考（Linux 5.x / 6.x · x86-64）</h3>
             <span class="plop-tag periwinkle">修订：2026-11-12</span>
           </div>
           <p style="font-size:13.4px;">
             本篇手账以 <strong>现代 Linux 内核（5.x / 6.x）与 x86-64 架构</strong> 为基准，结合经典教材《Operating Systems: Three Easy Pieces (OSTEP)》（三大主线：虚拟化、并发、持久化）与《深入理解 Linux 内核 / Linux 内核设计与实现》整理核对。以下为内核官方文档与 man 手册直达链接：
           </p>
           <ul class="source-links-grid">
-            <li>🔗 <a href="https://docs.kernel.org/scheduler/index.html" target="_blank" rel="noopener">Linux Kernel Scheduler (CFS &amp; EEVDF)</a> · <a href="https://docs.kernel.org/scheduler/sched-design-CFS.html" target="_blank" rel="noopener">CFS 设计文档</a></li>
-            <li>🔗 <a href="https://docs.kernel.org/mm/index.html" target="_blank" rel="noopener">Linux Memory Management (MM)</a> · <a href="https://docs.kernel.org/mm/page_tables.html" target="_blank" rel="noopener">x86-64 多级页表</a> · <a href="https://docs.kernel.org/admin-guide/mm/transhuge.html" target="_blank" rel="noopener">透明大页 THP</a></li>
-            <li>🔗 <a href="https://man7.org/linux/man-pages/man7/epoll.7.html" target="_blank" rel="noopener">man 7 epoll (LT / ET / EPOLLEXCLUSIVE)</a> · <a href="https://kernel.dk/io_uring.pdf" target="_blank" rel="noopener">io_uring 异步 I/O 白皮书</a></li>
-            <li>🔗 <a href="https://man7.org/linux/man-pages/man2/sendfile.2.html" target="_blank" rel="noopener">man 2 sendfile</a> · <a href="https://man7.org/linux/man-pages/man2/mmap.2.html" target="_blank" rel="noopener">man 2 mmap</a> · <a href="https://man7.org/linux/man-pages/man2/futex.2.html" target="_blank" rel="noopener">man 2 futex</a></li>
-            <li>🔗 <a href="https://man7.org/linux/man-pages/man7/vdso.7.html" target="_blank" rel="noopener">man 7 vDSO (零陷入系统调用)</a> · <a href="https://man7.org/linux/man-pages/man7/signal-safety.7.html" target="_blank" rel="noopener">man 7 signal-safety (异步信号安全)</a></li>
-            <li>🔗 <a href="https://pages.cs.wisc.edu/~remzi/OSTEP/" target="_blank" rel="noopener">OSTEP《操作系统导论》公开版</a> · <a href="https://www.brendangregg.com/linuxperf.html" target="_blank" rel="noopener">Brendan Gregg Linux 性能排查指南</a></li>
-          <li>🔗 <a href="https://kernel.org/doc/html/v6.10/arch/x86/pti.html" target="_blank" rel="noopener">KPTI 与 PCID</a> · <a href="https://man7.org/linux/man-pages/man2/fsync.2.html" target="_blank" rel="noopener">fsync / fdatasync</a></li>
-<li>🔗 <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/latency/" target="_blank" rel="noopener">Redis：fork 与 THP 延迟</a> · <a href="https://nginx.org/en/docs/dev/development_guide.html" target="_blank" rel="noopener">NGINX 进程模型</a></li>
+            <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://docs.kernel.org/scheduler/index.html" target="_blank" rel="noopener">Linux Kernel Scheduler (CFS &amp; EEVDF)</a> · <a href="https://docs.kernel.org/scheduler/sched-design-CFS.html" target="_blank" rel="noopener">CFS 设计文档</a></li>
+            <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://docs.kernel.org/mm/index.html" target="_blank" rel="noopener">Linux Memory Management (MM)</a> · <a href="https://docs.kernel.org/mm/page_tables.html" target="_blank" rel="noopener">x86-64 多级页表</a> · <a href="https://docs.kernel.org/admin-guide/mm/transhuge.html" target="_blank" rel="noopener">透明大页 THP</a></li>
+            <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://man7.org/linux/man-pages/man7/epoll.7.html" target="_blank" rel="noopener">man 7 epoll (LT / ET / EPOLLEXCLUSIVE)</a> · <a href="https://kernel.dk/io_uring.pdf" target="_blank" rel="noopener">io_uring 异步 I/O 白皮书</a></li>
+            <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://man7.org/linux/man-pages/man2/sendfile.2.html" target="_blank" rel="noopener">man 2 sendfile</a> · <a href="https://man7.org/linux/man-pages/man2/mmap.2.html" target="_blank" rel="noopener">man 2 mmap</a> · <a href="https://man7.org/linux/man-pages/man2/futex.2.html" target="_blank" rel="noopener">man 2 futex</a></li>
+            <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://man7.org/linux/man-pages/man7/vdso.7.html" target="_blank" rel="noopener">man 7 vDSO (零陷入系统调用)</a> · <a href="https://man7.org/linux/man-pages/man7/signal-safety.7.html" target="_blank" rel="noopener">man 7 signal-safety (异步信号安全)</a></li>
+            <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://pages.cs.wisc.edu/~remzi/OSTEP/" target="_blank" rel="noopener">OSTEP《操作系统导论》公开版</a> · <a href="https://www.brendangregg.com/linuxperf.html" target="_blank" rel="noopener">Brendan Gregg Linux 性能排查指南</a></li>
+          <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://kernel.org/doc/html/v6.10/arch/x86/pti.html" target="_blank" rel="noopener">KPTI 与 PCID</a> · <a href="https://man7.org/linux/man-pages/man2/fsync.2.html" target="_blank" rel="noopener">fsync / fdatasync</a></li>
+<li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/latency/" target="_blank" rel="noopener">Redis：fork 与 THP 延迟</a> · <a href="https://nginx.org/en/docs/dev/development_guide.html" target="_blank" rel="noopener">NGINX 进程模型</a></li>
 </ul>
         </div>

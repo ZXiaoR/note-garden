@@ -10,8 +10,8 @@
 <!-- 02.1 · JSONB 二进制树内部内存布局与 O(log K) 二分跳读 -->
 <div class="wb-card" id="jsonb-internals" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🧬 02.1 · <code>JSONB</code> 内核结构：<code>JEntry</code> 32 位偏移目录、键名长度字典序预排序与 <code>O(log K)</code> 二分查找</div>
-  <h3>🧬 02.1 <code>JSONB</code> 二进制内存布局与二分跳读原理</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 02.1 · <code>JSONB</code> 内核结构：<code>JEntry</code> 32 位偏移目录、键名长度字典序预排序与 <code>O(log K)</code> 二分查找</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 02.1 <code>JSONB</code> 二进制内存布局与二分跳读原理</h3>
 
   <p>
     为什么普通 <code>json</code> 类型提取一个深层字段需要从头到尾扫描字符串（<code>O(N)</code> 词法解析），而 <code>jsonb</code> 能够以微秒级直接跳读目标字段？查看源码 <code>src/include/utils/jsonb.h</code> 可以发现，<code>jsonb</code> 在写入时已将 JSON 对象编译为一棵<strong>带定长头部索引目录（<code>JEntry</code> 数组）的扁平化二进制树</strong>：
@@ -80,7 +80,7 @@
   </figure>
 
   <div class="plop-callout warn" style="margin-bottom:0;">
-    <strong>⚠️ <code>JSONB</code> 局部更新的底层代价：整列重写与 TOAST 写放大</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> <code>JSONB</code> 局部更新的底层代价：整列重写与 TOAST 写放大</strong><br>
     虽然 <code>jsonb</code> 的读取是 <code>O(log K)</code> 跳读，但由于 PostgreSQL 采用堆表追加写 MVCC，且 <code>JsonbContainer</code> 是紧凑连续存储的二进制块，执行 <code>UPDATE t SET profile = jsonb_set(profile, '{level}', '4')</code> 修改一个 100 KB 的大 <code>jsonb</code> 中的 1 个字节时，<strong>无法在磁盘上只原地改动那 1 个字节，而是必须生成一整份新的 100 KB <code>jsonb</code> 写入新的 TOAST 切片</strong>。因此对于每秒高频递增的计数器或状态字段，应拆分为独立的普通关系列（可利用同页 <code>HOT</code> 更新），不要塞进大体积的 <code>jsonb</code> 文档中。
   </div>
 </div>
@@ -88,8 +88,8 @@
 <!-- 02.2 · 系统目录表（System Catalogs）的 MVCC 保护与事务性 DDL 原理 -->
 <div class="wb-card" id="transactional-ddl-internals" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🏛️ 02.2 · 事务性 DDL 原理：系统目录表（<code>pg_class / pg_attribute</code>）的 MVCC 多版本机制与缓存失效广播（<code>sinval</code>）</div>
-  <h3>🏛️ 02.2 事务性 DDL 的实现机制：系统表 MVCC 与延迟物理删除</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 02.2 · 事务性 DDL 原理：系统目录表（<code>pg_class / pg_attribute</code>）的 MVCC 多版本机制与缓存失效广播（<code>sinval</code>）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 02.2 事务性 DDL 的实现机制：系统表 MVCC 与延迟物理删除</h3>
 
   <p>
     在许多传统数据库中，表结构定义存储在特殊的非事务元数据文件或内存字典里，执行 <code>ALTER TABLE</code> 或 <code>DROP TABLE</code> 会强制隐式提交当前事务。而在 PostgreSQL 中，<strong>所有描述数据库对象元数据的系统目录表（System Catalogs，如记录表的 <code>pg_class</code>、记录列的 <code>pg_attribute</code>、记录索引的 <code>pg_index</code>）本身就是标准的 MVCC 堆表</strong>：
@@ -147,8 +147,8 @@
 <!-- 02.3 · PG 11+ 快速加列（Fast Default）与表重写边界推导 -->
 <div class="wb-card" id="fast-default-internals" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">⚡ 02.3 · 元数据快速加列：<code>pg_attribute.attmissingval</code> 如何让上亿行大表 <code>ADD COLUMN DEFAULT</code> 免于重写</div>
-  <h3>⚡ 02.3 <code>ADD COLUMN ... DEFAULT</code> 免全表重写的内核实现</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 02.3 · 元数据快速加列：<code>pg_attribute.attmissingval</code> 如何让上亿行大表 <code>ADD COLUMN DEFAULT</code> 免于重写</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 02.3 <code>ADD COLUMN ... DEFAULT</code> 免全表重写的内核实现</h3>
 
   <p>
     在 PostgreSQL 11 之前（以及早期版本的其他数据库中），执行 <code>ALTER TABLE orders ADD COLUMN flag int NOT NULL DEFAULT 1;</code> 必须把整张表的所有 8KB 数据页全部读出来、在每一行末尾拼上新字段值 <code>1</code> 并写入新的磁盘文件，上亿行大表会锁表数十分钟。从 <strong>PostgreSQL 11</strong> 起，这一操作变成了<strong>毫秒级的纯元数据修改</strong>：

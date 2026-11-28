@@ -10,11 +10,11 @@
 <!-- 01.1 · PID + Sequence Number 滑动窗口判重与保序原理 -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">⚙️ 01.1 · 幂等生产者内核：PID + Sequence Number 内存滑动窗口判重与管道保序</div>
-  <h3>⚙️ 01.1 <code>PID + Sequence Number</code> 是如何实现单分区判重与防乱序的 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 01.1 · 幂等生产者内核：PID + Sequence Number 内存滑动窗口判重与管道保序</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 01.1 <code>PID + Sequence Number</code> 是如何实现单分区判重与防乱序的 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
 
   <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
-    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#eos-summary">实战篇 04.3 幂等生产者结论</a> —— 开启 <code>enable.idempotence=true</code> 后，Broker 底层究竟靠什么数据结构拦住网络重发包，又为什么它允许单连接同时在途发送 5 个批次却绝不乱序？
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#eos-summary">实战篇 04.3 幂等生产者结论</a> —— 开启 <code>enable.idempotence=true</code> 后，Broker 底层究竟靠什么数据结构拦住网络重发包，又为什么它允许单连接同时在途发送 5 个批次却绝不乱序？
   </p>
 
   <p>
@@ -27,16 +27,16 @@
       <li><strong>按分区维护单调递增 <code>Sequence Number（批次序列号）</code></strong>：Producer 在内存中为发往每一个 <code>(Topic, Partition)</code> 的消息批次（<code>RecordBatch</code>）附带一个从 <code>0</code> 开始严格加 1 递增的 32 位整数 <code>Seq</code>。</li>
       <li><strong>Broker 端 5 槽位滑动窗口校验</strong>：Leader 副本在内存（并随快照持久化）为每个 <code>(PID, Partition)</code> 缓存<strong>最近收到的 5 个批次序列号状态</strong>，设上一批成功写入的最大序号为 <code>LastSeq</code>：
         <ul>
-          <li>当新到达批次的 <code>Seq == LastSeq + 1</code> 👉 严格连续，<strong>正常追加写入日志并更新 <code>LastSeq</code></strong>；</li>
-          <li>当新到达批次的 <code>Seq &lt;= LastSeq</code>（且命中最近 5 个批次窗口） 👉 说明这是因 ACK 丢包触发的<strong>网络重发旧包，Broker 直接静默丢弃数据，但向 Producer 返回写入成功响应</strong>，从而消除重复落盘；</li>
-          <li>当新到达批次的 <code>Seq &gt; LastSeq + 1</code> 👉 说明前序批次尚未到达（发生了管道超车乱序），Broker 直接拒绝并返回 <code>OutOfOrderSequenceException</code> 触发客户端按序重排重发——这就解释了为什么只要满足 <strong><code>max.in.flight.requests.per.connection &lt;= 5</code></strong>，即使开启异步管道并发也能保证分区内严格有序。</li>
+          <li>当新到达批次的 <code>Seq == LastSeq + 1</code> <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 严格连续，<strong>正常追加写入日志并更新 <code>LastSeq</code></strong>；</li>
+          <li>当新到达批次的 <code>Seq &lt;= LastSeq</code>（且命中最近 5 个批次窗口） <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 说明这是因 ACK 丢包触发的<strong>网络重发旧包，Broker 直接静默丢弃数据，但向 Producer 返回写入成功响应</strong>，从而消除重复落盘；</li>
+          <li>当新到达批次的 <code>Seq &gt; LastSeq + 1</code> <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 说明前序批次尚未到达（发生了管道超车乱序），Broker 直接拒绝并返回 <code>OutOfOrderSequenceException</code> 触发客户端按序重排重发——这就解释了为什么只要满足 <strong><code>max.in.flight.requests.per.connection &lt;= 5</code></strong>，即使开启异步管道并发也能保证分区内严格有序。</li>
         </ul>
       </li>
     </ol>
   </div>
 
   <div class="plop-callout warn" style="margin-bottom:0;">
-    <strong>🚫 再次明确它的物理边界（面试高频追问点）：</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 再次明确它的物理边界（面试高频追问点）：</strong><br>
     由于 <code>PID</code> 是进程级临时身份且没有跨会话持久化绑定业务数据：① Producer 容器重启后会领到全新的 <code>PID</code>，旧会话未决重发无法跨重启去重；② 同一条消息发往不同分区各自独立编号，不防跨分区重复；③ 上游代码逻辑 Bug 调用两次 <code>send()</code> 会被分配 <code>Seq=1</code> 和 <code>Seq=2</code> 视为两条合法新消息。因此消费端修改外部数据库时，实战篇 <a href="index.html#idempotent">04.2 的业务幂等</a> 永远不可省略。
   </div>
 </div>
@@ -44,11 +44,11 @@
 <!-- 01.2 · 跨分区事务与流计算 EOS 两阶段提交 -->
 <div class="wb-card" style="background:var(--plop-paper);">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🔬 01.2 · 流处理精确一次（EOS）：TransactionCoordinator 两阶段提交与 LSO 隔离水位</div>
-  <h3>🔬 01.2 跨分区事务与流计算 EOS 的底层两阶段提交 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 01.2 · 流处理精确一次（EOS）：TransactionCoordinator 两阶段提交与 LSO 隔离水位</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 01.2 跨分区事务与流计算 EOS 的底层两阶段提交 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
 
   <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
-    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#eos-summary">实战篇 04.3 结论 ②</a> —— 在 Flink / Kafka Streams「从 Topic A 读 → 计算 → 写回 Topic B / C」场景下，Kafka 是怎么跨越多个分区做到「消费进度提交」与「多分区结果写入」同生共死的？
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#eos-summary">实战篇 04.3 结论 ②</a> —— 在 Flink / Kafka Streams「从 Topic A 读 → 计算 → 写回 Topic B / C」场景下，Kafka 是怎么跨越多个分区做到「消费进度提交」与「多分区结果写入」同生共死的？
   </p>
 
   <ol style="font-size:13.3px; line-height:1.65;">

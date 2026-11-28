@@ -10,8 +10,8 @@
 <!-- 02.1 · 为什么 3 层 B+ 树就能装下约 2000 万行数据？（阶数定量推导） -->
 <div class="wb-card" id="btree-fanout-math" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🧮 02.1 · B+ 树阶数定量推导：为什么 3 层高 B+ 树可支撑约 2000 万行且最多只需 1~3 次磁盘 I/O</div>
-  <h3>🧮 02.1 InnoDB 选择 B+ 树的原因与 3 层 B+ 树容量定量计算</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 02.1 · B+ 树阶数定量推导：为什么 3 层高 B+ 树可支撑约 2000 万行且最多只需 1~3 次磁盘 I/O</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 02.1 InnoDB 选择 B+ 树的原因与 3 层 B+ 树容量定量计算</h3>
 
   <p>
     在机械硬盘或云盘上，一次跨页随机磁盘 I/O 耗时约 <code>0.5 ~ 10ms</code>。如果索引树有 20 层高（如平衡二叉树 AVL / 红黑树，<code>log₂(2000万) ≈ 24</code> 层），查一行数据就要做 24 次磁盘 I/O。为了<strong>把树的高度死死压在 3 ~ 4 层以内</strong>，InnoDB 采用了高扇出（High Fan-out）的多叉平衡搜索树 —— <strong>B+ 树</strong>，其核心设计在于：<strong>非叶子节点完全不存放真实行数据，只存放轻量的“主键值 + 子页页号（目录项记录）”，让单个 16 KiB 根节点能指向上千个子页</strong>：
@@ -118,8 +118,8 @@
 <!-- 02.2 · 页分裂（Page Split）：为什么 InnoDB 忌讳随机 UUID 主键 -->
 <div class="wb-card" id="innodb-page-split" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">⚡ 02.2 · 顺序写 vs 页分裂：自增主键 15/16 填充率与随机 UUID 主键引发的三大性能退化</div>
-  <h3>⚡ 02.2 顺序追加写与随机插入触发的「页分裂（Page Split）」</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 02.2 · 顺序写 vs 页分裂：自增主键 15/16 填充率与随机 UUID 主键引发的三大性能退化</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 02.2 顺序追加写与随机插入触发的「页分裂（Page Split）」</h3>
 
   <p>
     因为 InnoDB 的聚簇索引要求叶子节点内的所有行记录必须<strong>严格按主键值递增顺序存放</strong>，所以主键的生成方式直接决定了底层 16 KiB 数据页的写入形态：
@@ -127,7 +127,7 @@
 
   <div class="wb-grid-2">
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
-      <div style="font-weight:900; font-size:14.5px; color:#1b5e20; margin-bottom:6px;">✅ 单调递增主键（<code>AUTO_INCREMENT</code> / 有序雪花 ID）</div>
+      <div style="font-weight:900; font-size:14.5px; color:#1b5e20; margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 单调递增主键（<code>AUTO_INCREMENT</code> / 有序雪花 ID）</div>
       <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65;">
         <li><strong>紧凑顺序追加</strong>：每次新插入的记录主键值一定大于当前最大主键，因此 InnoDB 只需将新记录顺序追加到当前最后一个数据页的末尾。</li>
         <li><strong>预留 <code>1/16</code> 页空间（填充因子 <code>15/16</code>）</strong>：当当前页写满到 <code>15/16</code>（约预留 1KB 供后续该页内的记录 <code>UPDATE</code> 变长时原地扩展）后，直接顺序申请下一个全新的 16KB 页继续顺序写，几乎不触发历史页分裂。</li>
@@ -136,7 +136,7 @@
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
-      <div style="font-weight:900; font-size:14.5px; color:#bf4520; margin-bottom:6px;">❌ 无序随机主键（如 `UUID()` 字符串 `CHAR(36)`）</div>
+      <div style="font-weight:900; font-size:14.5px; color:#bf4520; margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 无序随机主键（如 `UUID()` 字符串 `CHAR(36)`）</div>
       <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65;">
         <li><strong>1. 频繁页分裂与数据搬移</strong>：新生成的 UUID 随机落在某张早已写满的历史数据页中间；InnoDB 被迫申请一个新页，将原页后半部分记录搬移过去，并修改前后双向链表与父节点目录项，伴随大量额外 Redo Log。</li>
         <li><strong>2. 空间碎片率高达 50%</strong>：大量数据页分裂后长期处于半满状态，表空间体积膨胀近一倍。</li>
@@ -149,8 +149,8 @@
 <!-- 02.3 · MySQL 8.0 统一数据字典与原子 DDL（Atomic DDL）原理 -->
 <div class="wb-card" id="mysql-atomic-ddl" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🏛️ 02.3 · 元数据内核：MySQL 8.0 统一 InnoDB 数据字典、原子 DDL 实现与隐式提交边界</div>
-  <h3>🏛️ 02.3 MySQL 8.0 原子 DDL 原理与为什么 DDL 不能跨语句回滚</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 02.3 · 元数据内核：MySQL 8.0 统一 InnoDB 数据字典、原子 DDL 实现与隐式提交边界</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 02.3 MySQL 8.0 原子 DDL 原理与为什么 DDL 不能跨语句回滚</h3>
 
   <p>
     在 MySQL 5.7 及更早版本中，表的元数据被分裂存放在两处：Server 层磁盘上的 <code>.frm / .par / .trg</code> 文件，以及 InnoDB 内部的系统表。如果在执行 <code>DROP TABLE t1, t2</code> 途中数据库掉电崩溃，经常会出现“<code>.frm</code> 文件删掉了但 InnoDB 表空间还在”的元数据不一致故障。

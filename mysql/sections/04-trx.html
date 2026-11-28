@@ -10,8 +10,8 @@
 <!-- 04.1 · 事务生命周期、autocommit 与部分回滚 -->
 <div class="wb-card" id="mysql-trx-basics" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🛡️ 04.1 · 事务基础：ACID 四大特性、autocommit 自动提交边界与 SAVEPOINT 局部回滚</div>
-  <h3>🛡️ 04.1 事务 ACID 特性与显式事务控制语法</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.1 · 事务基础：ACID 四大特性、autocommit 自动提交边界与 SAVEPOINT 局部回滚</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.1 事务 ACID 特性与显式事务控制语法</h3>
 
   <p>
     事务（Transaction）是将多步数据库读写操作捆绑成一个不可分割的逻辑工作单元。InnoDB 存储引擎完整实现了事务的 <strong>ACID 四大特性</strong>：<strong>原子性（Atomicity，靠 <code>Undo Log</code> 实现要么全成功要么全回滚）、一致性（Consistency，事务前后业务约束守恒）、隔离性（Isolation，靠 <code>MVCC + 锁</code> 防止并发事务互相干扰）、持久性（Durability，靠 <code>Redo Log + Doublewrite</code> 保证提交后掉电不丢）</strong>。
@@ -47,7 +47,7 @@
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">⚠️ 日常事务控制的 3 个关键注意事项</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 日常事务控制的 3 个关键注意事项</div>
       <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65; color:var(--plop-ink-text);">
         <li><strong><code>autocommit = 1</code>（默认开启）</strong>：如果不写 <code>BEGIN / START TRANSACTION</code>，你发出的每一条单独的 <code>INSERT / UPDATE / DELETE</code> 都会被 MySQL 自动包裹成一个独立的小事务并在执行完毕后立即提交。</li>
         <li><strong>与 PostgreSQL 的报错差异</strong>：在 MySQL 的同一个 <code>BEGIN ... COMMIT</code> 事务块内，<strong>如果中间某条普通 SQL 报错（例如唯一键冲突 <code>Duplicate entry</code>），MySQL 默认只回滚报错的那一条语句，而不会自动中止整个事务</strong>；若应用层捕获异常后忘记执行 <code>ROLLBACK</code> 而是直接调了 <code>COMMIT</code>，前面已成功的语句依然会被提交。因此后端代码的 <code>catch / defer</code> 分支中必须显式执行 <code>ROLLBACK</code>（注：唯独发生<strong>死锁</strong>或 <code>innodb_rollback_on_timeout=ON</code> 时，InnoDB 会主动回滚整个事务）。</li>
@@ -60,8 +60,8 @@
 <!-- 04.2 · 三大并发异常与四大事务隔离级别 -->
 <div class="wb-card" id="mysql-isolation-levels" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🎚️ 04.2 · 隔离级别：脏读、不可重复读、幻读与四大隔离级别表现对比</div>
-  <h3>🎚️ 04.2 三大并发读异常与四大事务隔离级别</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 04.2 · 隔离级别：脏读、不可重复读、幻读与四大隔离级别表现对比</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 04.2 三大并发读异常与四大事务隔离级别</h3>
 
   <p>
     当多个事务同时读写同一批数据时，若缺乏隔离控制，会依次出现三类并发读异常：<strong>① 脏读（Dirty Read：读到了其他事务尚未 <code>COMMIT</code> 的未提交修改）</strong>、<strong>② 不可重复读（Non-Repeatable Read：同一事务内先后两次读同一行，因别的事务提交了 <code>UPDATE</code> 而读到不同的列值）</strong>、<strong>③ 幻读（Phantom Read：同一事务内按相同范围条件查询，因别的事务提交了 <code>INSERT / DELETE</code> 而导致返回的行数多出或少掉“幻影行”）</strong>。
@@ -116,7 +116,7 @@
 
   <div class="plop-code-box" style="margin-bottom:0;">
     <div class="plop-code-head">
-      <span>🔎 isolation_cmd.sql · 查看与切换 MySQL 8.0+ 事务隔离级别</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> isolation_cmd.sql · 查看与切换 MySQL 8.0+ 事务隔离级别</span>
       <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-iso', this)">复制 SQL</button>
     </div>
     <pre class="plop-code-pre" id="code-mysql-iso"><code><span class="c-cm">-- 1. 查看全局与当前会话的事务隔离级别（MySQL 8.0+ 变量名为 transaction_isolation）</span>
@@ -130,8 +130,8 @@
 <!-- 04.3 · 高并发防超卖三大实战模式与双终端会话实验 -->
 <div class="wb-card" id="mysql-concurrency-patterns" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🔒 04.3 · 并发扣减实战：原子条件更新、FOR UPDATE 悲观锁、乐观锁 CAS 与双会话验证</div>
-  <h3>🔒 04.3 高并发防超卖三大标准模式与双终端实验</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 04.3 · 并发扣减实战：原子条件更新、FOR UPDATE 悲观锁、乐观锁 CAS 与双会话验证</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 04.3 高并发防超卖三大标准模式与双终端实验</h3>
 
   <p>
     在高并发抢购扣库存、余额扣减或优惠券领用场景中，<strong>切忌在代码里先写一条普通 <code>SELECT balance FROM users WHERE id = 1</code>，在应用内存中算出 <code>new_balance = balance - 50</code>，再执行 <code>UPDATE users SET balance = new_balance WHERE id = 1</code></strong>——因为普通 <code>SELECT</code> 是不加锁的“快照读”，两个并发请求会同时读到相同的旧余额（如 100），各自减 50 后都写回 50，导致 100 元被扣了两次却还剩 50 元（<strong>丢失更新 Lost Update</strong>）。生产中应根据业务复杂度选择以下三种正确模式之一：
@@ -140,7 +140,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>⚡ anti_oversold.sql · 高并发扣减库存/余额的三种正确写法</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> anti_oversold.sql · 高并发扣减库存/余额的三种正确写法</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-lock-patterns', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="code-mysql-lock-patterns"><code><span class="c-cm">-- ========= 模式一：单条原子增量 UPDATE（最轻量，90% 简单扣减首选） =========</span>
@@ -169,7 +169,7 @@
     </div>
 
     <div>
-      <h4>🧪 双终端会话实验：亲眼验证「快照读」与「当前读」</h4>
+      <h4><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 双终端会话实验：亲眼验证「快照读」与「当前读」</h4>
       <p style="font-size:12.8px; margin-bottom:8px;">
         打开两个 <code>mysql</code> 终端窗口连接同一个库（假设初始 <code>id=1</code> 的 <code>balance = 100.00</code>），按时间顺序依次执行以下步序，直观感受默认 <code>REPEATABLE READ</code> 下的行为：
       </p>
@@ -185,22 +185,22 @@
           <tbody>
             <tr>
               <td><strong>T1</strong></td>
-              <td><code>BEGIN;</code><br><code>SELECT balance FROM users WHERE id = 1;</code><br>👉 读出 <strong><code>100.00</code></strong>（拍下 RR 快照）</td>
+              <td><code>BEGIN;</code><br><code>SELECT balance FROM users WHERE id = 1;</code><br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 读出 <strong><code>100.00</code></strong>（拍下 RR 快照）</td>
               <td></td>
             </tr>
             <tr>
               <td><strong>T2</strong></td>
               <td></td>
-              <td><code>UPDATE users SET balance = balance + 50 WHERE id = 1;</code><br>👉 自动提交，真实数据已变为 <strong><code>150.00</code></strong></td>
+              <td><code>UPDATE users SET balance = balance + 50 WHERE id = 1;</code><br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 自动提交，真实数据已变为 <strong><code>150.00</code></strong></td>
             </tr>
             <tr>
               <td><strong>T3</strong></td>
-              <td><strong>① 普通查询（快照读）</strong>：<br><code>SELECT balance FROM users WHERE id = 1;</code><br>👉 依然返回 <strong><code>100.00</code></strong>（可重复读生效）</td>
+              <td><strong>① 普通查询（快照读）</strong>：<br><code>SELECT balance FROM users WHERE id = 1;</code><br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 依然返回 <strong><code>100.00</code></strong>（可重复读生效）</td>
               <td></td>
             </tr>
             <tr>
               <td><strong>T4</strong></td>
-              <td><strong>② 加锁查询或更新（当前读）</strong>：<br><code>SELECT balance FROM users WHERE id = 1 FOR UPDATE;</code><br>👉 直接读出最新已提交值 <strong><code>150.00</code></strong>；随后 <code>COMMIT;</code></td>
+              <td><strong>② 加锁查询或更新（当前读）</strong>：<br><code>SELECT balance FROM users WHERE id = 1 FOR UPDATE;</code><br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 直接读出最新已提交值 <strong><code>150.00</code></strong>；随后 <code>COMMIT;</code></td>
               <td></td>
             </tr>
           </tbody>
@@ -210,6 +210,6 @@
   </div>
 
   <div class="plop-callout info" style="margin-top:14px; margin-bottom:0;">
-    <strong>📘 底层原理延伸：</strong>为什么在 T3 时刻普通 <code>SELECT</code> 能读到历史值 <code>100.00</code>，而 T4 时刻加 <code>FOR UPDATE</code> 又能立刻穿透快照读到 <code>150.00</code>？想深入 <code>ReadView</code> 四大水位字段、<code>Undo Log</code> 历史版本链以及 <code>Record Lock / Gap Lock / Next-Key Lock</code> 的加锁退化推导，可点击查看 <a href="principles.html#trx">📘 核心原理篇 · 04 MVCC 与 ReadView 状态机 ↗</a>。
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 底层原理延伸：</strong>为什么在 T3 时刻普通 <code>SELECT</code> 能读到历史值 <code>100.00</code>，而 T4 时刻加 <code>FOR UPDATE</code> 又能立刻穿透快照读到 <code>150.00</code>？想深入 <code>ReadView</code> 四大水位字段、<code>Undo Log</code> 历史版本链以及 <code>Record Lock / Gap Lock / Next-Key Lock</code> 的加锁退化推导，可点击查看 <a href="principles.html#trx"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 04 MVCC 与 ReadView 状态机 ↗</a>。
   </div>
 </div>

@@ -8,14 +8,14 @@
 </div>
 
 <div class="plop-callout tip" style="margin-bottom:18px;">
-  <strong>🎯 学完本章你能做什么：</strong>一眼分清主从复制、Sentinel 哨兵与 Redis Cluster 各自解决什么问题，并在写代码时避开「主从延迟读旧值」「多键跨槽报错 CROSSSLOT」「客户端连错模式」三大线上高频坑。
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>一眼分清主从复制、Sentinel 哨兵与 Redis Cluster 各自解决什么问题，并在写代码时避开「主从延迟读旧值」「多键跨槽报错 CROSSSLOT」「客户端连错模式」三大线上高频坑。
 </div>
 
 <!-- 06.1 · 三种高可用架构各解决什么问题 -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">📡 06.1 · 一图看懂三种部署形态：主从复制、Sentinel 哨兵与 Cluster 分片集群</div>
-  <h3>📡 06.1 主从、哨兵与 Cluster 各解决什么问题</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> 06.1 · 一图看懂三种部署形态：主从复制、Sentinel 哨兵与 Cluster 分片集群</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> 06.1 主从、哨兵与 Cluster 各解决什么问题</h3>
 
   <p>
     本地开发只跑 1 个单机容器就够了，但到了生产环境，单台机器一旦硬件故障整个服务就会瘫痪，或者总数据量涨到了单机内存装不下的几十 GB。围绕<strong>「主节点挂了能不能自动顶上」</strong>与<strong>「单机内存装不装得下」</strong>两个问题，Redis 演进出了三种部署架构：
@@ -96,8 +96,8 @@
 <!-- 06.2 · 重点：部署架构变化对业务代码的 3 大实际影响 -->
 <div class="wb-card" id="sentinel" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill" id="cluster">💻 06.2 · 开发者核心关注点：主从延迟、Cluster 跨槽报错与客户端集群模式</div>
-  <h3>💻 06.2 重点：上了高可用与集群后，你的业务代码要改什么？</h3>
+  <div class="chapter-q-pill" id="cluster"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 06.2 · 开发者核心关注点：主从延迟、Cluster 跨槽报错与客户端集群模式</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 06.2 重点：上了高可用与集群后，你的业务代码要改什么？</h3>
 
   <p>
     绝大多数线上 Redis 集群都是云厂商托管或运维搭好的，作为业务开发者，你真正必须清楚的是<strong>这三件事会直接影响你写的代码能不能跑对</strong>：
@@ -117,7 +117,7 @@
   </p>
   <ul>
     <li><strong>代码怎么改（<code>{Hash Tag}</code> 花括号局部哈希）</strong>：只要在键名里加上一对花括号 <code>{...}</code>，Redis 就<strong>只拿第一对非空花括号里面的内容去算槽位</strong>。例如把同一用户的两个键命名为 <code>user:{10086}:profile</code> 和 <code>user:{10086}:wallet</code>，它们都会按 <code>"10086"</code> 算槽，必然落在同一台机器上，<code>MGET</code> 和 <code>Lua</code> 就能正常执行了。</li>
-    <li><strong>⚠️ 数据倾斜大坑</strong>：花括号里<strong>必须放离散度高的用户 ID 或订单 ID（如 <code>{10086}</code>）</strong>，千万别把固定的业务前缀包进去写成 <code>{user}:10086</code>、<code>{user}:10087</code>——否则全站几千万个用户键都会算出同一个槽号，全部挤死在同一台分片机器上！</li>
+    <li><strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 数据倾斜大坑</strong>：花括号里<strong>必须放离散度高的用户 ID 或订单 ID（如 <code>{10086}</code>）</strong>，千万别把固定的业务前缀包进去写成 <code>{user}:10086</code>、<code>{user}:10087</code>——否则全站几千万个用户键都会算出同一个槽号，全部挤死在同一台分片机器上！</li>
   </ul>
 
   <h4 style="margin-top:16px;">影响 ③：客户端初始化必须切换成对应的连接模式</h4>
@@ -128,7 +128,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 sentinel_mode.go · 连接 Sentinel 哨兵架构 [Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> sentinel_mode.go · 连接 Sentinel 哨兵架构 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ha-sentinel-go', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-ha-sentinel-go"><code><span class="c-cm">// 填哨兵节点地址与逻辑主库名，切主时 SDK 自动感知重连新主库</span>
@@ -146,7 +146,7 @@ rdb := redis.NewFailoverClient(&amp;redis.FailoverOptions{
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 cluster_mode.go · 连接 Cluster 集群与 {Hash Tag} 实操 [Go · go-redis/v9]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> cluster_mode.go · 连接 Cluster 集群与 {Hash Tag} 实操 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ha-cluster-go', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-ha-cluster-go"><code><span class="c-cm">// 使用 NewClusterClient，SDK 自动缓存 16384 槽映射并跟随 MOVED/ASK 跳转</span>
@@ -166,22 +166,22 @@ vals, err := clusterRdb.MGet(ctx,
   </div>
 
   <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
-    💡 <strong>背后的原理：</strong>网络闪断重连时从库怎么只增量补齐缺失数据（<code>PSYNC2</code>）？为什么哨兵至少要配 3 台？为什么 Cluster 是 16384 个槽且扩容搬数据时不停服（<code>MOVED / ASK</code>）？详见 <a href="principles.html#replication">《📘 核心原理篇 · 05 复制、哨兵选主与槽迁移协议》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>网络闪断重连时从库怎么只增量补齐缺失数据（<code>PSYNC2</code>）？为什么哨兵至少要配 3 台？为什么 Cluster 是 16384 个槽且扩容搬数据时不停服（<code>MOVED / ASK</code>）？详见 <a href="principles.html#replication">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 05 复制、哨兵选主与槽迁移协议》</a>。
   </p>
 </div>
 
 <!-- 06.3 · 附录：自建主从 / 哨兵 / Cluster 运维配置与搭建脚本 -->
 <div class="wb-card" id="ha-appendix" style="background:var(--plop-paper);">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">📎 06.3 · 附录（按需展开）：主从 replicaof、Sentinel 哨兵与 3 主 3 从 Cluster 搭建脚本</div>
-  <h3>📎 附录：自建主从、哨兵与 Cluster 配置文件速查</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 06.3 · 附录（按需展开）：主从 replicaof、Sentinel 哨兵与 3 主 3 从 Cluster 搭建脚本</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 附录：自建主从、哨兵与 Cluster 配置文件速查</h3>
 
   <details class="plop-drawer">
     <summary>展开查看：主从复制（replicaof）、3 节点 Sentinel 防脑裂配置与 Cluster 初始化命令 [Redis 6.x / 7.x]</summary>
     <div class="drawer-body">
       <div class="plop-code-box" style="margin:8px 0;">
         <div class="plop-code-head">
-          <span>⚙️ deploy_ha_appendix.sh · 主从、哨兵与 3 主 3 从 Cluster 运维模板</span>
+          <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> deploy_ha_appendix.sh · 主从、哨兵与 3 主 3 从 Cluster 运维模板</span>
           <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-cluster', this)">复制脚本</button>
         </div>
         <pre class="plop-code-pre" id="code-redis-cluster"><code><span class="c-cm"># ==================== 1. 从节点 redis.conf 核心项 ====================</span>

@@ -8,14 +8,14 @@
 </div>
 
 <div class="plop-callout tip" style="margin-bottom:18px;">
-  <strong>🎯 学完本章你能做什么：</strong>说清服务器断电重启时 Redis 最多会丢多少数据、内存写满了怎么自动腾空间，并在业务设计上守住「Redis 数据当成可丢来兜底」的安全底线。
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>说清服务器断电重启时 Redis 最多会丢多少数据、内存写满了怎么自动腾空间，并在业务设计上守住「Redis 数据当成可丢来兜底」的安全底线。
 </div>
 
 <!-- 05.1 · RDB、AOF 与混合持久化：宕机会丢多少数据 -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">💾 05.1 · 断电防丢能力：RDB 快照、AOF 命令日志与混合持久化各丢多少数据</div>
-  <h3>💾 05.1 RDB、AOF 与混合持久化：宕机各会丢多少数据</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 05.1 · 断电防丢能力：RDB 快照、AOF 命令日志与混合持久化各丢多少数据</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 05.1 RDB、AOF 与混合持久化：宕机各会丢多少数据</h3>
 
   <p>
     内存一旦断电数据就会清空。为了让进程重启后能恢复数据，Redis 提供了两类落盘机制：<strong>RDB（Redis Database，内存二进制快照）</strong>、<strong>AOF（Append Only File，追加写命令日志）</strong>，以及把两者结合起来的<strong>混合持久化</strong>：
@@ -57,7 +57,7 @@
   <div class="wb-grid-2" style="margin-top:14px;">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>⚙️ redis.conf · 混合持久化推荐配置 [Redis 6.x / 7.x]</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> redis.conf · 混合持久化推荐配置 [Redis 6.x / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-persist-conf', this)">复制配置</button>
       </div>
       <pre class="plop-code-pre" id="code-redis-persist-conf"><code><span class="c-cm"># 1. RDB 定时快照（手动备份请用异步 BGSAVE，严禁在线上跑阻塞主线程的 SAVE）</span>
@@ -81,15 +81,15 @@ appendfsync everysec</code></pre>
   </div>
 
   <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
-    💡 <strong>背后的原理：</strong>后台子进程拍几 GB 的 RDB 快照时，为什么主线程还能照常处理写请求而不卡顿？详见 <a href="principles.html#persistence">《📘 核心原理篇 · 04.1 fork 写时复制（COW）页表机制》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>后台子进程拍几 GB 的 RDB 快照时，为什么主线程还能照常处理写请求而不卡顿？详见 <a href="principles.html#persistence">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 04.1 fork 写时复制（COW）页表机制》</a>。
   </p>
 </div>
 
 <!-- 05.2 · 内存满了怎么办：maxmemory 与淘汰策略 -->
 <div class="wb-card" id="expire" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill" id="evict">🗑️ 05.2 · 内存写满应对：maxmemory 70% 水位线与缓存淘汰策略选型</div>
-  <h3>🗑️ 05.2 内存满了怎么办：<code>maxmemory</code> 与淘汰策略</h3>
+  <div class="chapter-q-pill" id="evict"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 05.2 · 内存写满应对：maxmemory 70% 水位线与缓存淘汰策略选型</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 05.2 内存满了怎么办：<code>maxmemory</code> 与淘汰策略</h3>
 
   <p>
     如果一直往 Redis 塞数据，内存总有写满的一天。生产上必须通过 <code>maxmemory</code> 划定业务数据上限（<strong>通常设为机器物理内存的 70% 左右</strong>，留出 30% 给后台快照写时复制、主从同步缓冲区和操作系统，防止整机内存耗尽被系统强杀），并通过 <code>maxmemory-policy</code> 指定内存触顶后的处理策略：
@@ -156,15 +156,15 @@ appendfsync everysec</code></pre>
   </div>
 
   <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:8px 0 0;">
-    💡 <strong>背后的原理：</strong>Redis 怎么只利用每个对象头里仅有的 24 个比特位（3 字节）记住上万次访问频率并自动随时间衰减？详见 <a href="principles.html#evict">《📘 核心原理篇 · 04.2 24-bit 近似 LRU 与对数衰减 LFU》</a>。
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>Redis 怎么只利用每个对象头里仅有的 24 个比特位（3 字节）记住上万次访问频率并自动随时间衰减？详见 <a href="principles.html#evict">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 04.2 24-bit 近似 LRU 与对数衰减 LFU》</a>。
   </p>
 </div>
 
 <!-- 05.3 · 本章结论：把 Redis 里的数据当成「可以丢」来设计 -->
 <div class="wb-card" style="background:var(--plop-paper);">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🧭 05.3 · 架构设计原则：永远把 Redis 里的数据当成「极端情况下可以丢」来设计</div>
-  <h3>🧭 05.3 核心结论：把 Redis 当成「随时可能丢」来设计业务</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 05.3 · 架构设计原则：永远把 Redis 里的数据当成「极端情况下可以丢」来设计</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 05.3 核心结论：把 Redis 当成「随时可能丢」来设计业务</h3>
 
   <p style="margin-bottom:0;">
     学完持久化和内存淘汰后，请记住一条最省心的工程铁律（设计原则）：<strong>无论开启了混合持久化还是主从集群，写业务代码时都要假设「Redis 里的数据在极端故障下可能丢掉最后几秒，甚至整库清空重建」</strong>——

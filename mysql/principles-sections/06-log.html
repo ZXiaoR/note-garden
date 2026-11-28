@@ -10,8 +10,8 @@
 <!-- 06.1 · 三大日志职责对比与一条 UPDATE 的两阶段提交（Internal 2PC） -->
 <div class="wb-card" id="mysql-three-logs-2pc" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">📝 06.1 · 三大日志与两阶段提交：Undo / Redo / Binlog 职责对比与基于 XID 的崩溃恢复裁决法则</div>
-  <h3>📝 06.1 三大日志职责对比与一条 UPDATE 的内部两阶段提交（Internal 2PC）</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 06.1 · 三大日志与两阶段提交：Undo / Redo / Binlog 职责对比与基于 XID 的崩溃恢复裁决法则</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 06.1 三大日志职责对比与一条 UPDATE 的内部两阶段提交（Internal 2PC）</h3>
 
   <p>
     如果每次执行 <code>UPDATE</code> 都直接把 16 KiB 的 InnoDB 数据页随机刷回磁盘，机械硬盘或 SSD 的随机 I/O 很快就会成为吞吐瓶颈。为此，MySQL 采用了经典的<strong>预写式日志（WAL，Write-Ahead Logging）</strong>技术：先在内存 <code>Buffer Pool</code> 中修改数据页，并将修改动作顺序追加写入日志文件，随后即可向客户端返回提交成功；至于内存中的脏页（Dirty Page），则由后台线程在低峰期异步批量刷入磁盘。在这套流程中，<strong><code>Undo Log</code>、<code>Redo Log</code> 与 <code>Binlog</code></strong> 各司其职，共同构成了 ACID 中原子性（Atomicity）与持久性（Durability）的底层支柱：
@@ -152,8 +152,8 @@
 <!-- 06.2 · 「双 1」刷盘配置、组提交（Group Commit）与双写缓冲区（Doublewrite Buffer） -->
 <div class="wb-card" id="mysql-fsync-doublewrite" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">🛡️ 06.2 · 零丢失持久化：「双 1」刷盘参数、Group Commit 组提交与 Doublewrite Buffer 防半页断裂</div>
-  <h3>🛡️ 06.2 「双 1」刷盘配置、组提交（Group Commit）与双写缓冲区（Doublewrite Buffer）</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.2 · 零丢失持久化：「双 1」刷盘参数、Group Commit 组提交与 Doublewrite Buffer 防半页断裂</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.2 「双 1」刷盘配置、组提交（Group Commit）与双写缓冲区（Doublewrite Buffer）</h3>
 
   <p>
     在两阶段提交中，如果每次事务提交都只是写入操作系统的 Page Cache 而没有调用 <code>fsync()</code> 刷入物理磁盘，一旦操作系统内核崩溃或服务器断电，Page Cache 中的日志仍然会丢失。控制 <code>Redo Log</code> 与 <code>Binlog</code> 刷盘时机的两个核心参数被称为<strong>「双 1」配置</strong>：
@@ -208,14 +208,14 @@
 
   <div class="wb-grid-2">
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;">🚀 1. 组提交（Group Commit）如何化解「双 1」IOPS 瓶颈</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 1. 组提交（Group Commit）如何化解「双 1」IOPS 瓶颈</div>
       <p style="margin:0; font-size:12.8px; line-height:1.68;">
         开启「双 1」后，每次事务提交都要触发 Redo Log（Prepare 阶段）和 Binlog 的两次物理 <code>fsync()</code>。为了避免高并发下每个事务各自独占调用 <code>fsync()</code>，MySQL 将 Binlog 提交拆分为 <strong>Flush 阶段 → Sync 阶段 → Commit 阶段</strong> 三个队列，每个阶段由第一个到达的线程担任 <strong>Leader</strong>，将同一时刻到达队列的一批并发事务（Follower）打包合并：在一次 <code>fsync()</code> 系统调用中同时刷入数十个事务的 Redo Log 或 Binlog，使并发越高时单次 <code>fsync()</code> 分摊的事务数越多，从而在「双 1」强持久性下依然维持数万 TPS 的写入吞吐。
       </p>
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px;">
-      <div style="font-weight:900; font-size:14px; color:#bf4520; margin-bottom:6px;">🛡️ 2. 为什么有了 Redo Log 还需要双写缓冲区（Doublewrite Buffer）</div>
+      <div style="font-weight:900; font-size:14px; color:#bf4520; margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 2. 为什么有了 Redo Log 还需要双写缓冲区（Doublewrite Buffer）</div>
       <p style="margin:0; font-size:12.8px; line-height:1.68;">
         InnoDB 页大小为 <strong>16 KiB</strong>，而 Linux 文件系统块通常为 <strong>4 KiB</strong>。若后台刷脏页写到一半（如刚写完 4 KiB）时发生掉电，磁盘上的 16 KiB 页就会发生<strong>部分页写入断裂（Partial Page Write / Torn Page）</strong>。同时，InnoDB 的 Redo Log 采用的是<strong>「物理页号 + 页内逻辑修改（Physiological Logging）」</strong>而非整页字节镜像，<strong>如果磁盘上的 16 KiB 原页本身已经断裂损坏，Redo Log 根本无法在一个损坏的残页上执行逻辑重放</strong>。因此刷脏页前先顺序写入磁盘上的 Doublewrite 文件（<code>#ib_16384_0.dblwr</code>）；一旦发现 <code>.ibd</code> 页 Checksum 损坏，先从 Doublewrite 拷回完整无损的 16 KiB 旧页副本，再在上面重放 Redo Log。
       </p>
@@ -226,8 +226,8 @@
 <!-- 06.3 · 主从复制三线程模型、无损半同步复制与缓存双写一致性 -->
 <div class="wb-card" id="mysql-replication-ha" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🌐 06.3 · 高可用与双写架构：主从复制三线程模型、AFTER_SYNC 无损半同步、MGR 与 Redis 缓存一致性</div>
-  <h3>🌐 06.3 主从复制三线程模型、无损半同步复制与缓存双写一致性</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 06.3 · 高可用与双写架构：主从复制三线程模型、AFTER_SYNC 无损半同步、MGR 与 Redis 缓存一致性</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 06.3 主从复制三线程模型、无损半同步复制与缓存双写一致性</h3>
 
   <ol style="margin:0; padding-left:20px; font-size:13.4px; line-height:1.72;">
     <li><strong>主从复制三线程流水线与并行回放</strong>：
@@ -256,8 +256,8 @@
 <!-- 06.4 · MySQL 核心原理与高并发调优深度自测（15 题闭卷问答） -->
 <div class="wb-card" id="mysql-self-test" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🎯 06.4 · 深度自测：15 道贯穿存储、B+ 树、优化器、MVCC、Next-Key Lock 与 WAL 的闭卷问答</div>
-  <h3>🎯 06.4 MySQL 核心原理与高并发调优深度自测（15 题闭卷问答）</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 06.4 · 深度自测：15 道贯穿存储、B+ 树、优化器、MVCC、Next-Key Lock 与 WAL 的闭卷问答</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 06.4 MySQL 核心原理与高并发调优深度自测（15 题闭卷问答）</h3>
 
   <p>
     合上前面的章节，尝试用自己的话回答以下 15 个贯穿存储、索引、优化器、MVCC、锁与日志的底层机制问题，点击卡片即可展开核对参考解析：

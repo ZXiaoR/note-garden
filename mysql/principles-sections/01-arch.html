@@ -10,8 +10,8 @@
 <!-- 01.1 · InnoDB 内存与磁盘整体架构 -->
 <div class="wb-card" id="innodb-mem-disk-arch" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🧠 01.1 · 引擎全景：InnoDB 四大内存组件（Buffer Pool / Change Buffer / AHI / Log Buffer）与后台刷盘线程</div>
-  <h3>🧠 01.1 InnoDB 内存与磁盘架构全景图</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 01.1 · 引擎全景：InnoDB 四大内存组件（Buffer Pool / Change Buffer / AHI / Log Buffer）与后台刷盘线程</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 01.1 InnoDB 内存与磁盘架构全景图</h3>
 
   <p>
     与 PostgreSQL 依赖“<code>shared_buffers</code> + 操作系统 Page Cache 双层缓存”不同，<strong>InnoDB 在生产环境中通常开启直接 I/O（<code>innodb_flush_method = O_DIRECT</code>），数据页读写直接绕过操作系统文件缓存，完全由 InnoDB 自身的 <code>Buffer Pool</code>（占物理内存 50%~70%）统一管理</strong>。InnoDB 的内存区由四大核心组件构成，并通过专用后台线程池与磁盘表空间、日志文件异步交互：
@@ -98,8 +98,8 @@
 <!-- 01.2 · 为什么朴素 LRU 会失效？5:3 冷热分区与 1000ms 防污染机制 -->
 <div class="wb-card" id="innodb-midpoint-lru" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">❄️ 01.2 · 缓存淘汰算法：朴素 LRU 被全表扫描污染的原因、5:3 冷热分区与 1000ms 时间窗</div>
-  <h3>❄️ 01.2 解决「预读失效」与「缓冲池污染」的两阶段冷热 LRU</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 01.2 · 缓存淘汰算法：朴素 LRU 被全表扫描污染的原因、5:3 冷热分区与 1000ms 时间窗</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 01.2 解决「预读失效」与「缓冲池污染」的两阶段冷热 LRU</h3>
 
   <p>
     如果 Buffer Pool 直接使用教科书里的朴素 LRU（即任何刚从磁盘读入的页都直接插到链表最头部），在数据库场景下会立刻遭遇两大灾难：
@@ -119,8 +119,8 @@
 <!-- 01.3 · Change Buffer（写缓冲）原理、唯一索引限制与 MySQL 8.4 演进 -->
 <div class="wb-card" id="innodb-change-buffer" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">⚡ 01.3 · 写加速与边界：Change Buffer 异步合并机制、为什么唯一索引不能用，以及 MySQL 8.4 默认值变化</div>
-  <h3>⚡ 01.3 <code>Change Buffer</code>（写缓冲）与唯一索引的 I/O 边界</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 01.3 · 写加速与边界：Change Buffer 异步合并机制、为什么唯一索引不能用，以及 MySQL 8.4 默认值变化</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 01.3 <code>Change Buffer</code>（写缓冲）与唯一索引的 I/O 边界</h3>
 
   <p>
     当执行一条 <code>INSERT / UPDATE / DELETE</code> 时，如果目标数据页恰好已经在 <code>Buffer Pool</code> 中，直接修改内存页即可；但如果目标二级索引页不在内存中，难道每次都要立刻发起一次同步随机磁盘读 I/O 把那个 16KB 二级索引页读上来吗？为了把随机读转化为异步批量合并，InnoDB 设计了 <strong><code>Change Buffer</code>（早期仅支持插入时称为 <code>Insert Buffer</code>）</strong>：

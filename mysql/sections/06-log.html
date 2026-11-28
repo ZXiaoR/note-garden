@@ -10,8 +10,8 @@
 <!-- 06.1 · MySQL 8.0 Online DDL 与无锁表结构变更规范 -->
 <div class="wb-card" id="mysql-online-ddl" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🛠️ 06.1 · 大表变更规范：Online DDL 三种算法（INSTANT / INPLACE / COPY）与 MDL 锁阻塞防范</div>
-  <h3>🛠️ 06.1 大表在线表结构变更（Online DDL）规范</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 06.1 · 大表变更规范：Online DDL 三种算法（INSTANT / INPLACE / COPY）与 MDL 锁阻塞防范</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 06.1 大表在线表结构变更（Online DDL）规范</h3>
 
   <p>
     在千万行级的线上生产表上执行 <code>ALTER TABLE</code> 时，最怕引发全表重建或触发 <strong>MDL（Metadata Lock，元数据锁）排队雪崩</strong>。MySQL 8.0 提供了三种 DDL 执行算法，可以通过在语句末尾显式指定 <strong><code>ALGORITHM=INSTANT / INPLACE</code> 与 <code>LOCK=NONE</code></strong> 来做安全防御（如果某操作不支持所选的无锁算法，MySQL 会立即报错中止，而不会静默退化为锁表重建）：
@@ -52,7 +52,7 @@
 
   <div class="plop-code-box" style="margin-bottom:0;">
     <div class="plop-code-head">
-      <span>⚡ safe_online_ddl.sql · 显式声明 ALGORITHM 与 lock_wait_timeout 的安全 DDL 模板</span>
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> safe_online_ddl.sql · 显式声明 ALGORITHM 与 lock_wait_timeout 的安全 DDL 模板</span>
       <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-ddl', this)">复制 SQL</button>
     </div>
     <pre class="plop-code-pre" id="code-mysql-ddl"><code><span class="c-cm">-- 【安全准则】执行任何线上 DDL 前，先将当前会话获取 MDL 锁的超时时间设为 3 秒（默认是一年 31536000 秒）</span>
@@ -74,8 +74,8 @@
 <!-- 06.2 · 深分页优化（游标分页 vs 延迟关联）与分库分表边界 -->
 <div class="wb-card" id="mysql-deep-pagination" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">📄 06.2 · 深分页调优：LIMIT 1000000, 20 慢查询根因、游标分页与延迟关联改写方案</div>
-  <h3>📄 06.2 深度分页（<code>LIMIT offset, size</code>）的慢查询成因与两种改写方案</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> 06.2 · 深分页调优：LIMIT 1000000, 20 慢查询根因、游标分页与延迟关联改写方案</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> 06.2 深度分页（<code>LIMIT offset, size</code>）的慢查询成因与两种改写方案</h3>
 
   <p>
     当业务表数据达到数百万行时，执行 <code>SELECT id, name, city, balance FROM users WHERE city = '杭州' ORDER BY id ASC LIMIT 1000000, 20;</code> 往往需要数秒甚至超时。原因是：<strong>MySQL 并不是直接跳过前 100 万行，而是顺着二级索引查出前 <code>1000000 + 20 = 1000020</code> 个主键 ID，老老实实回表 1000020 次取出完整行交给 Server 层，最后再把前 100 万行全部丢弃，只保留最后 20 行</strong>。消灭这 100 万次无效回表的两种标准方案如下：
@@ -84,7 +84,7 @@
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🚀 deep_page_opt.sql · 方案一（游标分页）与方案二（延迟关联）</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> deep_page_opt.sql · 方案一（游标分页）与方案二（延迟关联）</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-page', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="code-mysql-page"><code><span class="c-cm">-- ❌ 慢查询原写法：先回表 1000020 次取整行，再丢弃前 1000000 行</span>
@@ -110,7 +110,7 @@
     </div>
 
     <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
-      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;">📏 大表治理递进阶梯（别过早分库分表）</div>
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 大表治理递进阶梯（别过早分库分表）</div>
       <p style="font-size:12.8px; margin:0 0 8px; line-height:1.6;">
         面对单表数据量到达千万级时，应按成本从低到高依次推进，切忌一上来就引入复杂的分库分表：
       </p>
@@ -126,13 +126,13 @@
 <!-- 06.3 · 线上行锁等待排查 SQL 与后端工程事务模板 -->
 <div class="wb-card" id="mysql-lock-diag-and-code" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🩺 06.3 · 线上排障与后端接入：行锁等待排查 SQL、死锁日志查看与 Node.js / Go 事务模板</div>
-  <h3>🩺 06.3 线上锁阻塞排查 SQL 与后端参数化事务实战</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 06.3 · 线上排障与后端接入：行锁等待排查 SQL、死锁日志查看与 Node.js / Go 事务模板</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 06.3 线上锁阻塞排查 SQL 与后端参数化事务实战</h3>
 
   <div class="wb-grid-2">
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🔎 lock_inspect.sql · MySQL 8.0+ 一键揪出“谁锁住了谁”的排查 SQL</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> lock_inspect.sql · MySQL 8.0+ 一键揪出“谁锁住了谁”的排查 SQL</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('sql-lock-inspect', this)">复制 SQL</button>
       </div>
       <pre class="plop-code-pre" id="sql-lock-inspect"><code><span class="c-cm">-- 1. 联合查询 performance_schema 与 innodb_trx，直接定位阻塞源头会话与 SQL</span>
@@ -163,7 +163,7 @@
 
     <div class="plop-code-box">
       <div class="plop-code-head">
-        <span>🟢 mysql_tx_pool.ts · Node.js (mysql2/promise) 连接池与参数化事务模板</span>
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> mysql_tx_pool.ts · Node.js (mysql2/promise) 连接池与参数化事务模板</span>
         <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-nodejs', this)">复制代码</button>
       </div>
       <pre class="plop-code-pre" id="code-mysql-nodejs"><code><span class="c-kw">import</span> mysql, { ResultSetHeader } <span class="c-kw">from</span> <span class="c-str">'mysql2/promise'</span>;
@@ -210,6 +210,6 @@
   </div>
 
   <div class="plop-callout info" style="margin-top:14px; margin-bottom:0;">
-    <strong>📘 迈向核心原理篇：</strong>至此你已完整掌握 MySQL 日常开发、SQL 编写、索引调优与生产运维的全部实战技能。接下来可以点击顶部切换栏或前往 <a href="principles.html#why">📘 核心原理篇 ↗</a>，深入探索 InnoDB 16KB 页结构、5:3 冷热 LRU、B+ 树阶数推导、MVCC ReadView 状态机、Next-Key Lock 加锁退化以及 Redo/Undo/Binlog 两阶段提交的内核细节。
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 迈向核心原理篇：</strong>至此你已完整掌握 MySQL 日常开发、SQL 编写、索引调优与生产运维的全部实战技能。接下来可以点击顶部切换栏或前往 <a href="principles.html#why"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 ↗</a>，深入探索 InnoDB 16KB 页结构、5:3 冷热 LRU、B+ 树阶数推导、MVCC ReadView 状态机、Next-Key Lock 加锁退化以及 Redo/Undo/Binlog 两阶段提交的内核细节。
   </div>
 </div>

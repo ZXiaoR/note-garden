@@ -10,8 +10,8 @@
 <!-- 00.1 · InnoDB 四级逻辑存储层次（段、区、页、行） -->
 <div class="wb-card" id="innodb-tablespace-hierarchy" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🗄️ 00.1 · 表空间层次：Tablespace (.ibd) → Segment（段）→ Extent（区 1MB）→ Page（页 16KB）→ Row（行）</div>
-  <h3>🗄️ 00.1 InnoDB 独立表空间与四级物理存储结构</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 00.1 · 表空间层次：Tablespace (.ibd) → Segment（段）→ Extent（区 1MB）→ Page（页 16KB）→ Row（行）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 00.1 InnoDB 独立表空间与四级物理存储结构</h3>
 
   <p>
     自 MySQL 5.6.6 起，InnoDB 默认开启 <strong><code>innodb_file_per_table = ON</code>（独立表空间模式）</strong>，每张表的数据与所有索引都存放在数据目录下一个独立的 <code>表名.ibd</code> 文件中。如果磁盘每次只按单行几百字节去读写，磁头寻道与系统调用开销会非常高；如果直接按整个几百 MB 的文件分配，又会造成严重的碎片。因此 InnoDB 在表空间内部设计了<strong>“段（Segment）→ 区（Extent）→ 页（Page）→ 行（Row）”</strong>四级管理结构：
@@ -55,8 +55,8 @@
 <!-- 00.2 · 16 KiB 数据页（INDEX Page）7 大分区与 Page Directory 槽位二分查找 -->
 <div class="wb-card" id="innodb-16kb-page" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill">📐 00.2 · 16 KiB 数据页解剖：7 大组成部分、单向记录链表与 Page Directory 槽位二分查找</div>
-  <h3>📐 00.2 <code>16 KiB</code> 数据页（INDEX 页）物理布局与页内检索流程</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 00.2 · 16 KiB 数据页解剖：7 大组成部分、单向记录链表与 Page Directory 槽位二分查找</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 00.2 <code>16 KiB</code> 数据页（INDEX 页）物理布局与页内检索流程</h3>
 
   <p>
     存放 B+ 树节点的数据页（内核页类型为 <code>FIL_PAGE_INDEX</code>）总大小为 <strong><code>16384 字节</code></strong>，内部由头尾固定元数据与中间相向生长的“<strong>用户记录区（User Records）+ 页目录槽位（Page Directory）</strong>”共 7 个部分组成：
@@ -196,8 +196,8 @@
 <!-- 00.3 · InnoDB 行记录格式（COMPACT / DYNAMIC）、三大隐藏列与行溢出 -->
 <div class="wb-card" id="innodb-row-format" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">🧬 00.3 · 行格式解剖：COMPACT / DYNAMIC 物理结构、三大隐藏系统列与 768B / 20B 行溢出页</div>
-  <h3>🧬 00.3 InnoDB 行记录格式与隐藏系统列</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 00.3 · 行格式解剖：COMPACT / DYNAMIC 物理结构、三大隐藏系统列与 768B / 20B 行溢出页</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 00.3 InnoDB 行记录格式与隐藏系统列</h3>
 
   <p>
     在聚簇索引叶子节点中，每一条物理行记录都由“<strong>记录额外信息头（变长字段长度列表 + NULL 值位图 + 5 字节记录头）</strong>”与“<strong>记录真实数据（3 个隐藏系统列 + 用户定义列）</strong>”连续拼接而成：
@@ -238,7 +238,7 @@
   </div>
 
   <div class="plop-callout tip" style="margin-bottom:0;">
-    <strong>📦 <code>COMPACT</code>（5.6 默认）与 <code>DYNAMIC</code>（5.7 / 8.0 / 8.4 默认）在行溢出（Row Overflow）上的核心差异：</strong><br>
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-kraft"></use></svg> <code>COMPACT</code>（5.6 默认）与 <code>DYNAMIC</code>（5.7 / 8.0 / 8.4 默认）在行溢出（Row Overflow）上的核心差异：</strong><br>
     因为 InnoDB 规定单个 16 KiB 数据页至少要能装下 2 行记录，所以当某一行包含超长的 <code>VARCHAR / TEXT / BLOB</code>（单行总大小超过约 <code>8098 字节</code>）时，就会触发<strong>行溢出（Off-Page Storage）</strong>：<br>
     • <strong>旧版 <code>COMPACT</code> 行格式</strong>：会把大字段的<strong>前 <code>768 字节</code></strong>继续留在主数据页内，后面再跟一个 <code>20 字节</code>的溢出页指针，导致主数据页依然很臃肿，每页能装的行数很少；<br>
     • <strong>现代默认的 <code>DYNAMIC</code> 行格式</strong>：采用<strong>完全行溢出策略</strong>——一旦触发溢出，把大字段的<strong>全部字节</strong>都放到独立的溢出页（Uncompressed BLOB Page）中，主数据页内该列<strong>仅保留一个 <code>20 字节</code>的指针</strong>，从而让聚簇索引叶子页装下更多行，大幅提升缓存命中率。
