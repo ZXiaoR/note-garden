@@ -1,0 +1,111 @@
+<!-- ====================================================================
+     PART 08: 综合场景自测 · 10 道真实业务排障与方案设计题（默认折叠）
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="quiz">
+  <span class="wb-sec-num">08</span>
+  <span class="wb-sec-title">综合场景自测：10 道真实业务排障与方案设计题</span>
+  <span class="plop-tag tomato">SCENARIO QUIZ · TROUBLESHOOTING · SYSTEM DESIGN</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 怎么用本章复习：</strong>先不点开答案，想象自己正在写这个需求或排查这个线上 Bug，在脑海里过一遍「选什么类型、敲什么命令、有什么坑」，再点开核对。
+</div>
+
+<div class="wb-card" id="cheat" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">☑️ 08.1 · 实战场景检验：10 道业务设计与故障排查题（点击题目展开完整解析）</div>
+  <h3>☑️ 独立思考后再点开参考方案</h3>
+
+  <div class="wb-grid-2">
+    <div>
+      <details class="plop-drawer">
+        <summary>01. 「每个用户每分钟最多调用 10 次」的接口限流怎么写？为什么直接按分钟 INCR 有漏洞？</summary>
+        <div class="drawer-body">
+          <p><strong>问题根源</strong>：如果只按分钟拼键名做固定窗口 <code>INCR</code>，用户在 <code>12:00:59</code> 发 10 次、<code>12:01:00</code> 又发 10 次，在跨越整分的 <strong>2 秒内实际放过了 20 次请求（双倍突刺）</strong>。<br>
+          <strong>推荐写法</strong>：配额较小时用 <strong><code>ZSet + Lua</code> 滑动窗口</strong>——以请求毫秒时间戳做 <code>score</code>，脚本里先 <code>ZREMRANGEBYSCORE</code> 清理 60 秒前的旧记录，判断 <code>ZCARD &lt; 10</code> 才 <code>ZADD</code> 本次请求并设 60 秒过期；若是全站大配额网关限流，改用更省内存的 <strong><code>Hash + Lua</code> 令牌桶</strong>（回顾 <a href="#sc-ratelimit">04.5</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>02. 商品后台改价后，几分钟过去了仍有用户刷新看到旧价格，可能是什么原因？</summary>
+        <div class="drawer-body">
+          <p>按线上最高发顺序排查这 4 点：<br>
+          ① <strong>写路径漏删或删失败</strong>：改价接口只更新了 MySQL 忘了删 Redis，或者删缓存那一下网络抖动报错且未重试；<br>
+          ② <strong>写错了顺序（「先删缓存再更库」）</strong>：慢磁盘事务提交前，并发读请求把数据库旧价又脏回填进了缓存；<br>
+          ③ <strong>开启了主从读写分离延迟</strong>：改完 MySQL 主库立刻删了缓存，紧接着读请求去查还没同步到位的 MySQL 从库（或读了延迟的 Redis 从库）拿到了旧价；<br>
+          ④ <strong>多层缓存未过期</strong>：业务进程本地二级缓存、CDN 或浏览器 HTTP 强缓存还没到期（回顾 <a href="#consistency">03.1</a> / <a href="#sentinel">06.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>03. 订单 30 分钟未支付自动取消怎么做？为什么不能监听过期事件，有什么坑？</summary>
+        <div class="drawer-body">
+          <p><strong>标准做法</strong>：下单时执行 <code>ZADD delay:order:unpaid &lt;下单时间戳+1800&gt; &lt;orderNo&gt;</code>（支付成功顺手 <code>ZREM</code>）；后台轮询协程用 <strong><code>Lua</code> 脚本原子执行 <code>ZRANGEBYSCORE + ZREM</code></strong> 抢占弹出已到期订单去关单。<br>
+          <strong>为什么禁用键过期监听</strong>：Redis 过期通知基于发后即忘的 <code>Pub/Sub</code>，服务重启或断网期间过期的订单事件会<strong>直接丢失</strong>，且大库抽样过期不准时。<br>
+          <strong>必防的坑</strong>：① 多实例轮询不用 Lua 原子移除会导致重复关单；② 数据库关单 SQL 必须带状态条件 <code>WHERE order_no=? AND status='UNPAID'</code> 保证幂等；③ 必须配一个低频扫库任务兜底进程崩溃漏单（回顾 <a href="#sc-delay">04.7</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>04. 用户弱网连点两次「提交订单」，怎么保证只生效一次？下游报错要注意什么？</summary>
+        <div class="drawer-body">
+          <p><strong>做法</strong>：进入结算页时生成唯一幂等令牌 <code>idem_token</code>；提交订单接口第一行执行 <code>SET idem:order:&lt;token&gt; "1" NX EX 300</code>。并发到达的两次请求只有一个能拿到 <code>OK</code> 往下走，另一个拿到 <code>nil</code> 直接拦截。<br>
+          <strong>关键注意</strong>：① 如果抢到锁的请求在后续写数据库时<strong>明确报错回滚了，要在异常处理里主动 <code>DEL</code> 掉这个幂等键</strong>，否则用户接下来 5 分钟都没法正常重新提交；② MySQL 订单表仍需对业务单号加唯一索引做最终防线（回顾 <a href="#sc-idempotent">04.3</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>05. 大促前预热 10 万个商品缓存设相同 3600s TTL，且 1 个爆款每秒 8 万查询，会出什么事故？</summary>
+        <div class="drawer-body">
+          <p>会先后触发两场事故：<br>
+          ① <strong>活动刚开始触发「热 Key 单点打爆」</strong>：那款每秒 8 万查询的爆款商品即使在 Cluster 集群里也只会落在同一台分片机器上，打满单机网卡——解法是在应用进程内存加 <code>1 ~ 3 秒</code> 本地二级缓存挡掉 95%+ 读流量。<br>
+          ② <strong>1 小时整点触发「缓存雪崩 + 缓存击穿」</strong>：10 万个键在同一秒集体过期，回源洪峰瞬间压垮 MySQL——解法是预热时给每个键加上随机偏移（如 <code>3600s + rand(0, 600s)</code>），并在查库回源处包裹 <code>singleflight</code> 请求归并（回顾 <a href="#three-anomalies">03.2</a> / <a href="#bigkey">03.3</a>）。</p>
+        </div>
+      </details>
+    </div>
+
+    <div>
+      <details class="plop-drawer">
+        <summary>06. 用户购物车选 JSON String 还是 Hash？如果把大 V 的 200 万粉丝塞进 1 个 Set 会怎样？</summary>
+        <div class="drawer-body">
+          <p><strong>购物车选 <code>Hash</code></strong>（<code>key=cart:u1001, field=skuID, val=数量</code>）：用户频繁加购、用 <code>HINCRBY</code> 加减件数、用 <code>HDEL</code> 删单品都只需改单个字段，不用像 JSON String 那样每次整份拉回反序列化再覆盖。<br>
+          <strong>200 万粉丝塞单个 <code>Set</code> 会变成严重「大 Key（BigKey）」</strong>：任何一次误调 <code>SMEMBERS</code> 或同步 <code>DEL</code> 都会把单线程卡死数秒，集群下还会造成分片内存倾斜——应按 <code>fan_id % 200</code> 水平分桶拆成 200 个小 Set，删除时一律用异步 <code>UNLINK</code>（回顾 <a href="#dt-hash">02.2</a> / <a href="#bigkey">03.3</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>07. 线上报警 Redis CPU 飙到 100%、业务大面积超时，第一步敲什么命令排查？</summary>
+        <div class="drawer-body">
+          <p>第一步连上实例执行 <strong><code>SLOWLOG GET 20</code></strong> 看最近最耗时的慢命令，配合 <code>INFO stats</code> 看实时 QPS（<code>instantaneous_ops_per_sec</code>）和 <code>CLIENT LIST</code> 看活跃客户端。<br>
+          <strong>最常见的三类元凶</strong>：① 有人在线上跑了 <code>KEYS *</code> 或 <code>FLUSHALL</code>；② 对几万元素的大 Hash / Set / List 执行了 <code>HGETALL / SMEMBERS / SINTER / LRANGE 0 -1</code> 全量拉取；③ 执行了包含死循环或大循环的慢 <code>Lua</code> 脚本（回顾 <a href="#production">07.1</a> / <a href="#production-sec">07.5</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>08. 本地单机正常的 MGET 和 Lua 脚本，上生产 Cluster 后报 CROSSSLOT 怎么解决？</summary>
+        <div class="drawer-body">
+          <p><strong>报错原因</strong>：Redis Cluster 将数据分在 16384 个槽中，要求单条多键命令或 Lua 脚本操作的所有 Key 必须位于同一个哈希槽。<br>
+          <strong>规范解法</strong>：在关联键名中加上花括号 <strong><code>{Hash Tag}</code></strong>，例如 <code>order:{9001}:base</code> 与 <code>order:{9001}:items</code>，使 Redis 只按 <code>9001</code> 计算槽位。<br>
+          <strong>防倾斜红线</strong>：花括号内必须是高离散度的业务 ID（如用户 ID、订单 ID），切忌写成固定字符串 <code>{order}:9001</code>，否则所有订单全挤进同一台分片主库（回顾 <a href="#cluster">06.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>09. 用 Redis 分布式锁时，为什么解锁必须比对随机 UUID，且不能在代码里先 GET 再 DEL？</summary>
+        <div class="drawer-body">
+          <p><strong>为什么要存随机 UUID</strong>：假设节点 A 拿了 10 秒锁但因下游接口卡住跑了 12 秒，第 10 秒锁自动过期后被节点 B 合法拿到；第 12 秒 A 跑完如果不看锁是谁的就盲目 <code>DEL</code>，会把<strong>节点 B 正在持有的锁误删掉</strong>，引发连锁并发事故。<br>
+          <strong>为什么不能分两步写 <code>if get() == uuid { del() }</code></strong>：万一客户端刚跑完 <code>get()</code> 判断相等，正好遇上网络抖动或垃圾回收停顿了几十毫秒，期间锁刚好过期易主给 B，恢复后执行的 <code>del()</code> 依然会误删 B 的锁。因此必须用 <strong><code>Lua</code> 脚本在服务端一步原子完成比对和删除</strong>（回顾 <a href="#lock">04.8</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>10. 线上 Redis 突然网络故障超时，商品详情接口和扣减红包接口分别该怎么应对？</summary>
+        <div class="drawer-body">
+          <p>① <strong>客户端前置配置</strong>：连接池必须设短读写超时（如 <code>300ms</code>），绝不能无限死等耗尽应用协程池。<br>
+          ② <strong>只读缓存型接口（商品详情）—— 优雅降级（Fallback）</strong>：捕获超时错误后打告警日志，经进程内限流器保护后降级查 MySQL（超出数据库承受范围则返回本地缓存或静态兜底页），确保主站可浏览。<br>
+          ③ <strong>强依赖并发协调接口（抢红包/分布式锁防重）—— 快速失败（Fail-Fast）</strong>：直接返回友好提示“当前参与人数过多，请稍后重试”，宁可短暂拒单也绝不绕过锁直接裸奔扣减导致资损（回顾 <a href="#production-serial">07.4</a>）。</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>

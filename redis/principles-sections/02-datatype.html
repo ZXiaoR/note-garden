@@ -11,7 +11,11 @@
 <div class="wb-card" id="encoding" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
   <div class="chapter-q-pill">🧬 02.1 · 对象头与字符串内存布局：16B redisObject 连续位带、sdshdr 紧凑头与 embstr 44B 边界推导</div>
-  <h3>🧬 02.1 <code>redisObject</code>（16 Bytes）与 <code>SDS</code> / <code>embstr</code> 44 字节边界推导</h3>
+  <h3>🧬 02.1 <code>redisObject</code>（16 Bytes）与 <code>SDS</code> / <code>embstr</code> 44 字节边界推导 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#encoding">实战篇 02.1 String</a> —— 为什么 Redis 不用 C 语言原生字符数组，以及短字符串 <code>embstr</code> 与 <code>raw</code> 以 44 字节分界的公式是怎么算出来的？
+  </p>
 
   <p>
     在 Redis 内核中，每次写入键值对都会创建两个对象：Key 固定是底层动态字符串 <code>SDS</code>，而 Value 则统一封装在 <strong>16 字节（128 bits）的元数据头 <code>struct redisObject</code>（源码名 <code>robj</code>）</strong>中，通过 <code>type</code> 标识对外逻辑类型，通过 <code>encoding</code> 标识底层挂载的物理数据结构：
@@ -110,7 +114,11 @@
 <div class="wb-card" id="listpack-kernel" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
   <div class="chapter-q-pill">📦 02.2 · 紧凑连续内存结构演进：ziplist 连锁更新成因、7.0 listpack 反向遍历原理与 intset 单向升级</div>
-  <h3>📦 02.2 从 <code>ziplist</code> 到 <code>listpack</code>：根除连锁更新（Cascade Update）</h3>
+  <h3>📦 02.2 从 <code>ziplist</code> 到 <code>listpack</code>：根除连锁更新（Cascade Update） <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#dt-hash">实战篇 02.2 Hash</a> 与 <a href="index.html#production-serial">07.4 序列化取舍</a> —— 为什么字段数不多的小 <code>Hash / List / ZSet</code> 内存占用极低，以及 Redis 7.0 为什么要把 <code>ziplist</code> 换成 <code>listpack</code>？
+  </p>
 
   <p>
     为了在小规模 <code>Hash / List / ZSet</code> 中省去双向链表与哈希桶昂贵的前后驱指针（64 位机器上每多两个指针就要多花 <code>16 Bytes</code>，甚至比几字节的整数数据本身还大），Redis 设计了整块连续内存紧凑列表。早期版本采用 <code>ziplist</code>，而在 <strong>Redis 7.0 中已全面由 <code>listpack</code> 接管</strong>（<code>Hash / ZSet</code> 小数据直接存单个 <code>listpack</code>，<code>List</code> 底层 <code>quicklist</code> 的每个双向链表节点内部也由 <code>ziplist</code> 换成了 <code>listpack</code>）：
@@ -233,7 +241,11 @@
 <div class="wb-card" id="rehash" style="background:var(--plop-paper);">
   <div class="washi-tape periwinkle"></div>
   <div class="chapter-q-pill" id="history">🪜 02.3 · 高效索引双核心：zskiplist 跨度指针（O(log N) 算 ZRANK）与 dict 渐进式 Rehash</div>
-  <h3>🪜 02.3 跳表 <code>zskiplist</code> 源码结构与哈希表渐进式 Rehash</h3>
+  <h3>🪜 02.3 跳表 <code>zskiplist</code> 源码结构与哈希表渐进式 Rehash <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#dt-zset">实战篇 02.5 ZSet</a> 与 <a href="index.html#sc-rank">04.6 实时排行榜</a> —— 为什么排行榜既能 <code>O(1)</code> 查某人分数，又能 <code>O(log N)</code> 取前 N 名和算出「我排第几名」？千万级大字典扩容时为什么不会卡顿？
+  </p>
 
   <h4>1. <code>ZSet</code> 复合结构与跳表节点 <code>span</code> 跨度字段的关键作用</h4>
   <p>

@@ -1,0 +1,364 @@
+<!-- ====================================================================
+     PART 00: 全景科普 · Redis 架构定位、能力地图与选型边界
+     ==================================================================== -->
+<div class="wb-sec-header" id="overview" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">全景科普：Redis 架构定位、场景地图与选型边界</span>
+  <span class="plop-tag tomato">OVERVIEW · ARCHITECTURE · SCENE MAP · TRADE-OFFS</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>用一句话讲清 Redis 是什么、为什么数据库前面要加一层它、常见 10 类业务需求分别用哪种数据类型，以及哪 3 类场景不适合用它。
+</div>
+
+<!-- 00.1 · 一屏全景：定义、生活类比、分层架构图与延迟对比 -->
+<div class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🧭 00.1 · 一屏看懂定位：内存键值数据库的定义、系统分层位置与存储延迟对比</div>
+  <h3>🧭 00.1 Redis 是什么，以及为什么系统需要它</h3>
+
+  <p>
+    <strong>一句话定义：Redis（Remote Dictionary Server，远程字典服务）是一个主要在内存（RAM，Random Access Memory，随机存取内存）中读写数据的键值（Key-Value）数据库。</strong>
+  </p>
+  <p>
+    用餐厅打个比方：关系型数据库 MySQL 就像后厨的<strong>大型冷库与总账本</strong>——容量大、分门别类、断电不丢账，但每次进库翻找和登记都要花几毫秒到几十毫秒；当大促或热门帖子涌入每秒几万次查询（QPS，Queries Per Second，每秒查询率）时，所有请求都挤进冷库会把后厨彻底堵死。而 Redis 就像收银台手边的<strong>保温备菜架</strong>——把最常点的热销商品、当前剩余库存、用户登录牌直接摆在伸手就能拿到的内存里，不到 <code>1 毫秒（ms）</code> 即可响应。
+  </p>
+
+  <!-- Editorial SVG: Request -> App -> Redis -> MySQL Architecture -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 248" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rd-ov-arch-title rd-ov-arch-desc">
+        <title id="rd-ov-arch-title">后端系统中请求经过应用服务协同访问 Redis 与 MySQL 的分层架构</title>
+        <desc id="rd-ov-arch-desc">客户端请求进入业务应用后，优先读写亚毫秒级响应的 Redis 内存层处理热点缓存与计数协调；未命中或最终落盘写操作再访问底层 MySQL 数据库。</desc>
+        <defs>
+          <marker id="rd-ov-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rd-ov-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="rd-ov-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Zone: Data & State Layer -->
+        <rect x="456" y="16" width="360" height="184" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="472" y="20" width="144" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="544" y="32" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">存储与状态协同层</text>
+
+        <!-- Connectors (drawn BEFORE boxes, strictly orthogonal r=8) -->
+        <!-- Client (164,112) -> App (240,112) -->
+        <line x1="164" y1="112" x2="240" y2="112" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#rd-ov-arr-link)"/>
+        <rect x="176" y="90" width="52" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="202" y="100" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#2e5aa8">HTTP</text>
+
+        <!-- App right-top port (396, 96) -> Redis left port (492, 76) -->
+        <path d="M 396,96 H 424 Q 432,96 432,88 V 84 Q 432,76 440,76 H 492" fill="none" stroke="#bf4520" stroke-width="1.6" marker-end="url(#rd-ov-arr-accent)"/>
+        <rect x="400" y="48" width="84" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="442" y="60" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#bf4520">优先读写 &lt;1ms</text>
+
+        <!-- App right-bottom port (396, 128) -> MySQL left port (492, 156) -->
+        <path d="M 396,128 H 424 Q 432,128 432,136 V 148 Q 432,156 440,156 H 492" fill="none" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#rd-ov-arr-muted)"/>
+        <rect x="396" y="164" width="92" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="442" y="176" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="500" fill="#5a6580">查库回源与落盘</text>
+
+        <!-- Node 1: User Request -->
+        <rect x="24" y="80" width="140" height="64" rx="6" fill="#FFFDF7"/>
+        <rect x="24" y="80" width="140" height="64" rx="6" fill="rgba(79,93,117,0.07)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="94" y="108" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#1F1F23">用户请求</text>
+        <text x="94" y="128" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">App / Web</text>
+
+        <!-- Node 2: Application -->
+        <rect x="240" y="76" width="156" height="72" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.4"/>
+        <text x="318" y="108" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#1F1F23">业务应用服务</text>
+        <text x="318" y="128" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">Go / Node.js</text>
+
+        <!-- Node 3: Redis (Focal Node) -->
+        <rect x="492" y="44" width="304" height="64" rx="6" fill="#FFFDF7"/>
+        <rect x="492" y="44" width="304" height="64" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="644" y="70" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13.5" font-weight="800" fill="#bf4520">Redis 内存层（扛高频流量）</text>
+        <text x="644" y="92" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#1F1F23">热点缓存 · 登录态 · 计数 · 排行 · 锁</text>
+
+        <!-- Node 4: MySQL -->
+        <rect x="492" y="124" width="304" height="64" rx="6" fill="#FFFDF7"/>
+        <rect x="492" y="124" width="304" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="644" y="150" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#1F1F23">MySQL 磁盘数据库（最终账本）</text>
+        <text x="644" y="172" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">全量持久化 · 复杂查询 · ACID 事务</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="24" y1="212" x2="816" y2="212" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="24" y="222" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="44" y="231" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">内存热路径（吸收 90%+ 高频简单请求）</text>
+        <line x1="312" y1="227" x2="340" y2="227" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4"/>
+        <text x="348" y="231" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">缓存未命中回源与权威数据落盘路径</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p>
+    为什么数据库抗不住的高并发，挡一层 Redis 就能轻松化解？直接看硬件访问延迟的数量级差距：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">访问介质 / 动作</th>
+          <th style="width:20%">单次典型耗时</th>
+          <th style="width:22%">放大为人类时间直觉<br><span style="font-size:11px; font-weight:600;">(假设内存读 1 次 = 1 秒)</span></th>
+          <th>对日常开发的实际意义</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>内存随机寻址（RAM）</strong></td>
+          <td><code>~ 100 ns</code>（<code>0.0001 ms</code>）</td>
+          <td><strong><code>1 秒</code></strong></td>
+          <td>Redis 在内存里查一个键本体的耗时微乎其微，单核每秒可处理约 <code>10 万+</code> 次简单操作。</td>
+        </tr>
+        <tr>
+          <td><strong>同机房网络往返（RTT）</strong></td>
+          <td><code>~ 0.3 ms</code>（<code>300 μs</code>）</td>
+          <td><code>50 分钟</code></td>
+          <td>RTT（Round-Trip Time，网络往返时间）比内存操作慢几千倍，因此减少网络请求次数很关键。</td>
+        </tr>
+        <tr>
+          <td><strong>固态硬盘随机读（SSD）</strong></td>
+          <td><code>~ 0.1 ms</code>（<code>100 μs</code>）</td>
+          <td><code>16 分钟</code></td>
+          <td>SSD（Solid-State Drive，固态硬盘）单次读磁盘页比读内存慢约 <code>1000</code> 倍。</td>
+        </tr>
+        <tr>
+          <td><strong>机械盘（HDD）/ 复杂 SQL</strong></td>
+          <td><code>2 ~ 20 ms</code></td>
+          <td><code>5 ~ 55 小时</code></td>
+          <td>HDD（Hard Disk Drive，机械硬盘）寻道或带多表关联锁竞争的 SQL，高并发下极易拖满数据库连接池。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin-bottom:0;">
+    💡 <strong>背后的原理：</strong>想了解 CPU 64B 缓存行与磁盘页缓冲池的底层差异，可按需查阅 <a href="principles.html#why">《📘 核心原理篇 · 00.1 存储介质物理延迟层级》</a>。
+  </p>
+</div>
+
+<!-- 00.2 · 十大高频场景地图、不适用边界与横向选型表 -->
+<div class="wb-card" id="scene-map" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🗺️ 00.2 · 能力与边界：10 大高频实战场景地图、3 类不适用红线与存储组件横向对比</div>
+  <h3>🗺️ 00.2 实际开发哪些场景用它、什么时候不该用</h3>
+
+  <h4>1. 十大常见业务场景速查地图</h4>
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">业务场景</th>
+          <th style="width:36%">典型通用需求举例</th>
+          <th style="width:24%">推荐 Redis 数据类型</th>
+          <th>实战详解直达</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 热点数据缓存</strong></td>
+          <td>电商商品详情、社区帖子正文、首页轮播配置</td>
+          <td><code>String</code> / <code>Hash</code></td>
+          <td><a href="#cache-problem">03 · 缓存实战</a></td>
+        </tr>
+        <tr>
+          <td><strong>② 登录态与会话</strong></td>
+          <td>登录后颁发 Token、活跃自动续期、后台强制踢下线</td>
+          <td><code>String</code> / <code>Hash</code></td>
+          <td><a href="#sc-session">04.1 · 登录态管理</a></td>
+        </tr>
+        <tr>
+          <td><strong>③ 短信验证码与频控</strong></td>
+          <td>验证码 5 分钟有效、60 秒内禁止重复点击发送</td>
+          <td><code>String</code>（带过期时间）</td>
+          <td><a href="#sc-sms">04.2 · 验证码频控</a></td>
+        </tr>
+        <tr>
+          <td><strong>④ 防重复提交 / 幂等</strong></td>
+          <td>用户弱网连点两次「提交订单」，保证只生成一笔订单</td>
+          <td><code>String (SET NX EX)</code></td>
+          <td><a href="#sc-idempotent">04.3 · 防重幂等</a></td>
+        </tr>
+        <tr>
+          <td><strong>⑤ 高并发计数器</strong></td>
+          <td>文章阅读量、视频播放数、点赞数先写内存再定时落库</td>
+          <td><code>String (INCR)</code> / <code>Hash</code></td>
+          <td><a href="#sc-counter">04.4 · 计数器回写</a></td>
+        </tr>
+        <tr>
+          <td><strong>⑥ 接口访问限流</strong></td>
+          <td>限制每个用户每分钟最多调用 10 次评论或搜索接口</td>
+          <td><code>String</code> / <code>ZSet</code> / <code>Lua</code></td>
+          <td><a href="#sc-ratelimit">04.5 · 三种限流</a></td>
+        </tr>
+        <tr>
+          <td><strong>⑦ 实时排行榜</strong></td>
+          <td>社区热帖榜、活动积分前 50 名及「我排第几名」</td>
+          <td><code>ZSet</code>（有序集合）</td>
+          <td><a href="#sc-rank">04.6 · 排行榜</a></td>
+        </tr>
+        <tr>
+          <td><strong>⑧ 延迟任务</strong></td>
+          <td>电商订单创建 30 分钟未支付自动关闭并释放库存</td>
+          <td><code>ZSet</code> + <code>Lua</code></td>
+          <td><a href="#sc-delay">04.7 · 延迟关单</a></td>
+        </tr>
+        <tr>
+          <td><strong>⑨ 分布式互斥锁</strong></td>
+          <td>多台服务器跑同一个整点定时任务，确保只有 1 台执行</td>
+          <td><code>String (SET NX PX)</code> + <code>Lua</code></td>
+          <td><a href="#sc-lock">04.8 · 分布式锁</a></td>
+        </tr>
+        <tr>
+          <td><strong>⑩ 消息队列 / 去重统计</strong></td>
+          <td>下单异步发券队列；每日签到、亿级 UV（独立访客）、附近门店</td>
+          <td><code>Stream</code> / <code>Bitmap</code> / <code>HLL</code> / <code>GEO</code></td>
+          <td><a href="#sc-mq">04.9 · 队列</a> / <a href="#ext-types">02.6 · 统计</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="margin-top:16px;">2. 什么时候不该用 Redis（三类不适用边界）</h4>
+  <ul>
+    <li><strong>需要多条件筛选与多表关联的复杂查询</strong>：Redis 只能通过精确的 Key 拿数据，无法原生执行类似 <code>WHERE status = 1 AND city = '上海' AND amount &gt; 100</code> 的组合过滤或关联统计，这类需求必须用 MySQL / PostgreSQL 索引或 Elasticsearch。</li>
+    <li><strong>绝对不能丢一分钱的强一致账本与复杂回滚事务</strong>：关系型数据库具备完整的 ACID（Atomicity, Consistency, Isolation, Durability，原子性、一致性、隔离性、持久性）事务与预写日志同步落盘；而 Redis 断电或主从切换可能丢失最后约 1 秒数据，且事务报错不支持回滚（Rollback），因此账户余额、已支付订单等权威账本必须落在关系型数据库。</li>
+    <li><strong>历史冷数据体量远超内存预算</strong>：例如几 TB 的全年操作日志或历史归档订单。内存每 GB 成本远高于磁盘，Redis 只应存放近期高频访问的热点数据并配合过期淘汰。</li>
+  </ul>
+
+  <h4 style="margin-top:16px;">3. 横向选型对比：本地缓存 vs Redis vs Memcached vs MySQL</h4>
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">对比维度</th>
+          <th style="width:21%">进程内本地缓存<br><span style="font-size:11px; font-weight:600;">(JS Map / Go sync.Map)</span></th>
+          <th style="width:23%">Redis</th>
+          <th style="width:19%">Memcached</th>
+          <th>MySQL</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>存储介质与延迟</strong></td>
+          <td>应用自身内存，<strong>最快（纳秒级，无网络）</strong></td>
+          <td>独立服务内存，亚毫秒级（<code>&lt; 1ms</code>）</td>
+          <td>独立服务内存，亚毫秒级（<code>&lt; 1ms</code>）</td>
+          <td>磁盘 + 内存缓冲池，毫秒级（<code>1 ~ 20ms</code>）</td>
+        </tr>
+        <tr>
+          <td><strong>多实例状态共享</strong></td>
+          <td><strong>不支持</strong>（10 台服务器各自存一份，容易不一致）</td>
+          <td><strong>支持</strong>（所有业务实例读写同一份状态）</td>
+          <td><strong>支持</strong></td>
+          <td><strong>支持</strong></td>
+        </tr>
+        <tr>
+          <td><strong>数据结构能力</strong></td>
+          <td>语言原生对象/字典</td>
+          <td><strong>丰富</strong>（字符串、哈希、列表、集合、排序榜、位图、流）</td>
+          <td><strong>单一</strong>（仅支持纯字符串 Key-Value）</td>
+          <td>二维关系表、二级索引、复杂 SQL 关联</td>
+        </tr>
+        <tr>
+          <td><strong>持久化与高可用</strong></td>
+          <td>进程重启即清空</td>
+          <td>支持 RDB/AOF 落盘、哨兵自动切换与分片集群</td>
+          <td>不支持磁盘持久化，重启全丢</td>
+          <td>严格事务落盘，主从高可用，数据最终兜底</td>
+        </tr>
+        <tr>
+          <td><strong>工程定位</strong></td>
+          <td>挡极热配置与突发单键洪峰（二级缓存）</td>
+          <td><strong>跨实例共享缓存、计数、排行榜与分布式协调主力</strong></td>
+          <td>早年纯静态大文本缓存（新项目多已被 Redis 替代）</td>
+          <td><strong>业务系统的唯一权威事实账本</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.3 · 本笔记知识地图 -->
+<div class="wb-card" id="knowledge-map" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🧭 00.3 · 阅读路线图：本笔记 9 章实战脉络与核心原理篇的对应位置</div>
+  <h3>🧭 00.3 本笔记知识地图</h3>
+
+  <p>
+    整份笔记按照「先跑起来认识积木 → 再解决真实业务场景 → 最后补齐上线防线与底层原理」的顺序编排，你可以顺着箭头通读，也可以在复习时直接按章节定位：
+  </p>
+
+  <!-- Editorial SVG: Note-Garden Redis Knowledge Map -->
+  <figure style="margin:14px 0 4px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 240" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rd-kmap-title rd-kmap-desc">
+        <title id="rd-kmap-title">Redis 学习笔记全篇知识地图与学习路径</title>
+        <desc id="rd-kmap-desc">从左到右分为四站：第一站上手与数据类型（00全景、01跑起来、02数据类型），第二站核心业务实战（03缓存工程、04十大常见场景），第三站生产防线（05数据可靠性、06高可用集群、07上线前必知），第四站08综合场景自测，底部双向联动核心原理篇。</desc>
+        <defs>
+          <marker id="rd-km-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rd-km-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="rd-km-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <!-- Stage 1 (196, 84) -> Stage 2 (228, 84) -->
+        <line x1="196" y1="84" x2="228" y2="84" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#rd-km-arr-muted)"/>
+        <!-- Stage 2 (420, 84) -> Stage 3 (452, 84) -->
+        <line x1="420" y1="84" x2="452" y2="84" stroke="#bf4520" stroke-width="1.6" marker-end="url(#rd-km-arr-accent)"/>
+        <!-- Stage 3 (652, 84) -> Stage 4 (684, 84) -->
+        <line x1="652" y1="84" x2="684" y2="84" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#rd-km-arr-muted)"/>
+
+        <!-- Vertical dashed links down to Principles Bar (y=144 -> y=176) -->
+        <line x1="110" y1="144" x2="110" y2="176" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#rd-km-arr-link)"/>
+        <line x1="324" y1="144" x2="324" y2="176" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#rd-km-arr-link)"/>
+        <line x1="552" y1="144" x2="552" y2="176" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#rd-km-arr-link)"/>
+
+        <!-- Stage 1 Box -->
+        <rect x="24" y="24" width="172" height="120" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="110" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">① 起步与基础积木</text>
+        <text x="110" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">00 全景定位与边界</text>
+        <text x="110" y="94" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">01 跑起来与客户端</text>
+        <text x="110" y="116" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">02 5+3 数据类型</text>
+
+        <!-- Stage 2 Box (Focal) -->
+        <rect x="228" y="24" width="192" height="120" rx="6" fill="#FFFDF7"/>
+        <rect x="228" y="24" width="192" height="120" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="324" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">② 核心业务落地（重点）</text>
+        <text x="324" y="74" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">03 缓存一致性与三大异常</text>
+        <text x="324" y="98" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#bf4520">04 九大常见实战场景</text>
+        <text x="324" y="120" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">Token · 限流 · 排行 · 锁 · 队列</text>
+
+        <!-- Stage 3 Box -->
+        <rect x="452" y="24" width="200" height="120" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="552" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">③ 生产可靠性与上线防线</text>
+        <text x="552" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">05 持久化与内存淘汰</text>
+        <text x="552" y="94" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">06 主从 / 哨兵 / Cluster</text>
+        <text x="552" y="116" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">07 上线前必知 Checklist</text>
+
+        <!-- Stage 4 Box -->
+        <rect x="684" y="24" width="132" height="120" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="750" y="56" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">④ 实战检验</text>
+        <text x="750" y="84" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">08 场景自测</text>
+        <text x="750" y="108" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">10 道折叠排障题</text>
+
+        <!-- Bottom Principles Bar -->
+        <rect x="24" y="176" width="792" height="44" rx="6" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1.3"/>
+        <text x="420" y="203" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2e5aa8">📘 核心原理篇（按需从各节末尾「背后的原理」跳入：epoll 单线程 · 跳表/Rehash · 双写竞态 · fork COW · Redlock）</text>
+      </svg>
+    </div>
+  </figure>
+</div>

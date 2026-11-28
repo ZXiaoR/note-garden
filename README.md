@@ -15,7 +15,7 @@
 | [🤖 Coding Agent (pi)](pi-agent/index.html) / [🧭 源码与架构全解](pi-agent/guide.html) | ✅ 已完成 | 12 子包与双层循环状态机 · 工具三道防线与 QuickJS 沙箱 · 6 步安全切分压缩与 4 级模型工具追加 · 流式 rg 与 BM25 · 容器化盲测 · Runtime / Framework / Harness 四层权衡 |
 | [🐬 MySQL · 基础与实战篇](mysql/index.html) / [📘 原理篇](mysql/principles.html) | ✅ 已完成 | 四平台安装与连接池 · utf8mb4/DECIMAL/JSON生成列 · 幂等写入/窗口函数/递归CTE · 防超卖与EXPLAIN调优 · 16KB页与行溢出 · 冷热LRU与Change Buffer · B+树扇出推导 · ReadView可见性 · Next-Key Lock退化 · 两阶段提交与Doublewrite |
 | [🐘 PostgreSQL · 基础与实战篇](postgres/index.html) / [📘 原理篇](postgres/principles.html) | ✅ 已完成 | 四级目录与权限 · JSONB/数组/范围 · UPSERT/LATERAL/窗口函数/递归CTE · 8KB 页与 TOAST · 23B 元组头 MVCC 与 SSI · Lehman-Yao B-tree/GIN/BRIN · HOT 与 VACUUM FREEZE |
-| [🧱 Redis](redis/index.html) | ✅ 已完成 | 为什么快/单线程 · 数据结构(底层编码/阈值) · 缓存三大问题 · 持久化(RDB/AOF) · 过期淘汰 · 主从/哨兵/集群 · 分布式锁 |
+| [🧱 Redis · 基础与实战篇](redis/index.html) / [📘 原理篇](redis/principles.html) | ✅ 已完成 | 全景定位与选型边界 · Docker 快速上手与双语言连接 · 5+3 类型(JS类比/避坑) · Cache-Aside 双写时序与三大异常 · 登录态/限流三演进/排行榜/延迟关单/分布式锁/Stream 九大实战 · 持久化淘汰与集群跨槽 · 上线必知与 10 题自测 · 常问/深挖分级内核原理 |
 | [🐹 Go · 基础与实战篇](go/index.html) / [📘 原理篇](go/principles.html) | ✅ 已完成 | 基础语法/包管理 · 协程与 GMP 调度 · channel · 锁与同步 · GC(三色标记/写屏障/逃逸分析) · context/泛型/性能优化 |
 | [🟢 Node.js · 基础与实战篇](node/index.html) / [📘 原理篇](node/principles.html) | ✅ 已完成 | CJS vs ESM · libuv 事件循环六阶段 · Buffer 8KB 内存池与 Stream 背压 · V8 隐藏类与分代 GC · Cluster 与 worker_threads |
 | [🌱 操作系统 · 基础入门篇](os/index.html) | ✅ 已完成 | 指令/变量/地址 · 程序运行与等待 · 进程线程 · 内存 · 多任务协作 · Linux 终端与文件操作 |

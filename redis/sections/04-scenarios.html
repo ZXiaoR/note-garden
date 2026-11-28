@@ -1,0 +1,730 @@
+<!-- ====================================================================
+     PART 04: 常见实战场景 · 9 大通用业务完整落地方案 + Lua 与 MULTI 辨析
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="scenarios">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">常见实战场景：从登录态、限流、排行榜到分布式锁与队列</span>
+  <span class="plop-tag tomato">TOKEN · RATE LIMIT · LEADERBOARD · DELAY · LOCK · STREAM · LUA</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>遇到实际开发最常碰到的 9 类 Redis 需求，直接按「需求 → 方案选型 → 命令 → 可运行 Go 代码 → 常见坑 → 背后原理」落地，并分清什么时候该写 Lua 脚本、什么时候该换专业消息队列。
+</div>
+
+<!-- ==================== 第一组：高频状态、防刷与计数 ==================== -->
+<div class="wb-card" id="sc-session" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🔐 04.1–04.4 · 高频状态与防刷实战：登录态管理、短信验证码、防重幂等与计数器回写</div>
+  <h3>🔐 第一组：登录态、验证码、防重复提交与计数器</h3>
+
+  <!-- 04.1 登录态 / Token -->
+  <h4>04.1 登录态 / Token（活跃自动续期 + 强制踢下线）</h4>
+  <ul>
+    <li><strong>需求</strong>：用户登录后生成随机 Token，7 天内免重新登录，期间只要有活跃请求就自动顺延有效期；用户修改密码或后台封禁账号时，能<strong>立刻让该用户所有已登录设备的旧 Token 失效</strong>。</li>
+    <li><strong>为什么选这个方案</strong>：纯无状态 JWT（JSON Web Token，JSON 网络令牌）一旦签发，在过期前服务端无法主动废止；用 Redis <code>String</code> 存 <code>auth:tk:&lt;token&gt; -&gt; userID</code>，再用一个 <code>Set</code> 存 <code>auth:user_tks:&lt;userID&gt;</code> 记录该用户名下所有活跃 Token，既能亚毫秒级鉴权，又能按人一键清空踢下线。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>⌨️ session_token.redis · 登录、鉴权续期与踢下线 [Redis 6.x / 7.x]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sess-cmd', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-sess-cmd"><code><span class="c-cm"># 1. 登录成功：存 Token 映射（7天=604800秒），并记入该用户的设备集合</span>
+SET auth:tk:9f8a7b6c "1001" EX 604800
+SADD auth:user_tks:1001 "9f8a7b6c"
+EXPIRE auth:user_tks:1001 604800
+
+<span class="c-cm"># 2. 接口鉴权与续期（Redis 6.2+ 可用 GETEX 一步读出并重置过期时间）</span>
+GET auth:tk:9f8a7b6c
+EXPIRE auth:tk:9f8a7b6c 604800
+
+<span class="c-cm"># 3. 改密或封号踢下线：查出该用户全部 Token 删掉</span>
+SMEMBERS auth:user_tks:1001
+DEL auth:tk:9f8a7b6c auth:user_tks:1001</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 session.go · 按半程阈值低开销续期与一键踢下线 [Go · go-redis/v9]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sess-go', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-sess-go"><code><span class="c-kw">const</span> sessionTTL = 7 * 24 * time.Hour
+
+<span class="c-cm">// VerifyAndRenew 校验 Token，仅在剩余寿命不足一半时才触发续期写操作</span>
+<span class="c-kw">func</span> VerifyAndRenew(ctx context.Context, rdb *redis.Client, tk <span class="c-kw">string</span>) (<span class="c-kw">string</span>, <span class="c-kw">error</span>) {
+    key := <span class="c-str">"auth:tk:"</span> + tk
+    pipe := rdb.Pipeline()
+    uidCmd := pipe.Get(ctx, key)
+    ttlCmd := pipe.TTL(ctx, key)
+    _, _ = pipe.Exec(ctx)
+
+    uid, err := uidCmd.Result()
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> <span class="c-str">""</span>, ErrUnauthorized
+    }
+    <span class="c-kw">if</span> ttlCmd.Val() &gt; 0 &amp;&amp; ttlCmd.Val() &lt; sessionTTL/2 {
+        _ = rdb.Expire(ctx, key, sessionTTL).Err()
+    }
+    <span class="c-kw">return</span> uid, <span class="c-kw">nil</span>
+}
+
+<span class="c-cm">// KickUserAllDevices 强制将该用户所有已登录端踢下线</span>
+<span class="c-kw">func</span> KickUserAllDevices(ctx context.Context, rdb *redis.Client, uid <span class="c-kw">string</span>) <span class="c-kw">error</span> {
+    setKey := <span class="c-str">"auth:user_tks:"</span> + uid
+    tks, err := rdb.SMembers(ctx, setKey).Result()
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    keys := []<span class="c-kw">string</span>{setKey}
+    <span class="c-kw">for</span> _, tk := <span class="c-kw">range</span> tks {
+        keys = append(keys, <span class="c-str">"auth:tk:"</span>+tk)
+    }
+    <span class="c-kw">return</span> rdb.Unlink(ctx, keys...).Err()
+}</code></pre>
+    </div>
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
+    ⚠️ <strong>常见坑：</strong>不要在每次只读接口请求里都无脑调 <code>EXPIRE</code>（高频写操作会产生大量主从同步流量），像上面代码一样<strong>当剩余寿命小于一半（如剩不到 3.5 天）再续期</strong>即可。 ｜ 💡 <strong>背后的原理：</strong>过期字典指针共享与自动清理机制见 <a href="principles.html#redisdb-kernel">《📘 原理篇 · 00.2》</a>。
+  </p>
+
+  <!-- 04.2 验证码 -->
+  <hr style="border:none; border-top:1.5px dashed rgba(45,49,66,0.15); margin:16px 0;" />
+  <h4 id="sc-sms">04.2 短信验证码（5 分钟存码 + 60 秒防重发 + 每日上限）</h4>
+  <ul>
+    <li><strong>需求</strong>：发送 6 位数字验证码（5 分钟内有效，验证成功立即销毁防二次使用）；限制同一手机号 60 秒内只能点一次发送，且单日最多发 10 条防短信盗刷。</li>
+    <li><strong>为什么选这个方案</strong>：三个带自动过期的 <code>String</code> 键即可覆盖「冷却锁 + 日计数 + 存码」，到期自动清理不留垃圾数据。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>⌨️ sms_code.redis · 冷却锁、日限额与一次性核销 [Redis 6.2+ / 7.x]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sms-cmd', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-sms-cmd"><code><span class="c-cm"># 1. 抢 60 秒发送冷却锁（返回 nil 说明 60 秒内刚发过，直接拦截）</span>
+SET sms:cd:13800138000 "1" NX EX 60
+
+<span class="c-cm"># 2. 累加当日发送次数（首次为 1 时顺手设 24 小时过期；超过 10 则拒绝）</span>
+INCR sms:day:20261128:13800138000
+EXPIRE sms:day:20261128:13800138000 86400 NX
+
+<span class="c-cm"># 3. 存入 6 位验证码，5 分钟（300 秒）过期</span>
+SET sms:code:13800138000 "482910" EX 300
+
+<span class="c-cm"># 4. 校验并原子销毁（Redis 6.2+ GETDEL 读出后立即删除；6.0 可校验通过后 DEL）</span>
+GETDEL sms:code:13800138000</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 sms_verify.go · 发送频控与防暴力枚举校验 [Go · go-redis/v9]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sms-go', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-sms-go"><code><span class="c-kw">func</span> SendSMS(ctx context.Context, rdb *redis.Client, phone, code <span class="c-kw">string</span>) <span class="c-kw">error</span> {
+    <span class="c-cm">// 1. 60 秒冷却校验</span>
+    ok, err := rdb.SetNX(ctx, <span class="c-str">"sms:cd:"</span>+phone, <span class="c-str">"1"</span>, 60*time.Second).Result()
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> || !ok {
+        <span class="c-kw">return</span> errors.New(<span class="c-str">"请求过于频繁，请 60 秒后再试"</span>)
+    }
+    <span class="c-cm">// 2. 当日上限校验（≤ 10 次）</span>
+    dayKey := fmt.Sprintf(<span class="c-str">"sms:day:%s:%s"</span>, time.Now().Format(<span class="c-str">"20060102"</span>), phone)
+    cnt, _ := rdb.Incr(ctx, dayKey).Result()
+    <span class="c-kw">if</span> cnt == 1 {
+        _ = rdb.Expire(ctx, dayKey, 24*time.Hour).Err()
+    }
+    <span class="c-kw">if</span> cnt &gt; 10 {
+        <span class="c-kw">return</span> errors.New(<span class="c-str">"今日验证码发送次数已达上限"</span>)
+    }
+    <span class="c-cm">// 3. 保存验证码并重置错误计数</span>
+    _ = rdb.Del(ctx, <span class="c-str">"sms:err:"</span>+phone).Err()
+    <span class="c-kw">return</span> rdb.Set(ctx, <span class="c-str">"sms:code:"</span>+phone, code, 5*time.Minute).Err()
+}</code></pre>
+    </div>
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
+    ⚠️ <strong>常见坑：</strong>① 验证通过后必须立刻删码，防止同一验证码在 5 分钟内被重放；② 校验失败时建议对 <code>sms:err:&lt;phone&gt;</code> 调 <code>INCR</code>，连续输错 5 次直接删掉原验证码强制重发，防止脚本暴力穷举 6 位数字。 ｜ 💡 <strong>背后的原理：</strong>单线程原子执行条件写入见 <a href="principles.html#single-thread">《📘 原理篇 · 01.1》</a>。
+  </p>
+
+  <!-- 04.3 防重复提交 / 幂等 -->
+  <hr style="border:none; border-top:1.5px dashed rgba(45,49,66,0.15); margin:16px 0;" />
+  <h4 id="sc-idempotent">04.3 防重复提交 / 接口幂等（<code>SET NX EX</code>）</h4>
+  <ul>
+    <li><strong>需求</strong>：用户在提交订单或发起提现页面因网络卡顿连点三次按钮，或者网关超时自动重试，后端需要保证<strong>同一个幂等令牌只真正执行一次下单逻辑</strong>。</li>
+    <li><strong>为什么选这个方案</strong>：前端打开确认页时向后端申请（或本地生成 UUID）一个唯一 <code>Idempotency-Key</code> 放在请求头里；后端收到请求先调 <code>SET idem:order:&lt;key&gt; "1" NX EX 300</code>，只有第一个到达的请求能写成功返回 <code>true</code>。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>⌨️ idempotent.redis · 一行原子抢占防重键 [Redis 6.x / 7.x]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-idem-cmd', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-idem-cmd"><code><span class="c-cm"># 第 1 次请求到达：键不存在，写入成功返回 OK -&gt; 放行去创建订单</span>
+SET idem:order:req_88201 "PROCESSING" NX EX 300
+
+<span class="c-cm"># 10 毫秒后连点的第 2 次请求到达：键已存在，返回 (nil) -&gt; 直接提示「请勿重复提交」</span>
+SET idem:order:req_88201 "PROCESSING" NX EX 300</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 idempotent.go · 下单防重包装（报错回退锁允许重试）[Go · go-redis/v9]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-idem-go', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-idem-go"><code><span class="c-kw">func</span> SubmitOrderOnce(ctx context.Context, rdb *redis.Client, idemToken <span class="c-kw">string</span>, createFn <span class="c-kw">func</span>() (<span class="c-kw">string</span>, <span class="c-kw">error</span>)) (<span class="c-kw">string</span>, <span class="c-kw">error</span>) {
+    key := <span class="c-str">"idem:order:"</span> + idemToken
+    ok, err := rdb.SetNX(ctx, key, <span class="c-str">"PROCESSING"</span>, 5*time.Minute).Result()
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> <span class="c-str">""</span>, err
+    }
+    <span class="c-kw">if</span> !ok {
+        <span class="c-kw">return</span> <span class="c-str">""</span>, errors.New(<span class="c-str">"订单正在处理或已提交，请勿重复点击"</span>)
+    }
+
+    orderNo, bizErr := createFn()
+    <span class="c-kw">if</span> bizErr != <span class="c-kw">nil</span> {
+        <span class="c-cm">// 关键细节：下游落库明确失败时删掉防重键，允许用户修复问题后重新提交</span>
+        _ = rdb.Del(ctx, key).Err()
+        <span class="c-kw">return</span> <span class="c-str">""</span>, bizErr
+    }
+    <span class="c-kw">return</span> orderNo, <span class="c-kw">nil</span>
+}</code></pre>
+    </div>
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
+    ⚠️ <strong>常见坑：</strong>① 如果后续写 MySQL 明确报错回滚了，记得删掉幂等键允许用户正常重试；② Redis 防重挡的是 99.9% 的并发连点，数据库订单表仍应给业务单号建<strong>唯一索引（<code>UNIQUE KEY</code>）</strong>做最终兜底。 ｜ 💡 <strong>背后的原理：</strong>单线程 Reactor 串行保证无竞态见 <a href="principles.html#single-thread">《📘 原理篇 · 01.1》</a>。
+  </p>
+
+  <!-- 04.4 计数器 -->
+  <hr style="border:none; border-top:1.5px dashed rgba(45,49,66,0.15); margin:16px 0;" />
+  <h4 id="sc-counter">04.4 高并发计数器（<code>INCR / HINCRBY</code> + 定时无损回写数据库）</h4>
+  <ul>
+    <li><strong>需求</strong>：帖子阅读量、文章点赞数每秒几万次增加，不能每次浏览都直接 <code>UPDATE posts SET views = views + 1</code> 锁数据库行；改为在 Redis 实时累加增量，后台每分钟批量刷回 MySQL。</li>
+    <li><strong>为什么选这个方案</strong>：用一个 <code>Hash</code>（<code>post:views:delta</code>）存各帖子的<strong>待落盘增量</strong>，配合一个 <code>Set</code>（<code>post:views:dirty</code>）记录本轮有哪些帖子被看过，定时任务只需扫变脏的那几百个帖子增量落库，并用负向 <code>HINCRBY -delta</code> 扣减已落盘数，绝不漏计刷盘瞬间新进来的阅读。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>⌨️ counter_flush.redis · 内存记增量与安全扣减已落盘值 [Redis 6.x / 7.x]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-cnt-cmd', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-cnt-cmd"><code><span class="c-cm"># 1. 用户每次点开帖子 5001：增量 +1，并把 5001 记入待刷盘脏集合</span>
+HINCRBY post:views:delta 5001 1
+SADD post:views:dirty 5001
+
+<span class="c-cm"># 2. 定时任务刷盘：弹出脏 ID，读出当前累计增量（假设读出 120）</span>
+SPOP post:views:dirty 50
+HGET post:views:delta 5001
+
+<span class="c-cm"># 3. 执行 SQL: UPDATE posts SET views = views + 120 WHERE id = 5001 成功后，扣掉这 120</span>
+HINCRBY post:views:delta 5001 -120</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 view_counter.go · 埋点累加与定时合并回写数据库 [Go · go-redis/v9]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-cnt-go', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-cnt-go"><code><span class="c-kw">func</span> AddPostView(ctx context.Context, rdb *redis.Client, postID <span class="c-kw">string</span>) {
+    pipe := rdb.Pipeline()
+    pipe.HIncrBy(ctx, <span class="c-str">"post:views:delta"</span>, postID, 1)
+    pipe.SAdd(ctx, <span class="c-str">"post:views:dirty"</span>, postID)
+    _, _ = pipe.Exec(ctx)
+}
+
+<span class="c-kw">func</span> FlushViewsBatch(ctx context.Context, rdb *redis.Client) <span class="c-kw">error</span> {
+    ids, err := rdb.SPopN(ctx, <span class="c-str">"post:views:dirty"</span>, 100).Result()
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> || len(ids) == 0 {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">for</span> _, id := <span class="c-kw">range</span> ids {
+        delta, _ := rdb.HGet(ctx, <span class="c-str">"post:views:delta"</span>, id).Int64()
+        <span class="c-kw">if</span> delta &lt;= 0 {
+            <span class="c-kw">continue</span>
+        }
+        <span class="c-kw">if</span> err := addViewsInMySQL(ctx, id, delta); err == <span class="c-kw">nil</span> {
+            <span class="c-cm">// 扣减已落盘的 delta，保留刷盘期间新进来的阅读增量</span>
+            _ = rdb.HIncrBy(ctx, <span class="c-str">"post:views:delta"</span>, id, -delta).Err()
+        } <span class="c-kw">else</span> {
+            _ = rdb.SAdd(ctx, <span class="c-str">"post:views:dirty"</span>, id).Err() <span class="c-cm">// 失败放回下轮重试</span>
+        }
+    }
+    <span class="c-kw">return nil</span>
+}</code></pre>
+    </div>
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 0;">
+    ⚠️ <strong>常见坑：</strong>刷盘时切忌直接 <code>HDEL</code> 把字段删掉，否则读取到删掉这几毫秒内新产生的阅读量就凭空消失了；用 <code>HINCRBY -delta</code> 差额扣减才是并发安全的。 ｜ 💡 <strong>背后的原理：</strong>小 Hash 的紧凑编码与扩容原理见 <a href="principles.html#listpack-kernel">《📘 原理篇 · 02.2 / 02.3》</a>。
+  </p>
+</div>
+
+<!-- ==================== 第二组：限流、排行榜与延迟任务 ==================== -->
+<div class="wb-card" id="sc-ratelimit" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🚦 04.5–04.7 · 流量与排序调度：限流三步演进、实时排行榜与订单超时延迟取消</div>
+  <h3>🚦 第二组：接口限流、实时排行榜与延迟任务</h3>
+
+  <!-- 04.5 限流 -->
+  <h4>04.5 接口限流：固定窗口 → 滑动窗口（ZSet）→ 令牌桶（Lua）</h4>
+  <ul>
+    <li><strong>需求</strong>：限制每个用户或 IP 访问发帖/搜索接口的频率（如每分钟最多 10 次），超过后返回 <code>429 Too Many Requests</code>。</li>
+    <li><strong>三种方案怎么选（看清各自的优缺点）</strong>：</li>
+  </ul>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">限流方案</th>
+          <th style="width:28%">Redis 实现方式</th>
+          <th style="width:24%">优点</th>
+          <th>核心缺点（面试与线上高频考点）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>① 固定窗口</strong></td>
+          <td>按分钟拼键名 <code>rl:u1:1105</code>，执行 <code>INCR + EXPIRE 60</code></td>
+          <td>命令最简单，每个用户只占 1 个整数 String</td>
+          <td><strong>窗口交界处双倍流量突刺</strong>：用户在 <code>00:59</code> 连发 10 次，又在 <code>01:00</code> 连发 10 次，实际 <strong>2 秒内放过了 20 次请求</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>② 滑动窗口</strong></td>
+          <td><code>ZSet</code> 以请求毫秒时间戳为 <code>score</code>，每次删掉 60 秒前旧元素再数 <code>ZCARD</code></td>
+          <td><strong>任意连续 60 秒严格不超限</strong>，彻底消除边界突刺</td>
+          <td>每个放行的请求都要在 ZSet 存一条记录，若限额很大（如每分钟允许 5 万次）会占用较多内存。</td>
+        </tr>
+        <tr>
+          <td><strong>③ 令牌桶</strong></td>
+          <td><code>Hash</code> 只存 <code>{剩余令牌数, 上次补充时间}</code>，用 <code>Lua</code> 按时间差惰性算新令牌并扣减</td>
+          <td><strong>省内存（固定 2 个字段）+ 速率平滑</strong>，还能精细控制突发容量</td>
+          <td>实现相对复杂一点，需要维护一段十来行的 <code>Lua</code> 原子脚本。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 sliding_window.go · 滑动窗口限流（ZSet + Lua）[Redis 6.x / 7.x]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rl-slide', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-rl-slide"><code><span class="c-cm">// 适合中小配额精准限流（如每分钟最多 10 次）：先清理窗口外旧记录，未超限才写入本次请求</span>
+<span class="c-kw">var</span> slidingLua = redis.NewScript(<span class="c-str">`
+local key = KEYS[1]
+local now_ms = tonumber(ARGV[1])
+local window_ms = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local req_id = ARGV[4]
+
+redis.call('ZREMRANGEBYSCORE', key, 0, now_ms - window_ms)
+if redis.call('ZCARD', key) &gt;= limit then
+    return 0
+end
+redis.call('ZADD', key, now_ms, req_id)
+redis.call('PEXPIRE', key, window_ms)
+return 1
+`</span>)
+
+<span class="c-kw">func</span> AllowSlidingWindow(ctx context.Context, rdb *redis.Client, uid <span class="c-kw">string</span>, limit <span class="c-kw">int</span>) (<span class="c-kw">bool</span>, <span class="c-kw">error</span>) {
+    now := time.Now().UnixMilli()
+    reqID := fmt.Sprintf(<span class="c-str">"%d-%d"</span>, now, rand.IntN(100000))
+    res, err := slidingLua.Run(ctx, rdb, []<span class="c-kw">string</span>{<span class="c-str">"rl:sw:"</span> + uid}, now, 60000, limit, reqID).Int()
+    <span class="c-kw">return</span> res == 1, err
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 token_bucket.go · 令牌桶限流（Hash + Lua 服务端时钟）[Redis 6.x / 7.x]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rl-bucket', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-rl-bucket"><code><span class="c-cm">// 适合高并发大配额网关限流：直接用 Redis TIME 获取统一时钟，不怕多台业务机时间不准</span>
+<span class="c-kw">var</span> tokenBucketLua = redis.NewScript(<span class="c-str">`
+local key = KEYS[1]
+local capacity = tonumber(ARGV[1]) -- 桶最大令牌数
+local rate = tonumber(ARGV[2])     -- 每秒生成令牌数
+local t = redis.call('TIME')
+local now_ms = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+
+local data = redis.call('HMGET', key, 'tokens', 'last_ms')
+local tokens = tonumber(data[1]) or capacity
+local last_ms = tonumber(data[2]) or now_ms
+
+local delta = math.max(0, now_ms - last_ms) / 1000.0 * rate
+tokens = math.min(capacity, tokens + delta)
+if tokens &lt; 1 then
+    return 0
+end
+redis.call('HSET', key, 'tokens', tokens - 1, 'last_ms', now_ms)
+redis.call('EXPIRE', key, math.ceil(capacity / rate) * 2)
+return 1
+`</span>)</code></pre>
+    </div>
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
+    ⚠️ <strong>常见坑：</strong>写滑动窗口时<strong>一定要先判断 <code>ZCARD &lt; limit</code> 再 <code>ZADD</code></strong>！如果先把每次请求都塞进 ZSet 再判断超限，恶意刷接口的人每秒发 1 万次请求会把你的 ZSet 塞爆并且无限续期。 ｜ 💡 <strong>背后的原理：</strong>Lua 单线程原子执行机制见 <a href="principles.html#misc">《📘 原理篇 · 06.2》</a>。
+  </p>
+
+  <!-- 04.6 排行榜 -->
+  <hr style="border:none; border-top:1.5px dashed rgba(45,49,66,0.15); margin:16px 0;" />
+  <h4 id="sc-rank">04.6 实时排行榜：前 N 名列表与「我的排名」（含同分先后处理）</h4>
+  <ul>
+    <li><strong>需求</strong>：活动积分榜实时更新，页面上半部分展示全站前 10 名及分数，底部悬浮条展示「我当前排第几名、差上一名多少分」，且<strong>积分相同时先达到该分数的人排在前面</strong>。</li>
+    <li><strong>为什么选这个方案</strong>：<code>ZSet</code> 的加分、取 Top N 和查单人排名全部是 <code>O(log N)</code>；为了解决“同分按先后排序”，把分数设计成 <code>整数积分 + (未来极大时间戳 - 当前秒数) / 10^10</code>，越早拿到该积分的人小数部分越大，倒序时自然排在前面。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>⌨️ leaderboard.redis · Top 10 与查询个人名次 [Redis 6.2+ / 7.x]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rank-cmd', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-rank-cmd"><code><span class="c-cm"># 1. 更新玩家积分（若不需要同分时间决胜，直接用 ZINCRBY rank:act 20 "u_1001"）</span>
+ZADD rank:act 500.8267240000 "u_1001" 500.8267239950 "u_1002"
+
+<span class="c-cm"># 2. 查询榜单前 10 名（下标 0 到 9，REV 表示从高分到低分，6.0 旧版用 ZREVRANGE）</span>
+ZRANGE rank:act 0 9 REV WITHSCORES
+
+<span class="c-cm"># 3. 查询 u_1001 的倒序名次（返回 0 代表第 1 名）和当前分数</span>
+ZREVRANK rank:act "u_1001"
+ZSCORE rank:act "u_1001"</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 leaderboard.go · 同分先达优先算分与一次拉取榜单+我的名次 [Go · go-redis/v9]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rank-go', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-rank-go"><code><span class="c-kw">const</span> maxEpoch = 10000000000 <span class="c-cm">// 远未来秒级时间戳基准</span>
+
+<span class="c-cm">// CalcTieBreakScore 合成带先后顺序的分值（适用原始积分 ≤ 100 万的场景）</span>
+<span class="c-kw">func</span> CalcTieBreakScore(points <span class="c-kw">int64</span>, nowSec <span class="c-kw">int64</span>) <span class="c-kw">float64</span> {
+    <span class="c-kw">return</span> <span class="c-kw">float64</span>(points) + <span class="c-kw">float64</span>(maxEpoch-nowSec)/1e10
+}
+
+<span class="c-kw">func</span> GetTop10AndMyRank(ctx context.Context, rdb *redis.Client, key, myUID <span class="c-kw">string</span>) ([]redis.Z, <span class="c-kw">int64</span>, <span class="c-kw">int64</span>, <span class="c-kw">error</span>) {
+    pipe := rdb.Pipeline()
+    topCmd := pipe.ZRangeArgsWithScores(ctx, redis.ZRangeArgs{Key: key, Start: 0, Stop: 9, Rev: <span class="c-kw">true</span>})
+    rankCmd := pipe.ZRevRank(ctx, key, myUID)
+    scoreCmd := pipe.ZScore(ctx, key, myUID)
+    _, _ = pipe.Exec(ctx)
+
+    myRank := <span class="c-kw">int64</span>(-1) <span class="c-cm">// -1 表示尚未上榜</span>
+    <span class="c-kw">if</span> r, err := rankCmd.Result(); err == <span class="c-kw">nil</span> {
+        myRank = r + 1 <span class="c-cm">// 转为从 1 开始的自然名次</span>
+    }
+    myPoints := <span class="c-kw">int64</span>(math.Floor(scoreCmd.Val()))
+    <span class="c-kw">return</span> topCmd.Val(), myRank, myPoints, <span class="c-kw">nil</span>
+}</code></pre>
+    </div>
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
+    ⚠️ <strong>常见坑：</strong>① <code>ZREVRANK</code> 从 <code>0</code> 起算，返回给前端前记得 <code>+ 1</code>，且用户未上榜时会返回 <code>redis.Nil</code>；② 64 位浮点数总共只有约 15~17 位有效十进制数字，如果积分本身已上亿，不要再往小数位塞 10 位时间戳（会丢精度），可改用整数位左移位运算。 ｜ 💡 <strong>背后的原理：</strong>跳表如何靠 <code>span</code> 跨度瞬间算出第几名，见 <a href="principles.html#rehash">《📘 原理篇 · 02.3 跳表 zskiplist》</a>。
+  </p>
+
+  <!-- 04.7 延迟任务 -->
+  <hr style="border:none; border-top:1.5px dashed rgba(45,49,66,0.15); margin:16px 0;" />
+  <h4 id="sc-delay">04.7 延迟任务：订单 30 分钟未支付自动取消</h4>
+  <ul>
+    <li><strong>需求</strong>：用户下单后若 30 分钟内未完成支付，自动关闭订单并归还库存；若期间支付成功则取消该定时任务。</li>
+    <li><strong>为什么选这个方案</strong>：把订单号放进 <code>ZSet</code>，<code>score</code> 设为「下单时间 + 1800 秒」的到期时间戳；后台轮询协程用一段极短的 <code>Lua</code> 脚本原子捞出已到期（<code>score &lt;= 当前时间</code>）的订单并从集合移除，多台业务机同时跑也不会抢到同一笔订单。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>⌨️ delay_order.redis · 投递超时单、支付撤单与到期检索 [Redis 6.x / 7.x]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-delay-cmd', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-delay-cmd"><code><span class="c-cm"># 1. 创建订单时投递：score 设为 30 分钟后的秒级时间戳</span>
+ZADD delay:order:unpaid 1732761800 "ord_2026_9001"
+
+<span class="c-cm"># 2. 若用户在第 5 分钟完成了支付：顺手从延迟池移除，省去后续无效检查</span>
+ZREM delay:order:unpaid "ord_2026_9001"
+
+<span class="c-cm"># 3. 查看当前已到期的最多 20 笔订单（生产多实例请用右侧 Lua 原子抢占移除）</span>
+ZRANGEBYSCORE delay:order:unpaid 0 1732761805 LIMIT 0 20</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 delay_worker.go · 多实例安全的 Lua 原子弹出到期订单 [Go · go-redis/v9]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-delay-go', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-delay-go"><code><span class="c-cm">// 原子查询并移除到期任务，确保多台服务同时轮询不会重复拉到同一笔订单</span>
+<span class="c-kw">var</span> popDueLua = redis.NewScript(<span class="c-str">`
+local items = redis.call('ZRANGEBYSCORE', KEYS[1], 0, ARGV[1], 'LIMIT', 0, tonumber(ARGV[2]))
+if #items &gt; 0 then
+    redis.call('ZREM', KEYS[1], unpack(items))
+end
+return items
+`</span>)
+
+<span class="c-kw">func</span> PollDueOrders(ctx context.Context, rdb *redis.Client) {
+    nowSec := time.Now().Unix()
+    orders, err := popDueLua.Run(ctx, rdb, []<span class="c-kw">string</span>{<span class="c-str">"delay:order:unpaid"</span>}, nowSec, 20).StringSlice()
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> || len(orders) == 0 {
+        <span class="c-kw">return</span>
+    }
+    <span class="c-kw">for</span> _, ordNo := <span class="c-kw">range</span> orders {
+        <span class="c-cm">// 数据库执行带状态条件的幂等关单: UPDATE orders SET status='CANCELED' WHERE order_no=? AND status='UNPAID'</span>
+        _ = cancelOrderIfUnpaidInDB(ctx, ordNo)
+    }
+}</code></pre>
+    </div>
+  </div>
+  <div class="plop-callout warn" style="margin:10px 0 8px;">
+    <strong>⚠️ 两个极高频踩坑点：</strong><br>
+    1. <strong>千万别用 Redis「键过期事件监听（Keyspace Notifications）」来做订单取消！</strong>因为它的通知本质是发后即忘的广播，你的服务重启或网络闪断那几秒过期的订单通知会<strong>直接永久丢失</strong>，而且键多时抽样过期会有数分钟延迟。<br>
+    2. 弹出订单后如果业务进程刚要调数据库就崩了，这笔订单已不在 ZSet 里——所以生产环境<strong>必须配一个每 10 分钟跑一次的低频数据库兜底扫描任务</strong>（扫超过 35 分钟仍未支付的漏网之鱼），或者在订单量很大时直接用 RocketMQ 定时消息 / RabbitMQ 死信队列。
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:0;">
+    💡 <strong>背后的原理：</strong>为什么 Redis 的过期键不是到期那一毫秒立刻被删掉的？详见 <a href="principles.html#expire">《📘 原理篇 · 04.2 定期过期抽样与惰性删除》</a>。
+  </p>
+</div>
+
+<!-- ==================== 第三组：分布式锁与轻量消息队列 ==================== -->
+<div class="wb-card" id="lock" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill" id="sc-lock">🔒 04.8–04.9 · 分布式协调与队列：生产级分布式互斥锁与 Stream 消费者组</div>
+  <h3>🔒 第三组：分布式互斥锁与消息队列</h3>
+
+  <!-- 04.8 分布式锁 -->
+  <h4>04.8 分布式锁：跨机器互斥的 4 项安全准则</h4>
+  <ul>
+    <li><strong>需求</strong>：部署了 5 台订单服务实例，要求「同一笔订单的退款操作」或「每日凌晨对账定时任务」同一时刻全局只能有 1 台机器在执行。</li>
+    <li><strong>为什么选这个方案（4 项缺一不可的规范）</strong>：单机锁（如 Go <code>sync.Mutex</code>）管不了别的服务器；用 Redis 实现安全锁必须同时满足：① <strong>加锁和设过期时间一步原子完成</strong>（<code>SET key token NX PX 30000</code>，防加完锁断电变死锁）；② <strong>Value 必须存当前协程独有的随机 UUID</strong>（防自己超时后把别人刚拿到的锁误删掉）；③ <strong>解锁用 Lua 脚本原子完成「比对 Value + 删除」</strong>；④ 耗时不固定时启动后台<strong>看门狗（Watchdog）协程自动续期</strong>。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>📜 unlock_atomic.lua · 原子校验持有者令牌并释放锁 [Redis 6.x / 7.x]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('redis-lua-unlock', this)">复制 Lua</button>
+      </div>
+      <pre class="plop-code-pre" id="redis-lua-unlock"><code><span class="c-cm">-- KEYS[1]: 锁键名 | ARGV[1]: 当前持有者唯一随机 Token</span>
+<span class="c-cm">-- 命令行加锁对应: SET lock:refund:9001 "uuid-a1b2" NX PX 30000</span>
+<span class="c-kw">if</span> redis.call(<span class="c-str">'GET'</span>, KEYS[1]) == ARGV[1] <span class="c-kw">then</span>
+    <span class="c-kw">return</span> redis.call(<span class="c-str">'DEL'</span>, KEYS[1])
+<span class="c-kw">else</span>
+    <span class="c-kw">return</span> 0
+<span class="c-kw">end</span></code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 dist_lock.go · 带看门狗自动续期的 Go 分布式锁 [Go · go-redis/v9]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-go-lock', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-redis-go-lock"><code><span class="c-kw">var</span> (
+    unlockLua = redis.NewScript(<span class="c-str">`if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end`</span>)
+    renewLua  = redis.NewScript(<span class="c-str">`if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('PEXPIRE',KEYS[1],ARGV[2]) else return 0 end`</span>)
+)
+
+<span class="c-kw">func</span> WithDistLock(ctx context.Context, rdb *redis.Client, key <span class="c-kw">string</span>, ttl time.Duration, fn <span class="c-kw">func</span>() <span class="c-kw">error</span>) <span class="c-kw">error</span> {
+    token := uuid.NewString()
+    ok, err := rdb.SetNX(ctx, key, token, ttl).Result()
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> || !ok {
+        <span class="c-kw">return</span> errors.New(<span class="c-str">"资源正在处理中，请稍后重试"</span>)
+    }
+
+    stopWatchdog := make(<span class="c-kw">chan struct</span>{})
+    <span class="c-kw">go func</span>() {
+        ticker := time.NewTicker(ttl / 3)
+        <span class="c-kw">defer</span> ticker.Stop()
+        <span class="c-kw">for</span> {
+            <span class="c-kw">select</span> {
+            <span class="c-kw">case</span> &lt;-ticker.C:
+                _, _ = renewLua.Run(context.Background(), rdb, []<span class="c-kw">string</span>{key}, token, ttl.Milliseconds()).Result()
+            <span class="c-kw">case</span> &lt;-stopWatchdog:
+                <span class="c-kw">return</span>
+            }
+        }
+    }()
+
+    <span class="c-kw">defer func</span>() {
+        close(stopWatchdog)
+        _, _ = unlockLua.Run(context.Background(), rdb, []<span class="c-kw">string</span>{key}, token).Result()
+    }()
+    <span class="c-kw">return</span> fn()
+}</code></pre>
+    </div>
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
+    ⚠️ <strong>常见坑：</strong>① 绝不能在业务代码里分两步写 <code>if rdb.Get() == token { rdb.Del() }</code>——万一刚判断完相等，卡顿了 10 毫秒锁刚好过期被别人抢走，下一行 <code>Del()</code> 照样误删别人的锁；② 在主从架构下，主库刚加完锁还没同步给从库就宕机切主，会出现短暂的「两台机器同时拿到锁」。 ｜ 💡 <strong>背后的原理：</strong>主从丢锁、Redlock 争议与存储层单调递增令牌兜底见 <a href="principles.html#lock">《📘 原理篇 · 06.1 Fencing Token》</a>。
+  </p>
+
+  <!-- 04.9 消息队列 -->
+  <hr style="border:none; border-top:1.5px dashed rgba(45,49,66,0.15); margin:16px 0;" />
+  <h4 id="mq"><span id="sc-mq">04.9 消息队列：从 <code>List</code> 到 <code>Stream</code> 消费组，以及何时该换 Kafka / RabbitMQ</span></h4>
+  <ul>
+    <li><strong>需求</strong>：用户注册或支付成功后，异步解耦触发「发新人优惠券 + 发欢迎邮件」，要求支持多台机器分摊消费，且消费者处理中途崩溃不会丢任务。</li>
+    <li><strong>为什么从 <code>List</code> 演进到 <code>Stream</code></strong>：<code>List (LPUSH + BRPOP)</code> 一旦弹出元素就从 Redis 消失了，消费者没跑完重启就丢消息，且一条消息只能被一个业务拿走（没法让发券服务和邮件服务各自独立消费一份）；Redis 5.0+ 的 <strong><code>Stream</code></strong> 补齐了<strong>多消费者组独立广播、组内竞争分摊、PEL（Pending Entries List，已投递待确认列表）+ <code>XACK</code> 确认、以及崩溃超时自动转交（<code>XAUTOCLAIM</code>）</strong>。</li>
+  </ul>
+
+  <!-- Editorial SVG: Redis Stream Consumer Group & PEL ACK Lifecycle -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 880 232" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rd-stm-title rd-stm-desc">
+        <title id="rd-stm-title">Redis Stream 消费者组消息分发、PEL 待确认池与 XACK 闭环架构</title>
+        <desc id="rd-stm-desc">生产者通过 XADD MAXLEN 向 Stream 追加有序消息；消费者组通过 XREADGROUP 将消息投递给消费者并同步登记到 PEL 待确认列表；消费成功后发送 XACK 将记录从 PEL 移除，若消费者崩溃超时则由存活节点通过 XAUTOCLAIM 接管重试。</desc>
+        <defs>
+          <marker id="rd-stm-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rd-stm-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Zone: Consumer Group g1 -->
+        <rect x="444" y="20" width="412" height="192" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="460" y="24" width="184" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="552" y="36" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">消费者组 Consumer Group (g1)</text>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <line x1="156" y1="116" x2="224" y2="116" stroke="#1F1F23" stroke-width="1.4" marker-end="url(#rd-stm-arr-muted)"/>
+        <rect x="164" y="96" width="52" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="190" y="105" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#1F1F23">XADD</text>
+
+        <path d="M 392,96 H 424 Q 432,96 432,88 V 88 Q 432,80 440,80 H 476" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#rd-stm-arr-accent)"/>
+        <path d="M 392,136 H 424 Q 432,136 432,144 V 156 Q 432,164 440,164 H 476" fill="none" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#rd-stm-arr-muted)"/>
+
+        <path d="M 640,80 H 748 Q 756,80 756,88 V 156 Q 756,164 748,164 H 700" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#rd-stm-arr-accent)"/>
+        <rect x="764" y="112" width="84" height="28" rx="2" fill="#FFFDF7"/>
+        <text x="806" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#bf4520">XACK 确认移除</text>
+        <text x="806" y="136" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8" fill="#5a6580">超时则 XAUTOCLAIM</text>
+
+        <!-- Nodes -->
+        <rect x="28" y="88" width="128" height="56" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="92" y="113" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">业务生产者</text>
+        <text x="92" y="131" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">MAXLEN ~ 10000</text>
+
+        <rect x="224" y="76" width="168" height="80" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="308" y="104" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#bf4520">Stream 消息流</text>
+        <text x="308" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">1732676001-0</text>
+        <text x="308" y="140" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">1732676002-0 ...</text>
+
+        <rect x="476" y="52" width="164" height="56" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="558" y="77" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">消费者节点 c1 / c2</text>
+        <text x="558" y="95" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">XREADGROUP &gt;</text>
+
+        <rect x="476" y="136" width="224" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="588" y="161" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">PEL 已投递待确认列表</text>
+        <text x="588" y="179" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">记录 msgID + 消费者 + 投递时刻</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>⚡ stream_mq.redis · 限长生产、消费组拉取、ACK 与故障接管 [Redis 6.2+ / 7.x]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('redis-stream-cmd', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="redis-stream-cmd"><code><span class="c-cm"># 1. 生产消息：MAXLEN ~ 10000 近似裁剪防内存撑爆，* 自动生成递增 ID</span>
+XADD mq:orders MAXLEN ~ 10000 * order_id 9001 user_id 1001
+
+<span class="c-cm"># 2. 创建消费组 g1（MKSTREAM 在流不存在时自动建空流）</span>
+XGROUP CREATE mq:orders g1 0 MKSTREAM
+
+<span class="c-cm"># 3. 消费者 c1 阻塞最多 2 秒拉取未分配过的新消息（&gt;）</span>
+XREADGROUP GROUP g1 c1 COUNT 5 BLOCK 2000 STREAMS mq:orders &gt;
+
+<span class="c-cm"># 4. 消费落库成功后发送 XACK 从 PEL 待确认池移除</span>
+XACK mq:orders g1 1732676001000-0
+
+<span class="c-cm"># 5. 故障巡检（6.2+）：超时 60 秒未 ACK 的死信由 c2 自动认领重试</span>
+XAUTOCLAIM mq:orders g1 c2 60000 0-0 COUNT 10</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 stream_worker.go · Go 消费者组循环拉取与 ACK 确认 [Go · go-redis/v9]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-stm-go', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-stm-go"><code><span class="c-kw">func</span> ConsumeOrderStream(ctx context.Context, rdb *redis.Client, consumerName <span class="c-kw">string</span>) {
+    _ = rdb.XGroupCreateMkStream(ctx, <span class="c-str">"mq:orders"</span>, <span class="c-str">"g1"</span>, <span class="c-str">"0"</span>).Err()
+    <span class="c-kw">for</span> {
+        streams, err := rdb.XReadGroup(ctx, &amp;redis.XReadGroupArgs{
+            Group:    <span class="c-str">"g1"</span>,
+            Consumer: consumerName,
+            Streams:  []<span class="c-kw">string</span>{<span class="c-str">"mq:orders"</span>, <span class="c-str">"&gt;"</span>},
+            Count:    10,
+            Block:    2 * time.Second,
+        }).Result()
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">continue</span>
+        }
+        <span class="c-kw">for</span> _, msg := <span class="c-kw">range</span> streams[0].Messages {
+            <span class="c-cm">// 消费逻辑务必幂等（按 order_id 判重），成功后再 XAck</span>
+            <span class="c-kw">if</span> err := grantCouponIdempotent(ctx, msg.Values); err == <span class="c-kw">nil</span> {
+                _ = rdb.XAck(ctx, <span class="c-str">"mq:orders"</span>, <span class="c-str">"g1"</span>, msg.ID).Err()
+            }
+        }
+    }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout warn" style="margin:12px 0 8px;">
+    <strong>⚠️ 选型边界：什么时候 Redis <code>Stream</code> 够用，什么时候必须换 Kafka / RabbitMQ？</strong><br>
+    • <strong>用 Redis Stream 就够了</strong>：中小型项目不想额外维护一套消息队列组件、日消息量在百万级以内、下游正常实时消费无大规模积压、能容忍极端宿主机断电丢失最后 1 秒非账务消息。<br>
+    • <strong>必须换 Kafka / RabbitMQ / RocketMQ</strong>：① <strong>消息积压可能达几十 GB 甚至 TB 级</strong>（Redis 全存内存，设了 <code>MAXLEN</code> 积压超限就会把老消息裁掉，不设又会直接把 Redis 内存撑爆宕机；而 Kafka 存廉价磁盘不怕堆积）；② <strong>资金账务级零丢失要求</strong>（需同步刷盘 + 多副本确认才向生产者返回成功）；③ 需要复杂的路由交换机、原生多级延迟队列或死信队列（选 RabbitMQ / RocketMQ）。
+  </div>
+  <p style="font-size:13px; color:var(--plop-ink-soft); margin:0;">
+    💡 <strong>背后的原理：</strong>Stream 如何用前缀压缩基数树 <code>rax + listpack</code> 压缩同构消息字段，详见 <a href="principles.html#mq">《📘 原理篇 · 06.2 Stream 底层存储模型》</a>。
+  </p>
+</div>
+
+<!-- ==================== 本章末尾辨析：Lua 与 MULTI 的区别 ==================== -->
+<div class="wb-card" id="misc" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">⚖️ 04.10 · 本章收尾辨析：Lua 脚本与 MULTI / EXEC 事务到底有什么区别</div>
+  <h3>⚖️ 04.10 为什么上面实战都在写 <code>Lua</code> 脚本，而不用 <code>MULTI</code> 事务？</h3>
+
+  <p>
+    很多刚从 MySQL 转过来的开发者看到 Redis 有 <code>MULTI ... EXEC</code>，会误以为它和关系型数据库事务一样。实际上两者差别很大——把 <code>MULTI</code>、<code>Lua</code> 和负责纯批量网络加速的 <code>Pipeline</code> 放在一张表里对比最清楚：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">机制</th>
+          <th style="width:18%">防其他客户端插队</th>
+          <th style="width:24%">能否读上一步结果做 <code>if/else</code></th>
+          <th>中途某条命令报错会回滚（Rollback）吗？</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>MULTI / EXEC</code> 事务</strong></td>
+          <td><strong>是</strong>（<code>EXEC</code> 时集中串行跑完）</td>
+          <td><strong>不能！</strong>所有命令在 <code>EXEC</code> 前只是排队暂存，客户端中途拿不到查询结果</td>
+          <td><strong>不回滚！</strong>入队时语法拼错会整批取消；但运行时类型错（如对 Hash 调 <code>INCR</code>）仅该条报错，前后其余命令照常生效。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Lua</code> 脚本</strong><br><code>EVAL / EVALSHA</code></td>
+          <td><strong>是（严格单命令级原子）</strong></td>
+          <td><strong>能！</strong>在脚本内直接查出库存/令牌数，满足 <code>if</code> 条件才执行下一步扣减</td>
+          <td>同样无自动回滚，所以脚本内应<strong>先把所有前置校验判断完，最后再执行修改命令</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Pipeline</code> 管道</strong><br><span style="font-size:11px; color:var(--plop-ink-soft);">(详见 07.3)</span></td>
+          <td><strong>否</strong>（纯粹打包省网络往返，中间可穿插别人的命令）</td>
+          <td><strong>不能</strong>（一次全发出去再一次收结果）</td>
+          <td>互不影响，单条报错不阻断其他命令。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin:10px 0 0; font-size:13.4px;">
+    <strong>实战一句话选型口诀：</strong>只要需求里有<strong>「先查一下是什么值，满足条件再改/删」</strong>（解锁校验 Token、扣库存防超卖、限流判超额、抢延迟订单），直接写<strong>十几行以内、无耗时循环的 <code>Lua</code> 脚本</strong>，并且把脚本访问的所有键名都通过 <code>KEYS[]</code> 数组传进去（为以后上集群留好兼容）。
+  </p>
+</div>

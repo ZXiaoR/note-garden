@@ -11,7 +11,11 @@
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
   <div class="chapter-q-pill">📡 05.1 · 复制协议内核：PSYNC2 双 replid 解决切主重同步问题与两类复制缓冲区内存边界</div>
-  <h3>📡 05.1 <code>PSYNC 2.0</code> 双复制流标识与环形积压缓冲区机制</h3>
+  <h3>📡 05.1 <code>PSYNC 2.0</code> 双复制流标识与环形积压缓冲区机制 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#replication">实战篇 06.1 主从复制</a> —— 从库网络闪断重连或哨兵切主后，怎么只增量补齐缺失的几秒数据，而不是每次都重新全量拷贝几个 GB 的 RDB？
+  </p>
 
   <p>
     在早期 Redis 2.8 的 <code>PSYNC 1.0</code> 中，一旦主节点宕机、哨兵将某个从节点晋升为新主节点（生成全新的 <code>runid</code>），其余存活从节点改挂新主时因 <code>runid</code> 不匹配，会全部退化为昂贵的 <code>FULLRESYNC</code> 全量 RDB 同步。为此，<strong>Redis 4.0 引入了 <code>PSYNC 2.0</code></strong>，用代表“数据集历史血统”的 40 位随机串 <strong><code>replid</code></strong> 取代实例 <code>runid</code>，并在每个节点内同时维护<strong>主副两组复制标识</strong>：
@@ -87,7 +91,11 @@
 <div class="wb-card" id="sentinel" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
   <div class="chapter-q-pill">🚨 05.2 · 哨兵共识协议：quorum 与 majority 双门槛辨析、Raft Leader 纪元投票与从库三轮筛选</div>
-  <h3>🚨 05.2 Sentinel 故障转移中的两级人数门槛与选主算法</h3>
+  <h3>🚨 05.2 Sentinel 故障转移中的两级人数门槛与选主算法 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sentinel">实战篇 06.1 Sentinel 哨兵</a> —— 为什么哨兵至少要部署 3 台奇数节点？主库失联时谁来拍板把哪台从库升为新主库？
+  </p>
 
   <p>
     Sentinel 自动故障转移包含<strong>“判定主库客观下线”→“哨兵内部选出唯一执行者 Leader”→“从存活从库中挑出新 Master”</strong>三个严格阶段，其中 <code>quorum</code>（配置项）与 <code>majority</code>（集群哨兵半数以上）的分工是理解高可用容错边界的关键：
@@ -104,7 +112,11 @@
 <div class="wb-card" id="cluster" style="background:var(--plop-paper);">
   <div class="washi-tape mint"></div>
   <div class="chapter-q-pill">🧩 05.3 · 分片集群内核：16384 槽与 Gossip 2KB 位图定量权衡、在线槽迁移状态机与 MOVED / ASK</div>
-  <h3>🧩 05.3 Cluster Gossip 心跳位图定量分析与在线重分片协议</h3>
+  <h3>🧩 05.3 Cluster Gossip 心跳位图定量分析与在线重分片协议 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#cluster">实战篇 06.2 Cluster 分片</a> —— 为什么哈希槽总数定为 <code>16384</code> 而不是 <code>65536</code>？集群在线加机器搬迁槽位期间，业务请求怎么做到不停服跳转（<code>MOVED</code> vs <code>ASK</code>）？
+  </p>
 
   <p>
     <code>CRC16(key)</code> 校验和本身产生的是 16 位整数（范围 <code>0 ~ 65535</code> 共 <code>2<sup>16</sup> = 65536</code> 个值），但作者 antirez 在设计 Redis Cluster 时特意对 <code>16384</code>（<code>2<sup>14</sup></code>）取模，核心原因来自去中心化 <strong>Gossip 协议心跳包的网络带宽账</strong>：

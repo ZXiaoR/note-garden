@@ -302,14 +302,30 @@
       });
 
       // 同步「入门篇 ⇄ 原理篇」切换按钮的当前章节锚点，实现“读到哪一章，切过去就是哪一章”
+      const principlesAnchorMap = {
+        'linux-cmd': 'tools',
+        'overview': 'why',
+        'quickstart': 'why',
+        'scenarios': 'lock',
+        'production': 'fast',
+        'quiz': 'cheat'
+      };
+      const practiceAnchorMap = {
+        'why': 'overview',
+        'fast': 'production',
+        'lock': 'scenarios'
+      };
       document.querySelectorAll('[data-edition-target]').forEach(a => {
         const base = a.getAttribute('data-edition-target');
         if (!base) return;
         let targetHash = currentId;
-        if (base.includes('principles.html') && currentId === 'linux-cmd') {
-          targetHash = 'tools';
+        if (base.includes('principles.html') && principlesAnchorMap[currentId]) {
+          targetHash = principlesAnchorMap[currentId];
+        } else if (base.includes('index.html') && (window.location.pathname || '').includes('/redis/') && practiceAnchorMap[currentId]) {
+          targetHash = practiceAnchorMap[currentId];
         }
-        a.setAttribute('href', currentId && currentId !== 'why' ? `${base}#${targetHash}` : base);
+        const isTopChapter = !targetHash || targetHash === 'why' || targetHash === 'overview';
+        a.setAttribute('href', !isTopChapter ? `${base}#${targetHash}` : base);
       });
     }
 
@@ -319,7 +335,7 @@
   }
 
   // 10. 自动并行加载拆分的纯 HTML 章节子文件 ([data-plop-section="sections/01-xxx.html"])
-  const SECTION_CACHE_PREFIX = 'plop-sec-v11:';
+  const SECTION_CACHE_PREFIX = 'plop-sec-v12:';
   const prefetchedPages = new Set();
 
   function getSectionCacheKey(url, baseHref = window.location.href) {

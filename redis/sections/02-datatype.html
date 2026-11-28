@@ -1,220 +1,267 @@
 <!-- ====================================================================
-     PART 02: 五大基础数据类型与四大扩展类型实战选型
+     PART 02: 数据类型实战 · 5 种基础类型、3 种统计扩展与选型速查
      ==================================================================== -->
 <div class="wb-sec-header periwinkle" id="datatype">
   <span class="wb-sec-num">02</span>
-  <span class="wb-sec-title">五大基础数据类型与四大扩展类型实战指南</span>
+  <span class="wb-sec-title">数据类型实战：5 种基础类型、3 种统计扩展与选型速查</span>
   <span class="plop-tag mint">STRING · HASH · LIST · SET · ZSET · BITMAP · HLL · GEO</span>
 </div>
 
-<!-- 02.1 · String 与 Hash：单值缓存、原子计数与结构化对象存储 -->
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>把 Redis 的 8 种常用数据类型和熟悉的 JavaScript 数据结构对应起来，记住每种类型最常用的 5 条命令、典型业务场景与高频踩坑点。
+</div>
+
+<p style="font-size:14px; color:var(--plop-ink-soft); margin:0 0 16px;">
+  Redis 的键（Key）统一是字符串，而值（Value）原生支持多种内存结构，让你不用每次都把整份数据拉回业务代码里修改再写回。下面按统一的<strong>「是什么（JS 类比）→ 5 个常用命令 → 典型场景 → 常见坑 → 底层编码」</strong>结构逐一拆解（另一种专门用于可靠消息队列的扩展类型 <code>Stream</code> 将在 <a href="#sc-mq">04.9 · 消息队列</a> 完整实战）。
+</p>
+
+<!-- 02.1 · String -->
 <div class="wb-card" id="encoding" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill">🗂️ 02.1 · String 与 Hash：字符串条件写入、原子计数与结构化对象局部更新</div>
-  <h3>🗂️ 02.1 <code>String</code>（字符串）与 <code>Hash</code>（哈希字典）</h3>
+  <div class="chapter-q-pill">🔤 02.1 · String（字符串）：缓存对象、原子计数与条件写入</div>
+  <h3>🔤 02.1 <code>String</code>（字符串）</h3>
 
-  <p>
-    Redis 的 Value 并非只有简单的文本字符串，而是原生提供了丰富的内存数据结构，使开发者可以直接在服务端完成字段修改、链表排队、集合交并集与权重排序，无需每次将整份数据拉回应用层反序列化后再写回。最常用于存储实体对象与计数状态的是 <code>String</code> 与 <code>Hash</code>：
-  </p>
-
-  <h4>1. <code>String</code>：二进制安全字节流、条件写入与原子计数</h4>
-  <p>
-    <code>String</code> 是二进制安全的（单个 Value 上限为 <code>512 MB</code>，日常建议控制在 <code>10 KB</code> 以内），既可以存普通文本与序列化后的 JSON / Protobuf 字节流，也可以在内容为十进制整数或浮点数时直接执行服务端原子加减：
-  </p>
+  <ul>
+    <li><strong>是什么（类比 JS）</strong>：相当于 JS 里的基础变量 <code>let val = "hello"</code> 或 <code>let count = 0</code>。它是二进制安全的字节串（理论上限 <code>512 MB</code>），既能存普通文本、序列化后的 JSON（JavaScript Object Notation，JavaScript 对象表示法）字符串，也能在内容是整数时直接做服务端原子加减。</li>
+    <li><strong>典型场景</strong>：① 整存整取缓存商品详情或用户配置 JSON；② 文章阅读量、点赞数原子计数器；③ 带 5 分钟过期时间的短信验证码。</li>
+  </ul>
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>⌨️ string_ops.redis · String 高频命令与参数组合</span>
-      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-str', this)">复制命令</button>
+      <span>⌨️ string_top5.redis · String 最常用的 5 个命令 [Redis 6.x / 7.x]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dt-string', this)">复制命令</button>
     </div>
-    <pre class="plop-code-pre" id="code-redis-str"><code><span class="c-cm"># 1. SET 完整复合语法：SET key value [NX | XX] [GET] [EX sec | PX ms | KEEPTTL]</span>
-<span class="c-cm">#    NX = 仅当键不存在时写入（常用于防重幂等与互斥锁）；XX = 仅当键已存在时更新；KEEPTTL = 更新值但保留原剩余过期时间</span>
-SET idempotent:order:9001 "1" NX EX 600
+    <pre class="plop-code-pre" id="code-dt-string"><code><span class="c-cm"># 1. SET：写入值，支持组合 EX(秒级过期) 与 NX(仅当键不存在时才写入，常用于防重和加锁)</span>
+SET mall:sku:101 "{\"title\":\"机械键盘\",\"price\":299}" EX 1800
+SET order:idem:9001 "1" NX EX 300
 
-<span class="c-cm"># 2. 批量读写：一次网络往返获取多个商品价格（时间复杂度 O(K)，K 为键个数）</span>
-MSET sku:price:101 "9900" sku:price:102 "15900"
+<span class="c-cm"># 2. GET：读取字符串值</span>
+GET mall:sku:101
+
+<span class="c-cm"># 3. MSET / MGET：一次网络往返批量写入或读取多个键（比循环调多次 GET 快得多）</span>
+MSET sku:price:101 "299" sku:price:102 "399"
 MGET sku:price:101 sku:price:102
 
-<span class="c-cm"># 3. 原子计数：键不存在时自动按 0 初始化后再加减，单线程串行执行天然无并发丢失更新问题</span>
-INCR article:views:5001          <span class="c-cm"># +1，返回递增后的新整数值</span>
-INCRBY sku:stock:101 -2          <span class="c-cm"># 原子扣减 2 件库存（或用 DECRBY sku:stock:101 2）</span></code></pre>
+<span class="c-cm"># 4. INCR：将整数字符串原子 +1（键不存在时自动从 0 开始算，返回加完后的新值）</span>
+INCR article:views:5001
+
+<span class="c-cm"># 5. INCRBY：按指定步长原子加减（传负数即扣减，等价于 DECRBY）</span>
+INCRBY sku:stock:101 -2</code></pre>
   </div>
 
-  <h4 style="margin-top:16px;">2. <code>Hash</code>：在单个 Key 内维护多个 <code>field -&gt; value</code> 键值对</h4>
-  <p>
-    当我们需要缓存一个包含十几个属性的对象（如用户资料 <code>{nickname, avatar, vip_level, points}</code>）或用户购物车（<code>field = sku_id</code>，<code>value = 购买数量</code>）时，如果用单个 JSON <code>String</code> 存储，每次只修改积分 <code>points</code> 都需要把整个 JSON 读出、反序列化、改完再整体覆盖写回；而使用 <code>Hash</code> 可以直接按字段（<code>field</code>）局部读写：
+  <div class="plop-callout warn" style="margin:12px 0 8px;">
+    <strong>⚠️ 常见坑：</strong>① 对一个<strong>原本带有过期时间</strong>的键再次执行普通 <code>SET key newVal</code>，会把原有的过期时间直接清空变成永不过期（<code>TTL = -1</code>）！若只想改值并保留原剩余寿命，Redis 6.0+ 请加 <code>KEEPTTL</code> 参数（<code>SET key newVal KEEPTTL</code>）；② 单个 String 值建议控制在 <code>10 KB</code> 以内，避免大对象占满网卡带宽。
+  </div>
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    💡 <strong>背后的原理：</strong>String 底层会根据内容自动切换为 <code>int</code>（8 字节整数）、<code>embstr</code>（<code>≤ 44</code> 字节短字符串，单次连续内存分配）或 <code>raw</code>（<code>&gt; 44</code> 字节动态字符串 SDS，Simple Dynamic String） → <a href="principles.html#encoding">《📘 核心原理篇 · 02.1 对象头与 embstr 44B 边界推导》</a>。
   </p>
+</div>
 
-  <div class="wb-grid-2">
-    <div class="plop-code-box" style="margin:0;">
-      <div class="plop-code-head">
-        <span>🛒 hash_cart.redis · 用 Hash 实现电商购物车</span>
-        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-hash', this)">复制命令</button>
-      </div>
-      <pre class="plop-code-pre" id="code-redis-hash"><code><span class="c-cm"># 1. 添加商品到用户 1001 的购物车 (HSET 支持一次写多个字段)</span>
-HSET cart:user:1001 sku_801 1 sku_805 2
+<!-- 02.2 · Hash -->
+<div class="wb-card" id="dt-hash" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🗂️ 02.2 · Hash（哈希字典）：对象单字段读写与电商购物车</div>
+  <h3>🗂️ 02.2 <code>Hash</code>（哈希字典）</h3>
 
-<span class="c-cm"># 2. 点击「+」号将 sku_801 数量原子 +1</span>
-HINCRBY cart:user:1001 sku_801 1
+  <ul>
+    <li><strong>是什么（类比 JS）</strong>：相当于 JS 里的单层 <code>Map&lt;string, string&gt;</code> 或扁平对象 <code>{ nickname: "林晓", points: "120" }</code>。把同一个实体的多个属性收纳在一个 Key 下面，支持按字段名（<code>field</code>）单独读写。</li>
+    <li><strong>典型场景</strong>：① 用户基础资料缓存（单独修改积分或头像，不必把整个 JSON 读出来反序列化再写回；整读整写用 String 还是局部改用 Hash 的完整对比见 <a href="#production-serial">07.5</a>）；② 电商购物车（<code>key = cart:user:1001</code>，<code>field = 商品 sku_id</code>，<code>value = 购买件数</code>）。</li>
+  </ul>
 
-<span class="c-cm"># 3. 查看购物车商品种类数与指定商品数量</span>
-HLEN cart:user:1001
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🛒 hash_top5.redis · Hash 最常用的 5 个命令（以购物车为例）[Redis 6.x / 7.x]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dt-hash', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-dt-hash"><code><span class="c-cm"># 1. HSET：向购物车一次写入一个或多个「商品ID -&gt; 数量」字段</span>
+HSET cart:user:1001 sku_801 "1" sku_805 "2"
+
+<span class="c-cm"># 2. HGET / HMGET：读取单个或多个指定商品的数量</span>
+HGET cart:user:1001 sku_801
 HMGET cart:user:1001 sku_801 sku_805
 
-<span class="c-cm"># 4. 移除某件商品；字段较多时用 HSCAN 替代 HGETALL</span>
-HDEL cart:user:1001 sku_805
-<span class="c-cm"># Redis 7.4+ 原生支持为单个 Hash 字段独立设置过期时间：</span>
-HEXPIRE cart:user:1001 86400 FIELDS 1 sku_801</code></pre>
-    </div>
+<span class="c-cm"># 3. HINCRBY：点击购物车「+」号，将 sku_801 的数量原子 +1</span>
+HINCRBY cart:user:1001 sku_801 1
 
-    <div>
-      <h4>工程选型对比：存对象用 JSON <code>String</code> 还是 <code>Hash</code></h4>
-      <div class="table-wrap">
-        <table class="plop-table">
-          <thead>
-            <tr>
-              <th style="width:28%">选型方案</th>
-              <th>适用场景与权衡</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>JSON <code>String</code></strong></td>
-              <td>适合<strong>整读整写、极少局部修改</strong>或包含多层嵌套数组的对象（如商品详情页聚合快照），代码序列化直接直观。</td>
-            </tr>
-            <tr>
-              <td><strong><code>Hash</code> 字典</strong></td>
-              <td>适合<strong>高频读写单字段、单字段原子增减</strong>的扁平结构（如购物车、用户多维计数状态）。在字段数量适中（如 <code>≤ 128</code> 项）时内存紧凑度极高。</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+<span class="c-cm"># 4. HLEN：查看购物车里一共有几种商品</span>
+HLEN cart:user:1001
+
+<span class="c-cm"># 5. HDEL：从购物车移除某件商品</span>
+HDEL cart:user:1001 sku_805</code></pre>
   </div>
+
+  <div class="plop-callout warn" style="margin:12px 0 8px;">
+    <strong>⚠️ 常见坑：</strong>① 标准的 <code>EXPIRE</code> 只能给整个 Hash 键设过期，不能给里面的单个 <code>field</code> 单独设过期（注：直到 <strong>Redis 7.4+</strong> 才新增字段级过期命令 <code>HEXPIRE</code>）；② 如果一个 Hash 里塞了几万个字段，千万别调 <code>HGETALL</code> 一次性全拉出来，会阻塞单线程，应按需调 <code>HMGET</code> 或用 <code>HSCAN</code> 分批遍历。
+  </div>
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    💡 <strong>背后的原理：</strong>字段少且值较短时底层存为一块紧凑连续内存 <code>listpack</code>（Redis 7.0+，6.x 为 <code>ziplist</code>），超过阈值（默认 <code>512</code> 个字段或单值 <code>&gt; 64B</code>）自动转为哈希表 <code>hashtable</code> → <a href="principles.html#listpack-kernel">《📘 核心原理篇 · 02.2 listpack 紧凑编码》</a>。
+  </p>
 </div>
 
-<!-- 02.2 · List、Set 与 ZSet：序列、唯一集与实时权重排序 -->
+<!-- 02.3 · List -->
 <div class="wb-card" id="collection-types" style="background:var(--plop-paper); margin-bottom:20px;">
-  <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill">📊 02.2 · 集合与排序容器：List 双端列表、Set 唯一集合运算与 ZSet 实时排行榜</div>
-  <h3>📊 02.2 <code>List</code>、<code>Set</code> 与 <code>ZSet</code> 的核心操作与场景边界</h3>
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">📋 02.3 · List（双向列表）：最新动态时间线与简单阻塞队列</div>
+  <h3>📋 02.3 <code>List</code>（双向列表）</h3>
 
-  <h4>1. <code>List</code>（按插入顺序排列的双向列表，允许重复元素）</h4>
-  <p>
-    <code>List</code> 支持从左端（表头 <code>L*</code>）或右端（表尾 <code>R*</code>）以 <code>O(1)</code> 推入和弹出元素，因此通过不同的方向组合即可构造栈（同端进出 <code>LPUSH + LPOP</code>）或先进先出队列（左进右出 <code>LPUSH + RPOP / BRPOP</code>）。需要注意 <strong><code>LRANGE key start stop</code> 的区间规则与 Go 切片不同，它是「双闭区间」——同时包含 <code>start</code> 和 <code>stop</code> 下标本身</strong>，且支持负数下标（<code>-1</code> 表示最后一个元素，<code>-2</code> 表示倒数第二个元素）：
-  </p>
-
-  <div class="plop-code-box">
-    <div class="plop-code-head">
-      <span>📋 list_timeline.redis · 定长最新动态列表与阻塞弹出</span>
-      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-list', this)">复制命令</button>
-    </div>
-    <pre class="plop-code-pre" id="code-redis-list"><code><span class="c-cm"># 1. 最新消息推入表头，并用 LTRIM 只保留最新的前 100 条（下标 0 到 99 双闭区间，自动淘汰第 100 条之后的旧动态）</span>
-LPUSH feed:latest:user_1001 "post_903"
-LTRIM feed:latest:user_1001 0 99
-
-<span class="c-cm"># 2. 分页读取第 1 页（前 10 条：下标 0 ~ 9，共 10 个元素；LRANGE key 0 -1 表示取全部元素，大列表慎用）</span>
-LRANGE feed:latest:user_1001 0 9
-
-<span class="c-cm"># 3. 阻塞式右端弹出：若队列为空，连接挂起最多等待 5 秒，一旦有新元素推入立即唤醒返回</span>
-BRPOP task:light_queue 5</code></pre>
-  </div>
-
-  <h4 style="margin-top:16px;">2. <code>Set</code>（无序、自动去重的唯一元素集合）</h4>
-  <p>
-    <code>Set</code> 不仅能在 <code>O(1)</code> 时间内判断某个成员是否已存在（<code>SISMEMBER</code>），还原生支持跨集合的交集（<code>SINTER</code>）、并集（<code>SUNION</code>）、差集（<code>SDIFF</code>）与随机抽取。抽奖业务中需区分两个随机命令的行为差异：<strong><code>SRANDMEMBER key count</code> 仅随机读取不删除原元素（适合可重复中奖或随机推荐池），而 <code>SPOP key count</code> 会随机弹出并从集合中移除该元素（适合一二三等奖不重复抽取）</strong>。
-  </p>
+  <ul>
+    <li><strong>是什么（类比 JS）</strong>：相当于支持两端高效进出的字符串数组 <code>string[]</code>（左端进出对应 <code>unshift / shift</code>，右端进出对应 <code>push / pop</code>），元素按插入顺序排列且<strong>允许重复</strong>。和 JS 数组在头部插入需要搬移全部元素不同，Redis List 从左右两头推入和弹出都是 <code>O(1)</code>。</li>
+    <li><strong>典型场景</strong>：① 社区「最新发布的 100 条帖子/动态列表」（固定长度时间线）；② 简单异步任务队列（左进右出 <code>LPUSH + BRPOP</code>，实现 FIFO，First-In, First-Out，先进先出）。</li>
+  </ul>
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>🎯 set_social.redis · 独立去重、抽奖池与共同关注交集</span>
-      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-set', this)">复制命令</button>
+      <span>📋 list_top5.redis · List 最常用的 5 个命令 [Redis 6.x / 7.x]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dt-list', this)">复制命令</button>
     </div>
-    <pre class="plop-code-pre" id="code-redis-set"><code><span class="c-cm"># 1. 添加关注集合（重复写入同一元素会自动忽略并返回 0）</span>
-SADD follow:user:A "u_10" "u_20" "u_30"
-SADD follow:user:B "u_20" "u_30" "u_40"
+    <pre class="plop-code-pre" id="code-dt-list"><code><span class="c-cm"># 1. LPUSH / RPUSH：从左端（表头）或右端（表尾）推入元素</span>
+LPUSH feed:latest "post_101" "post_102"
 
-<span class="c-cm"># 2. 判断 A 是否关注了 u_20 (O(1))，并计算集合元素总数</span>
-SISMEMBER follow:user:A "u_20"
-SCARD follow:user:A
+<span class="c-cm"># 2. LRANGE：按起止下标读取区间（注意：0 到 9 共返回 10 条；-1 表示最后一个元素）</span>
+LRANGE feed:latest 0 9
 
-<span class="c-cm"># 3. 求 A 与 B 的共同关注交集 -> 返回 ["u_20", "u_30"]（注意大集合交集建议在从库执行或限制规模）</span>
-SINTER follow:user:A follow:user:B</code></pre>
+<span class="c-cm"># 3. LTRIM：只保留指定下标区间内的元素，其余自动裁掉（常与 LPUSH 配合维护最新 100 条动态）</span>
+LTRIM feed:latest 0 99
+
+<span class="c-cm"># 4. LPOP / RPOP：从左端或右端立即弹出并移除 1 个元素</span>
+RPOP task:simple_queue
+
+<span class="c-cm"># 5. BRPOP：阻塞式弹出——若队列为空，连接最多安静等待 5 秒，一有新元素推入立刻唤醒拿走</span>
+BRPOP task:simple_queue 5</code></pre>
   </div>
 
-  <h4 style="margin-top:16px;">3. <code>ZSet</code>（Sorted Set，每个唯一成员关联一个 64 位浮点权重 <code>score</code>）</h4>
-  <p>
-    <code>ZSet</code> 在保持成员唯一性的同时，自动按 <code>score</code> 从小到大维护顺序（当两个成员 <code>score</code> 相同时按成员名字典序排列），单点查分值为 <code>O(1)</code>，插入更新与按名次/分值区间查询均为 <code>O(log N + M)</code>（<code>M</code> 为返回条数）。从 <strong>Redis 6.2 起，官方将早期的 <code>ZREVRANGE / ZRANGEBYSCORE</code> 统一收敛到了增强版 <code>ZRANGE</code> 命令</strong>中：
+  <div class="plop-callout warn" style="margin:12px 0 8px;">
+    <strong>⚠️ 常见坑：</strong>① <strong><code>LRANGE key 0 9</code> 是双闭区间</strong>（同时包含下标 <code>0</code> 和 <code>9</code>，共 10 个元素），跟 JS 的 <code>arr.slice(0, 9)</code> 左闭右开不一样；② 列表很长时严禁执行 <code>LRANGE key 0 -1</code> 拉取全量；③ 用 List 做队列没有确认（ACK）机制，<code>BRPOP</code> 弹走瞬间如果消费者进程崩溃，这条任务就彻底丢了。
+  </div>
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    💡 <strong>背后的原理：</strong>底层采用 <code>quicklist</code> 结构（用双向链表把多段紧凑连续的 <code>listpack</code> 小数组串起来），既避免大数组扩容拷贝，又省去纯双向链表海量的前后指针内存 → <a href="principles.html#listpack-kernel">《📘 核心原理篇 · 02.2 从 ziplist 到 listpack》</a>。
   </p>
-
-  <div class="plop-code-box">
-    <div class="plop-code-head">
-      <span>🏆 zset_leaderboard.go · 使用 ZSet 实现实时热力排行榜与滑动窗口限流</span>
-      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-zset', this)">复制 Go 代码</button>
-    </div>
-    <pre class="plop-code-pre" id="code-redis-zset"><code><span class="c-cm">// 1. 玩家得分原子累加 50 分（成员不存在时自动创建，等价于 ZINCRBY rank:daily:20261127 50 "player_42"）</span>
-newScore, err := rdb.ZIncrBy(ctx, <span class="c-str">"rank:daily:20261127"</span>, 50, <span class="c-str">"player_42"</span>).Result()
-
-<span class="c-cm">// 2. 查询某玩家的降序实时名次（ZRevRank 从 0 开始计，0 代表第一名）</span>
-rankZeroBased, err := rdb.ZRevRank(ctx, <span class="c-str">"rank:daily:20261127"</span>, <span class="c-str">"player_42"</span>).Result()
-
-<span class="c-cm">// 3. 获取榜单前 10 名及分数（等价于 Redis 6.2+ 命令：ZRANGE rank:daily:20261127 0 9 REV WITHSCORES）</span>
-top10, err := rdb.ZRangeArgsWithScores(ctx, redis.ZRangeArgs{
-    Key:   <span class="c-str">"rank:daily:20261127"</span>,
-    Start: 0,
-    Stop:  9,
-    Rev:   <span class="c-kw">true</span>,
-}).Result()
-<span class="c-kw">for</span> idx, item := <span class="c-kw">range</span> top10 {
-    fmt.Printf(<span class="c-str">"第 %d 名: %v (分数: %.0f)\n"</span>, idx+1, item.Member, item.Score)
-}</code></pre>
-  </div>
 </div>
 
-<!-- 02.3 · 四大高阶扩展类型与总体选型速查表 -->
-<div class="wb-card" id="rehash" style="background:var(--plop-paper);">
-  <div class="washi-tape pink"></div>
-  <div class="chapter-q-pill">🚀 02.3 · 高阶扩展类型：Bitmap 位图、HyperLogLog 基数估算、GEO 地理空间与选型全景表</div>
-  <h3 id="history">🚀 02.3 四种扩展数据类型实战与选型决策矩阵</h3>
+<!-- 02.4 · Set -->
+<div class="wb-card" id="dt-set" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🎯 02.4 · Set（无序集合）：自动去重、共同关注交集与随机抽奖</div>
+  <h3>🎯 02.4 <code>Set</code>（无序集合）</h3>
+
+  <ul>
+    <li><strong>是什么（类比 JS）</strong>：相当于 JS 的 <code>new Set&lt;string&gt;()</code>——无序、自动去重、<code>O(1)</code> 判断某个元素在不在里面；比 JS 原生更方便的是，Redis 直接在服务端支持求两个集合的<strong>交集、并集、差集</strong>和随机抽取。</li>
+    <li><strong>典型场景</strong>：① 帖子点赞用户去重（点过赞不能重复点，且随时查总赞数）；② 社区「我和他的共同关注好友」（求交集）；③ 活动抽奖池。</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🎯 set_top5.redis · Set 最常用的 5 个命令 [Redis 6.x / 7.x]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dt-set', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-dt-set"><code><span class="c-cm"># 1. SADD：添加成员（已存在的成员会自动忽略并返回 0）</span>
+SADD post:likes:8001 "u_10" "u_20" "u_30"
+
+<span class="c-cm"># 2. SISMEMBER / SCARD：判断 u_10 是否点过赞（返回 1/0），以及查看总点赞人数</span>
+SISMEMBER post:likes:8001 "u_10"
+SCARD post:likes:8001
+
+<span class="c-cm"># 3. SREM：取消点赞（移除指定成员）</span>
+SREM post:likes:8001 "u_30"
+
+<span class="c-cm"># 4. SINTER：求两个集合的交集（另有 SUNION 并集、SDIFF 差集）</span>
+SADD follow:u_A "u_1" "u_2" "u_3"
+SADD follow:u_B "u_2" "u_3" "u_4"
+SINTER follow:u_A follow:u_B
+<span class="c-cm"># -&gt; 返回共同关注的 u_2 和 u_3</span>
+
+<span class="c-cm"># 5. SRANDMEMBER vs SPOP：随机抽奖</span>
+SRANDMEMBER raffle:pool 2   <span class="c-cm"># 随机看 2 个人，【不从池中删掉】（适合首页随机推荐或允许重复中奖）</span>
+SPOP raffle:pool 1          <span class="c-cm"># 随机抽出 1 个人并【从池中永久移除】（适合一二三等奖不重复抽取）</span></code></pre>
+  </div>
+
+  <div class="plop-callout warn" style="margin:12px 0 8px;">
+    <strong>⚠️ 常见坑：</strong>集合包含几十万成员时，严禁直接调 <code>SMEMBERS</code> 全量读取（用 <code>SSCAN</code> 分批扫），也不要在高峰期对几个几十万人的大集合直接跑 <code>SINTER / SUNION</code>，<code>O(N)</code> 计算会卡住主线程。
+  </div>
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    💡 <strong>背后的原理：</strong>当成员全是整数且不超过 <code>512</code> 个时存为紧凑有序数组 <code>intset</code>（Redis 7.2+ 对短字符串小集合也支持 <code>listpack</code>），否则底层使用无序哈希表 <code>hashtable</code> → <a href="principles.html#rehash">《📘 核心原理篇 · 02.3 渐进式 Rehash》</a>。
+  </p>
+</div>
+
+<!-- 02.5 · ZSet -->
+<div class="wb-card" id="dt-zset" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill">🏆 02.5 · ZSet（有序集合）：实时排行榜、延迟任务与滑动窗口</div>
+  <h3>🏆 02.5 <code>ZSet</code>（Sorted Set，有序集合）</h3>
+
+  <ul>
+    <li><strong>是什么（类比 JS）</strong>：JS 原生没有现成的等价结构——你可以把它理解成<strong>「一个去重的 <code>Map&lt;member, score&gt;</code> + 一个永远按数字 <code>score</code> 自动排好序的数组」</strong>。每个不重复成员都挂着一个 64 位浮点数分数（<code>score</code>），既能 <code>O(1)</code> 查某个人的分数，又能 <code>O(log N)</code> 取前 N 名或按分数范围切片。</li>
+    <li><strong>典型场景</strong>：① 游戏战力榜 / 电商热销榜 / 社区热搜榜；② 延迟任务队列（把任务到期时间戳存成 <code>score</code>）；③ 滑动窗口限流（把每次请求的毫秒时间戳存成 <code>score</code>）。</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🏆 zset_top5.redis · ZSet 最常用的 5 个命令 [Redis 6.2+ / 7.x]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dt-zset', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-dt-zset"><code><span class="c-cm"># 1. ZADD：添加或更新成员及其分数（注意参数顺序是：先写分数 score，再写成员名 member）</span>
+ZADD rank:daily 120 "user_A" 350 "user_B" 210 "user_C"
+
+<span class="c-cm"># 2. ZINCRBY：为指定成员原子加分（成员不存在时自动按 0 初始化）</span>
+ZINCRBY rank:daily 50 "user_A"
+
+<span class="c-cm"># 3. ZRANGE ... REV：按分数从高到低取前 10 名并附带分数（注：Redis 6.0 旧版写法为 ZREVRANGE rank:daily 0 9 WITHSCORES）</span>
+ZRANGE rank:daily 0 9 REV WITHSCORES
+
+<span class="c-cm"># 4. ZSCORE / ZREVRANK：查某人的当前分数，以及从高到低排第几名（0 代表第 1 名）</span>
+ZSCORE rank:daily "user_A"
+ZREVRANK rank:daily "user_A"
+
+<span class="c-cm"># 5. ZRANGE ... BYSCORE：按分数区间筛选（例如捞出到期时间戳 &lt;= 当前时间 1732760000 的超时订单；6.0 旧版为 ZRANGEBYSCORE）</span>
+ZRANGE delay:orders -inf 1732760000 BYSCORE LIMIT 0 20</code></pre>
+  </div>
+
+  <div class="plop-callout warn" style="margin:12px 0 8px;">
+    <strong>⚠️ 常见坑：</strong>① <code>ZRANGE</code> 默认是从小到大<strong>升序</strong>，做高分榜千万别漏写 <code>REV</code>，且名次下标从 <code>0</code> 开始算；② 当两个人 <code>score</code> 完全相同时，Redis 默认按成员名字典序排列，若业务要求“同分先达到者排前面”，需在 <code>score</code> 小数位拼入反向时间戳（写法见 <a href="#sc-rank">04.6</a>）。
+  </div>
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    💡 <strong>背后的原理：</strong>元素少时用紧凑数组 <code>listpack</code>；元素多时内部<strong>同时组合「哈希表 <code>hashtable</code> + 跳表 <code>zskiplist</code>」</strong>——哈希表负责 <code>O(1)</code> 查单人分数，跳表通过多层链表与跨度字段 <code>span</code> 在 <code>O(log N)</code> 内完成范围查询与名次计算 → <a href="principles.html#rehash">《📘 核心原理篇 · 02.3 跳表 zskiplist 源码结构》</a>。
+  </p>
+</div>
+
+<!-- 02.6 · Bitmap / HyperLogLog / GEO -->
+<div class="wb-card" id="ext-types" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill" id="rehash">🧮 02.6 · 三种高压缩扩展类型：Bitmap 签到、HyperLogLog 亿级 UV 与 GEO 附近的人</div>
+  <h3 id="history">🧮 02.6 <code>Bitmap</code>、<code>HyperLogLog</code> 与 <code>GEO</code>（省内存专精工具）</h3>
 
   <p>
-    面对海量用户签到、亿级页面独立访客（UV）统计或“附近 3 公里门店”检索时，若直接使用 <code>Set</code> 存原始用户 ID，内存占用会随用户规模线性膨胀。Redis 基于既有结构封装了四种空间效率极高的专用扩展类型：
+    当面对上千万用户的签到记录、亿级页面的独立访客数，或者按经纬度找附近门店（LBS，Location-Based Service，基于位置的服务）时，用普通 <code>Set</code> 存原始 ID 会消耗大量内存，这时就轮到这三种专精结构出场：
   </p>
 
   <div class="table-wrap">
     <table class="plop-table">
       <thead>
         <tr>
-          <th style="width:16%">扩展类型</th>
-          <th style="width:28%">核心操作指令</th>
-          <th style="width:24%">空间效率对比</th>
-          <th>典型业务场景与使用注意点</th>
+          <th style="width:15%">类型</th>
+          <th style="width:23%">是什么（类比 JS）</th>
+          <th style="width:26%">核心常用命令 [6.2+ / 7.x]</th>
+          <th>典型场景、常见坑与底层编码</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td><strong>Bitmap</strong><br>按位操作</td>
-          <td><code>SETBIT key offset 0|1</code><br><code>GETBIT / BITCOUNT</code><br><code>BITOP AND|OR dest k1 k2</code></td>
-          <td>1 亿连续整数 ID 的二值状态仅占 <code>10<sup>8</sup> / 8 ≈ 11.9 MiB</code></td>
-          <td><strong>用户月度签到、连续活跃统计</strong>（如 <code>BITOP AND</code> 求连续 3 天都登录的用户位图）。注意：仅适合<strong>稠密连续整数偏移量</strong>，若拿稀疏雪花 ID（如 <code>10<sup>15</sup></code>）直接当 <code>offset</code> 会瞬间分配数百 MB 空白零字节。</td>
+          <td><strong><code>Bitmap</code></strong><br>位图</td>
+          <td>按二进制位（bit）读写 <code>0</code> 或 <code>1</code> 的数组，类比 JS 的 <code>Uint8Array</code> 按位打标（8 个状态仅占 1 字节）</td>
+          <td><code>SETBIT key offset 1</code><br><code>GETBIT key offset</code><br><code>BITCOUNT key</code><br><code>BITPOS key 1</code><br><code>BITOP AND dest k1 k2</code></td>
+          <td><strong>场景</strong>：用户月度签到（<code>offset = 日期 - 1</code>）、连续活跃人群交集。<br><strong>坑</strong>：<code>offset</code> 必须是稠密小整数；若把几千万亿大的雪花 ID 直接当 <code>offset</code>，会瞬间撑出数百 MB 全零内存。<br><strong>底层</strong>：直接复用 <code>String</code> 的 <code>SDS</code> 字节数组。</td>
         </tr>
         <tr>
-          <td><strong>HyperLogLog</strong><br>基数估算</td>
-          <td><code>PFADD key elem ...</code><br><code>PFCOUNT key [key ...]</code><br><code>PFMERGE dest k1 k2</code></td>
-          <td>无论写入百万还是上亿不重复元素，单键最多固定占 <strong><code>12 KiB</code></strong></td>
-          <td><strong>全站/单文章 UV 去重计数</strong>（<code>PFMERGE</code> 可将 7 天的日 UV 合并计算出周 UV）。注意点：属于概率统计结构（标准误差 <code>0.81%</code>），<strong>不支持反查具体包含哪些元素</strong>。</td>
+          <td><strong><code>HyperLogLog</code></strong><br>基数统计</td>
+          <td>只估算“塞进过多少个不重复元素”、却不保存元素本身的概率统计盒（无论塞 1 亿人还是 1000 人，单键最多只占 <strong><code>12 KB</code></strong>）</td>
+          <td><code>PFADD key u1 u2</code><br><code>PFCOUNT key</code><br><code>PFMERGE dest k1 k2</code></td>
+          <td><strong>场景</strong>：文章/活动页亿级 UV（Unique Visitor，独立访客）统计，<code>PFMERGE</code> 可合并 7 天日 UV 算周 UV。<br><strong>坑</strong>：有约 <strong><code>0.81%</code> 标准误差</strong>，且<strong>无法反查某个具体用户是否来过</strong>。<br><strong>底层</strong>：基于 <code>String</code> 实现的 16384 个 6-bit 分桶寄存器。</td>
         </tr>
         <tr>
-          <td><strong>GEO</strong><br>地理坐标</td>
-          <td><code>GEOADD key lon lat name</code><br><code>GEODIST key m1 m2 km</code><br><code>GEOSEARCH key FROMLONLAT ... BYRADIUS 3 km ASC</code></td>
-          <td>底层复用 <code>ZSet</code>（将二维经纬度编码为 52 位 GeoHash 整数作为 <code>score</code>）</td>
-          <td><strong>附近骑手、周边门店按距离排序检索</strong>。删除某个坐标点直接使用 <code>ZSet</code> 的 <code>ZREM key name</code>；若全国点位达百万级，应按城市或省级行政区拆分 Key，避免单键过大。</td>
-        </tr>
-        <tr>
-          <td><strong>Stream</strong><br>持久化消息流</td>
-          <td><code>XADD / XREADGROUP / XACK</code></td>
-          <td>内部采用前缀树 + 紧凑列表块压缩同结构消息字段</td>
-          <td><strong>轻量可靠异步消息队列</strong>，支持多消费者组广播、组内负载均衡与未确认消息列表（PEL），详见第 06 章完整演练。</td>
+          <td><strong><code>GEO</code></strong><br>地理空间</td>
+          <td>存 <code>[经度, 纬度, 名称]</code> 并按球面距离检索的坐标表</td>
+          <td><code>GEOADD key lon lat name</code><br><code>GEOPOS key name</code><br><code>GEODIST key m1 m2 km</code><br><code>GEOSEARCH ... BYRADIUS</code><br><code>ZREM key name</code>（删除）</td>
+          <td><strong>场景</strong>：附近 3 公里内的门店、骑手或附近的人。<br><strong>坑</strong>：没有 <code>GEODEL</code> 命令，删坐标直接调 <code>ZREM</code>；百万级全国门店应按城市拆成多个 Key，防单键过大。<br><strong>底层</strong>：完全复用 <code>ZSet</code>（将二维经纬度编码为 52 位 GeoHash 整数存进 <code>score</code>）。</td>
         </tr>
       </tbody>
     </table>
@@ -222,26 +269,88 @@ top10, err := rdb.ZRangeArgsWithScores(ctx, redis.ZRangeArgs{
 
   <div class="plop-code-box">
     <div class="plop-code-head">
-      <span>⚡ ext_types_demo.redis · Bitmap 月度签到、HyperLogLog UV 合并与 GEO 搜索</span>
-      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-ext', this)">复制命令</button>
+      <span>⚡ ext_types_demo.redis · 签到、UV 去重合并与附近门店查询可直接运行示例 [Redis 6.2+ / 7.x]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dt-ext', this)">复制命令</button>
     </div>
-    <pre class="plop-code-pre" id="code-redis-ext"><code><span class="c-cm"># 1. Bitmap：记录用户 10086 在 2026 年 11 月第 1 天(offset=0)和第 27 天(offset=26)签到，并统计当月总签到天数</span>
-SETBIT sign:u10086:202611 0 1
-SETBIT sign:u10086:202611 26 1
-BITCOUNT sign:u10086:202611
+    <pre class="plop-code-pre" id="code-dt-ext"><code><span class="c-cm"># 1. Bitmap：用户 1001 在 11 月第 1 天(offset=0)和第 28 天(offset=27)签到，统计当月共签到了几天</span>
+SETBIT sign:u1001:202611 0 1
+SETBIT sign:u1001:202611 27 1
+BITCOUNT sign:u1001:202611
 
-<span class="c-cm"># 2. HyperLogLog：统计两天的文章 UV 并合并计算两日总独立访客数</span>
-PFADD uv:article:99:20261126 "u1" "u2" "u3"
-PFADD uv:article:99:20261127 "u2" "u3" "u4"
-PFMERGE uv:article:99:2days uv:article:99:20261126 uv:article:99:20261127
-PFCOUNT uv:article:99:2days
+<span class="c-cm"># 2. HyperLogLog：记录两天的页面访客，合并算出两日总去重 UV</span>
+PFADD uv:page:home:1127 "u1" "u2" "u3"
+PFADD uv:page:home:1128 "u2" "u3" "u4"
+PFMERGE uv:page:home:2days uv:page:home:1127 uv:page:home:1128
+PFCOUNT uv:page:home:2days
 
-<span class="c-cm"># 3. GEO：录入门店经纬度，查询距离指定坐标半径 3 公里内最近的 5 家门店（Redis 6.2+ GEOSEARCH）</span>
-GEOADD shops:shanghai 121.4737 31.2304 "人民广场店" 121.4997 31.2397 "陆家嘴店"
-GEOSEARCH shops:shanghai FROMLONLAT 121.4800 31.2350 BYRADIUS 3 km ASC COUNT 5 WITHDIST</code></pre>
+<span class="c-cm"># 3. GEO：录入门店经纬度（注意先经度后纬度），搜坐标 (121.48, 31.235) 方圆 3 公里内最近的 5 家店</span>
+GEOADD shops:sh 121.4737 31.2304 "人民广场店" 121.4997 31.2397 "陆家嘴店"
+GEOSEARCH shops:sh FROMLONLAT 121.4800 31.2350 BYRADIUS 3 km ASC COUNT 5 WITHDIST</code></pre>
   </div>
+</div>
 
-  <div class="plop-callout tip" style="margin-top:12px;">
-    <strong>📘 底层内存实现直达：</strong>同一种对外类型在小规模数据与大规模数据时，Redis 内部会自动选用不同的物理编码（例如 <code>String</code> 的 <code>embstr</code> 44 字节边界、Redis 7.0 用 <code>listpack</code> 替代 <code>ziplist</code> 消除连锁更新、<code>ZSet</code> 的跳表跨度指针与哈希表渐进式 <code>rehash</code>）。想深入内存字节级布局可前往 <a href="principles.html#datatype">《📘 核心原理篇 · 02 对象头、SDS、listpack、跳表与渐进式 Rehash》</a>。
+<!-- 02.7 · 结尾汇总：需求 -> 选什么类型速查表 -->
+<div class="wb-card" id="dt-cheatsheet" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">🧭 02.7 · 选型速查表：拿到业务需求怎么 5 秒敲定 Redis 数据类型</div>
+  <h3>🧭 02.7 「业务需求 → 选什么类型」一表速查</h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:34%">你的业务需求特征</th>
+          <th style="width:18%">首选类型</th>
+          <th>判断理由与关键命令提示</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>整存整取单个对象 / 简单计数器 / 验证码 / 防重锁</td>
+          <td><strong><code>String</code></strong></td>
+          <td>结构最简单直接，配合 <code>SET NX EX</code> 与 <code>INCR</code> 覆盖一半日常场景。</td>
+        </tr>
+        <tr>
+          <td>对象有十几个字段，需要频繁单独改其中一两个（如购物车）</td>
+          <td><strong><code>Hash</code></strong></td>
+          <td><code>HSET / HINCRBY</code> 直接改局部字段，省去整份 JSON 反复序列化。</td>
+        </tr>
+        <tr>
+          <td>按时间先后存固定条数的最新动态（允许重复）</td>
+          <td><strong><code>List</code></strong></td>
+          <td><code>LPUSH + LTRIM 0 99</code> 轻松维护定长最新列表。</td>
+        </tr>
+        <tr>
+          <td>存一堆不重复 ID，还要判断在不在里面、求共同好友或抽奖</td>
+          <td><strong><code>Set</code></strong></td>
+          <td><code>SISMEMBER</code> <code>O(1)</code> 判重，<code>SINTER</code> 求交集，<code>SPOP</code> 不重复抽奖。</td>
+        </tr>
+        <tr>
+          <td>任何需要<strong>按某个数值（积分、热度、到期时间）自动排序</strong>的列表</td>
+          <td><strong><code>ZSet</code></strong></td>
+          <td>看到「排行榜、Top N、我的名次、按时间窗口/延迟到期筛选」直接选它。</td>
+        </tr>
+        <tr>
+          <td>对连续编号（日期、稠密用户 ID）记录「是 / 否」二值状态</td>
+          <td><strong><code>Bitmap</code></strong></td>
+          <td>签到、打卡首选，比用 Set 省几十倍内存。</td>
+        </tr>
+        <tr>
+          <td>几千万上亿访问量只求<strong>去重总数</strong>，允许不到 1% 的误差</td>
+          <td><strong><code>HyperLogLog</code></strong></td>
+          <td><code>12 KB</code> 封顶解决海量 UV 统计，绝不撑爆内存。</td>
+        </tr>
+        <tr>
+          <td>按经纬度算两地距离、找附近 N 公里的门店/人</td>
+          <td><strong><code>GEO</code></strong></td>
+          <td><code>GEOADD + GEOSEARCH</code> 原生支持半径检索与按距离由近到远排序。</td>
+        </tr>
+        <tr>
+          <td>需要多实例消费、崩溃不丢消息、带 ACK 确认的轻量消息队列</td>
+          <td><strong><code>Stream</code></strong></td>
+          <td>Redis 5.0+ 专为消息流设计，完整用法见 <a href="#sc-mq">04.9 · 消息队列实战</a>。</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </div>

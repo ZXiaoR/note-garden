@@ -11,7 +11,11 @@
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
   <div class="chapter-q-pill">⚖️ 06.1 · 分布式锁形式化边界：异步复制丢锁、Redlock 时钟/GC 争议与 Fencing Token 防护模型</div>
-  <h3>⚖️ 06.1 主从异步切换丢锁、Redlock 争议与 <code>Fencing Token</code> 栅栏校验</h3>
+  <h3>⚖️ 06.1 主从异步切换丢锁、Redlock 争议与 <code>Fencing Token</code> 栅栏校验 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-lock">实战篇 04.8 分布式锁</a> —— 如果主库刚加完锁就断电切主，或者持锁进程发生长时间 GC 停顿导致「两台机器同时以为自己持有锁」，怎样才能彻底保证下游数据库不被写乱？
+  </p>
 
   <p>
     由于 Redis 主从复制与 Cluster 主备切换本质上是<strong>异步复制（Asynchronous Replication）</strong>而非基于 Raft / Paxos 多数派落盘的线性一致复制，当客户端 C1 在主库刚执行完 <code>SET lock val NX PX 30000</code> 收到 <code>OK</code>、主库尚未将该命令传播给从库即断电宕机时，从库晋升为新主后并不包含这把锁，客户端 C2 便能再次加锁成功。
@@ -94,7 +98,11 @@
 <div class="wb-card" id="mq" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
   <div class="chapter-q-pill" id="misc">🌳 06.2 · Stream 与 Lua 内核：前缀压缩基数树 rax + listpack 宏节点结构与脚本命令级复制</div>
-  <h3>🌳 06.2 <code>Stream</code> 底层 <code>rax + listpack</code> 存储模型与 Lua 确定性约束</h3>
+  <h3>🌳 06.2 <code>Stream</code> 底层 <code>rax + listpack</code> 存储模型与 Lua 确定性约束 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;">🔬 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-mq">实战篇 04.9 Stream 消息队列</a> 与 <a href="index.html#misc">04.10 Lua 脚本</a> —— 为什么 <code>Stream</code> 存几万条带相同字段名的订单消息能省下大量内存？<code>Lua</code> 脚本在主从复制时有什么约束？
+  </p>
 
   <p>
     一条 Stream 消息队列往往包含数万条具有相同字段名（如每条订单消息都带 <code>order_id</code>、<code>user_id</code>、<code>amount</code>）且消息 ID 具有极强时间戳前缀规律（如 <code>1732676001012-0</code>、<code>1732676001015-0</code>）的记录。若像普通哈希表那样把每条消息的字段名都重复存一遍，内存很快就会耗尽。Redis 为 <code>Stream</code> 设计了精巧的<strong>「<code>rax</code> 前缀压缩基数树 + <code>listpack</code> 同构字段复用宏节点」</strong>两层复合引擎：

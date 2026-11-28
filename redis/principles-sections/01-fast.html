@@ -11,7 +11,11 @@
 <div class="wb-card" id="single-thread" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
   <div class="chapter-q-pill">🔌 01.1 · Reactor 内核：aeEventLoop 主事件循环、epoll 红黑树+就绪双链表与 serverCron 协作</div>
-  <h3>🔌 01.1 <code>aeEventLoop</code> 单线程 Reactor 与 Linux <code>epoll</code> 协作机制</h3>
+  <h3>🔌 01.1 <code>aeEventLoop</code> 单线程 Reactor 与 Linux <code>epoll</code> 协作机制 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span> <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:4px;">🔬 epoll 红黑树深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-idempotent">实战篇 04.3 防重幂等</a> 与 <a href="index.html#fast">07.1 高危命令禁令</a> —— 为什么 Redis 单线程执行命令还能支撑十万并发，而敲一条慢命令 <code>KEYS *</code> 就会把所有客户端卡住？
+  </p>
 
   <p>
     Redis 没有采用早期 Web 服务器“每连接一线程（Thread-per-Connection）”的阻塞模型，而是自研了轻量级跨平台事件驱动库 <strong><code>ae</code>（<code>ae.c / ae_epoll.c</code>）</strong>。在 Linux 平台上，<code>ae</code> 底层直接封装内核的 <code>epoll</code> 系统调用，使单个主线程能够同时监听数万个客户端 TCP 套接字（Socket <code>fd</code>），且每次循环只遍历真正有数据到达的活跃连接：
@@ -132,7 +136,11 @@
 <div class="wb-card" id="multi-thread" style="background:var(--plop-paper);">
   <div class="washi-tape pink"></div>
   <div class="chapter-q-pill">🧵 01.2 · 进程内线程全景拆解：4.0 bio 异步脏活队列、6.0 多线程网络 I/O 与无锁分发屏障</div>
-  <h3>🧵 01.2 服务端进程内的多线程分工与无锁同步屏障</h3>
+  <h3>🧵 01.2 服务端进程内的多线程分工与无锁同步屏障 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;">🔥 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    🎯 <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#scan-safe">实战篇 07.1</a> —— 为什么用 <code>UNLINK</code> 删除大 Key 不会卡住主线程？Redis 6.0+ 开启多线程网络 I/O 后，为什么操作哈希表依然不需要加锁？
+  </p>
 
   <p>
     在生产机器上对运行中的 Redis 7.x 进程执行 <code>ps -T -p &lt;pid&gt;</code>，可以看到进程内实际包含多个操作系统级线程。理解“Redis 是单线程还是多线程”的精确表述是：<strong>内存键值数据结构的读写执行（<code>processCommand</code>）严格由唯一的 Main Thread 串行完成，而阻塞磁盘系统调用、大块内存释放与高带宽 Socket 拷贝则交由两类辅助线程池分担</strong>：

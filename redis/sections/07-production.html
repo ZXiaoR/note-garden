@@ -1,0 +1,338 @@
+<!-- ====================================================================
+     PART 07: 上线前必须知道 · 键规范、禁令、批处理、降级、序列化、监控与安全
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="production">
+  <span class="wb-sec-num">07</span>
+  <span class="wb-sec-title">上线前必知：键规范、批处理、故障降级、监控与安全</span>
+  <span class="plop-tag">CHECKLIST · SCAN &amp; UNLINK · PIPELINE · FALLBACK · SLOWLOG · ACL</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong>🎯 学完本章你能做什么：</strong>对照上线 Checklist 自查代码与配置，避开 <code>KEYS</code> 锁死实例、循环发命令拖慢接口、Redis 故障拖垮主站以及公网裸奔等常见线上事故。
+</div>
+
+<!-- 07.1 & 07.2 · Key 规范、禁用命令与 SCAN + UNLINK -->
+<div class="wb-card" id="fast" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill" id="single-thread">🔑 07.1–07.2 · 键空间与命令红线：分段命名、必设 TTL、禁用 KEYS 并改用 SCAN + UNLINK</div>
+  <h3>🔑 07.1 Key 命名规范与禁用高危阻塞命令</h3>
+
+  <h4>1. Key 命名与生命周期两条准则</h4>
+  <ul>
+    <li><strong>统一冒号分段全小写</strong>：按 <code>业务名:模块名:实体标识[:属性]</code> 组织，例如 <code>mall:order:detail:9001</code>。键名本身也占内存，在不影响可读性的前提下保持精简（单个键名建议 <code>≤ 64</code> 字节，不含空格和换行）。</li>
+    <li><strong>凡是缓存与临时状态，一律必设 TTL</strong>：上线前搜索代码里所有的 <code>Set / HSet / SAdd / ZAdd</code>，检查是否配了过期时间，防止无人清理的“僵尸键”日积月累把内存耗尽。</li>
+  </ul>
+
+  <h4 id="scan-safe" style="margin-top:16px;">2. 严禁在线上执行 <code>KEYS *</code> 与 <code>FLUSHALL</code>，改用 <code>SCAN + UNLINK</code></h4>
+  <p>
+    因为 Redis 的所有数据读写命令都在<strong>同一个主线程里排队串行执行</strong>，一旦你在存了 500 万个键的生产库上敲下 <code>KEYS order:*</code> 或同步 <code>DEL</code> 一个百万元素的大集合，主线程就会卡住几百毫秒到几秒钟，期间全站所有正常请求全部超时！
+  </p>
+  <ul>
+    <li><strong>遍历找键用 <code>SCAN</code></strong>：每次只抽查一小批哈希槽位就立刻让出主线程；注意<strong>唯一正确的结束条件是返回的游标 <code>nextCursor == 0</code></strong>（即使某次返回的列表为空，只要游标不为 <code>0</code> 就说明还没扫完；大 Hash/Set/ZSet 对应使用 <code>HSCAN / SSCAN / ZSCAN</code>）。</li>
+    <li><strong>删除键优先用 <code>UNLINK</code>（Redis 4.0+）</strong>：主线程只花 <code>O(1)</code> 把键从全局字典摘掉，真正耗时的内存释放自动丢给后台异步线程慢慢回收。</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 scan_unlink.go · 线上安全分批扫描并异步清理指定前缀键 [Go · go-redis/v9 · Redis 6.x/7.x]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-scan', this)">复制 Go 代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-redis-scan"><code><span class="c-kw">func</span> CleanPrefixSafely(ctx context.Context, rdb *redis.Client, pattern <span class="c-kw">string</span>) <span class="c-kw">error</span> {
+    <span class="c-kw">var</span> cursor <span class="c-kw">uint64</span> = 0
+    <span class="c-kw">for</span> {
+        keys, nextCursor, err := rdb.Scan(ctx, cursor, pattern, 200).Result()
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span> err
+        }
+        <span class="c-kw">if</span> len(keys) &gt; 0 {
+            <span class="c-cm">// Unlink 非阻塞异步回收内存，避免 Del 大对象卡住主线程</span>
+            <span class="c-kw">if</span> err := rdb.Unlink(ctx, keys...).Err(); err != <span class="c-kw">nil</span> {
+                <span class="c-kw">return</span> err
+            }
+        }
+        cursor = nextCursor
+        <span class="c-kw">if</span> cursor == 0 { <span class="c-cm">// 必须以游标回到 0 作为唯一结束标志</span>
+            <span class="c-kw">break</span>
+        }
+    }
+    <span class="c-kw">return nil</span>
+}</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:8px 0 0;">
+    💡 <strong>背后的原理：</strong>为什么单线程模型平时能扛十万并发，而 <code>UNLINK</code> 后台线程为什么不会和主线程抢锁？详见 <a href="principles.html#fast">《📘 核心原理篇 · 01 epoll 事件循环、bio 后台队列与 6.0+ 多线程 I/O》</a>。
+  </p>
+</div>
+
+<!-- 07.3 · Pipeline 与 MGET 批量操作 -->
+<div class="wb-card" id="multi-thread" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill">⚡ 07.3 · 消灭 for 循环慢请求：用 MGET 与 Pipeline 把 N 次网络往返压缩为 1 次</div>
+  <h3>⚡ 07.3 批量操作：别在 <code>for</code> 循环里逐条调 Redis</h3>
+
+  <p>
+    代码审查时最常见的性能隐患就是在循环里连发几十次 <code>rdb.Get()</code>：虽然 Redis 内存里跑一条命令只要 <code>0.001ms</code>，但来回走一趟网络要 <code>0.5ms</code>，循环 100 次接口就凭空慢了 <code>50ms</code>。
+  </p>
+  <ul>
+    <li><strong>同类型多键读写</strong>：优先用原生批量命令 <code>MGET / MSET / HMGET</code>。</li>
+    <li><strong>不同类型多条命令组合</strong>（比如同时执行 <code>INCR + EXPIRE + ZSCORE</code>）：用 <strong>Pipeline（管道）</strong>一次性打包发出、一次性收回结果（单批次建议控制在 <code>100 ~ 500</code> 条以内，避免单包过大）。</li>
+  </ul>
+
+  <!-- Editorial SVG: Sequential RTT vs Pipeline Batching -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 880 256" style="width:100%; min-width:880px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="rd-pipe-title rd-pipe-desc">
+        <title id="rd-pipe-title">循环串行调用与 Pipeline 批量管道的网络往返次数对比</title>
+        <desc id="rd-pipe-desc">左图展示逐条发送 N 条命令需要等待 N 次网络往返 RTT；右图展示 Pipeline 将多条无依赖命令一次打包发出并一次收回全部结果，只消耗 1 次网络往返。</desc>
+        <defs>
+          <marker id="rd-pipe-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="rd-pipe-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Left Zone -->
+        <rect x="24" y="16" width="400" height="224" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.16)" stroke-width="1"/>
+        <text x="224" y="38" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#1F1F23">1. 循环逐条发送（N 条命令 = N 次网络 RTT）</text>
+
+        <line x1="100" y1="84" x2="100" y2="220" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+        <line x1="348" y1="84" x2="348" y2="220" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+
+        <line x1="104" y1="108" x2="344" y2="108" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#rd-pipe-arr-muted)"/>
+        <rect x="176" y="88" width="96" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="224" y="97" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">CMD 1 (RTT #1)</text>
+        <line x1="344" y1="128" x2="104" y2="128" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="5,4" marker-end="url(#rd-pipe-arr-muted)"/>
+
+        <line x1="104" y1="160" x2="344" y2="160" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#rd-pipe-arr-muted)"/>
+        <rect x="176" y="140" width="96" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="224" y="149" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">CMD 2 (RTT #2)</text>
+        <line x1="344" y1="180" x2="104" y2="180" stroke="#4f5d75" stroke-width="1.1" stroke-dasharray="5,4" marker-end="url(#rd-pipe-arr-muted)"/>
+
+        <line x1="104" y1="212" x2="344" y2="212" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#rd-pipe-arr-muted)"/>
+        <rect x="168" y="192" width="112" height="12" rx="2" fill="#FFFDF7"/>
+        <text x="224" y="201" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#4f5d75">CMD 3 ... (RTT #N)</text>
+
+        <rect x="52" y="52" width="96" height="32" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="100" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">客户端</text>
+        <rect x="300" y="52" width="96" height="32" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="348" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">Redis 服务端</text>
+
+        <!-- Right Zone -->
+        <rect x="456" y="16" width="400" height="224" rx="8" fill="rgba(191,69,32,0.03)" stroke="rgba(191,69,32,0.35)" stroke-width="1.2"/>
+        <text x="656" y="38" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#bf4520">2. Pipeline 批量管道（N 条命令 = 1 次网络 RTT）</text>
+
+        <line x1="532" y1="84" x2="532" y2="220" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+        <line x1="780" y1="84" x2="780" y2="220" stroke="rgba(45,49,66,0.22)" stroke-width="1" stroke-dasharray="3,3"/>
+        <rect x="776" y="116" width="8" height="68" fill="rgba(191,69,32,0.14)" stroke="#bf4520" stroke-width="1"/>
+
+        <line x1="536" y1="116" x2="772" y2="116" stroke="#bf4520" stroke-width="1.6" marker-end="url(#rd-pipe-arr-accent)"/>
+        <rect x="572" y="96" width="164" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="654" y="106" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#bf4520">BATCH [CMD1, CMD2, CMD3]</text>
+
+        <text x="656" y="154" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">内存连续执行，省去 N-1 次网络等待</text>
+
+        <line x1="772" y1="184" x2="536" y2="184" stroke="#bf4520" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#rd-pipe-arr-accent)"/>
+        <rect x="572" y="192" width="164" height="14" rx="2" fill="#FFFDF7"/>
+        <text x="654" y="202" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" font-weight="600" fill="#bf4520">REPLIES [R1, R2, R3]</text>
+
+        <rect x="484" y="52" width="96" height="32" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.2"/>
+        <text x="532" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">客户端</text>
+        <rect x="732" y="52" width="96" height="32" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="780" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#bf4520">Redis 服务端</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>🐹 pipeline_batch.go · 用 Pipeline 一次网络往返完成多命令组合 [Go · go-redis/v9]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-redis-pipe', this)">复制 Go 代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-redis-pipe"><code>pipe := rdb.Pipeline()
+incrCmd := pipe.Incr(ctx, <span class="c-str">"metrics:pv:20261128"</span>)
+pipe.Expire(ctx, <span class="c-str">"metrics:pv:20261128"</span>, 48*time.Hour)
+bannerCmd := pipe.Get(ctx, <span class="c-str">"config:home:banner"</span>)
+
+<span class="c-cm">// Exec() 才真正发起唯一一次网络请求</span>
+_, err := pipe.Exec(ctx)
+<span class="c-kw">if</span> err != <span class="c-kw">nil</span> &amp;&amp; !errors.Is(err, redis.Nil) {
+    <span class="c-kw">return</span> err
+}
+fmt.Println(<span class="c-str">"今日 PV:"</span>, incrCmd.Val(), <span class="c-str">"Banner:"</span>, bannerCmd.Val())</code></pre>
+  </div>
+</div>
+
+<!-- 07.4 & 07.5 · 客户端连接池、Redis 宕机降级与 JSON vs Hash 序列化取舍 -->
+<div class="wb-card" id="production-serial" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill">🛡️ 07.4–07.5 · 客户端韧性与对象存储：连接池超时、Redis 宕机业务降级与 JSON vs Hash 取舍</div>
+  <h3>🛡️ 07.4 客户端超时配置、故障降级与序列化选型</h3>
+
+  <h4>1. 连接池超时配置与「Redis 挂了业务怎么降级」</h4>
+  <p>
+    缓存本来是用来加速和保护系统的，<strong>绝不能因为 Redis 抖动超时导致整个主站接口直接 500 报错不可用</strong>。生产客户端需配置严格的毫秒级读写超时（如 <code>300ms ~ 500ms</code>），并在捕获网络异常时做分级降级：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 prod_client.go · 生产级连接池与快速超时参数 [Go · go-redis/v9]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-prod-pool', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-prod-pool"><code>rdb := redis.NewClient(&amp;redis.Options{
+    Addr:         <span class="c-str">"10.0.1.11:6379"</span>,
+    Username:     <span class="c-str">"mall_svc"</span>,
+    Password:     <span class="c-str">"ProdSecret_2026"</span>,
+    PoolSize:     64,                    <span class="c-cm">// 最大连接数（常取 CPU 核数 * 10 左右）</span>
+    MinIdleConns: 16,                    <span class="c-cm">// 保活空闲连接，防突发流量冷建连慢</span>
+    DialTimeout:  1 * time.Second,       <span class="c-cm">// 建连超时</span>
+    ReadTimeout:  300 * time.Millisecond,<span class="c-cm">// 读超时：快速失败，不拖死上游协程</span>
+    WriteTimeout: 300 * time.Millisecond,<span class="c-cm">// 写超时</span>
+    MaxRetries:   2,                     <span class="c-cm">// 网络闪断自动重试最多 2 次</span>
+})</code></pre>
+    </div>
+
+    <div class="plop-code-box" style="margin:0;">
+      <div class="plop-code-head">
+        <span>🐹 fallback_demo.go · Redis 宕机时读缓存接口安全降级写法 [Go]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-prod-fallback', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-prod-fallback"><code><span class="c-kw">func</span> GetBannerWithFallback(ctx context.Context, rdb *redis.Client, dbLimiter *rate.Limiter) (<span class="c-kw">string</span>, <span class="c-kw">error</span>) {
+    val, err := rdb.Get(ctx, <span class="c-str">"config:home:banner"</span>).Result()
+    <span class="c-kw">if</span> err == <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> val, <span class="c-kw">nil</span>
+    }
+    <span class="c-kw">if</span> !errors.Is(err, redis.Nil) {
+        <span class="c-cm">// Redis 真挂了或超时：打错误日志报警，不要直接 return err 挂掉首页！</span>
+        log.Printf(<span class="c-str">"[WARN] Redis 异常触发降级: %v"</span>, err)
+        <span class="c-kw">if</span> !dbLimiter.Allow() { <span class="c-cm">// 限流保护数据库不被洪峰冲垮</span>
+            <span class="c-kw">return</span> defaultStaticBannerJSON, <span class="c-kw">nil</span> <span class="c-cm">// 超出数据库承受力时返回本地静态兜底值</span>
+        }
+    }
+    <span class="c-kw">return</span> queryBannerFromMySQL(ctx)
+}</code></pre>
+    </div>
+  </div>
+
+  <h4 style="margin-top:16px;">2. 序列化取舍：存业务对象选 <code>JSON String</code> 还是 <code>Hash</code>？</h4>
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">对比维度</th>
+          <th style="width:40%">序列化为 <code>JSON String</code>（如 <code>SET user:1 "{...}"</code>）</th>
+          <th>拆字段存 <code>Hash</code>（如 <code>HSET user:1 name "林晓" vip "2"</code>）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>读写粒度</strong></td>
+          <td><strong>整读整写</strong>：改 1 个字段也要把整个 JSON 拉回应用层解析修改再全量写回</td>
+          <td><strong>局部读写</strong>：<code>HSET / HINCRBY</code> 直接在服务端改单个字段，省带宽且无并发覆盖</td>
+        </tr>
+        <tr>
+          <td><strong>复杂嵌套结构</strong></td>
+          <td><strong>天然支持</strong>多层嵌套对象与数组（如商品详情含多规格 SKU 数组）</td>
+          <td><strong>不适合嵌套</strong>（field 的值只能是扁平字符串，强塞子 JSON 反而别扭）</td>
+        </tr>
+        <tr>
+          <td><strong>内存与 TTL 控制</strong></td>
+          <td>大 JSON 可配合 Snappy/Gzip 压缩；按整个对象设 TTL</td>
+          <td>扁平字段数适中（<code>≤ 512</code>）时底层用 <code>listpack</code> 极省内存；7.4+ 支持 <code>HEXPIRE</code> 单字段过期</td>
+        </tr>
+        <tr>
+          <td><strong>选型结论</strong></td>
+          <td><strong>90% 读多写少、整存整取的缓存快照首选 JSON String</strong>（代码最直观）</td>
+          <td><strong>高频单字段修改/原子加减的扁平状态首选 Hash</strong>（如购物车、用户多维计数）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 07.6 & 07.7 · 监控指标、慢日志与安全红线 -->
+<div class="wb-card" id="production-sec" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill">🔍 07.6–07.7 · 监控与安全：5 个核心指标、SLOWLOG 慢查询、ACL 权限与禁公网裸奔</div>
+  <h3>🔍 07.5 线上监控巡检与安全红线</h3>
+
+  <h4>1. 必盯的 5 个监控指标与 <code>INFO / SLOWLOG</code> 诊断</h4>
+  <ul>
+    <li><strong>内存使用率与驱逐数</strong>（<code>INFO memory</code> / <code>INFO stats</code>）：盯紧 <code>used_memory / maxmemory</code>（超 <code>80%</code> 预警）、内存碎片率 <code>mem_fragmentation_ratio</code>（正常 <code>1.0 ~ 1.5</code>）以及被强行挤掉的键数量 <code>evicted_keys</code>。</li>
+    <li><strong>缓存命中率</strong>（<code>INFO stats</code>）：计算公式为 <code>keyspace_hits / (keyspace_hits + keyspace_misses)</code>。常规缓存命中率应高于 <strong><code>90%</code></strong>；若突然暴跌到 <code>50%</code> 以下，立刻排查是否发生了缓存穿透或大面积集中过期。</li>
+    <li><strong>活跃连接数与拒绝连接数</strong>（<code>INFO clients</code>）：关注 <code>connected_clients</code>（默认上限 <code>10000</code>）与 <code>rejected_connections</code>，暴涨通常说明某台业务服务没复用全局 Client 导致连接泄漏。</li>
+    <li><strong>慢查询日志 <code>SLOWLOG GET 10</code></strong>：查看最近执行最慢的 10 条命令（默认记录服务端单线程执行超 <code>10ms = 10000μs</code> 的指令，线上建议调严到 <code>2000μs</code>）。</li>
+  </ul>
+
+  <h4 style="margin-top:16px;">2. 三条安全底线：禁公网、设密码、配 ACL 最小权限</h4>
+  <ul>
+    <li><strong>绝不裸露在公网</strong>：历年无数云服务器被挖矿木马入侵，源头都是把无密码的 <code>6379</code> 端口直接暴露在公网！务必配置云安全组仅对内网业务服务器放行，并在配置中指定 <code>bind 127.0.0.1 &lt;内网IP&gt;</code> 与 <code>protected-mode yes</code>。</li>
+    <li><strong>使用 Redis 6.0+ ACL（Access Control List，访问控制列表）隔离业务权限</strong>：不要让所有服务共用最高权限的 <code>default</code> 账号，给业务建专属账号并禁掉 <code>-@dangerous</code>（包含 <code>FLUSHALL / KEYS / CONFIG</code> 等危险命令）：</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span>⌨️ monitor_and_acl.redis · 线上巡检诊断与创建 ACL 最小权限业务账号 [Redis 6.x / 7.x]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-prod-sec', this)">复制命令</button>
+    </div>
+    <pre class="plop-code-pre" id="code-prod-sec"><code><span class="c-cm"># 1. 查看内存、命中率与最近 10 条慢查询命令</span>
+INFO memory
+INFO stats
+SLOWLOG GET 10
+
+<span class="c-cm"># 2. Redis 6.0+ 创建业务专属账号 mall_svc：</span>
+<span class="c-cm">#    on(启用) &gt;密码 ~mall:*(仅允许读写 mall: 开头的键) +@read +@write -@dangerous(禁止跑 KEYS/FLUSHALL 等高危命令)</span>
+ACL SETUSER mall_svc on &gt;ProdSecret_2026 ~mall:* +@read +@write -@dangerous</code></pre>
+  </div>
+
+  <details class="plop-drawer" style="margin-top:12px;">
+    <summary>📎 展开查看附录：生产环境 redis.conf 关键基础配置速查表</summary>
+    <div class="drawer-body">
+      <div class="table-wrap" style="margin:6px 0 0;">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:30%">配置项与推荐值</th>
+              <th style="width:18%">默认值</th>
+              <th>作用说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>bind 127.0.0.1 10.0.1.11</code></td>
+              <td><code>127.0.0.1 -::1</code></td>
+              <td>仅绑定本机回环与内网网卡 IP，严禁在公网机器裸配 <code>bind 0.0.0.0</code>。</td>
+            </tr>
+            <tr>
+              <td><code>protected-mode yes</code></td>
+              <td><code>yes</code></td>
+              <td>未绑 IP 且无密码时拒绝外部机器连接。</td>
+            </tr>
+            <tr>
+              <td><code>requirepass &lt;强密码&gt;</code></td>
+              <td>空</td>
+              <td>设置默认 <code>default</code> 账号密码（配合 6.0+ <code>aclfile</code> 持久化子账号）。</td>
+            </tr>
+            <tr>
+              <td><code>maxmemory 11gb</code></td>
+              <td><code>0</code>（64位不限）</td>
+              <td>生产必设，一般取专机可用内存的 <code>70%</code> 左右。</td>
+            </tr>
+            <tr>
+              <td><code>slowlog-log-slower-than 2000</code></td>
+              <td><code>10000</code> (10ms)</td>
+              <td>单条命令内存执行耗时超 <code>2ms</code> 即记入慢查询日志。</td>
+            </tr>
+            <tr>
+              <td><code>daemonize no</code> (Docker) / <code>yes</code> (裸机)</td>
+              <td><code>no</code></td>
+              <td>容器内运行必须保持 <code>no</code> 前台运行，否则容器启动即退出。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+</div>
