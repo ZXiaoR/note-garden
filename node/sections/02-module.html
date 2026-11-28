@@ -1,0 +1,197 @@
+<!-- ====================================================================
+     PART 02: 模块与包管理 · CommonJS、ES Module 与 package.json
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="module">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">模块与包管理：CommonJS、ES Module 与 package.json</span>
+  <span class="plop-tag tomato">CJS × ESM × NPM / PNPM</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>分清 CommonJS（<code>require</code>）与 ES Module（<code>import</code>）两套模块化写法及路径查找规则，读懂 <code>package.json</code> 核心字段与语义化版本号，熟练用 <code>npm / pnpm</code> 管理项目依赖。
+</div>
+
+<!-- 02.1 · CommonJS 与 ES Module 的日常导入导出写法 -->
+<div class="wb-card" id="cjs-esm-basic" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-kraft"></use></svg> 02.1 · 模块化语法：CommonJS（<code>require / module.exports</code>）与 ES Module（<code>import / export</code>）日常写法</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-kraft"></use></svg> 02.1 模块化日常写法：CommonJS 与 ES Module 对照</h3>
+
+  <p>
+    在实际项目中，我们不会把所有代码都塞进一个文件，而是按功能拆分成多个模块文件。Node.js 支持两套模块化规范：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong>CJS（CommonJS，Node.js 早期传统模块规范）</strong>：使用 <code>module.exports</code> 导出、<code>require()</code> 同步导入；在不配置 <code>package.json</code> 的情况下，<code>.js</code> 和 <code>.cjs</code> 文件默认按此规范解析。</li>
+    <li><strong>ESM（ECMAScript Modules，JavaScript 官方标准模块规范）</strong>：使用 <code>export</code> 导出、<code>import</code> 导入，与前端浏览器及 TypeScript 语法完全一致；只需在 <code>package.json</code> 中添加一行 <strong><code>"type": "module"</code></strong>（或使用 <code>.mjs</code> 扩展名）即可启用，<strong>新项目统一推荐使用 ESM</strong>。</li>
+  </ul>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-kraft"></use></svg> CommonJS 写法 · module.exports 与 require() [Node.js 全版本]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-basic-cjs', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-basic-cjs"><code><span class="c-cm">// --- math.cjs（导出模块）---</span>
+<span class="c-kw">function</span> <span class="c-fn">add</span>(a, b) {
+  <span class="c-kw">return</span> a + b;
+}
+<span class="c-kw">const</span> PI = 3.14159;
+
+<span class="c-cm">// 将需要对外公开的函数和常量放到 module.exports 对象上</span>
+module.exports = { add, PI };
+
+<span class="c-cm">// --- app.cjs（导入模块）---</span>
+<span class="c-cm">// 1. 导入内置模块：带上 node: 前缀更清晰</span>
+<span class="c-kw">const</span> path = <span class="c-fn">require</span>(<span class="c-str">'node:path'</span>);
+
+<span class="c-cm">// 2. 导入本地文件：必须以 ./ 或 ../ 开头</span>
+<span class="c-kw">const</span> { add, PI } = <span class="c-fn">require</span>(<span class="c-str">'./math.cjs'</span>);
+console.<span class="c-fn">log</span>(<span class="c-fn">add</span>(2, 3), PI); <span class="c-cm">// 输出: 5 3.14159</span></code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> ES Module 写法 · export 与 import（现代项目推荐）[Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-basic-esm', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-basic-esm"><code><span class="c-cm">// --- math.js（package.json 已声明 "type": "module"）---</span>
+<span class="c-kw">export function</span> <span class="c-fn">add</span>(a, b) {
+  <span class="c-kw">return</span> a + b;
+}
+<span class="c-kw">export const</span> PI = 3.14159;
+
+<span class="c-cm">// 也可以设置一个默认导出（每个文件最多一个 export default）</span>
+<span class="c-kw">export default function</span> <span class="c-fn">multiply</span>(a, b) {
+  <span class="c-kw">return</span> a * b;
+}
+
+<span class="c-cm">// --- app.js（在 ES Module 中导入本地文件须写完整扩展名）---</span>
+<span class="c-kw">import</span> multiply, { add, PI } <span class="c-kw">from</span> <span class="c-str">'./math.js'</span>;
+console.<span class="c-fn">log</span>(<span class="c-fn">add</span>(2, 3), <span class="c-fn">multiply</span>(4, 5)); <span class="c-cm">// 输出: 5 20</span></code></pre>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">导入路径写法分类</th>
+          <th style="width:32%">代码示例</th>
+          <th>Node.js 的查找规则说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 内置核心模块</strong></td>
+          <td><code>import fs from 'node:fs/promises'</code></td>
+          <td>以 <code>node:</code> 开头，直接加载 Node.js 编译在可执行文件内的系统模块，优先级最高，不会与 <code>node_modules</code> 中的同名第三方包冲突。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 本地相对路径文件</strong></td>
+          <td><code>import { add } from './utils/math.js'</code></td>
+          <td>以 <code>./</code> 或 <code>../</code> 开头，按相对于当前文件的路径查找；在 ES Module 模式下要求<strong>显式写出文件扩展名（如 <code>.js</code> 或直跑 TS 时的 <code>.ts</code>）</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 第三方依赖包</strong></td>
+          <td><code>import Fastify from 'fastify'</code></td>
+          <td>不带路径前缀的裸包名，Node.js 会自动在当前目录及上级目录的 <code>node_modules/</code> 文件夹中查找对应的包。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 02.2 · package.json 核心字段与 npm / pnpm 包管理 -->
+<div class="wb-card" id="package-json-npm" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 02.2 · 工程配置与依赖管理：<code>package.json</code> 常用字段、语义化版本号与 <code>npm / pnpm</code> 命令</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 02.2 <code>package.json</code> 核心字段解析与 <code>npm / pnpm</code> 日常命令</h3>
+
+  <p>
+    每个 Node.js 项目的根目录下都有一个 <strong><code>package.json</code></strong> 文件，它是整个项目的配置清单——既声明了模块规范、运行引擎版本与快捷脚本（<code>scripts</code>），也记录了生产依赖与开发依赖的版本范围：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> package.json · 标准后端项目配置文件逐行详解 [Node.js 22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-basic-pkg', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-basic-pkg"><code>{
+  <span class="c-str">"name"</span>: <span class="c-str">"user-service"</span>,
+  <span class="c-str">"version"</span>: <span class="c-str">"1.0.0"</span>,
+  <span class="c-cm">// 声明当前项目下所有 .js 文件默认采用 ES Module (import/export) 语法</span>
+  <span class="c-str">"type"</span>: <span class="c-str">"module"</span>,
+  <span class="c-cm">// 约束团队与线上环境的最低 Node.js 版本</span>
+  <span class="c-str">"engines"</span>: { <span class="c-str">"node"</span>: <span class="c-str">"&gt;=22.18.0"</span> },
+  <span class="c-cm">// 自定义快捷脚本：通过 npm run &lt;脚本名&gt; 即可执行</span>
+  <span class="c-str">"scripts"</span>: {
+    <span class="c-str">"dev"</span>: <span class="c-str">"node --watch --env-file=.env src/server.js"</span>,
+    <span class="c-str">"start"</span>: <span class="c-str">"node src/server.js"</span>,
+    <span class="c-str">"test"</span>: <span class="c-str">"node --test"</span>
+  },
+  <span class="c-cm">// 生产环境运行必需的依赖包（npm install &lt;包名&gt;）</span>
+  <span class="c-str">"dependencies"</span>: {
+    <span class="c-str">"fastify"</span>: <span class="c-str">"^5.2.0"</span>,
+    <span class="c-str">"zod"</span>: <span class="c-str">"^3.24.0"</span>
+  },
+  <span class="c-cm">// 仅在本地开发、类型检查或格式化时用到的工具包（npm install -D &lt;包名&gt;）</span>
+  <span class="c-str">"devDependencies"</span>: {
+    <span class="c-str">"eslint"</span>: <span class="c-str">"^9.18.0"</span>
+  }
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> Terminal · 初始化项目与管理依赖常用命令</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-basic-npm', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-basic-npm"><code><span class="c-cm"># 1. 在新目录中快速生成默认的 package.json</span>
+$ npm init -y
+
+<span class="c-cm"># 2. 安装生产环境依赖（自动写入 dependencies 并更新 package-lock.json）</span>
+$ npm install fastify zod
+
+<span class="c-cm"># 3. 安装仅开发阶段使用的依赖（写入 devDependencies）</span>
+$ npm install -D eslint
+
+<span class="c-cm"># 4. 执行 package.json 中 scripts 定义的脚本</span>
+$ npm run dev
+$ npm test
+
+<span class="c-cm"># 5. 线上构建或团队拉代码后，严格按锁文件原样还原依赖（不改写 lock 文件）</span>
+$ npm ci</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout info" style="margin-bottom:16px;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 管理依赖的两条工程规范与背后原理：</strong><br>
+    1. <strong>读懂语义化版本号 SemVer（Semantic Versioning，<code>主版本.次版本.补丁号</code>）</strong>：<code>"^5.2.0"</code> 中的插入符 <code>^</code> 允许在不跨大版本的前提下升级新特性与补丁（即 <code>&gt;=5.2.0 &lt;6.0.0</code>）；波浪号 <code>"~5.2.0"</code> 则只允许升级最后一位补丁号（<code>&lt;5.3.0</code>）。<br>
+    2. <strong>必须把锁文件（<code>package-lock.json</code> 或 <code>pnpm-lock.yaml</code>）提交到 Git 仓库</strong>：锁文件锁定了整棵依赖树每个子包的精确版本与完整性哈希，防止本地能跑、线上部署时因某个次版本更新而报错。<br>
+    <span style="font-size:12.8px; color:var(--plop-ink-soft);"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>背后的原理：</strong>为什么 CommonJS 里改了导出的变量外部感知不到，而 ES Module 却能实时同步？两个文件互相 <code>import</code> 循环依赖时谁先执行？详见 <a href="principles.html#module"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 01 模块加载底层、值拷贝 vs 实时绑定与循环依赖》 ↗</a>。</span>
+  </div>
+
+  <h4 id="quiz-02" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+
+  <details class="plop-drawer">
+    <summary>1. 新建 <code>app.js</code> 写了一行 <code>import fs from 'node:fs/promises'</code>，运行 <code>node app.js</code> 报错 <code>SyntaxError: Cannot use import statement outside a module</code>，怎么解决？</summary>
+    <div class="drawer-body">
+      <p>这是因为在没有配置的默认情况下，Node.js 会把 <code>.js</code> 文件当作旧版 CommonJS 模块解析。有两种标准改法：① <strong>项目级推荐做法</strong>：在根目录 <code>package.json</code> 中加上 <code>"type": "module"</code>，此后整个项目的 <code>.js</code> 文件都默认支持 <code>import / export</code>（个别老脚本若仍需用 <code>require</code>，把后缀改成 <code>.cjs</code> 即可）；② <strong>单文件脚本做法</strong>：直接把文件名改为 <code>app.mjs</code>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>2. 前端写 Vite/Webpack 习惯了省略后缀 <code>import { sum } from './utils/math'</code>，原封不动搬到 Node.js ESM 项目里为什么会报 <code>ERR_MODULE_NOT_FOUND</code>？</summary>
+    <div class="drawer-body">
+      <p>前端打包工具在构建期帮我们做了多次磁盘探测（依次尝试补全 <code>.ts / .tsx / .js / index.js</code>）；而 Node.js 的原生 ES Module 加载器为了与浏览器 URL 加载规范对齐并避免多余的磁盘查找开销，<strong>要求导入本地相对路径模块时必须显式写全文件扩展名</strong>（如 <code>'./utils/math.js'</code>，在 Node 22.18+ 直接跑 TS 且开启对应 TS 配置时可写 <code>'./utils/math.ts'</code>）。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>3. 在 Dockerfile 或 CI（持续集成）流水线里安装依赖时，为什么应该用 <code>npm ci</code>（或 <code>pnpm install --frozen-lockfile</code>）代替 <code>npm install</code>？</summary>
+    <div class="drawer-body">
+      <p><code>npm install</code> 在遇到 <code>"^3.24.0"</code> 这类范围版本号且锁文件不匹配时，可能会去拉取刚发布的 <code>3.25.0</code> 并静默改写锁文件，造成“我电脑上是 3.24.0 没问题，发到线上装了 3.25.0 崩了”。而 <strong><code>npm ci</code> 会严格按照 <code>package-lock.json</code> 里的精确版本和校验和安装</strong>，一旦发现 <code>package.json</code> 与锁文件不一致就直接报错中止构建，确保测试环境与生产环境的依赖分毫不差。</p>
+    </div>
+  </details>
+</div>

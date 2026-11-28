@@ -1,0 +1,343 @@
+<!-- ====================================================================
+     PART 00: 全景科普 · Node.js 运行时定位、系统角色与选型边界
+     ==================================================================== -->
+<div class="wb-sec-header" id="overview" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">全景科普：Node.js 运行时定位、系统角色与选型边界</span>
+  <span class="plop-tag tomato">RUNTIME · SYSTEM ROLES · TRADE-OFFS · ROADMAP</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>用一句话讲清 Node.js 和浏览器 JavaScript 的核心差异，看懂它在后端与前端工程体系里的五类角色，明确什么需求适合用它、什么计算场景不该硬上，并建立全篇学习路线。
+</div>
+
+<!-- 00.1 · Node.js 是什么、与浏览器 JS 的区别、在系统里干什么 -->
+<div class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 00.1 · 运行时定位：服务器上的 JavaScript 运行时、与浏览器的差异及五大系统角色</div>
+  <h3 id="node-intro"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 00.1 Node.js 是什么，以及它在系统里干什么</h3>
+
+  <p>
+    <strong>一句话定义：Node.js 是一个让 JavaScript 脱离浏览器、直接在服务器和本地操作系统上运行的跨平台 JavaScript 运行时（Runtime）。</strong>它底层基于 Google Chrome 的 <strong>V8 引擎</strong>（负责解析执行 JS 代码）与跨平台异步库 <strong>libuv</strong>（负责文件、网络与事件循环调度）构建。
+  </p>
+
+  <p>
+    对于熟悉前端开发的读者，最直观的理解方式是对照「同样写 JavaScript，在浏览器里跑和在 Node.js 里跑有什么不同」：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">对比维度</th>
+          <th style="width:38%">浏览器 JavaScript（前端环境）</th>
+          <th>Node.js（服务端与本地环境）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>没有了什么</strong></td>
+          <td>拥有 <code>window</code>、<code>document</code>、<code>localStorage</code> 等 DOM（Document Object Model，文档对象模型）与 BOM（Browser Object Model，浏览器对象模型）接口。</td>
+          <td><strong>没有页面与界面概念</strong>，直接访问 <code>window</code> 或 <code>document</code> 会报 <code>ReferenceError</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>多出了什么</strong></td>
+          <td>出于安全沙箱隔离，网页脚本不能任意读写用户硬盘或监听本机端口。</td>
+          <td>直接拥有系统级能力：读写磁盘文件（<code>node:fs</code>）、监听端口收发网络请求（<code>node:http / net</code>）、操作原始二进制内存（<code>Buffer</code>）、管理环境变量与子进程（<code>process / child_process</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong>完全共用的部分</strong></td>
+          <td colspan="2">核心 ECMAScript 语法（解构、箭头函数、<code>Map / Set</code>、<code>Promise</code>、<code>async / await</code>、ES Module <code>import / export</code>）以及现代 Web 标准全局接口（<code>fetch</code>、<code>URL</code>、<code>AbortController</code>、<code>crypto.randomUUID()</code>、<code>TextEncoder</code>）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin-bottom:10px;">
+    在真实互联网系统与日常研发流程中，Node.js 主要承担以下<strong>五类核心角色</strong>（见下方系统位置图）：
+  </p>
+
+  <!-- Editorial SVG: Node.js Roles in a System Architecture -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 316" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="nd-ov-arch-title nd-ov-arch-desc">
+        <title id="nd-ov-arch-title">Node.js 在现代后端架构与研发链路中的五类角色位置图</title>
+        <desc id="nd-ov-arch-desc">左侧客户端请求进入中间 Node.js 线上服务层（API 服务与 BFF 聚合层、SSR 服务端渲染、WebSocket 与 SSE 实时流网关），右侧向下游访问 MySQL、Redis、消息队列以及内部微服务或大模型接口；底部本地开发终端运行基于 Node.js 的 CLI 与前端构建工具链。</desc>
+        <defs>
+          <marker id="nd-ov-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="nd-ov-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="nd-ov-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Zone: Node.js Online Services -->
+        <rect x="248" y="16" width="304" height="196" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="316" y="20" width="168" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="400" y="32" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">Node.js 线上服务端层</text>
+
+        <!-- Connectors (drawn BEFORE boxes, strictly orthogonal r=8) -->
+        <!-- Client (172,104) -> Role 1 API/BFF (268,72) -->
+        <path d="M 172,104 H 212 Q 220,104 220,96 V 80 Q 220,72 228,72 H 268" fill="none" stroke="#bf4520" stroke-width="1.6" marker-end="url(#nd-ov-arr-accent)"/>
+        <rect x="180" y="48" width="52" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="206" y="60" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#bf4520">JSON API</text>
+
+        <!-- Client (172,124) -> Role 2 SSR (268,124) -->
+        <line x1="172" y1="124" x2="268" y2="124" stroke="#2e5aa8" stroke-width="1.3" marker-end="url(#nd-ov-arr-link)"/>
+
+        <!-- Client (172,144) -> Role 3 Realtime/SSE (268,176) -->
+        <path d="M 172,144 H 212 Q 220,144 220,152 V 168 Q 220,176 228,176 H 268" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#nd-ov-arr-accent)"/>
+        <rect x="180" y="184" width="56" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="208" y="196" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#bf4520">SSE / WS</text>
+
+        <!-- Role 1 API/BFF (532,68) -> Data Layer (636,68) -->
+        <line x1="532" y1="68" x2="636" y2="68" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#nd-ov-arr-link)"/>
+        <rect x="560" y="44" width="56" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="588" y="56" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#2e5aa8">TCP POOL</text>
+
+        <!-- Role 1 API/BFF (532,84) -> Upstream Microservices/LLM (636,160) -->
+        <path d="M 532,84 H 580 Q 588,84 588,92 V 152 Q 588,160 596,160 H 636" fill="none" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#nd-ov-arr-muted)"/>
+
+        <!-- Role 3 Realtime/SSE (532,180) -> Upstream Microservices/LLM (636,180) -->
+        <line x1="532" y1="180" x2="636" y2="180" stroke="#bf4520" stroke-width="1.5" marker-end="url(#nd-ov-arr-accent)"/>
+        <rect x="556" y="188" width="64" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="588" y="200" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#bf4520">STREAM</text>
+
+        <!-- Dev Terminal (172,244) -> Role 4 CLI & Toolchain (268,244) -->
+        <line x1="172" y1="244" x2="268" y2="244" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#nd-ov-arr-muted)"/>
+        <rect x="192" y="220" width="56" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="220" y="232" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="8.5" fill="#5a6580">LOCAL</text>
+
+        <!-- Left Node 1: Browser / App Client -->
+        <rect x="24" y="88" width="148" height="72" rx="6" fill="#FFFDF7"/>
+        <rect x="24" y="88" width="148" height="72" rx="6" fill="rgba(79,93,117,0.07)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="98" y="118" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#1F1F23">浏览器与移动端</text>
+        <text x="98" y="140" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">Web / App / MiniApp</text>
+
+        <!-- Center Node 1 (Focal #1): API & BFF -->
+        <rect x="268" y="48" width="264" height="48" rx="6" fill="#FFFDF7"/>
+        <rect x="268" y="48" width="264" height="48" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="400" y="69" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">①② API 后端服务 · BFF 聚合中间层</text>
+        <text x="400" y="87" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">Fastify / Express / NestJS</text>
+
+        <!-- Center Node 2: SSR -->
+        <rect x="268" y="104" width="264" height="44" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="400" y="123" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">③ SSR 服务端同构渲染</text>
+        <text x="400" y="140" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">Next.js / Nuxt · HTML First-Paint</text>
+
+        <!-- Center Node 3 (Focal #2): Realtime & SSE -->
+        <rect x="268" y="156" width="264" height="44" rx="6" fill="#FFFDF7"/>
+        <rect x="268" y="156" width="264" height="44" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="400" y="175" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">④ 实时通信与 AI 流式网关</text>
+        <text x="400" y="192" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">SSE / WebSocket · Token Streaming</text>
+
+        <!-- Right Node 1: Databases & Cache -->
+        <rect x="636" y="44" width="180" height="64" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="726" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">数据库 · 缓存 · 队列</text>
+        <text x="726" y="94" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">MySQL · Redis · Kafka</text>
+
+        <!-- Right Node 2: Downstream Microservices & LLM -->
+        <rect x="636" y="140" width="180" height="60" rx="6" fill="#FFFDF7"/>
+        <rect x="636" y="140" width="180" height="60" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="726" y="166" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">内部微服务与大模型</text>
+        <text x="726" y="188" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9.5" fill="#4f5d75">Go/Java RPC · OpenAI API</text>
+
+        <!-- Bottom Row: Dev Terminal + CLI & Frontend Toolchain -->
+        <rect x="24" y="220" width="148" height="48" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="98" y="242" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">开发者终端与 CI</text>
+        <text x="98" y="259" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">Terminal / GitHub Actions</text>
+
+        <rect x="268" y="220" width="264" height="48" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="400" y="242" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">⑤ CLI 脚本与前端工程化工具链</text>
+        <text x="400" y="259" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">Vite · Webpack · ESLint · tsc</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="24" y1="280" x2="816" y2="280" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="24" y="291" width="14" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="44" y="300" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">高并发非阻塞 I/O 核心优势场景</text>
+        <line x1="256" y1="296" x2="284" y2="296" stroke="#2e5aa8" stroke-width="1.4"/>
+        <text x="292" y="300" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">在线网络请求与连接池链路</text>
+        <line x1="472" y1="296" x2="500" y2="296" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4"/>
+        <text x="508" y="300" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">聚合扇出调用与本地研发执行链路</text>
+      </svg>
+    </div>
+  </figure>
+
+  <ul style="margin:8px 0 0; padding-left:20px; font-size:13.5px; line-height:1.7;">
+    <li><strong>① API（Application Programming Interface，应用程序编程接口）业务后端</strong>：直接连 MySQL 与 Redis，开发完整的中小型 Web 后端、管理后台或小程序接口，前后端可共用一套 TypeScript 类型与参数校验规则。</li>
+    <li><strong>② BFF（Backend For Frontend，服务于前端的后端聚合层）</strong>：当移动端一个页面需要拼装商品、评价、优惠券 3 个内部微服务的数据时，由 Node.js 并发请求下游、裁剪无用字段后一次性返回前端，减少弱网下的多次请求往返。</li>
+    <li><strong>③ SSR（Server-Side Rendering，服务端渲染）</strong>：如 Next.js、Nuxt，在服务器上先拉取数据把组件渲染成完整 HTML 字符串返回给浏览器，兼顾首屏展示速度与搜索引擎收录。</li>
+    <li><strong>④ 实时服务与流式网关</strong>：基于单进程维护数万并发长连接的优势，开发在线协作、聊天室（WebSocket）或大模型逐字流式转发网关（SSE，Server-Sent Events，服务器推送事件）。</li>
+    <li><strong>⑤ CLI（Command-Line Interface，命令行界面）与前端工具链</strong>：日常使用的 Vite、Webpack、ESLint、脚手架生成器和自动化批处理脚本，几乎全部运行在 Node.js 之上。</li>
+  </ul>
+</div>
+
+<!-- 00.2 · 什么时候不该用 Node.js + 主流后端语言选型表 -->
+<div class="wb-card" id="tradeoffs" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 00.2 · 选型边界：什么时候不该用 Node.js，以及与 Go、Java、Python 的对比结论</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 00.2 什么时候不该用 Node.js（与主流后端语言选型对照）</h3>
+
+  <p>
+    Node.js 的特长是<strong>「I/O（Input/Output，输入与输出）密集型」</strong>任务——查数据库、调外部接口、转发文件流时，等待时间由操作系统内核接管，主线程不干等，因此单机少量内存就能撑起高并发连接。<br>
+    反过来，它的明确短板是<strong>「CPU（Central Processing Unit，中央处理器）密集型同步计算」</strong>：由于所有请求的 JavaScript 业务代码默认跑在<strong>同一个主线程</strong>上，如果某个接口直接在主线程里执行视频编解码、高清图片像素滤镜、几十万行 Excel 同步解析或模型本地推理，假设计算耗时 <code>500ms</code>，这半秒钟内整台进程就像关门暂停营业一样，其他几百个并发请求哪怕只是查个健康状态也会全部卡住。
+  </p>
+
+  <div class="plop-callout warn" style="margin:12px 0;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 遇到重计算需求时的三条工程出路：</strong><br>
+    1. <strong>偶发的局部计算</strong>（如生成一张带水印海报、解析大文件）：放到 Node.js 内置的 <code>node:worker_threads</code> 工作线程里算，不阻塞主线程（见 <a href="#process">06 · 进程与线程</a>）；<br>
+    2. <strong>耗时长且允许异步出结果</strong>（如视频转码、全量报表导出）：接口写入消息队列后立即返回“处理中”，由独立的后台 Worker 慢慢消费（见 <a href="#scenarios">07.6 · 后台任务与队列</a>）；<br>
+    3. <strong>核心业务本身就是高吞吐重计算或 AI 推理</strong>：直接选用更契合的后端语言编写该服务，不要强行用 Node.js 硬扛。
+  </div>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">选型维度</th>
+          <th style="width:26%">Node.js（TypeScript）</th>
+          <th style="width:20%">Go</th>
+          <th style="width:20%">Java（Spring 生态）</th>
+          <th style="width:18%">Python</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>最擅长的场景</strong></td>
+          <td><strong>API 快速交付、BFF 聚合、SSR 同构、SSE/WebSocket 实时流、CLI 工具链</strong></td>
+          <td>云原生基础设施、高并发低延迟微服务、网关中间件</td>
+          <td>超大型企业级复杂业务（金融、电商核心交易链路）</td>
+          <td>AI 训练与推理服务、数据分析、自动化胶水脚本</td>
+        </tr>
+        <tr>
+          <td><strong>网络并发表现</strong></td>
+          <td><strong>高吞吐、低内存起步（约 30~50MB）</strong>，异步非阻塞处理 JSON 与流极轻量</td>
+          <td>极高吞吐、内存极省，单二进制文件直接编译部署</td>
+          <td>高吞吐（JDK 21+ 支持虚拟线程），但单实例起步内存偏高（数百 MB）</td>
+          <td>中等（FastAPI 异步框架），纯脚本执行速度弱于编译/JIT 语言</td>
+        </tr>
+        <tr>
+          <td><strong>CPU 重计算能力</strong></td>
+          <td><strong>弱（主线程敏感）</strong>，需借助 <code>worker_threads</code> 或拆出独立服务</td>
+          <td>强，原生多核抢占式协程调度，计算与 I/O 互不拖累</td>
+          <td>强，多线程成熟且 JIT（Just-In-Time，即时编译）优化深厚</td>
+          <td>纯 Python 弱，但底层有丰富的 C/C++ 与 GPU 科学计算库支撑</td>
+        </tr>
+        <tr>
+          <td><strong>前端转全栈成本</strong></td>
+          <td><strong>最低</strong>：语法、异步模型、包管理与 TypeScript 类型体系零切换成本</td>
+          <td>低~中：语法简洁，需适应指针、显式错误处理与协程模型</td>
+          <td>高：框架注解、面向对象分层与构建体系较重</td>
+          <td>低：语法易读，适合快速配合 AI 生态做后端接口</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:10px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>想了解为什么传统“一请求一线程”在万级连接下会耗尽内存，以及 Node.js 的 <code>V8 + libuv + OS epoll</code> 四层运行时和 Go GMP、Java 虚拟线程在内核层面的本质差异，可按需查阅 <a href="principles.html#why"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 00 非阻塞 I/O 模型与四层运行时架构》 ↗</a>。
+  </p>
+</div>
+
+<!-- 00.3 · 全篇知识地图与即时自测题 -->
+<div class="wb-card" id="knowledge-map" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 00.3 · 阅读路线图：从跑通第一个程序、七大业务场景到项目上线与底层原理</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 00.3 本笔记知识地图</h3>
+
+  <p>
+    整份笔记按照「全景定位 → 快速跑起来 → 核心积木 → 真实业务场景 → 工程上线与自测」的顺序编排，每个实战环节末尾都留好了通往《核心原理篇》对应章节的直达入口：
+  </p>
+
+  <!-- Editorial SVG: Note-Garden Node.js Knowledge Map -->
+  <figure style="margin:14px 0 16px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 248" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="nd-kmap-title nd-kmap-desc">
+        <title id="nd-kmap-title">Node.js 学习笔记全篇四站知识地图与双篇联动路径</title>
+        <desc id="nd-kmap-desc">从左向右依次为第一站快速起步与模块（00至02章）、第二站异步流HTTP与多核（03至06章）、第三站七大常见业务场景与工程上线（07至08章重点）、第四站10道综合场景自测（09章），底部通过虚线联动核心原理篇六大底层专题。</desc>
+        <defs>
+          <marker id="nd-km-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="nd-km-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="nd-km-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <line x1="188" y1="88" x2="216" y2="88" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#nd-km-arr-muted)"/>
+        <line x1="416" y1="88" x2="440" y2="88" stroke="#bf4520" stroke-width="1.6" marker-end="url(#nd-km-arr-accent)"/>
+        <line x1="656" y1="88" x2="688" y2="88" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#nd-km-arr-muted)"/>
+
+        <!-- Vertical dashed links down to Principles Bar (y=152 -> y=184) -->
+        <line x1="106" y1="152" x2="106" y2="184" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#nd-km-arr-link)"/>
+        <line x1="316" y1="152" x2="316" y2="184" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#nd-km-arr-link)"/>
+        <line x1="548" y1="152" x2="548" y2="184" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#nd-km-arr-link)"/>
+
+        <!-- Stage 1 Box -->
+        <rect x="24" y="24" width="164" height="128" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="106" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">① 起步与模块管理</text>
+        <text x="106" y="74" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">00 全景科普与边界</text>
+        <text x="106" y="98" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">01 跑起来 (--watch)</text>
+        <text x="106" y="122" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">02 模块与包管理</text>
+
+        <!-- Stage 2 Box -->
+        <rect x="216" y="24" width="200" height="128" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="316" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">② 核心运行能力</text>
+        <text x="316" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">03 异步限流与取消</text>
+        <text x="316" y="94" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">04 文件与流 (Stream)</text>
+        <text x="316" y="116" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">05 HTTP 与 Fastify</text>
+        <text x="316" y="138" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">06 进程与工作线程</text>
+
+        <!-- Stage 3 Box (Focal) -->
+        <rect x="440" y="24" width="216" height="128" rx="6" fill="#FFFDF7"/>
+        <rect x="440" y="24" width="216" height="128" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="548" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">③ 业务实战与上线（重点）</text>
+        <text x="548" y="76" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#bf4520">07 七大常见业务场景</text>
+        <text x="548" y="96" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">DB · JWT · 上传 · SSE · CLI</text>
+        <text x="548" y="120" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">08 项目搭建与生产部署</text>
+        <text x="548" y="138" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">TS · pino · Docker · 排障</text>
+
+        <!-- Stage 4 Box -->
+        <rect x="688" y="24" width="128" height="128" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="752" y="56" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">④ 闭环检验</text>
+        <text x="752" y="86" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">09 场景自测</text>
+        <text x="752" y="112" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">10 道折叠排障题</text>
+
+        <!-- Bottom Principles Bar -->
+        <rect x="24" y="184" width="792" height="44" rx="6" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1.3"/>
+        <text x="420" y="211" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.2" font-weight="700" fill="#2e5aa8">📘 核心原理篇（按需深挖：CJS/ESM 加载 · libuv 事件循环 · 8KB 内存池与背压 · V8 分代 GC · Cluster · AsyncLocalStorage）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4 id="quiz-00" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+
+  <details class="plop-drawer">
+    <summary>1. 移动端App首页需要同时读取「用户信息、未读消息数、推荐商品列表」三个内部微服务的数据并裁剪多余字段，适合用 Node.js 做这层服务吗？为什么？</summary>
+    <div class="drawer-body">
+      <p><strong>非常适合，这就是典型的 BFF（服务于前端的后端聚合层）场景。</strong>三个下游请求全部是网络 I/O 等待，Node.js 可以用 <code>Promise.all</code> 并发发起，总耗时只取决于最慢的那个接口，且天然擅长快速拼装与裁剪 JSON 结构，前后端还能直接共享一套 TypeScript 接口类型定义。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>2. 业务需要做一个「上传 1080P 视频后实时逐帧加水印并重编码为 MP4」的接口，如果直接在 Node.js 请求处理函数里用纯 JS 循环算像素会发生什么？</summary>
+    <div class="drawer-body">
+      <p><strong>会导致整个服务在算视频期间完全假死。</strong>因为所有请求的 JS 代码共用一个主线程，重度 CPU 运算占满主线程的几秒到几十秒里，其他用户的登录、查询、健康检查请求全部在事件队列里干等超时。正确做法是将上传落盘与转码解耦：接口拿到文件后往消息队列投递一条转码任务立即返回任务 ID，由独立的后台 Worker 调用 C++ 编写的 <code>ffmpeg</code> 子进程或专用计算服务异步处理。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>3. 把前端项目里的工具函数直接复制到 Node.js 后端复用时，哪类代码能直接跑，哪类代码会直接报错？</summary>
+    <div class="drawer-body">
+      <p><strong>纯逻辑与现代标准接口可以直接跑</strong>（如日期格式化、金额精度处理、<code>zod</code> 表单校验规则、<code>fetch</code> 请求封装、<code>URL</code> 解析）；<strong>凡是触碰浏览器专属宿主对象的代码都会报 <code>ReferenceError</code></strong>（如读写 <code>window.location</code>、<code>document.cookie</code>、<code>localStorage</code>）——在服务端，配置从 <code>process.env</code> 读，Cookie 和请求路径从每次请求传入的 <code>req</code> 对象上读，持久化数据则存进数据库或 Redis。</p>
+    </div>
+  </details>
+</div>

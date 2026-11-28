@@ -11,7 +11,11 @@
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 06.1 · 中间件执行模型：Koa 洋葱模型原理与 koa-compose 核心实现</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 06.1 洋葱模型（Onion Middleware）原理与 <code>koa-compose</code> 防重入实现</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 06.1 洋葱模型（Onion Middleware）原理与 <code>koa-compose</code> 防重入实现 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#http-framework">实战篇 05.2 Web 框架选型</a> —— Web 框架里的日志计时、鉴权与异常兜底中间件是如何靠 15 行递归代码组合出“先进后出”的洋葱执行顺序的？
+  </p>
 
   <p>
     在 Web 框架（如 Koa）中，日志记录、权限校验与统一异常捕获通常通过中间件串联。Koa 使用 <strong><code>koa-compose</code> 将中间件数组组合为递归嵌套的 Promise 调用链</strong>：每个中间件中 <code>await next()</code> 之前的代码按注册顺序依次执行（请求进入阶段），待最内层业务逻辑完成后，再按相反顺序依次恢复执行各中间件 <code>await next()</code> 之后的代码（响应返回阶段）。
@@ -61,7 +65,11 @@
 <div class="wb-card" id="als" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape pink"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 06.2 · 异步上下文透传：AsyncLocalStorage 全链路 TraceID 传递机制</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 06.2 <code>AsyncLocalStorage</code> 异步上下文隔离与全链路日志追踪</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 06.2 <code>AsyncLocalStorage</code> 异步上下文隔离与全链路日志追踪 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#config-logger-health">实战篇 08.3 结构化日志</a> 与 <a href="index.html#quiz">09 场景自测第 06 题</a> —— 单线程同时交替跑几百个并发请求时，怎样不用改业务函数参数就能在任意深层函数里拿到当前请求的专属 <code>traceId</code> 而不串号？
+  </p>
 
   <p>
     由于 Node.js 在单个主线程上交替执行成百上千个并发请求的异步回调，如果将请求的 <code>traceId</code> 存放在模块全局变量中，后到达的请求会立即覆盖前一个请求的数据。为此 Node.js 内置了 <strong><code>AsyncLocalStorage</code>（位于 <code>node:async_hooks</code> 模块）</strong>：它会在当前异步调用链派生出的每一个 Promise、定时器与 I/O 回调上自动关联并恢复专属的存储对象（Store），无需修改业务函数签名即可安全获取当前请求的上下文。
@@ -112,7 +120,11 @@
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.3 · 生产稳定性保障：Event Loop 延迟监控、未捕获异常处理与 CPU 火焰图分析</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 06.3 事件循环延迟监控（<code>monitorEventLoopDelay</code>）与未捕获异常安全退出规范</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 06.3 事件循环延迟监控（<code>monitorEventLoopDelay</code>）与未捕获异常安全退出规范 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#async-safety-limit">实战篇 03.3</a> 与 <a href="index.html#online-troubleshooting">08.5 CPU 飙高排障</a> —— 线上怎么实时监控主线程事件循环延迟，以及 CPU 飙到 100% 时怎么用火焰图抓出卡住主线程的函数栈帧？
+  </p>
 
   <div class="wb-grid-2">
     <div class="plop-code-box">

@@ -1,0 +1,289 @@
+<!-- ====================================================================
+     PART 03: 异步编程 · Promise 编排、错误处理、并发控制与取消机制
+     ==================================================================== -->
+<div class="wb-sec-header mustard" id="async">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">异步编程：Promise 编排、错误兜底、并发限流与超时取消</span>
+  <span class="plop-tag tomato">ASYNC/AWAIT · UNHANDLED REJECTION · CONCURRENCY · ABORTCONTROLLER</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>熟练用 <code>async / await</code> 与四种 <code>Promise</code> 组合器编排并发任务，防住因漏捕获 Promise 错误导致的进程崩溃，手写并发数限制器与 <code>AbortController</code> 超时取消，并理解为何绝不能阻塞主线程。
+</div>
+
+<!-- 03.1 · 从错误优先回调到 Promise 与 async/await -->
+<div class="wb-card" id="async-promise" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 03.1 · 异步语法演进：错误优先回调（Error-First Callback）、<code>Promise</code> 与 <code>async / await</code></div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 03.1 异步编程写法：从回调函数到 <code>async / await</code></h3>
+
+  <p>
+    在 Node.js 中，读取文件、查询数据库或请求外部接口都是<strong>非阻塞异步操作</strong>——发起调用后主线程不会停在原地等待，而是先去接待其他用户的请求，等底层结果准备好后再恢复后续逻辑。Node.js 的异步写法经历了两代演进：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong>早期传统写法（Error-First Callback，错误优先回调）</strong>：把回调函数作为最后一个参数传入，约定固定签名 <strong><code>(err, data) =&gt; {}</code></strong>——操作出错时 <code>err</code> 为错误对象，成功时 <code>err</code> 为 <code>null</code>、<code>data</code> 为返回结果。</li>
+    <li><strong>现代标准写法（<code>Promise</code> + <code>async / await</code>）</strong>：Node.js 内置模块如今均提供了 Promise 版本（如 <code>node:fs/promises</code>、<code>node:timers/promises</code>），配合 <code>async / await</code> 可以用扁平的线性代码表达异步流程。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> callback_vs_promisify.mjs · 传统回调与 util.promisify 转换 [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-cb-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-cb-basic"><code><span class="c-kw">import</span> fs <span class="c-kw">from</span> <span class="c-str">'node:fs'</span>;
+<span class="c-kw">import</span> { promisify } <span class="c-kw">from</span> <span class="c-str">'node:util'</span>;
+
+<span class="c-cm">// 1. 传统错误优先回调：第一个参数永远是 err，第二个参数是结果</span>
+fs.<span class="c-fn">readFile</span>(<span class="c-str">'./package.json'</span>, <span class="c-str">'utf8'</span>, (err, text) =&gt; {
+  <span class="c-kw">if</span> (err) {
+    console.<span class="c-fn">error</span>(<span class="c-str">'读取失败:'</span>, err.message);
+    <span class="c-kw">return</span>;
+  }
+  console.<span class="c-fn">log</span>(<span class="c-str">'读取成功，字符数:'</span>, text.length);
+});
+
+<span class="c-cm">// 2. 若遇到老旧第三方库只提供回调接口，可用 util.promisify 一键转为 Promise</span>
+<span class="c-kw">const</span> readFileAsync = <span class="c-fn">promisify</span>(fs.readFile);</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> async_await.mjs · 现代 async/await 与并行读取写法 [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-async-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-async-basic"><code><span class="c-kw">import</span> fs <span class="c-kw">from</span> <span class="c-str">'node:fs/promises'</span>;
+<span class="c-kw">import</span> { setTimeout <span class="c-kw">as</span> sleep } <span class="c-kw">from</span> <span class="c-str">'node:timers/promises'</span>;
+
+<span class="c-kw">async function</span> <span class="c-fn">loadProjectMeta</span>() {
+  <span class="c-cm">// 1. 两个互不依赖的异步读取：用 Promise.all 同时发起，总耗时只取决于较慢的那个</span>
+  <span class="c-kw">const</span> [pkgRaw, readmeRaw] = <span class="c-kw">await</span> Promise.<span class="c-fn">all</span>([
+    fs.<span class="c-fn">readFile</span>(<span class="c-str">'./package.json'</span>, <span class="c-str">'utf8'</span>),
+    fs.<span class="c-fn">readFile</span>(<span class="c-str">'./README.md'</span>, <span class="c-str">'utf8'</span>),
+  ]);
+
+  <span class="c-cm">// 2. 内置 timers/promises 提供无需手写 new Promise 的非阻塞延时等待</span>
+  <span class="c-kw">await</span> <span class="c-fn">sleep</span>(50);
+  <span class="c-kw">return</span> { pkg: JSON.<span class="c-fn">parse</span>(pkgRaw), readmeLen: readmeRaw.length };
+}
+
+console.<span class="c-fn">log</span>(<span class="c-kw">await</span> <span class="c-fn">loadProjectMeta</span>());</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 03.2 · Promise 四种并发组合工具选型表 -->
+<div class="wb-card" id="promise-combinators" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 03.2 · 并发任务编排：<code>Promise.all / allSettled / race / any</code> 四种组合方法对比</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 03.2 多个异步任务同时发起时，四种 <code>Promise</code> 组合方法怎么选</h3>
+
+  <p>
+    当需要同时发起多个互不依赖的异步调用时，如果在 <code>for</code> 循环里逐个写 <code>await</code>，会退化成“等上一个结束才发下一个”的串行等待。根据业务对“部分失败”的容忍度，从下面四个标准组合器中选择：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">组合方法</th>
+          <th style="width:36%">成功与失败触发规则</th>
+          <th>典型适用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong><code>Promise.all([...])</code></strong></td>
+          <td>全部成功才返回结果数组；<strong>只要有 1 个失败，整体立即抛出该异常</strong>。</td>
+          <td>订单详情页同时拉取「订单主表 + 商品明细」（缺一不可）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Promise.allSettled([...])</code></strong></td>
+          <td><strong>永不抛出异常</strong>；等所有任务结束后，逐项返回 <code>{ status: 'fulfilled', value }</code> 或 <code>{ status: 'rejected', reason }</code>。</td>
+          <td>批量给 50 个用户发站内信、首页聚合含非核心推荐模块（允许局部降级）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Promise.race([...])</code></strong></td>
+          <td>哪个任务<strong>最先敲定（无论成功还是失败）</strong>，就采用谁的结果。</td>
+          <td>给不支持信号取消的老旧第三方 SDK 调用包裹一层超时竞速。</td>
+        </tr>
+        <tr>
+          <td><strong><code>Promise.any([...])</code></strong></td>
+          <td>哪个任务<strong>最先成功</strong>就返回谁；全部都失败时才抛出 <code>AggregateError</code>。</td>
+          <td>同时向主备两个存储源或 CDN 节点探测资源，取最快可用响应。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 03.3 · 【实战重点】异步错误处理、并发数限制与超时取消（AbortController） -->
+<div class="wb-card" id="async-safety-limit" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 03.3 · 生产防线：未捕获 Promise 导致进程退出、并发数上限控制与 <code>AbortController</code> 取消机制</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 03.3 后端必补三件事：防崩错误兜底、并发数限制与超时取消</h3>
+
+  <p>
+    在浏览器里，某次异步请求漏写了 <code>catch</code> 顶多在控制台印一行红字，页面还能继续点；但在 Node.js 后端（自 Node 15+ 起默认行为），<strong>任何一个无人捕获的失败 Promise（<code>UnhandledPromiseRejection</code>）都会直接让整个 Node.js 进程退出</strong>——意味着正在这台进程上处理的其他几百个正常用户请求也会瞬间全部断线。
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> async_error_trap.mjs · 两个极易漏捕的异步异常与进程级兜底 [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-async-err', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-async-err"><code><span class="c-kw">async function</span> <span class="c-fn">queryRisk</span>() {
+  <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">'风控服务连接超时'</span>);
+}
+
+<span class="c-cm">// ❌ 常见误区 ①：在 try 块里写 return queryRisk() 而漏掉了 await</span>
+<span class="c-cm">//    函数直接把 Promise 原样返回了，外层当前 try/catch 根本抓不到它的报错</span>
+<span class="c-cm">// ✅ 正确写法：在 try 块内返回 Promise 时务必写成 return await queryRisk()</span>
+<span class="c-kw">export async function</span> <span class="c-fn">safeCheck</span>() {
+  <span class="c-kw">try</span> {
+    <span class="c-kw">return await</span> <span class="c-fn">queryRisk</span>();
+  } <span class="c-kw">catch</span> (err) {
+    console.<span class="c-fn">warn</span>(<span class="c-str">'风控降级放行:'</span>, err.message);
+    <span class="c-kw">return</span> { pass: <span class="c-kw">true</span>, degraded: <span class="c-kw">true</span> };
+  }
+}
+
+<span class="c-cm">// ❌ 常见误区 ②：“发后不管”的异步上报（queryRisk() 不 await 也不 .catch）</span>
+<span class="c-cm">//    一旦报错就会触发 unhandledRejection 直接杀死进程</span>
+<span class="c-fn">queryRisk</span>().<span class="c-fn">catch</span>((err) =&gt; console.<span class="c-fn">error</span>(<span class="c-str">'后台异步上报失败:'</span>, err.message));
+
+<span class="c-cm">// 进程级最后防线：在 server.js 入口记录告警日志并安全停机退出</span>
+process.<span class="c-fn">on</span>(<span class="c-str">'unhandledRejection'</span>, (reason) =&gt; {
+  console.<span class="c-fn">error</span>(<span class="c-str">'[致命告警] 存在未捕获的 Promise 拒绝:'</span>, reason);
+});</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> concurrency_limit.mjs · 限制最大并发数（防止 Promise.all 打挂下游）[Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-p-limit', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-p-limit"><code><span class="c-cm">// 若有 1000 个任务直接 Promise.all，会瞬间打满连接池或触发对方 429 限流。</span>
+<span class="c-cm">// 下面用 16 行代码实现通用的「固定窗口并发执行器」（工程中也可装 p-limit 库）：</span>
+<span class="c-kw">export async function</span> <span class="c-fn">mapLimit</span>(items, limit, fn) {
+  <span class="c-kw">const</span> results = <span class="c-kw">new</span> <span class="c-fn">Array</span>(items.length);
+  <span class="c-kw">let</span> cursor = 0; <span class="c-cm">// 单线程下共享游标天然无竞争，谁先干完谁领下一个下标</span>
+
+  <span class="c-kw">async function</span> <span class="c-fn">worker</span>() {
+    <span class="c-kw">while</span> (cursor &lt; items.length) {
+      <span class="c-kw">const</span> index = cursor++;
+      results[index] = <span class="c-kw">await</span> <span class="c-fn">fn</span>(items[index], index);
+    }
+  }
+  <span class="c-cm">// 仅启动 Math.min(limit, items.length) 个并发工作流</span>
+  <span class="c-kw">const</span> workers = Array.<span class="c-fn">from</span>({ length: Math.<span class="c-fn">min</span>(limit, items.length) }, worker);
+  <span class="c-kw">await</span> Promise.<span class="c-fn">all</span>(workers);
+  <span class="c-kw">return</span> results;
+}
+
+<span class="c-cm">// 用法示例：10 个 ID 最多同时跑 3 个请求，结果顺序与原数组严格一致</span>
+<span class="c-kw">const</span> ids = [1, 2, 3, 4, 5, 6];
+<span class="c-kw">const</span> res = <span class="c-kw">await</span> <span class="c-fn">mapLimit</span>(ids, 3, <span class="c-kw">async</span> (id) =&gt; <span class="c-str">`user-${id}`</span>);
+console.<span class="c-fn">log</span>(res);</code></pre>
+    </div>
+  </div>
+
+  <p style="margin:0 0 10px;">
+    <strong>超时与主动取消（<code>AbortController</code> 与 <code>AbortSignal</code>）：</strong>所有外部调用都必须设超时上限，而且当客户端提前关掉网页时，服务端应该立刻中止正在跑的慢操作以节省资源。现代 Node.js 统一使用标准 <strong><code>AbortController</code></strong> 将取消信号贯穿到底层网络与定时器中：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> abort_timeout.mjs · 组合「3 秒自动超时」与「外部手动取消」双信号 [Node.js 20.3+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-abort-demo', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-abort-demo"><code><span class="c-kw">export async function</span> <span class="c-fn">fetchWithCancel</span>(url, clientAbortSignal) {
+  <span class="c-cm">// AbortSignal.any (Node 20.3+)：无论是「满 3000ms 超时」还是「外部传入信号触发取消」，都会立即中断底层 Socket</span>
+  <span class="c-kw">const</span> signals = [AbortSignal.<span class="c-fn">timeout</span>(3000)];
+  <span class="c-kw">if</span> (clientAbortSignal) signals.<span class="c-fn">push</span>(clientAbortSignal);
+
+  <span class="c-kw">try</span> {
+    <span class="c-kw">const</span> res = <span class="c-kw">await</span> <span class="c-fn">fetch</span>(url, { signal: AbortSignal.<span class="c-fn">any</span>(signals) });
+    <span class="c-kw">return await</span> res.<span class="c-fn">json</span>();
+  } <span class="c-kw">catch</span> (err) {
+    <span class="c-cm">// 区分是超时触发 (TimeoutError) 还是调用方主动取消 (AbortError)</span>
+    <span class="c-kw">if</span> (err.name === <span class="c-str">'TimeoutError'</span>) <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">`请求下游超时 (&gt;3s): ${url}`</span>);
+    <span class="c-kw">if</span> (err.name === <span class="c-str">'AbortError'</span>) console.<span class="c-fn">log</span>(<span class="c-str">'调用方已主动取消请求，停止等待'</span>);
+    <span class="c-kw">throw</span> err;
+  }
+}
+
+<span class="c-cm">// 本地可直接运行验证主动取消：</span>
+<span class="c-kw">const</span> ctrl = <span class="c-kw">new</span> <span class="c-fn">AbortController</span>();
+<span class="c-fn">setTimeout</span>(() =&gt; ctrl.<span class="c-fn">abort</span>(), 50); <span class="c-cm">// 50ms 后主动取消</span>
+<span class="c-kw">await</span> <span class="c-fn">fetchWithCancel</span>(<span class="c-str">'https://example.com'</span>, ctrl.signal).<span class="c-fn">catch</span>(() =&gt; {});</code></pre>
+  </div>
+</div>
+
+<!-- 03.4 · EventEmitter 日常用法、为什么不要阻塞主线程与即时场景题 -->
+<div class="wb-card" id="event-emitter-basic" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> 03.4 · 事件发布订阅：<code>EventEmitter</code> 常用方法与单主线程非阻塞原则</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> 03.4 事件发布与订阅（<code>EventEmitter</code>）及主线程保护原则</h3>
+
+  <p>
+    <code>Promise</code> 适合表达“发起一次、返回一次结果”的操作；而当一个对象会在生命周期内<strong>反复触发多次事件</strong>（例如 HTTP 服务持续收到请求、客户端连接断开、文件流一段段读出数据）时，Node.js 统一使用内置 <code>node:events</code> 模块的 <strong><code>EventEmitter</code></strong>：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong><code>emitter.on(事件名, fn)</code> / <code>emitter.off(事件名, fn)</code></strong>：持续监听事件，以及在不用时解绑释放内存（注意：绝不要在每次 HTTP 请求里给全局对象挂 <code>.on</code> 却不解绑，否则会造成监听器内存泄漏）；</li>
+    <li><strong><code>emitter.once(事件名, fn)</code></strong>：只监听一次，触发后自动移除；</li>
+    <li><strong><code>emitter.on('error', fn)</code>（必写规范）</strong>：<code>'error'</code> 在 EventEmitter 中是特殊事件——如果触发了 <code>emit('error', err)</code> 却没有任何监听器接住它，Node.js 会直接当作未捕获异常让进程退出。</li>
+  </ul>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> order_events.mjs · 使用 EventEmitter 解耦进程内事件通知 [Node.js 20+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ee-basic', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-ee-basic"><code><span class="c-kw">import</span> { EventEmitter } <span class="c-kw">from</span> <span class="c-str">'node:events'</span>;
+
+<span class="c-kw">const</span> orderBus = <span class="c-kw">new</span> <span class="c-fn">EventEmitter</span>();
+
+<span class="c-cm">// 1. 始终先绑定 'error' 事件兜底，防止异常无人接收导致进程崩溃</span>
+orderBus.<span class="c-fn">on</span>(<span class="c-str">'error'</span>, (err) =&gt; console.<span class="c-fn">error</span>(<span class="c-str">'[事件总线异常]:'</span>, err.message));
+
+<span class="c-cm">// 2. on 持续监听每次支付事件；once 仅在首单时触发一次后自动解绑</span>
+orderBus.<span class="c-fn">on</span>(<span class="c-str">'paid'</span>, (orderId, amount) =&gt; {
+  console.<span class="c-fn">log</span>(<span class="c-str">`[库存] 订单 ${orderId} 支付 ￥${amount}，已扣减`</span>);
+});
+orderBus.<span class="c-fn">once</span>(<span class="c-str">'paid'</span>, (orderId) =&gt; {
+  console.<span class="c-fn">log</span>(<span class="c-str">`[首单礼] 首次支付奖励已发放: ${orderId}`</span>);
+});
+
+orderBus.<span class="c-fn">emit</span>(<span class="c-str">'paid'</span>, <span class="c-str">'ORD-101'</span>, 99); <span class="c-cm">// 触发库存 + 首单礼</span>
+orderBus.<span class="c-fn">emit</span>(<span class="c-str">'paid'</span>, <span class="c-str">'ORD-102'</span>, 58); <span class="c-cm">// 仅触发库存</span></code></pre>
+  </div>
+
+  <div class="plop-callout warn" style="margin-bottom:16px;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 为什么永远不要阻塞主线程？</strong>在请求处理链路中切勿调用 <code>fs.readFileSync</code> 等以 <code>Sync</code> 结尾的同步函数，也不要跑秒级大循环或回溯正则表达式——因为单个 Node.js 进程靠<strong>一条主线程上的事件循环</strong>轮流响应成百上千个并发回调，某处同步卡顿 300ms 就等于所有在线用户一起卡顿 300ms。底层调度顺序详见 <a href="principles.html#eventloop"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 02 libuv 事件循环六大阶段与微任务优先级》 ↗</a>。
+  </div>
+
+  <h4 id="quiz-03" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+
+  <details class="plop-drawer">
+    <summary>1. 下面的代码明明包了 <code>try / catch</code>，为什么 <code>saveLog()</code> 报错时还是把整个 Node 服务弄崩退出了？<br><code>async function handler() { try { return saveLog(); } catch (e) { console.error(e); } }</code></summary>
+    <div class="drawer-body">
+      <p>因为在 <code>try</code> 块里写了 <code>return saveLog()</code> 而<strong>没有写 <code>await</code></strong>。<code>handler</code> 只是同步拿到了一个尚在执行中的 Promise 对象并直接退出了 <code>try</code> 作用域；等几毫秒后该 Promise 异步变成 <code>rejected</code> 时，早已不在当前 <code>try / catch</code> 的保护范围内了。若上层调用方也没捕获它，就会触发 <code>unhandledRejection</code> 导致进程退出。修复方法是在 <code>try</code> 块内始终写成 <strong><code>return await saveLog()</code></strong>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>2. 运营导入了一份含 5,000 个商品 ID 的表格，需要逐个调外部接口同步库存，直接写 <code>await Promise.all(ids.map(syncOne))</code> 会出什么问题？怎么改？</summary>
+    <div class="drawer-body">
+      <p><code>ids.map(syncOne)</code> 会在<strong>同一毫秒内瞬间向对方服务器砸出 5,000 个并发连接</strong>，轻则被对方网关触发 <code>429 Too Many Requests</code> 封禁 IP，重则耗尽本机端口与内存。应改用本章的 <code>mapLimit(ids, 10, syncOne)</code>（或 <code>p-limit(10)</code>）将同时在途请求数控制在 <code>10</code> 个以内，并对单条失败用 <code>try / catch</code> 收集错误列表以便汇总重试，而不是一条失败就让整批作废。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>3. 用 <code>Promise.race([fetch(url), sleep(3000)])</code> 做超时控制，和用 <code>fetch(url, { signal: AbortSignal.timeout(3000) })</code> 有什么本质区别？</summary>
+    <div class="drawer-body">
+      <p><code>Promise.race</code> 只是让你的业务代码在 3 秒后“不再等结果了”，但<strong>底层的 HTTP 网络请求其实还在后台继续占着连接收发数据</strong>；如果下游响应体很大，依然会白白消耗带宽和内存。而传入 <code>AbortSignal.timeout(3000)</code> 会在满 3 秒的瞬间<strong>直接关闭底层 Socket 连接并通知内核中止传输</strong>，是真正意义上的取消。</p>
+    </div>
+  </details>
+</div>

@@ -1,0 +1,397 @@
+<!-- ====================================================================
+     PART 08: 项目搭建与上线 · 分层目录、TypeScript、日志配置、Docker 部署与线上排障
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="engineering">
+  <span class="wb-sec-num">08</span>
+  <span class="wb-sec-title">项目搭建与上线：分层目录、TypeScript、日志、Docker 部署与排障</span>
+  <span class="plop-tag tomato">LAYERED ARCH · TYPESCRIPT · PINO · DOCKER · TROUBLESHOOTING</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>从零搭起职责清晰的四层企业级项目目录，接入 TypeScript 并直接运行 <code>.ts</code> 源码，配好环境变量启动校验、<code>pino</code> 结构化脱敏日志、健康检查与 <code>node --test</code> 自动化测试，写出生产级多阶段 <code>Dockerfile</code> 与优雅停机，并掌握内存泄漏与 CPU 飙高的排障步骤。
+</div>
+
+<!-- 08.1 · 标准分层目录结构与请求调用链 -->
+<div class="wb-card" id="project-layout" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 08.1 · 工程目录架构：企业级 Node.js 服务的标准四层目录（<code>routes / controllers / services / repositories</code>）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 08.1 标准后端项目的分层目录结构是怎么划分的</h3>
+
+  <p>
+    写单文件脚本时把路由和 SQL 混在一起很快，但当项目增长到几十个接口时，混写会导致改一处牵全身、也没法单独写测试。生产级 Node.js 服务普遍采用职责分明的<strong>四层目录结构（路由与插件层 → 控制器层 → 业务逻辑层 → 数据访问层）</strong>：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> order-service/ · 可上线的 TypeScript 后端标准目录树</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-node-proj-tree', this)">复制目录</button>
+      </div>
+      <pre class="plop-code-pre" id="code-node-proj-tree"><code>order-service/
+├── package.json            <span class="c-cm"># 依赖与脚本（声明 "type": "module"）</span>
+├── tsconfig.json           <span class="c-cm"># TypeScript 编译与严格类型检查配置</span>
+├── Dockerfile              <span class="c-cm"># 多阶段生产容器构建文件</span>
+├── .env.example            <span class="c-cm"># 环境变量模板（真实 .env 列入 .gitignore）</span>
+├── src/
+│   ├── server.ts           <span class="c-cm"># 【进程入口】监听端口、挂载 SIGTERM 优雅停机</span>
+│   ├── app.ts              <span class="c-cm"># 【应用组装】注册日志、CORS、错误处理与路由（供测试直接注入）</span>
+│   ├── config/
+│   │   └── env.ts          <span class="c-cm"># 用 zod 校验 process.env，缺关键配置启动即报错</span>
+│   ├── plugins/
+│   │   └── auth.ts         <span class="c-cm"># 【横切插件/中间件】JWT 鉴权、数据库连接挂载</span>
+│   ├── routes/
+│   │   └── order.route.ts  <span class="c-cm"># 【路由层】绑定 URL 路径、入参 Schema 与 Controller</span>
+│   ├── controllers/
+│   │   └── order.ctrl.ts   <span class="c-cm"># 【控制器层】提取请求参数，调 Service，组装 HTTP 状态码</span>
+│   ├── services/
+│   │   └── order.svc.ts    <span class="c-cm"># 【业务逻辑层】纯业务计算与事务编排（不碰 req / reply）</span>
+│   └── repositories/
+│       └── order.repo.ts   <span class="c-cm"># 【数据访问层】集中封装 MySQL SQL 与 Redis 读写</span>
+└── test/
+    └── order.test.ts       <span class="c-cm"># 【自动化测试】使用内置 node:test 做单元与接口测试</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 为什么要这样拆？（三条核心工程收益）</div>
+      <ul style="margin:0; padding-left:18px; font-size:13.2px; line-height:1.68;">
+        <li><strong><code>server.ts</code> 与 <code>app.ts</code> 分离</strong>：<code>app.ts</code> 只组装路由而不调用 <code>listen(端口)</code>，跑自动化测试时直接用 <code>app.inject()</code> 内存模拟发请求，速度快且不会报端口冲突。</li>
+        <li><strong><code>services/</code> 不接触 HTTP 对象</strong>：业务逻辑层只接收普通参数并返回业务对象——将来无论是 HTTP 接口调它、CLI 脚本调它还是消息队列消费者调它，代码一行都不用改。</li>
+        <li><strong><code>repositories/</code> 收敛存储细节</strong>：所有 SQL 和缓存键名集中在一处，改表结构或换驱动时不会波及上层业务规则。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Editorial SVG: Layered Call Flow -->
+  <figure style="margin:12px 0 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 164" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="nd-layer-title nd-layer-desc">
+        <title id="nd-layer-title">标准 Node.js 后端服务四层请求调用流转图</title>
+        <desc id="nd-layer-desc">HTTP 请求从左至右依次经过路由与中间件层、Controller 控制器层、Service 纯业务逻辑层，最终由 Repository 数据访问层读写 MySQL 与 Redis 后按原路返回。</desc>
+        <defs>
+          <marker id="nd-ly-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="nd-ly-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <line x1="196" y1="84" x2="228" y2="84" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#nd-ly-arr-muted)"/>
+        <line x1="404" y1="84" x2="436" y2="84" stroke="#bf4520" stroke-width="1.6" marker-end="url(#nd-ly-arr-accent)"/>
+        <line x1="628" y1="84" x2="660" y2="84" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#nd-ly-arr-muted)"/>
+
+        <!-- Layer 1 -->
+        <rect x="24" y="32" width="172" height="104" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="110" y="58" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">① plugins + routes</text>
+        <text x="110" y="82" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">CORS · 鉴权 · 日志</text>
+        <text x="110" y="102" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">统一异常兜底</text>
+        <text x="110" y="122" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#2e5aa8">src/app.ts</text>
+
+        <!-- Layer 2 -->
+        <rect x="228" y="32" width="176" height="104" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
+        <text x="316" y="58" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">② controllers/</text>
+        <text x="316" y="82" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">zod 校验入参</text>
+        <text x="316" y="102" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">设置 HTTP 状态码</text>
+        <text x="316" y="122" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#2e5aa8">order.ctrl.ts</text>
+
+        <!-- Layer 3 (Focal) -->
+        <rect x="436" y="32" width="192" height="104" rx="6" fill="#FFFDF7"/>
+        <rect x="436" y="32" width="192" height="104" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="532" y="58" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">③ services/（核心）</text>
+        <text x="532" y="82" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#1F1F23">执行纯业务规则与事务</text>
+        <text x="532" y="102" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">不依赖 req / reply</text>
+        <text x="532" y="122" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#bf4520">order.svc.ts</text>
+
+        <!-- Layer 4 -->
+        <rect x="660" y="32" width="156" height="104" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="738" y="58" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">④ repositories/</text>
+        <text x="738" y="82" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">参数化 SQL 查询</text>
+        <text x="738" y="102" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">Redis 缓存读写</text>
+        <text x="738" y="122" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">order.repo.ts</text>
+      </svg>
+    </div>
+  </figure>
+</div>
+
+<!-- 08.2 · TypeScript 接入与内置 node --test 测试 -->
+<div class="wb-card" id="ts-and-test" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 08.2 · TypeScript 接入与单元测试：原生直跑 <code>.ts</code>（Node 22.18+ / 24+）、<code>tsconfig.json</code> 与 <code>node --test</code></div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 08.2 接入 TypeScript 与内置 <code>node --test</code> 自动化测试</h3>
+
+  <p>
+    过去在 Node.js 里跑 TypeScript 要折腾 <code>ts-node</code> 或复杂的构建加载器。如今 Node.js 已内置<strong>原生类型剥离（Type Stripping）</strong>能力，版本要求与分工非常清晰：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>开发时怎么直接跑 TS</strong>：在 <strong><code>Node.js 22.18+ / 24+ / 26+</code></strong> 中，直接执行 <strong><code>node --watch --env-file=.env src/server.ts</code></strong> 即可开箱运行（若在较早的 <code>v22.6 ~ v22.17</code> 上需加 <code>--experimental-strip-types</code> 参数）。</li>
+    <li><strong>两个必知边界</strong>：① Node 运行时只负责“把 <code>: string</code>、<code>interface</code> 等类型标记擦除成空白直接跑 JS”，<strong>不做类型错误检查</strong>，因此发版与 CI 时仍需执行 <code>tsc --noEmit</code> 检查类型安全；② 原生擦除不支持需要生成额外 JS 代码的旧特性（如 <code>enum</code>、<code>namespace</code>），在 <code>tsconfig.json</code> 中开启 <code>"erasableSyntaxOnly": true</code>（TypeScript 5.8+）即可让编辑器提前标红提醒。生产环境推荐在构建镜像时执行 <code>tsc</code> 编译出纯 <code>dist/*.js</code> 运行，省去启动擦除开销且镜像无需携带开发依赖。</li>
+  </ul>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> tsconfig.json &amp; package.json · 现代 Node TS 标准配置 [Node.js 22.18+ / TS 5.8+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ts-config', this)">复制配置</button>
+      </div>
+      <pre class="plop-code-pre" id="code-ts-config"><code><span class="c-cm">// 安装开发依赖: npm install -D typescript @types/node</span>
+<span class="c-cm">// --- tsconfig.json ---</span>
+{
+  <span class="c-str">"compilerOptions"</span>: {
+    <span class="c-str">"target"</span>: <span class="c-str">"ES2023"</span>,
+    <span class="c-str">"module"</span>: <span class="c-str">"NodeNext"</span>,           <span class="c-cm">// 对齐 Node.js 原生 ESM 解析规则</span>
+    <span class="c-str">"moduleResolution"</span>: <span class="c-str">"NodeNext"</span>,
+    <span class="c-str">"rootDir"</span>: <span class="c-str">"./src"</span>,
+    <span class="c-str">"outDir"</span>: <span class="c-str">"./dist"</span>,
+    <span class="c-str">"strict"</span>: <span class="c-kw">true</span>,                 <span class="c-cm">// 开启全套严格空值与类型检查</span>
+    <span class="c-str">"erasableSyntaxOnly"</span>: <span class="c-kw">true</span>,     <span class="c-cm">// 禁止 enum 等不可直接擦除的语法，完美兼容 node 直跑</span>
+    <span class="c-str">"verbatimModuleSyntax"</span>: <span class="c-kw">true</span>,   <span class="c-cm">// 强制纯类型导入写 import type { User } from ...</span>
+    <span class="c-str">"skipLibCheck"</span>: <span class="c-kw">true</span>
+  },
+  <span class="c-str">"include"</span>: [<span class="c-str">"src/**/*"</span>]
+}
+
+<span class="c-cm">// --- package.json 中的 scripts 配法 ---</span>
+<span class="c-cm">// "dev":       "node --watch --env-file-if-exists=.env src/server.ts"</span>
+<span class="c-cm">// "typecheck": "tsc --noEmit"</span>
+<span class="c-cm">// "build":     "tsc"</span>
+<span class="c-cm">// "start":     "node dist/server.js"</span>
+<span class="c-cm">// "test":      "node --test test/*.test.ts"</span></code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> test/order.test.ts · 用内置 node:test 直接测 TS 业务与接口 [Node.js 22.18+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-proj-test', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-proj-test"><code><span class="c-cm">// 无需安装 Jest / Vitest：node --test 原生支持直接运行 .test.ts 测试文件</span>
+<span class="c-kw">import</span> { test, describe } <span class="c-kw">from</span> <span class="c-str">'node:test'</span>;
+<span class="c-kw">import</span> assert <span class="c-kw">from</span> <span class="c-str">'node:assert/strict'</span>;
+<span class="c-kw">import</span> Fastify <span class="c-kw">from</span> <span class="c-str">'fastify'</span>;
+
+<span class="c-cm">// 示例：被测的应用组装函数 buildApp()</span>
+<span class="c-kw">function</span> <span class="c-fn">buildApp</span>() {
+  <span class="c-kw">const</span> app = <span class="c-fn">Fastify</span>();
+  app.<span class="c-fn">post</span>&lt;{ Body: { item: <span class="c-kw">string</span>; price: <span class="c-kw">number</span> } }&gt;(<span class="c-str">'/api/orders'</span>, <span class="c-kw">async</span> (req, reply) =&gt; {
+    <span class="c-kw">if</span> (!req.body.item || req.body.price &lt;= 0) {
+      <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(400).<span class="c-fn">send</span>({ message: <span class="c-str">'价格必须大于 0'</span> });
+    }
+    <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(201).<span class="c-fn">send</span>({ id: 1, ...req.body });
+  });
+  <span class="c-kw">return</span> app;
+}
+
+<span class="c-fn">describe</span>(<span class="c-str">'POST /api/orders 接口测试'</span>, () =&gt; {
+  <span class="c-fn">test</span>(<span class="c-str">'合法入参返回 201，非法价格拦截返回 400'</span>, <span class="c-kw">async</span> () =&gt; {
+    <span class="c-kw">const</span> app = <span class="c-fn">buildApp</span>();
+    <span class="c-cm">// app.inject 在内存里模拟发请求，无需真正占用网卡端口</span>
+    <span class="c-kw">const</span> okRes = <span class="c-kw">await</span> app.<span class="c-fn">inject</span>({ method: <span class="c-str">'POST'</span>, url: <span class="c-str">'/api/orders'</span>, payload: { item: <span class="c-str">'键盘'</span>, price: 299 } });
+    assert.<span class="c-fn">equal</span>(okRes.statusCode, 201);
+
+    <span class="c-kw">const</span> badRes = <span class="c-kw">await</span> app.<span class="c-fn">inject</span>({ method: <span class="c-str">'POST'</span>, url: <span class="c-str">'/api/orders'</span>, payload: { item: <span class="c-str">'键盘'</span>, price: -5 } });
+    assert.<span class="c-fn">equal</span>(badRes.statusCode, 400);
+    <span class="c-kw">await</span> app.<span class="c-fn">close</span>();
+  });
+});</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 08.3 · 配置启动校验、结构化日志（pino）与健康检查接口 -->
+<div class="wb-card" id="config-logger-health" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 08.3 · 可观测与配置基线：环境变量启动校验、<code>pino</code> 结构化脱敏日志与健康检查探针</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 08.3 配置校验、结构化日志（<code>pino</code>）与健康检查接口</h3>
+
+  <p>
+    把服务真正放到线上运行前，需要补齐三项基础设施：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>① 配置启动即校验（Fail-Fast）</strong>：用 <code>zod</code> 在进程启动第一秒校验 <code>process.env</code>——运维若漏配了 <code>JWT_SECRET</code>，容器启动当场报错拦截，绝不带病上线。</li>
+    <li><strong>② 结构化 JSON 日志与敏感字段脱敏（<code>pino</code>）</strong>：线上不要用 <code>console.log</code> 打自由格式文本（多行堆栈混在一起无法在日志平台检索）。Fastify 内置的 <strong><code>pino</code></strong> 每条日志输出单行 JSON（自动附带请求唯一 <code>reqId</code> 与耗时 <code>responseTime</code>），并可通过 <code>redact</code> 自动把密码与 Token 掩码成 <code>[Redacted]</code>。</li>
+    <li><strong>③ 存活与就绪双健康检查（<code>/healthz</code> 与 <code>/readyz</code>）</strong>：网关和 Kubernetes 靠轮询健康接口判断实例状态——<code>/healthz</code> 确认进程事件循环未卡死；<code>/readyz</code> 检查 MySQL / Redis 连通性，且在收到停机信号准备退出期间主动返回 <code>503</code> 通知网关先把新流量切走。</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> env_logger_health.mjs · 启动配置强校验 + pino 脱敏日志 + 健康检查完整模板 [Node.js 20+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-obs-health', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-obs-health"><code><span class="c-kw">import</span> Fastify <span class="c-kw">from</span> <span class="c-str">'fastify'</span>;
+<span class="c-kw">import</span> crypto <span class="c-kw">from</span> <span class="c-str">'node:crypto'</span>;
+<span class="c-kw">import</span> { z } <span class="c-kw">from</span> <span class="c-str">'zod'</span>;
+
+<span class="c-cm">// 1. 启动时强校验环境变量：缺必填项或格式不对立即打印清晰原因并终止启动</span>
+<span class="c-kw">const</span> EnvSchema = z.<span class="c-fn">object</span>({
+  NODE_ENV: z.<span class="c-fn">enum</span>([<span class="c-str">'development'</span>, <span class="c-str">'production'</span>, <span class="c-str">'test'</span>]).<span class="c-kw">default</span>(<span class="c-str">'development'</span>),
+  PORT: z.coerce.<span class="c-fn">number</span>().<span class="c-fn">int</span>().<span class="c-fn">positive</span>().<span class="c-kw">default</span>(3000),
+  LOG_LEVEL: z.<span class="c-fn">enum</span>([<span class="c-str">'debug'</span>, <span class="c-str">'info'</span>, <span class="c-str">'warn'</span>, <span class="c-str">'error'</span>]).<span class="c-kw">default</span>(<span class="c-str">'info'</span>),
+});
+<span class="c-kw">export const</span> env = EnvSchema.<span class="c-fn">parse</span>(process.env);
+
+<span class="c-cm">// 2. 配置 pino 结构化日志：透传上游网关 x-request-id，并自动脱敏 Authorization 与密码字段</span>
+<span class="c-kw">export const</span> app = <span class="c-fn">Fastify</span>({
+  genReqId: (req) =&gt; req.headers[<span class="c-str">'x-request-id'</span>] || crypto.<span class="c-fn">randomUUID</span>(),
+  logger: {
+    level: env.LOG_LEVEL,
+    redact: [<span class="c-str">'req.headers.authorization'</span>, <span class="c-str">'req.headers.cookie'</span>, <span class="c-str">'body.password'</span>],
+  },
+});
+
+<span class="c-cm">// 3. 健康检查接口（停机摘流期间 isShuttingDown 置为 true，让负载均衡器停止向本机派单）</span>
+<span class="c-kw">let</span> isShuttingDown = <span class="c-kw">false</span>;
+<span class="c-kw">export function</span> <span class="c-fn">markShuttingDown</span>() { isShuttingDown = <span class="c-kw">true</span>; }
+
+app.<span class="c-fn">get</span>(<span class="c-str">'/healthz'</span>, <span class="c-kw">async</span> () =&gt; ({ status: <span class="c-str">'ok'</span>, uptime: process.<span class="c-fn">uptime</span>() }));
+
+app.<span class="c-fn">get</span>(<span class="c-str">'/readyz'</span>, <span class="c-kw">async</span> (_req, reply) =&gt; {
+  <span class="c-kw">if</span> (isShuttingDown) <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(503).<span class="c-fn">send</span>({ status: <span class="c-str">'draining'</span> });
+  <span class="c-cm">// 真实项目中在此并行探测: await Promise.all([pool.query('SELECT 1'), redis.ping()]);</span>
+  <span class="c-kw">return</span> { status: <span class="c-str">'ready'</span> };
+});</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:10px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>如果在深层 <code>Service / Repository</code> 函数里不想一层层手动把 <code>request.log</code> 当参数往下传，却仍想让每条日志自动带上当前请求的 <code>traceId</code>，Node.js 内置的 <code>AsyncLocalStorage</code> 是怎么做到的？详见 <a href="principles.html#als"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 06.2 AsyncLocalStorage 异步上下文追踪》 ↗</a>。
+  </p>
+</div>
+
+<!-- 08.4 · 部署上线：多阶段 Dockerfile、容器 vs PM2 怎么跑与优雅停机 -->
+<div class="wb-card" id="deploy-docker-pm2" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> 08.4 · 部署上线：生产级多阶段 <code>Dockerfile</code>、容器 vs <code>PM2</code> 运行方式与零损优雅停机</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> 08.4 部署上线：Docker 镜像、PM2 与容器运行规范</h3>
+
+  <p>
+    根据团队基础设施形态，Node.js 服务上线主要有两种标准运行方式（<strong>切忌混用</strong>）：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>方式 A · Docker / Kubernetes 容器化部署（现代主流）</strong>：<strong>每个容器只跑单个 <code>node</code> 进程</strong>（不要在容器里再套 PM2），利用多核与崩溃重启全部交给 K8s 编排多个容器副本（Pod）完成；<code>Dockerfile</code> 的 <code>CMD</code> 必须用 <strong><code>["node", "dist/server.js"]</code></strong> 直接启动（不要写 <code>CMD npm start</code>，因为 <code>npm</code> 包裹层可能无法及时把 <code>SIGTERM</code> 信号转发给 Node 进程，导致滚动发版时优雅停机失效被强杀）。</li>
+    <li><strong>方式 B · 云主机（ECS / VPS）直接部署</strong>：没有容器编排层时，使用进程管家 <strong><code>PM2</code></strong> 开启 <code>cluster</code> 模式按核数拉起多个 Worker 进程，发版时用 <code>pm2 reload</code> 实现零停机滚动更新（底层即 <a href="principles.html#cluster-ipc">原理篇 05.2 的 Cluster IPC 滚动替换</a>）。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> Dockerfile · 多阶段构建生产最小镜像（非 root 运行）[Node.js 24 LTS]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-dockerfile', this)">复制配置</button>
+      </div>
+      <pre class="plop-code-pre" id="code-dockerfile"><code><span class="c-cm"># --- 阶段 1：安装全量依赖并编译 TypeScript ---</span>
+<span class="c-kw">FROM</span> node:24-alpine <span class="c-kw">AS</span> builder
+<span class="c-kw">WORKDIR</span> /app
+<span class="c-cm"># 先单独拷贝锁文件利用 Docker 层缓存，源码改动时不重装依赖</span>
+<span class="c-kw">COPY</span> package.json package-lock.json ./
+<span class="c-kw">RUN</span> npm ci
+<span class="c-kw">COPY</span> tsconfig.json ./
+<span class="c-kw">COPY</span> src ./src
+<span class="c-kw">RUN</span> npm run build &amp;&amp; npm prune --omit=dev
+
+<span class="c-cm"># --- 阶段 2：纯净生产运行镜像（不含 TS 编译器与源码）---</span>
+<span class="c-kw">FROM</span> node:24-alpine
+<span class="c-kw">WORKDIR</span> /app
+<span class="c-kw">ENV</span> NODE_ENV=production
+<span class="c-cm"># 使用官方镜像自带的低权限 node 用户运行，避免 root 容器逃逸风险</span>
+<span class="c-kw">USER</span> node
+<span class="c-kw">COPY</span> --chown=node:node --from=builder /app/package.json ./
+<span class="c-kw">COPY</span> --chown=node:node --from=builder /app/node_modules ./node_modules
+<span class="c-kw">COPY</span> --chown=node:node --from=builder /app/dist ./dist
+<span class="c-kw">EXPOSE</span> 3000
+<span class="c-cm"># 直接 exec 启动 node，确保第一时间收到容器平台的 SIGTERM 信号</span>
+<span class="c-kw">CMD</span> [<span class="c-str">"node"</span>, <span class="c-str">"dist/server.js"</span>]</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> server.ts 与 ecosystem.config.cjs · 优雅停机闭环与裸机 PM2 配置</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-deploy-pm2', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-deploy-pm2"><code><span class="c-cm">// --- 1. src/server.ts（完整生产启动与优雅停机顺序）---</span>
+<span class="c-kw">import</span> { app, env, markShuttingDown } <span class="c-kw">from</span> <span class="c-str">'./app.js'</span>;
+
+<span class="c-kw">await</span> app.<span class="c-fn">listen</span>({ host: <span class="c-str">'0.0.0.0'</span>, port: env.PORT });
+
+<span class="c-kw">async function</span> <span class="c-fn">gracefulShutdown</span>(signal: <span class="c-kw">string</span>) {
+  app.log.<span class="c-fn">info</span>(<span class="c-str">`收到 ${signal}，开始摘流与优雅停机...`</span>);
+  <span class="c-fn">markShuttingDown</span>();   <span class="c-cm">// ① /readyz 切 503，通知网关切走新流量</span>
+  <span class="c-kw">await</span> app.<span class="c-fn">close</span>();    <span class="c-cm">// ② 停止接新连接，等正在跑的请求全部响应完毕</span>
+  <span class="c-cm">// await Promise.all([pool.end(), redis.quit()]); // ③ 安全关闭数据库/缓存连接池</span>
+  process.<span class="c-fn">exit</span>(0);
+}
+process.<span class="c-fn">once</span>(<span class="c-str">'SIGTERM'</span>, () =&gt; <span class="c-fn">gracefulShutdown</span>(<span class="c-str">'SIGTERM'</span>));
+process.<span class="c-fn">once</span>(<span class="c-str">'SIGINT'</span>, () =&gt; <span class="c-fn">gracefulShutdown</span>(<span class="c-str">'SIGINT'</span>));
+
+<span class="c-cm">// --- 2. 若在非 Docker 云主机直接用 PM2 部署 (pm2 startOrReload ecosystem.config.cjs) ---</span>
+<span class="c-cm">// module.exports = { apps: [{</span>
+<span class="c-cm">//   name: 'order-api', script: './dist/server.js',</span>
+<span class="c-cm">//   instances: 'max', exec_mode: 'cluster', kill_timeout: 10000</span>
+<span class="c-cm">// }] };</span></code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 08.5 · 线上排障结论速查（内存泄漏、CPU 飙高）与章末场景题 -->
+<div class="wb-card" id="online-troubleshooting" style="background:var(--plop-paper);">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 08.5 · 线上排障手册：内存泄漏、CPU 100% 飙高与事件循环卡顿怎么快速定位</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 08.5 线上排障速查：内存越来越大、CPU 飙高怎么定位</h3>
+
+  <p>
+    线上报警响起时，先不要盲目重启把现场抹掉（多实例下可先把报警的那 1 台实例从负载均衡摘流保留现场），按下面这张三步诊断表直接定位根因：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:16px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">线上故障现象</th>
+          <th style="width:28%">第一步：查指标分清方向</th>
+          <th style="width:28%">第二步：保留现场采样命令</th>
+          <th>最高发根因与底层原理深挖</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 内存随运行时间阶梯上涨直至 OOM 重启</strong></td>
+          <td>看 <code>process.memoryUsage()</code>：<br>• <strong><code>heapUsed</code> 持续涨</strong> = JS 对象泄漏；<br>• <code>heapUsed</code> 平稳但 <strong><code>rss / external</code> 暴涨</strong> = 堆外 Buffer 或流积压。</td>
+          <td>启动加 <code>--heapsnapshot-signal=SIGUSR2</code>；间隔 5 分钟发两次 <code>kill -USR2 &lt;PID&gt;</code> 抓两份堆快照，进 Chrome DevTools 切 <strong><code>Comparison</code></strong> 对比净增对象。</td>
+          <td>① 全局 <code>Map</code> 缓存没设上限或 TTL；② 请求内对全局对象挂 <code>.on()</code> 没解绑；③ 裸 <code>.pipe()</code> 客户端断连漏关流。<br>➔ 详见 <a href="principles.html#heap-snapshot">原理篇 04.4 堆快照排查</a></td>
+        </tr>
+        <tr>
+          <td><strong>2. 单核 CPU 飙到 100%，所有接口包括 <code>/healthz</code> 全超时</strong></td>
+          <td>看 <code>monitorEventLoopDelay</code> 的 P99 延迟飙到几百毫秒以上，而数据库和下游监控全部空闲。</td>
+          <td>压测复现用 <code>node --cpu-prof app.js</code>（线上动态挂诊断会话），把 <code>.cpuprofile</code> 拖进 Chrome DevTools 看<strong>火焰图里横向最宽的平顶函数</strong>。</td>
+          <td>① 复杂正则遇恶意长字符串触发<strong>灾难性回溯（ReDoS）</strong>；② 主线程同步 <code>JSON.parse/stringify</code> 几十 MB 超大报文或死循环。<br>➔ 详见 <a href="principles.html#engineering">原理篇 06.3 延迟监控与火焰图</a></td>
+        </tr>
+        <tr>
+          <td><strong>3. CPU 和内存都不高，但接口响应集体变慢甚至挂死</strong></td>
+          <td>看连接池活跃数、下游 RTT，以及是否存在大量处于 <code>pending</code> 的异步调用。</td>
+          <td>查结构化错误日志是否有超时告警，检查数据库活跃连接数 <code>SHOW PROCESSLIST</code>。</td>
+          <td>① 下游第三方接口卡死且 <code>fetch</code> 没设 <code>AbortSignal.timeout</code>；② 数据库事务报错漏调 <code>conn.release()</code> 借光连接池；③ 慢文件/加解密占满 <code>libuv</code> 默认 4 线程池（<a href="principles.html#threadpool">原理篇 02.3</a>）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 id="quiz-08" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+
+  <details class="plop-drawer">
+    <summary>1. 同事在 Kubernetes 容器的 <code>Dockerfile</code> 里写了 <code>RUN npm install -g pm2</code> 并用 <code>pm2-runtime start app.js -i 4</code> 启动，为什么在容器化环境里不推荐这样做？</summary>
+    <div class="drawer-body">
+      <p>在 Kubernetes 中，容器编排器本身就已经承担了“进程守护、崩溃重启、健康探针摘流、按 CPU 负载水平扩缩容（HPA）”的全部职责。如果在 1 个容器里再用 PM2 跑 4 个子进程：① 某个子进程卡死或频繁崩溃被 PM2 内部掩盖重启，K8s 探针感知不到异常；② 容器内存配额需乘以 4 且各子进程争抢同一份 cgroup CPU 时间片；③ 信号转发与标准输出日志采集多绕了一层。<strong>容器化最佳实践是“单容器单 <code>node</code> 进程”，需要 4 核并发就直接把 Deployment 的 <code>replicas</code> 设为 <code>4</code>。</strong></p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>2. 本地用 Node.js 24 直接执行 <code>node src/server.ts</code> 正常启动了，是不是意味着项目里可以把 <code>typescript</code> 依赖卸掉、也不用在 CI 里跑 <code>tsc</code> 了？</summary>
+    <div class="drawer-body">
+      <p><strong>绝对不能省掉 <code>tsc --noEmit</code>。</strong>Node.js 内置的 Type Stripping 为了做到毫秒级极速启动，只做词法扫描把类型注解直接抹成空格——哪怕你写了 <code>const port: number = "hello"</code> 这种明显的类型错误，<code>node src/server.ts</code> 也会照跑不误直到运行时出 Bug。因此本地编辑器和 CI 合入流水线必须保留 <code>tsc --noEmit</code> 把关类型安全。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>3. 排查安全审计时发现线上日志平台里搜得到用户的明文登录密码和 <code>Bearer eyJ...</code> 令牌，应该在哪一层根治？</summary>
+    <div class="drawer-body">
+      <p>靠口头叮嘱开发人员“不要打印 <code>req.headers</code> 或 <code>req.body</code>”迟早会漏。应在初始化全局 <code>pino</code> 日志实例时配置自动脱敏路径 <strong><code>redact: ['req.headers.authorization', 'req.headers.cookie', '*.password', '*.token', '*.secret']</code></strong>——这样哪怕某处排障日志把整个请求对象传进了 <code>request.log.info({ req, body })</code>，落盘输出前敏感字段也会被统一替换为 <code>"[Redacted]"</code>。</p>
+    </div>
+  </details>
+</div>

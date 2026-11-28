@@ -1,0 +1,320 @@
+<!-- ====================================================================
+     PART 05: HTTP 服务 · 原生 node:http 原理、Fastify 框架、参数校验与跨域
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="http">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">HTTP 服务：原生 node:http 原理、Fastify 框架、校验与跨域</span>
+  <span class="plop-tag tomato">NODE:HTTP · FASTIFY V5 · ZOD · ERROR HANDLER · CORS</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>理解底层 <code>node:http</code> 的请求流与响应流机制，用主流框架 <code>Fastify v5</code> 开发标准 RESTful 接口，掌握 Express / Koa / Fastify / NestJS 选型差异，并配齐 <code>zod</code> 入参校验、全局错误兜底与 <code>CORS</code> 跨域配置。
+</div>
+
+<!-- 05.1 · 理解底层原理：原生 node:http 的 req/res 流本质 -->
+<div class="wb-card" id="http-req-res" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 05.1 · 理解底层原理：原生 <code>node:http</code> 的 <code>req / res</code> 对象、URL 解析与流式读取请求体</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 05.1 先看清底层原理：原生 <code>node:http</code> 是怎么收发请求的</h3>
+
+  <p>
+    无论是 Express、Koa、Fastify 还是 NestJS，最底下都封装自内置的 <strong><code>node:http</code></strong> 模块。调用 <code>http.createServer((req, res) =&gt; {})</code> 时，每次请求进来都会拿到两个基于流（Stream）构建的核心对象：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong><code>req</code>（<code>http.IncomingMessage</code>，本质是一个可读流 <code>Readable</code>）</strong>：包含请求方法 <code>req.method</code>、原始路径 <code>req.url</code>、已全部自动转为小写的请求头 <code>req.headers</code>；而 POST 提交的请求体需要通过 <code>for await (const chunk of req)</code> 分块读取拼接。</li>
+    <li><strong><code>res</code>（<code>http.ServerResponse</code>，本质是一个可写流 <code>Writable</code>）</strong>：用 <code>res.writeHead(状态码, 响应头)</code> 设置元数据，用 <code>res.end(内容)</code> 发送响应并结束本次请求。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> raw_http_server.mjs · 原生实现文章列表查询与新增接口 [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-http-query', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-http-query"><code><span class="c-kw">import</span> http <span class="c-kw">from</span> <span class="c-str">'node:http'</span>;
+
+<span class="c-kw">const</span> articles = [{ id: 1, title: <span class="c-str">'Node.js 入门'</span> }];
+
+<span class="c-cm">// 辅助函数：从可读流 req 中收集 JSON 请求体（带 1MB 体积保护防撑爆内存）</span>
+<span class="c-kw">async function</span> <span class="c-fn">readJsonBody</span>(req, maxBytes = 1024 * 1024) {
+  <span class="c-kw">const</span> chunks = [];
+  <span class="c-kw">let</span> size = 0;
+  <span class="c-kw">for await</span> (<span class="c-kw">const</span> chunk <span class="c-kw">of</span> req) {
+    size += chunk.length;
+    <span class="c-kw">if</span> (size &gt; maxBytes) <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">'Payload Too Large'</span>);
+    chunks.<span class="c-fn">push</span>(chunk);
+  }
+  <span class="c-kw">const</span> raw = Buffer.<span class="c-fn">concat</span>(chunks).<span class="c-fn">toString</span>(<span class="c-str">'utf8'</span>);
+  <span class="c-kw">return</span> raw ? JSON.<span class="c-fn">parse</span>(raw) : {};
+}
+
+<span class="c-kw">const</span> server = http.<span class="c-fn">createServer</span>(<span class="c-kw">async</span> (req, res) =&gt; {
+  res.<span class="c-fn">setHeader</span>(<span class="c-str">'Content-Type'</span>, <span class="c-str">'application/json; charset=utf-8'</span>);
+  <span class="c-kw">const</span> urlObj = <span class="c-kw">new</span> <span class="c-fn">URL</span>(req.url, <span class="c-str">`http://${req.headers.host}`</span>);
+
+  <span class="c-cm">// 1. GET /api/articles?page=1</span>
+  <span class="c-kw">if</span> (req.method === <span class="c-str">'GET'</span> &amp;&amp; urlObj.pathname === <span class="c-str">'/api/articles'</span>) {
+    <span class="c-kw">const</span> page = <span class="c-fn">Number</span>(urlObj.searchParams.<span class="c-fn">get</span>(<span class="c-str">'page'</span>) || 1);
+    res.<span class="c-fn">writeHead</span>(200);
+    res.<span class="c-fn">end</span>(JSON.<span class="c-fn">stringify</span>({ code: 0, page, list: articles }));
+    <span class="c-kw">return</span>;
+  }
+
+  <span class="c-cm">// 2. POST /api/articles</span>
+  <span class="c-kw">if</span> (req.method === <span class="c-str">'POST'</span> &amp;&amp; urlObj.pathname === <span class="c-str">'/api/articles'</span>) {
+    <span class="c-kw">const</span> body = <span class="c-kw">await</span> <span class="c-fn">readJsonBody</span>(req);
+    <span class="c-kw">const</span> created = { id: articles.length + 1, title: body.title };
+    articles.<span class="c-fn">push</span>(created);
+    res.<span class="c-fn">writeHead</span>(201);
+    res.<span class="c-fn">end</span>(JSON.<span class="c-fn">stringify</span>({ code: 0, data: created }));
+    <span class="c-kw">return</span>;
+  }
+
+  res.<span class="c-fn">writeHead</span>(404);
+  res.<span class="c-fn">end</span>(JSON.<span class="c-fn">stringify</span>({ code: 404, message: <span class="c-str">'接口不存在'</span> }));
+});
+
+server.<span class="c-fn">listen</span>(3000);</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14.5px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 为什么理解了原生 <code>node:http</code> 后，真实项目一定要上框架？</div>
+      <p style="font-size:13.2px; margin:0 0 8px; line-height:1.65;">
+        观察左侧代码就会发现，一旦业务接口增加到几十个，纯手写原生 <code>node:http</code> 要重复处理大量样板细节：
+      </p>
+      <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.65;">
+        <li><strong>动态路由匹配</strong>：<code>/api/articles/:id</code> 这类带路径参数的路由靠 <code>if / else</code> 极难维护，框架底层会使用<strong>前缀树（Radix Tree）</strong>实现 <code>O(路径长度)</code> 的常数级匹配；</li>
+        <li><strong>请求体安全解析</strong>：框架默认内置请求体体积上限（如 <code>1MB</code>）、<code>Content-Type</code> 识别与畸形 JSON 异常捕获；</li>
+        <li><strong>生命周期钩子与插件复用</strong>：鉴权拦截、参数校验、跨域头与请求耗时日志可通过钩子统一挂载，不用在每个接口里复制粘贴。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 05.2 · 用主流框架 Fastify v5 重写同一个接口 + 四大框架选型表 -->
+<div class="wb-card" id="http-framework" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 05.2 · 主流 Web 框架实战：用 <code>Fastify v5</code> 重写接口与四大主流框架选型对比</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 05.2 用 <code>Fastify</code> 重写同一套接口，以及主流框架怎么选</h3>
+
+  <p>
+    在现代 Node.js 后端开发中，<strong>Fastify（v5）</strong>凭借原生 <code>async / await</code> 设计、内置高性能 <code>pino</code> 结构化日志、零配置 JSON 解析序列化与良好的 TypeScript 支持，成为新建独立 API 与微服务的热门选择。下面用 Fastify 重写上一节完全相同的两个接口：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> fastify_articles.mjs · 用 Fastify v5 重写查询、动态参数与新增接口 [Node.js 20+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-fastify-basic', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-fastify-basic"><code><span class="c-cm">// 安装依赖: npm install fastify</span>
+<span class="c-kw">import</span> Fastify <span class="c-kw">from</span> <span class="c-str">'fastify'</span>;
+
+<span class="c-cm">// 1. 创建实例：logger: true 直接启用内置的 pino JSON 结构化日志（自带请求 ID 与耗时）</span>
+<span class="c-kw">const</span> app = <span class="c-fn">Fastify</span>({ logger: <span class="c-kw">true</span>, bodyLimit: 1024 * 1024 });
+<span class="c-kw">const</span> articles = [{ id: 1, title: <span class="c-str">'Node.js 入门'</span> }];
+
+<span class="c-cm">// 2. GET /api/articles?page=1 —— 直接 return 普通对象，Fastify 自动设 200 状态码并序列化 JSON</span>
+app.<span class="c-fn">get</span>(<span class="c-str">'/api/articles'</span>, <span class="c-kw">async</span> (request) =&gt; {
+  <span class="c-kw">const</span> page = <span class="c-fn">Number</span>(request.query.page || 1);
+  <span class="c-kw">return</span> { code: 0, page, list: articles };
+});
+
+<span class="c-cm">// 3. GET /api/articles/:id —— 自动提取动态路径参数 request.params.id</span>
+app.<span class="c-fn">get</span>(<span class="c-str">'/api/articles/:id'</span>, <span class="c-kw">async</span> (request, reply) =&gt; {
+  <span class="c-kw">const</span> item = articles.<span class="c-fn">find</span>((a) =&gt; a.id === <span class="c-fn">Number</span>(request.params.id));
+  <span class="c-kw">if</span> (!item) <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(404).<span class="c-fn">send</span>({ code: 404, message: <span class="c-str">'文章不存在'</span> });
+  <span class="c-kw">return</span> { code: 0, data: item };
+});
+
+<span class="c-cm">// 4. POST /api/articles —— request.body 已自动完成 JSON 解析</span>
+app.<span class="c-fn">post</span>(<span class="c-str">'/api/articles'</span>, <span class="c-kw">async</span> (request, reply) =&gt; {
+  <span class="c-kw">const</span> created = { id: articles.length + 1, title: request.body.title };
+  articles.<span class="c-fn">push</span>(created);
+  <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(201).<span class="c-fn">send</span>({ code: 0, data: created });
+});
+
+<span class="c-cm">// 5. 监听 0.0.0.0（容器部署必需，默认只绑 127.0.0.1 会导致容器外部无法访问）</span>
+<span class="c-kw">await</span> app.<span class="c-fn">listen</span>({ host: <span class="c-str">'0.0.0.0'</span>, port: 3000 });</code></pre>
+  </div>
+
+  <p style="margin:0 0 8px;">
+    实际工作或面试中常会遇到其他几款主流框架，它们的定位与选型边界如下表所示：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">框架</th>
+          <th style="width:24%">核心设计模型</th>
+          <th style="width:32%">优势与注意事项</th>
+          <th>推荐选用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Express（v5）</strong></td>
+          <td>线性回调中间件链<br><code>(req, res, next)</code></td>
+          <td>历史最久、社区教程与中间件最多；注意老版 v4 不会自动捕获 <code>async</code> 路由抛错，新用务必装 <strong>v5+</strong>。</td>
+          <td>快速原型、兼容老项目生态、轻量传统 Web 服务。</td>
+        </tr>
+        <tr>
+          <td><strong>Koa</strong></td>
+          <td>极简洋葱模型<br><code>async (ctx, next)</code></td>
+          <td>内核极薄（不内置路由和请求体解析，需自配 <code>@koa/router</code>），前后置逻辑包裹非常优雅（洋葱原理见 <a href="principles.html#engineering">原理篇 06.1</a>）。</td>
+          <td>定制化网关、需要精细控制请求进入与响应回流切面的中间层。</td>
+        </tr>
+        <tr>
+          <td><strong>Fastify（v5）</strong></td>
+          <td>生命周期钩子 + 封装插件树</td>
+          <td><strong>高性能、低开销</strong>，开箱自带 <code>pino</code> 日志与 Schema 校验加速，对 TypeScript 与现代 ESM 支持彻底。</td>
+          <td><strong>中小型独立后端 API、高吞吐 BFF 与流式网关首选</strong>（本笔记实战主线）。</td>
+        </tr>
+        <tr>
+          <td><strong>NestJS</strong></td>
+          <td>面向对象模块化 + 依赖注入（DI）+ 装饰器</td>
+          <td>底层可切换挂载 Express 或 Fastify；强制约束 <code>Module / Controller / Injectable Service</code> 架构，学习曲线较陡。</td>
+          <td>十人以上多人协作、数十个业务模块的大型企业级后端项目。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 05.3 · 统一错误处理、参数校验（zod）与 CORS 跨域 -->
+<div class="wb-card" id="http-middleware-guard" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 05.3 · 接口防线：<code>zod</code> 入参校验、全局统一错误处理与 <code>CORS</code> 跨域配置</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 05.3 生产接口必备三件套：参数校验（<code>zod</code>）、统一错误兜底与 <code>CORS</code></h3>
+
+  <p>
+    刚写后端时最容易犯的错误是直接拿 <code>request.body.price</code> 去算账写库——一旦前端传了字符串 <code>"abc"</code>、负数或漏传字段，就会写出脏数据甚至把服务弄崩。可上线的接口必须在入口统一配齐三道防线：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>① 入参校验与自动转换（<code>zod</code>）</strong>：声明字段类型、长度范围与默认值（如用 <code>z.coerce.number()</code> 自动把 URL 字符串 <code>"2"</code> 转为数字 <code>2</code>），在 TypeScript 下还能直接用 <code>z.infer&lt;typeof Schema&gt;</code> 推导出静态类型，不用写两遍。</li>
+    <li><strong>② 全局统一错误处理（<code>setErrorHandler</code>）</strong>：业务代码只需抛出语义明确的自定义 <code>AppError(403, '无权操作')</code>；全局处理器统一区分「入参不合法 <code>400</code>」「已知业务错误 <code>4xx</code>」与「未知代码/数据库故障 <code>500</code>（只在服务端日志记录完整堆栈，对客户端隐藏内部表名与路径）」。</li>
+    <li><strong>③ CORS（Cross-Origin Resource Sharing，跨域资源共享）</strong>：当网页前端（如 <code>https://web.example.com</code>）跨域调用 API（<code>https://api.example.com</code>）时，浏览器会先发预检请求（<code>OPTIONS</code>）检查响应头；后端用 <code>@fastify/cors</code> 配置可信域名白名单即可放行。</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> production_api_guards.mjs · 完整集成 CORS + zod 参数校验 + 统一错误兜底 [Node.js 20+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-http-guards', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-http-guards"><code><span class="c-cm">// 安装依赖: npm install fastify @fastify/cors zod</span>
+<span class="c-kw">import</span> Fastify <span class="c-kw">from</span> <span class="c-str">'fastify'</span>;
+<span class="c-kw">import</span> cors <span class="c-kw">from</span> <span class="c-str">'@fastify/cors'</span>;
+<span class="c-kw">import</span> { z, ZodError } <span class="c-kw">from</span> <span class="c-str">'zod'</span>;
+
+<span class="c-kw">const</span> app = <span class="c-fn">Fastify</span>({ logger: <span class="c-kw">true</span> });
+
+<span class="c-cm">// 1. 配置 CORS 跨域白名单（注意：当 credentials: true 允许带 Cookie 时，origin 绝不能写 '*'）</span>
+<span class="c-kw">await</span> app.<span class="c-fn">register</span>(cors, {
+  origin: [<span class="c-str">'http://localhost:5173'</span>, <span class="c-str">'https://app.example.com'</span>],
+  methods: [<span class="c-str">'GET'</span>, <span class="c-str">'POST'</span>, <span class="c-str">'PUT'</span>, <span class="c-str">'DELETE'</span>],
+  credentials: <span class="c-kw">true</span>,
+});
+
+<span class="c-cm">// 2. 自定义可预期的业务异常类（携带 HTTP 状态码与业务错误码）</span>
+<span class="c-kw">class</span> <span class="c-fn">AppError</span> <span class="c-kw">extends</span> Error {
+  <span class="c-fn">constructor</span>(statusCode, message) {
+    <span class="c-kw">super</span>(message);
+    <span class="c-kw">this</span>.statusCode = statusCode;
+  }
+}
+
+<span class="c-cm">// 3. 全局统一错误处理：集中收敛 Zod 校验错、业务 AppError 与未知 500 崩溃</span>
+app.<span class="c-fn">setErrorHandler</span>((err, request, reply) =&gt; {
+  <span class="c-kw">if</span> (err <span class="c-kw">instanceof</span> ZodError) {
+    <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(400).<span class="c-fn">send</span>({
+      code: 400,
+      message: <span class="c-str">'请求参数校验未通过'</span>,
+      details: err.issues.<span class="c-fn">map</span>((i) =&gt; ({ field: i.path.<span class="c-fn">join</span>(<span class="c-str">'.'</span>), reason: i.message })),
+    });
+  }
+  <span class="c-kw">if</span> (err <span class="c-kw">instanceof</span> AppError) {
+    <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(err.statusCode).<span class="c-fn">send</span>({ code: err.statusCode, message: err.message });
+  }
+  <span class="c-cm">// 未知系统异常：服务端记录完整堆栈与 reqId 供排障，对外只返回脱敏提示</span>
+  request.log.<span class="c-fn">error</span>({ err }, <span class="c-str">'未预期的服务端内部错误'</span>);
+  <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(500).<span class="c-fn">send</span>({ code: 500, message: <span class="c-str">'服务器开小差了，请稍后重试'</span>, reqId: request.id });
+});
+
+<span class="c-cm">// 4. 在路由中使用 zod 校验请求体</span>
+<span class="c-kw">const</span> CreateOrderSchema = z.<span class="c-fn">object</span>({
+  skuId: z.<span class="c-fn">string</span>().<span class="c-fn">min</span>(1, <span class="c-str">'商品编码不能为空'</span>),
+  count: z.<span class="c-fn">number</span>().<span class="c-fn">int</span>().<span class="c-fn">min</span>(1).<span class="c-fn">max</span>(99),
+});
+
+app.<span class="c-fn">post</span>(<span class="c-str">'/api/orders'</span>, <span class="c-kw">async</span> (request, reply) =&gt; {
+  <span class="c-cm">// parse 校验不通过会直接抛出 ZodError，自动进入上方的 setErrorHandler 返回 400</span>
+  <span class="c-kw">const</span> { skuId, count } = CreateOrderSchema.<span class="c-fn">parse</span>(request.body);
+  <span class="c-kw">if</span> (skuId === <span class="c-str">'SOLD_OUT'</span>) <span class="c-kw">throw new</span> <span class="c-fn">AppError</span>(409, <span class="c-str">'该商品已售罄'</span>);
+  <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(201).<span class="c-fn">send</span>({ code: 0, data: { skuId, count } });
+});
+
+<span class="c-kw">await</span> app.<span class="c-fn">listen</span>({ host: <span class="c-str">'0.0.0.0'</span>, port: 3000 });</code></pre>
+  </div>
+</div>
+
+<!-- 05.4 · 作为客户端发起 HTTP 请求（内置 fetch）与章末场景题 -->
+<div class="wb-card" id="http-fetch-client" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 05.4 · 发起外部请求：全局内置 <code>fetch</code> 基础用法与状态码判断避坑</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 05.4 作为客户端调外部接口：使用内置 <code>fetch</code></h3>
+
+  <p>
+    Node.js 全局内置了与浏览器一致的 <strong><code>fetch()</code></strong>（底层基于官方高性能 HTTP 客户端 <code>undici</code> 实现，<code>Node.js 20+</code> 稳定）。日常调用时只需牢记两点：<strong>必加 <code>AbortSignal.timeout()</code> 超时保护</strong>，以及<strong>显式检查 <code>response.ok</code></strong>（更完整的指数退避重试封装见 <a href="#sc-http-client">07.5 · 调用第三方接口</a>）：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> fetch_client.mjs · 发起带超时保护与状态码校验的 POST 请求 [Node.js 20+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-fetch-basic', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-fetch-basic"><code><span class="c-kw">export async function</span> <span class="c-fn">createRemoteOrder</span>(orderData) {
+  <span class="c-kw">const</span> response = <span class="c-kw">await</span> <span class="c-fn">fetch</span>(<span class="c-str">'https://httpbin.org/post'</span>, {
+    method: <span class="c-str">'POST'</span>,
+    headers: {
+      <span class="c-str">'Content-Type'</span>: <span class="c-str">'application/json'</span>,
+      <span class="c-str">'Authorization'</span>: <span class="c-str">'Bearer my-secret-token'</span>,
+    },
+    body: JSON.<span class="c-fn">stringify</span>(orderData),
+    signal: AbortSignal.<span class="c-fn">timeout</span>(3000), <span class="c-cm">// 3 秒超时自动中断请求</span>
+  });
+
+  <span class="c-cm">// 关键避坑：fetch 遇到 404 / 500 状态码不会自动抛异常，必须手动检查 response.ok (200~299)</span>
+  <span class="c-kw">if</span> (!response.ok) {
+    <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">`下游接口返回异常状态码: ${response.status}`</span>);
+  }
+  <span class="c-kw">return await</span> response.<span class="c-fn">json</span>();
+}</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0 0 16px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>想了解框架中间件洋葱模型 <code>compose</code> 的 15 行核心递归源码，可查阅 <a href="principles.html#engineering"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 06.1 洋葱模型与 koa-compose 实现》 ↗</a>；想了解服务每秒创建销毁成千上万个临时 <code>req / JSON</code> 对象时 V8 如何快速回收内存，可查阅 <a href="principles.html#v8gc"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 04 V8 隐藏类与分代垃圾回收》 ↗</a>。
+  </p>
+
+  <h4 id="quiz-05" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+
+  <details class="plop-drawer">
+    <summary>1. 本地用 Postman 调自己的 Node 接口一切正常，前端同事在浏览器里用 <code>http://localhost:5173</code> 调你的 <code>http://localhost:3000</code> 却报 CORS 错误，为什么 Postman 不报而浏览器报？</summary>
+    <div class="drawer-body">
+      <p><strong>同源策略（协议 + 域名 + 端口三者完全一致才算同源）是浏览器为了保护用户浏览器端凭证安全而实施的限制</strong>，服务端对服务端调用或 Postman、<code>curl</code> 根本没有同源限制，其实请求已经到达你的 Node 服务甚至可能执行完了，只是响应头里缺少 <code>Access-Control-Allow-Origin</code> 被浏览器拦截不让前端 JS 读取结果。在后端注册 <code>@fastify/cors</code> 把 <code>http://localhost:5173</code> 加入 <code>origin</code> 白名单即可解决（开发环境前端也常用 Vite <code>server.proxy</code> 同源代理转发）。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>2. 列表分页接口写了 <code>const limit = Number(request.query.limit || 20)</code>，恶意调用方传了 <code>?limit=99999999</code> 或 <code>?limit=abc</code> 会发生什么？怎么用 <code>zod</code> 一行防住？</summary>
+    <div class="drawer-body">
+      <p>传 <code>99999999</code> 会触发无上限全表拉取，一次请求就能把数据库和 Node 内存拖垮；传 <code>abc</code> 会算出 <code>NaN</code> 导致 SQL 报错返回 500。用 <code>zod</code> 定义 <code>z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) })</code>，既能把字符串安全转成整数，又能强行把单页上限卡死在 <code>100</code> 条以内，非法入参直接拦截返回清晰的 <code>400</code> 提示。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>3. 把 Fastify 服务打进 Docker 镜像运行后，容器日志明明打印了 <code>Server listening at http://127.0.0.1:3000</code>，为什么宿主机访问 <code>localhost:3000</code> 却提示连接被重置？</summary>
+    <div class="drawer-body">
+      <p>Fastify 的 <code>app.listen({ port: 3000 })</code> 在不传 <code>host</code> 时默认只监听回环网卡 <strong><code>127.0.0.1</code></strong>——在 Docker 容器里，<code>127.0.0.1</code> 指的是“仅允许容器自己内部访问”，宿主机端口映射进来的流量走的是容器虚拟网卡 <code>eth0</code>，会被直接拒绝。容器化部署时必须显式写成 <strong><code>app.listen({ host: '0.0.0.0', port: 3000 })</code></strong>。</p>
+    </div>
+  </details>
+</div>

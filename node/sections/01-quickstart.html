@@ -1,0 +1,253 @@
+<!-- ====================================================================
+     PART 01: 跑起来 · 版本管理、第一个服务与原生热重载 / 环境变量
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="quickstart">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">跑起来：版本管理、第一个服务与原生 --watch / --env-file</span>
+  <span class="plop-tag tomato">NVM · NODE LTS · --WATCH · --ENV-FILE</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>用 <code>nvm</code> 装好当前受维护的 Node.js LTS 版本并配好国内镜像，写出第一个读取环境变量的 HTTP 服务，直接用内置 <code>--watch</code> 与 <code>--env-file</code> 实现保存自动重启。
+</div>
+
+<!-- 01.1 · 版本选型与使用 nvm 安装 Node.js LTS -->
+<div class="wb-card" id="node-install" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 01.1 · 环境准备：Node.js LTS 版本选择、<code>nvm</code> 版本管理与国内镜像配置</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 01.1 选对 LTS 版本，用 <code>nvm</code> 三分钟装好开发环境</h3>
+
+  <p>
+    安装前先认准版本号规则：Node.js 偶数年大版本为 <strong>LTS（Long-Term Support，长期支持版，提供 30 个月稳定与安全维护）</strong>，生产环境与日常开发始终只选 LTS。<br>
+    截至 2026 年底，<strong><code>Node.js 18</code>（2025-04 停止维护）与 <code>Node.js 20</code>（2026-04 停止维护）均已结束官方生命周期（EOL，End of Life，停止安全更新）</strong>，不再作为推荐版本；新项目推荐安装 <strong><code>Node.js 26 LTS</code>（当前 Active LTS，活跃长期支持版）或 <code>Node.js 24 LTS</code>（Maintenance LTS，维护期长期支持版）</strong>，最低建议不低于 <code>Node.js 22.18+ LTS</code>（从该版本起默认支持直接运行 <code>.ts</code> 文件）。
+  </p>
+
+  <p>
+    为了方便在同一台电脑上随时切换不同项目的 Node 版本，主推使用社区最通用的版本管理器 <strong><code>nvm</code>（Node Version Manager，Node 版本管理器）</strong>（其余工具如 <code>n</code>、<code>fnm</code>、<code>Volta</code> 收录于本章末尾折叠附录）：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> Step 1 · 使用 nvm 安装并激活 Node.js 24 / 26 LTS</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-node-install', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-node-install"><code><span class="c-cm"># 1. macOS / Linux 安装 nvm（Windows 用户可直接安装同名 nvm-windows 安装包）</span>
+$ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+
+<span class="c-cm"># 2. 重新打开终端后，安装并切换到 Node.js 24 LTS（也可写 nvm install --lts 装最新 26 LTS）</span>
+$ nvm install 24 &amp;&amp; nvm use 24
+
+<span class="c-cm"># 3. 设为新开终端的默认版本，并验证 node 与内置包管理器 npm 版本</span>
+$ nvm alias default 24
+$ node -v &amp;&amp; npm -v
+v24.11.0
+11.0.0</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> Step 2 · 配置国内镜像源（npmmirror）与启用 pnpm</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-node-env', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-node-env"><code><span class="c-cm"># 1. 配置 npm 国内镜像源，大幅加快第三方依赖包下载速度</span>
+$ npm config set registry https://registry.npmmirror.com
+
+<span class="c-cm"># 2. （可选）若 nvm 下载 Node 本体较慢，可在 ~/.zshrc 中加上国内二进制镜像</span>
+$ export NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node
+
+<span class="c-cm"># 3. 启用内置的 Corepack（Node.js 16.9+ 自带），免额外全局安装直接使用 pnpm</span>
+$ corepack enable &amp;&amp; pnpm -v</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 编辑器断点调试小技巧（告别满屏 <code>console.log</code>）：</strong>使用 <strong>VS Code</strong> 开发时，无需手写复杂的 <code>launch.json</code>——点击底部终端面板右上角「<code>+</code>」旁边的下拉箭头，选择 <strong><code>JavaScript Debug Terminal</code></strong>，在代码行号左侧点出红点断点后直接运行 <code>node hello.mjs</code>，请求进来时就会自动停在断点处查看变量与调用栈。
+  </div>
+</div>
+
+<!-- 01.2 · 第一个程序 + 用 node --watch 和 --env-file 跑起来 -->
+<div class="wb-card" id="hello-node" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 01.2 · 第一个程序：编写最小 HTTP 服务，用内置 <code>--watch</code> 与 <code>--env-file</code> 启动</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 01.2 第一个程序：用内置 <code>--watch</code> 和 <code>--env-file</code> 跑起来</h3>
+
+  <p>
+    在早期教程里，刚建项目就要先装 <code>nodemon</code>（改代码自动重启）和 <code>dotenv</code>（读取本地配置文件）两个第三方包。现代 Node.js 已经把这两项高频能力直接做进了运行时命令行参数里：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong><code>--watch</code>（最低要求 <code>Node.js 18.11+</code> 引入，<code>v20.13+ / v22.0+</code> 标记稳定）</strong>：监听入口文件及其导入的所有本地模块，按下保存键后毫秒级自动重启服务。</li>
+    <li><strong><code>--env-file=.env</code>（最低要求 <code>Node.js 20.6+</code> 引入，<code>v22.21+ / v24.10+</code> 标记稳定）</strong>：在代码执行前先把 <code>.env</code> 文件里的键值对注入 <code>process.env</code>；若某些环境没有该文件，可改用 <code>--env-file-if-exists=.env</code>（<code>Node.js 22.9+</code>）避免报错。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> .env 与 hello.mjs · 第一个可复制运行的 HTTP 服务 [Node.js 20.6+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-hello-node', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-hello-node"><code><span class="c-cm">// 先在同目录新建 .env 文件（注意：真实项目中务必把 .env 加入 .gitignore）：</span>
+<span class="c-cm">// PORT=3000</span>
+<span class="c-cm">// APP_NAME=note-garden-api</span>
+
+<span class="c-cm">// --- hello.mjs（使用 .mjs 后缀可直接写标准 import 语法，无需先建 package.json）---</span>
+<span class="c-kw">import</span> http <span class="c-kw">from</span> <span class="c-str">'node:http'</span>;
+
+<span class="c-cm">// process.env 读取出的值一律是字符串，端口号需用 Number() 转为数字</span>
+<span class="c-kw">const</span> port = <span class="c-fn">Number</span>(process.env.PORT || 3000);
+<span class="c-kw">const</span> appName = process.env.APP_NAME || <span class="c-str">'default-app'</span>;
+
+<span class="c-kw">const</span> server = http.<span class="c-fn">createServer</span>((req, res) =&gt; {
+  res.<span class="c-fn">writeHead</span>(200, { <span class="c-str">'Content-Type'</span>: <span class="c-str">'application/json; charset=utf-8'</span> });
+  res.<span class="c-fn">end</span>(JSON.<span class="c-fn">stringify</span>({
+    app: appName,
+    node: process.version,
+    url: req.url,
+    time: <span class="c-kw">new</span> <span class="c-fn">Date</span>().<span class="c-fn">toISOString</span>(),
+  }));
+});
+
+server.<span class="c-fn">listen</span>(port, () =&gt; {
+  console.<span class="c-fn">log</span>(<span class="c-str">`[${appName}] 已启动: http://localhost:${port}`</span>);
+});</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> Terminal · 启动开发模式、验证响应与 REPL 交互试验 [Node.js 20.13+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-hello-node-cmd', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-hello-node-cmd"><code><span class="c-cm"># 1. 同时开启文件保存自动重启（--watch）与环境变量加载（--env-file）</span>
+$ node --watch --env-file=.env hello.mjs
+[note-garden-api] 已启动: http://localhost:3000
+
+<span class="c-cm"># 2. 另开一个终端窗口，用 curl 请求本地 3000 端口验证返回结果</span>
+$ curl http://localhost:3000/hello
+{"app":"note-garden-api","node":"v24.11.0","url":"/hello","time":"..."}
+
+<span class="c-cm"># 3. 交互式解释器 REPL（Read-Eval-Print Loop）：直接敲 node 回车可随手试一行 API</span>
+$ node
+&gt; Buffer.from('hello').toString('hex')
+'68656c6c6f'
+&gt; .exit</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 01.3 · 折叠附录（其余版本工具 + 内置模块全景表）与章末自测题 -->
+<div class="wb-card" id="qs-appendix" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 01.3 · 扩展查阅与自测：其他版本工具、内置模块速查附录及本章场景题</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 01.3 附录速查与即时检验</h3>
+
+  <details class="plop-drawer" id="appendix-version-tools" style="margin-bottom:10px;">
+    <summary>📎 附录 A：其他主流版本管理工具（<code>n / fnm / Volta</code>）与镜像切换工具（<code>nrm</code>）对比速查</summary>
+    <div class="drawer-body">
+      <div class="table-wrap" style="margin:6px 0 0;">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:18%">工具名</th>
+              <th style="width:18%">支持系统</th>
+              <th style="width:36%">核心特点与常用命令</th>
+              <th>适用人群</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong><code>n</code></strong></td>
+              <td>macOS / Linux / WSL</td>
+              <td>无需配置终端启动脚本，直接覆盖更新指定目录（可配 <code>export N_PREFIX=$HOME/.n</code> 免 <code>sudo</code>）下的二进制文件；直接输入 <code>n</code> 上下方向键切换，<code>n lts</code> 装最新 LTS。</td>
+              <td>偏爱极简交互的 macOS / Linux 开发者。</td>
+            </tr>
+            <tr>
+              <td><strong><code>fnm</code></strong></td>
+              <td>macOS / Windows / Linux</td>
+              <td>Rust 编写，终端启动耗时在毫秒级，兼容读取项目根目录的 <code>.nvmrc</code> 与 <code>.node-version</code>；常用 <code>fnm install 24 &amp;&amp; fnm default 24</code>。</td>
+              <td>追求终端秒开速度或跨 Windows / macOS 双平台开发的工程师。</td>
+            </tr>
+            <tr>
+              <td><strong><code>Volta</code></strong></td>
+              <td>macOS / Windows / Linux</td>
+              <td>基于垫片（Shim）机制，执行 <code>volta pin node@24 pnpm@10</code> 会把版本直接写入项目 <code>package.json</code>，进入目录时自动无感切换。</td>
+              <td>多人协作团队统一锁定 Node 与包管理器版本。</td>
+            </tr>
+            <tr>
+              <td><strong><code>nrm</code></strong></td>
+              <td>全平台通用</td>
+              <td>镜像源切换小工具：<code>npx nrm ls</code> 查看源、<code>npx nrm use taobao</code> 切国内源、<code>npx nrm use npm</code> 在发布开源包时切回官方源。</td>
+              <td>需要在公司内网私服、国内镜像源与 npm 官方源间频繁切换时使用。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+
+  <details class="plop-drawer" id="globals-builtins" style="margin-bottom:16px;">
+    <summary>📎 附录 B：Node.js 全局对象与核心内置模块分类全景表（日常查字典用）</summary>
+    <div class="drawer-body">
+      <div class="table-wrap" style="margin:6px 0 0;">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:20%">分类</th>
+              <th style="width:32%">全局对象 / 核心内置模块（带 <code>node:</code> 前缀）</th>
+              <th>主要用途与后续对应章节</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. 全局对象（免导入）</strong></td>
+              <td><code>globalThis</code>、<code>process</code>、<code>Buffer</code>、<code>fetch</code>、<code>URL</code>、<code>AbortController</code></td>
+              <td><code>process</code> 管环境变量与退出信号（06 章）；<code>Buffer</code> 存二进制字节（04 章）；<code>fetch</code> 与 <code>AbortController</code> 发外部请求与取消任务（03 / 05 章）。</td>
+            </tr>
+            <tr>
+              <td><strong>2. 文件、路径与系统</strong></td>
+              <td><code>node:fs/promises</code>、<code>node:path</code>、<code>node:os</code></td>
+              <td>异步读写文件与目录、抹平 Windows（<code>\</code>）与 macOS/Linux（<code>/</code>）路径分隔符差异、查询服务器 CPU 核数与内存（04 / 06 章）。</td>
+            </tr>
+            <tr>
+              <td><strong>3. 事件与流式传输</strong></td>
+              <td><code>node:events</code>、<code>node:stream</code>、<code>node:zlib</code></td>
+              <td><code>EventEmitter</code> 事件发布订阅（03 章）；<code>Stream</code> 与 <code>pipeline</code> 边读边写大文件或压缩流（04 / 07 章）。</td>
+            </tr>
+            <tr>
+              <td><strong>4. 网络与安全加密</strong></td>
+              <td><code>node:http</code>、<code>node:net</code>、<code>node:crypto</code></td>
+              <td>搭建 HTTP 服务、处理底层 TCP 连接、生成随机 UUID 与密码哈希签名（05 / 07 章）。</td>
+            </tr>
+            <tr>
+              <td><strong>5. 进程、线程、CLI 与测试</strong></td>
+              <td><code>node:child_process</code>、<code>node:worker_threads</code>、<code>node:cluster</code>、<code>node:util</code>、<code>node:test</code></td>
+              <td>调用外部命令、开启多线程算力卸载（06 章）、<code>util.parseArgs</code> 解析命令行参数（07.7）、<code>node:test</code> 运行内置单元测试（08 章）。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+
+  <h4 id="quiz-01" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+
+  <details class="plop-drawer">
+    <summary>1. 在项目根目录新建了 <code>.env</code> 写入 <code>PORT=4000</code>，直接运行 <code>node hello.mjs</code> 却发现服务还是监听在了默认的 3000 端口，哪里漏了？</summary>
+    <div class="drawer-body">
+      <p>Node.js 默认<strong>不会自动扫描和读取</strong>目录下的 <code>.env</code> 文件。需要在启动命令显式加上 <strong><code>--env-file=.env</code></strong>（即 <code>node --env-file=.env hello.mjs</code>），或者在代码入口处主动调用 <code>process.loadEnvFile()</code>。此外要注意 <code>process.env.PORT</code> 读出来是字符串 <code>"4000"</code>，参与数值比较或配置校验时记得做类型转换。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>2. 本地把项目跑通后顺手执行 <code>git add .</code> 提交代码，在环境变量管理上最容易酿成什么安全事故？标准做法是什么？</summary>
+    <div class="drawer-body">
+      <p>最常见的事故是<strong>把装有真实数据库密码、JWT 密钥和第三方 API Key 的 <code>.env</code> 文件直接推送到了 Git 仓库</strong>。标准工程规范是：建仓库第一件事把 <code>.env</code> 写进 <code>.gitignore</code>；同时提交一份去掉真实密钥、只保留变量名说明的模板文件 <strong><code>.env.example</code></strong>（如 <code>DB_PASSWORD=your_password_here</code>），方便其他同事拉代码后照着创建自己的本地 <code>.env</code>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>3. 接手维护一个历史仓库时看到文档写着「推荐安装 Node.js 18」，现在建新后端服务还能继续照着选 Node 18 吗？</summary>
+    <div class="drawer-body">
+      <p><strong>不能。</strong><code>Node.js 18</code> 已于 2025 年 4 月停止官方维护（<code>Node.js 20</code> 也已于 2026 年 4 月停止维护），不再接收任何安全漏洞补丁，而且缺少默认直跑 TypeScript（<code>22.18+</code>）等现代内置能力。老仓库排障可以用 <code>nvm install 18 &amp;&amp; nvm use 18</code> 临时切过去跑，但新服务应直接选用处于活跃或维护周期内的 <strong><code>Node.js 24 / 26 LTS</code></strong>，并在项目根目录放一个写着 <code>24</code> 的 <code>.nvmrc</code> 文件统一团队版本。</p>
+    </div>
+  </details>
+</div>

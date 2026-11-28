@@ -1,0 +1,582 @@
+<!-- ====================================================================
+     PART 07: 常见业务场景实战 · 数据库、鉴权、大文件流、SSE、重试、定时任务与 CLI
+     ==================================================================== -->
+<div class="wb-sec-header mustard" id="scenarios">
+  <span class="wb-sec-num">07</span>
+  <span class="wb-sec-title">常见业务场景实战：按真实后端需求落地的七套方案</span>
+  <span class="plop-tag tomato">MYSQL &amp; REDIS · JWT · STREAM UPLOAD · SSE · RETRY · CRON/MQ · CLI</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>独立写出后端最常遇到的 7 类核心业务代码——安全读写 MySQL 与 Redis、JWT 登录鉴权中间件、零内存暴涨的大文件流式上传下载、客户端断连自动取消的大模型 SSE 流转发、带指数退避重试的外部接口调用、防重复执行的定时与队列任务，以及标准 CLI 命令行工具。
+</div>
+
+<!-- 07.1 · 场景一：连接数据库（MySQL 连接池参数化查询 + Redis 旁路缓存） -->
+<div class="wb-card" id="sc-db" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 07.1 · 连数据库：MySQL（连接池 + 参数化防注入 + 事务）与 Redis 缓存协同</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 07.1 连接数据库：MySQL 连接池与 Redis 读写最小实战</h3>
+
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>业务需求</strong>：根据用户 ID 查询账户信息（高频读走 Redis 缓存减轻数据库压力），以及安全执行用户余额扣减（走 MySQL 事务，防止 SQL 注入与并发连接耗尽）。</li>
+    <li><strong>技术方案</strong>：使用 <strong><code>mysql2/promise</code></strong> 创建全局复用的连接池（<code>createPool</code>），所有变量一律通过 <code>?</code> 占位符做<strong>参数化查询（Prepared Statement）</strong>；使用 <strong><code>ioredis</code></strong> 连接 Redis 实现旁路缓存（Cache-Aside：先读缓存 → 未命中查库回填 → 修改数据时先更库再删缓存）。</li>
+  </ul>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> mysql_pool.mjs · 连接池、参数化查询与安全事务模板 [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-mysql', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-mysql"><code><span class="c-cm">// 安装依赖: npm install mysql2</span>
+<span class="c-kw">import</span> mysql <span class="c-kw">from</span> <span class="c-str">'mysql2/promise'</span>;
+
+<span class="c-cm">// 1. 进程启动时创建全局单例连接池（切勿在每次请求里 createConnection）</span>
+<span class="c-kw">export const</span> pool = mysql.<span class="c-fn">createPool</span>({
+  host: process.env.DB_HOST || <span class="c-str">'127.0.0.1'</span>,
+  user: process.env.DB_USER || <span class="c-str">'root'</span>,
+  password: process.env.DB_PASSWORD || <span class="c-str">'DevPass_2026'</span>,
+  database: <span class="c-str">'shop'</span>,
+  connectionLimit: 10,     <span class="c-cm">// 最大并发连接数</span>
+  supportBigNumbers: <span class="c-kw">true</span>, <span class="c-cm">// 防止 BIGINT 雪花 ID 超过 JS 安全整数丢精度</span>
+});
+
+<span class="c-cm">// 2. 普通单条查询：用 ? 占位符传参防 SQL 注入，pool.execute 会自动借还连接</span>
+<span class="c-kw">export async function</span> <span class="c-fn">getUserById</span>(userId) {
+  <span class="c-kw">const</span> [rows] = <span class="c-kw">await</span> pool.<span class="c-fn">execute</span>(
+    <span class="c-str">'SELECT id, nickname, balance FROM users WHERE id = ?'</span>,
+    [userId]
+  );
+  <span class="c-kw">return</span> rows[0] || <span class="c-kw">null</span>;
+}
+
+<span class="c-cm">// 3. 多步事务：手动 getConnection，且必须在 finally 中归还连接</span>
+<span class="c-kw">export async function</span> <span class="c-fn">deductBalance</span>(userId, amount) {
+  <span class="c-kw">const</span> conn = <span class="c-kw">await</span> pool.<span class="c-fn">getConnection</span>();
+  <span class="c-kw">try</span> {
+    <span class="c-kw">await</span> conn.<span class="c-fn">beginTransaction</span>();
+    <span class="c-kw">const</span> [res] = <span class="c-kw">await</span> conn.<span class="c-fn">execute</span>(
+      <span class="c-str">'UPDATE users SET balance = balance - ? WHERE id = ? AND balance &gt;= ?'</span>,
+      [amount, userId, amount]
+    );
+    <span class="c-kw">if</span> (res.affectedRows === 0) <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">'余额不足'</span>);
+    <span class="c-kw">await</span> conn.<span class="c-fn">commit</span>();
+  } <span class="c-kw">catch</span> (err) {
+    <span class="c-kw">await</span> conn.<span class="c-fn">rollback</span>();
+    <span class="c-kw">throw</span> err;
+  } <span class="c-kw">finally</span> {
+    conn.<span class="c-fn">release</span>(); <span class="c-cm">// 无论成功或抛错都必须归还，否则 10 次报错后整个连接池永久卡死</span>
+  }
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-redis"></use></svg> redis_cache.mjs · ioredis 旁路缓存读取与失效更新 [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-redis', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-redis"><code><span class="c-cm">// 安装依赖: npm install ioredis</span>
+<span class="c-kw">import</span> Redis <span class="c-kw">from</span> <span class="c-str">'ioredis'</span>;
+<span class="c-kw">import</span> { getUserById, deductBalance } <span class="c-kw">from</span> <span class="c-str">'./mysql_pool.mjs'</span>;
+
+<span class="c-cm">// 1. 创建全局单例客户端（自动重连，绑定 error 事件防断网时触发未捕获崩溃）</span>
+<span class="c-kw">export const</span> redis = <span class="c-kw">new</span> <span class="c-fn">Redis</span>(process.env.REDIS_URL || <span class="c-str">'redis://127.0.0.1:6379'</span>);
+redis.<span class="c-fn">on</span>(<span class="c-str">'error'</span>, (err) =&gt; console.<span class="c-fn">error</span>(<span class="c-str">'[Redis 连接异常]:'</span>, err.message));
+
+<span class="c-cm">// 2. 读路径：先查 Redis → 未命中回源查 MySQL → 带随机抖动 TTL 写回缓存</span>
+<span class="c-kw">export async function</span> <span class="c-fn">getUserCached</span>(userId) {
+  <span class="c-kw">const</span> cacheKey = <span class="c-str">`user:profile:${userId}`</span>;
+  <span class="c-kw">const</span> cached = <span class="c-kw">await</span> redis.<span class="c-fn">get</span>(cacheKey);
+  <span class="c-kw">if</span> (cached !== <span class="c-kw">null</span>) <span class="c-kw">return</span> JSON.<span class="c-fn">parse</span>(cached); <span class="c-cm">// 命中空值 "null" 时同样直接返回防穿透</span>
+
+  <span class="c-kw">const</span> user = <span class="c-kw">await</span> <span class="c-fn">getUserById</span>(userId);
+  <span class="c-kw">const</span> ttl = user ? 300 + Math.<span class="c-fn">floor</span>(Math.<span class="c-fn">random</span>() * 60) : 30;
+  <span class="c-kw">await</span> redis.<span class="c-fn">set</span>(cacheKey, JSON.<span class="c-fn">stringify</span>(user), <span class="c-str">'EX'</span>, ttl);
+  <span class="c-kw">return</span> user;
+}
+
+<span class="c-cm">// 3. 写路径：先提交 MySQL 事务，成功后再删除 Redis 缓存（下次读取重新加载最新值）</span>
+<span class="c-kw">export async function</span> <span class="c-fn">payAndInvalidate</span>(userId, amount) {
+  <span class="c-kw">await</span> <span class="c-fn">deductBalance</span>(userId, amount);
+  <span class="c-kw">await</span> redis.<span class="c-fn">del</span>(<span class="c-str">`user:profile:${userId}`</span>);
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout warn" style="margin:0;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 常见坑与跨专题深挖：</strong><br>
+    • <strong>三大高频坑</strong>：① 严禁用模板字符串 <code>`WHERE name = '${name}'`</code> 拼 SQL（必遭注入）；② 手动 <code>pool.getConnection()</code> 后漏写 <code>finally { conn.release() }</code>，报错几次就会把连接池借光导致后续请求无限挂起；③ 若偏好带静态类型推导的 ORM（Object-Relational Mapping，对象关系映射，如 <code>Drizzle ORM</code> 或 <code>Prisma</code>），仍需留意循环里查关联表引发的 <code>N+1</code> 慢查询。<br>
+    • <strong>延伸阅读</strong>：SQL 建表规范、索引调优与防超卖锁详见 <a href="../mysql/index.html#trx"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 《MySQL 笔记 · 04 事务隔离与防超卖实战》</a>；为什么必须「先更库再删缓存」以及穿透/击穿/雪崩治理详见 <a href="../redis/index.html#cache-problem"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-redis"></use></svg> 《Redis 笔记 · 03 Cache-Aside 双写一致性与三大异常》</a>。
+  </div>
+</div>
+
+<!-- 07.2 · 场景二：登录鉴权（密码哈希 + JWT 中间件 + Session 选型对比） -->
+<div class="wb-card" id="sc-auth" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 07.2 · 登录鉴权：<code>scrypt</code> 密码加盐哈希、<code>JWT</code> 鉴权钩子中间件与 Redis Session 选型</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 07.2 登录鉴权：密码安全存储与 <code>JWT</code> 中间件拦截</h3>
+
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>业务需求</strong>：实现用户注册/登录（密码绝不明文入库），登录成功后签发身份令牌；访问 <code>/api/me</code> 等受保护接口时通过中间件统一校验身份，未登录或令牌过期返回 <code>401 Unauthorized</code>。</li>
+    <li><strong>方案选型（JWT vs Redis Session）</strong>：
+      <br>• <strong>无状态 JWT（JSON Web Token，JSON 网络令牌）</strong>：服务端把 <code>{ sub: userId, role }</code> 加数字签名发给客户端，后续每次请求解析验签即可知道是谁，不用查库，适合多服务拆分与短效接口调用（例如有效期 <code>15 分钟 ~ 2 小时</code>）；
+      <br>• <strong>有状态 Redis Session</strong>：如果业务要求<strong>「修改密码/封号后立即强制踢下线」或「限制同一账号最多 2 台设备同时在线」</strong>，纯 JWT 在过期前无法单方面作废，此时应改用「服务端生成随机 SessionID 存 Redis + 浏览器设 <code>HttpOnly</code> Cookie」（或短效 JWT 搭配存储在 Redis 里的可吊销 Refresh Token）。
+    </li>
+  </ul>
+
+  <div class="plop-code-box" style="margin-bottom:12px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> auth_jwt.mjs · 内置 crypto.scrypt 密码哈希 + jose 签发校验 JWT 中间件 [Node.js 20+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-auth', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-auth"><code><span class="c-cm">// 安装依赖: npm install fastify jose</span>
+<span class="c-kw">import</span> Fastify <span class="c-kw">from</span> <span class="c-str">'fastify'</span>;
+<span class="c-kw">import</span> { randomBytes, scrypt, timingSafeEqual } <span class="c-kw">from</span> <span class="c-str">'node:crypto'</span>;
+<span class="c-kw">import</span> { promisify } <span class="c-kw">from</span> <span class="c-str">'node:util'</span>;
+<span class="c-kw">import</span> { SignJWT, jwtVerify } <span class="c-kw">from</span> <span class="c-str">'jose'</span>;
+
+<span class="c-kw">const</span> scryptAsync = <span class="c-fn">promisify</span>(scrypt);
+<span class="c-cm">// 生产环境必须从 process.env.JWT_SECRET 读取至少 32 字节的高熵随机密钥</span>
+<span class="c-kw">const</span> SECRET = <span class="c-kw">new</span> <span class="c-fn">TextEncoder</span>().<span class="c-fn">encode</span>(process.env.JWT_SECRET || <span class="c-str">'replace-with-32-chars-env-secret!'</span>);
+
+<span class="c-cm">// 1. 密码加盐哈希（存入数据库格式: "随机盐hex:哈希值hex"）与恒定时间比对</span>
+<span class="c-kw">async function</span> <span class="c-fn">hashPassword</span>(plain) {
+  <span class="c-kw">const</span> salt = <span class="c-fn">randomBytes</span>(16).<span class="c-fn">toString</span>(<span class="c-str">'hex'</span>);
+  <span class="c-kw">const</span> buf = <span class="c-kw">await</span> <span class="c-fn">scryptAsync</span>(plain, salt, 64);
+  <span class="c-kw">return</span> <span class="c-str">`${salt}:${buf.toString('hex')}`</span>;
+}
+<span class="c-kw">async function</span> <span class="c-fn">verifyPassword</span>(plain, stored) {
+  <span class="c-kw">const</span> [salt, hashHex] = stored.<span class="c-fn">split</span>(<span class="c-str">':'</span>);
+  <span class="c-kw">const</span> derived = <span class="c-kw">await</span> <span class="c-fn">scryptAsync</span>(plain, salt, 64);
+  <span class="c-kw">return</span> <span class="c-fn">timingSafeEqual</span>(derived, Buffer.<span class="c-fn">from</span>(hashHex, <span class="c-str">'hex'</span>)); <span class="c-cm">// 防计时侧信道攻击</span>
+}
+
+<span class="c-cm">// 2. 鉴权中间件（Fastify preHandler 钩子）：提取 Bearer Token，验签后挂载到 request.user</span>
+<span class="c-kw">async function</span> <span class="c-fn">requireAuth</span>(request, reply) {
+  <span class="c-kw">const</span> header = request.headers.authorization || <span class="c-str">''</span>;
+  <span class="c-kw">const</span> token = header.<span class="c-fn">startsWith</span>(<span class="c-str">'Bearer '</span>) ? header.<span class="c-fn">slice</span>(7) : <span class="c-str">''</span>;
+  <span class="c-kw">if</span> (!token) <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(401).<span class="c-fn">send</span>({ code: 401, message: <span class="c-str">'未提供登录令牌'</span> });
+
+  <span class="c-kw">try</span> {
+    <span class="c-kw">const</span> { payload } = <span class="c-kw">await</span> <span class="c-fn">jwtVerify</span>(token, SECRET, { algorithms: [<span class="c-str">'HS256'</span>] });
+    request.user = { id: payload.sub, role: payload.role };
+  } <span class="c-kw">catch</span> {
+    <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(401).<span class="c-fn">send</span>({ code: 401, message: <span class="c-str">'登录已过期或令牌无效'</span> });
+  }
+}
+
+<span class="c-cm">// 3. 登录接口签发 Token + 受保护接口挂载 { preHandler: [requireAuth] }</span>
+<span class="c-kw">const</span> app = <span class="c-fn">Fastify</span>();
+<span class="c-kw">const</span> demoHash = <span class="c-kw">await</span> <span class="c-fn">hashPassword</span>(<span class="c-str">'Pass_123456'</span>);
+
+app.<span class="c-fn">post</span>(<span class="c-str">'/api/login'</span>, <span class="c-kw">async</span> (request, reply) =&gt; {
+  <span class="c-kw">const</span> ok = <span class="c-kw">await</span> <span class="c-fn">verifyPassword</span>(request.body.password, demoHash);
+  <span class="c-kw">if</span> (!ok) <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(401).<span class="c-fn">send</span>({ code: 401, message: <span class="c-str">'账号或密码错误'</span> });
+
+  <span class="c-kw">const</span> accessToken = <span class="c-kw">await new</span> <span class="c-fn">SignJWT</span>({ role: <span class="c-str">'member'</span> })
+    .<span class="c-fn">setProtectedHeader</span>({ alg: <span class="c-str">'HS256'</span> })
+    .<span class="c-fn">setSubject</span>(<span class="c-str">'1001'</span>)
+    .<span class="c-fn">setIssuedAt</span>()
+    .<span class="c-fn">setExpirationTime</span>(<span class="c-str">'2h'</span>)
+    .<span class="c-fn">sign</span>(SECRET);
+  <span class="c-kw">return</span> { code: 0, accessToken };
+});
+
+app.<span class="c-fn">get</span>(<span class="c-str">'/api/me'</span>, { preHandler: [requireAuth] }, <span class="c-kw">async</span> (request) =&gt; {
+  <span class="c-kw">return</span> { code: 0, user: request.user };
+});
+
+<span class="c-kw">await</span> app.<span class="c-fn">listen</span>({ port: 3000 });</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>常见坑与背后原理：</strong>① JWT 的 Payload 只是 Base64URL 编码（防篡改、不防偷看），<strong>切勿往里面塞密码、手机号或身份证号</strong>；② 不要用已过时的 <code>MD5 / SHA1</code> 存密码，必须用慢哈希 <code>scrypt / argon2</code>——注意 <code>crypto.scrypt</code> 在底层跑在 <code>libuv</code> 的 4 个工作线程上（见 <a href="principles.html#threadpool">原理篇 02.3</a>）；③ Redis Session 滑动续期与同账号多端踢人完整设计见 <a href="../redis/index.html#sc-session"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-redis"></use></svg> 《Redis 笔记 · 04.1 登录态与多端踢人》</a>。
+  </p>
+</div>
+
+<!-- 07.3 · 场景三：文件上传与大文件下载（全程用流，绝不一次读进内存） -->
+<div class="wb-card" id="sc-file" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> 07.3 · 文件上传与大文件下载：使用 <code>pipeline</code> 流式落盘与响应，杜绝内存暴涨</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> 07.3 文件上传与大文件下载（用流，不要一次读进内存）</h3>
+
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>业务需求</strong>：容器只有 <code>512MB</code> 内存，需要支持用户上传几百 MB 的安装包/视频并安全落盘（或直传对象存储），同时提供大文件流式下载接口。</li>
+    <li><strong>技术方案</strong>：上传用 <code>@fastify/multipart</code> 拿到可读流 <code>data.file</code>，通过 <code>pipeline(data.file, createWriteStream(safePath))</code> 边收边写磁盘，<strong>随机生成 UUID 文件名替代原文件名</strong>；下载时先 <code>stat</code> 获取文件大小写入 <code>Content-Length</code>，再直接将 <code>createReadStream</code> 交给响应流发送。</li>
+  </ul>
+
+  <div class="plop-code-box" style="margin-bottom:12px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> file_stream_api.mjs · 流式上传（带大小截断清理与防目录穿越）与流式下载 [Node.js 20.11+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-file', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-file"><code><span class="c-cm">// 安装依赖: npm install fastify @fastify/multipart</span>
+<span class="c-kw">import</span> Fastify <span class="c-kw">from</span> <span class="c-str">'fastify'</span>;
+<span class="c-kw">import</span> multipart <span class="c-kw">from</span> <span class="c-str">'@fastify/multipart'</span>;
+<span class="c-kw">import</span> { createReadStream, createWriteStream } <span class="c-kw">from</span> <span class="c-str">'node:fs'</span>;
+<span class="c-kw">import</span> { mkdir, stat, unlink } <span class="c-kw">from</span> <span class="c-str">'node:fs/promises'</span>;
+<span class="c-kw">import</span> path <span class="c-kw">from</span> <span class="c-str">'node:path'</span>;
+<span class="c-kw">import</span> crypto <span class="c-kw">from</span> <span class="c-str">'node:crypto'</span>;
+<span class="c-kw">import</span> { pipeline } <span class="c-kw">from</span> <span class="c-str">'node:stream/promises'</span>;
+
+<span class="c-kw">const</span> UPLOAD_DIR = path.<span class="c-fn">join</span>(<span class="c-kw">import</span>.meta.dirname, <span class="c-str">'uploads'</span>);
+<span class="c-kw">await</span> <span class="c-fn">mkdir</span>(UPLOAD_DIR, { recursive: <span class="c-kw">true</span> });
+
+<span class="c-kw">const</span> app = <span class="c-fn">Fastify</span>();
+<span class="c-cm">// 限制单次请求最多 1 个文件、单文件最大 200MB</span>
+<span class="c-kw">await</span> app.<span class="c-fn">register</span>(multipart, { limits: { files: 1, fileSize: 200 * 1024 * 1024 } });
+
+<span class="c-cm">// 1. 流式上传接口: curl -F "file=@./big.zip" http://localhost:3000/api/upload</span>
+<span class="c-kw">const</span> ALLOWED_EXT = <span class="c-kw">new</span> <span class="c-fn">Set</span>([<span class="c-str">'.zip'</span>, <span class="c-str">'.pdf'</span>, <span class="c-str">'.mp4'</span>, <span class="c-str">'.png'</span>]);
+app.<span class="c-fn">post</span>(<span class="c-str">'/api/upload'</span>, <span class="c-kw">async</span> (request, reply) =&gt; {
+  <span class="c-kw">const</span> part = <span class="c-kw">await</span> request.<span class="c-fn">file</span>();
+  <span class="c-kw">if</span> (!part) <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(400).<span class="c-fn">send</span>({ message: <span class="c-str">'未找到上传文件'</span> });
+
+  <span class="c-kw">const</span> ext = path.<span class="c-fn">extname</span>(part.filename).<span class="c-fn">toLowerCase</span>();
+  <span class="c-kw">if</span> (!ALLOWED_EXT.<span class="c-fn">has</span>(ext)) {
+    part.file.<span class="c-fn">resume</span>(); <span class="c-cm">// 必写：排空丢弃未消费的请求流，否则连接会挂死</span>
+    <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(400).<span class="c-fn">send</span>({ message: <span class="c-str">`不支持的文件类型: ${ext}`</span> });
+  }
+
+  <span class="c-cm">// 绝不直接用用户传来的文件名落盘（防 ../../ 路径穿越），改用随机 UUID</span>
+  <span class="c-kw">const</span> savedName = <span class="c-str">`${crypto.randomUUID()}${ext}`</span>;
+  <span class="c-kw">const</span> destPath = path.<span class="c-fn">join</span>(UPLOAD_DIR, savedName);
+  <span class="c-kw">await</span> <span class="c-fn">pipeline</span>(part.file, <span class="c-fn">createWriteStream</span>(destPath));
+
+  <span class="c-cm">// 若上传体积超出 200MB 上限，流会被截断并标记 truncated = true，需删掉残缺文件</span>
+  <span class="c-kw">if</span> (part.file.truncated) {
+    <span class="c-kw">await</span> <span class="c-fn">unlink</span>(destPath).<span class="c-fn">catch</span>(() =&gt; {});
+    <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(413).<span class="c-fn">send</span>({ message: <span class="c-str">'文件大小超过 200MB 限制'</span> });
+  }
+  <span class="c-kw">return</span> { code: 0, fileId: savedName };
+});
+
+<span class="c-cm">// 2. 大文件流式下载接口: GET /api/download/:fileId</span>
+app.<span class="c-fn">get</span>(<span class="c-str">'/api/download/:fileId'</span>, <span class="c-kw">async</span> (request, reply) =&gt; {
+  <span class="c-cm">// path.basename 剥离一切目录层级，彻底阻断路径穿越读取任意系统文件</span>
+  <span class="c-kw">const</span> safeName = path.<span class="c-fn">basename</span>(request.params.fileId);
+  <span class="c-kw">const</span> targetPath = path.<span class="c-fn">join</span>(UPLOAD_DIR, safeName);
+
+  <span class="c-kw">const</span> info = <span class="c-kw">await</span> <span class="c-fn">stat</span>(targetPath).<span class="c-fn">catch</span>(() =&gt; <span class="c-kw">null</span>);
+  <span class="c-kw">if</span> (!info || !info.<span class="c-fn">isFile</span>()) <span class="c-kw">return</span> reply.<span class="c-fn">code</span>(404).<span class="c-fn">send</span>({ message: <span class="c-str">'文件不存在'</span> });
+
+  reply.<span class="c-fn">header</span>(<span class="c-str">'Content-Length'</span>, info.size);
+  reply.<span class="c-fn">header</span>(<span class="c-str">'Content-Type'</span>, <span class="c-str">'application/octet-stream'</span>);
+  reply.<span class="c-fn">header</span>(<span class="c-str">'Content-Disposition'</span>, <span class="c-str">`attachment; filename="${encodeURIComponent(safeName)}"`</span>);
+  <span class="c-kw">return</span> reply.<span class="c-fn">send</span>(<span class="c-fn">createReadStream</span>(targetPath)); <span class="c-cm">// Fastify 内部自动托管流背压与异常销毁</span>
+});
+
+<span class="c-kw">await</span> app.<span class="c-fn">listen</span>({ port: 3000 });</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>常见坑与背后原理：</strong>① 切忌调用 <code>await part.toBuffer()</code> 把大文件整块塞进内存；② 生产多实例部署时不要把文件存在容器本地硬盘（容器重启就丢且其他实例读不到），可把上方 <code>createWriteStream</code> 换成阿里云 OSS / AWS S3 的流式上传，或由后端签发<strong>预签名直传 URL（Presigned URL）</strong>让浏览器直接传对象存储；③ 流背压如何自动控速详见 <a href="principles.html#backpressure"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 03.2 Stream 背压状态机》 ↗</a>。
+  </p>
+</div>
+
+<!-- 07.4 · 场景四：SSE 流式输出（转发大模型流 + 客户端断开时取消上游请求） -->
+<div class="wb-card" id="sc-sse" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> 07.4 · SSE 流式输出：服务端边生成边推送（转发大模型回答）与客户端断开联动取消</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> 07.4 SSE 流式输出：边生成边推，客户端断开立即取消上游请求</h3>
+
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>业务需求</strong>：AI 对话接口调用上游大模型需要 15 秒才能生成完整回答，要求每生成几个字就立刻推给前端渲染；同时如果用户看两句就关掉了网页或点了“停止生成”，后端必须<strong>立刻中断向上游大模型的请求</strong>，停止继续计费。</li>
+    <li><strong>技术方案</strong>：相比双向的 WebSocket，「客户端发一次提问 → 服务端单向持续吐数据」最轻量的标准方案是 <strong>SSE（Server-Sent Events，服务器推送事件）</strong>——本质就是一个不急着调 <code>res.end()</code> 的普通 HTTP 响应，设置 <code>Content-Type: text/event-stream</code> 后按 <code>data: JSON字符串\n\n</code>（注意结尾<strong>两个换行符</strong>标志一条消息结束）逐块写出；并把 <code>req.on('close')</code> 绑定到上游 <code>fetch</code> 的 <code>AbortController</code> 上。</li>
+  </ul>
+
+  <div class="plop-code-box" style="margin-bottom:12px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> sse_llm_proxy.mjs · SSE 流式转发上游大模型 + 客户端断连自动 abort 上游 [Node.js 20+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sse', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-sse"><code><span class="c-kw">import</span> http <span class="c-kw">from</span> <span class="c-str">'node:http'</span>;
+<span class="c-kw">import</span> { setTimeout <span class="c-kw">as</span> sleep } <span class="c-kw">from</span> <span class="c-str">'node:timers/promises'</span>;
+
+<span class="c-cm">// 模拟或替换成真实上游流式接口（真实环境中直接用下方注释里的 fetch(LLM_URL, { signal })）</span>
+<span class="c-kw">async function</span>* <span class="c-fn">streamFromUpstream</span>(prompt, signal) {
+  <span class="c-cm">/* 真实转发大模型写法：
+  const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.LLM_KEY}` },
+    body: JSON.stringify({ model: 'gpt-4o-mini', stream: true, messages: [{ role: 'user', content: prompt }] }),
+    signal, // 核心：客户端一断连，这里立即中断上游 TCP 连接停止烧 Token
+  });
+  const decoder = new TextDecoder();
+  for await (const chunk of upstream.body) {
+    yield decoder.decode(chunk, { stream: true }); // { stream: true } 防止跨块多字节中文乱码
+  } */</span>
+  <span class="c-kw">const</span> tokens = [<span class="c-str">'你好，'</span>, <span class="c-str">'这是一段'</span>, <span class="c-str">'通过 SSE '</span>, <span class="c-str">'实时推送的流式回答。'</span>];
+  <span class="c-kw">for</span> (<span class="c-kw">const</span> token <span class="c-kw">of</span> tokens) {
+    <span class="c-cm">// sleep 传入 signal：一旦客户端断开触发 abort，立即抛出 AbortError 结束生成器</span>
+    <span class="c-kw">await</span> <span class="c-fn">sleep</span>(400, <span class="c-kw">undefined</span>, { signal });
+    <span class="c-kw">yield</span> token;
+  }
+}
+
+<span class="c-kw">const</span> server = http.<span class="c-fn">createServer</span>(<span class="c-kw">async</span> (req, res) =&gt; {
+  <span class="c-kw">if</span> (req.url !== <span class="c-str">'/api/chat/stream'</span>) <span class="c-kw">return</span> res.<span class="c-fn">writeHead</span>(404).<span class="c-fn">end</span>();
+
+  <span class="c-cm">// 1. 设置标准 SSE 响应头（X-Accel-Buffering: no 告诉反向代理 Nginx 不要攒包缓冲，立即透传）</span>
+  res.<span class="c-fn">writeHead</span>(200, {
+    <span class="c-str">'Content-Type'</span>: <span class="c-str">'text/event-stream; charset=utf-8'</span>,
+    <span class="c-str">'Cache-Control'</span>: <span class="c-str">'no-cache, no-transform'</span>,
+    <span class="c-str">'Connection'</span>: <span class="c-str">'keep-alive'</span>,
+    <span class="c-str">'X-Accel-Buffering'</span>: <span class="c-str">'no'</span>,
+  });
+  res.<span class="c-fn">flushHeaders</span>(); <span class="c-cm">// 立即把响应头推出去建立流连接</span>
+
+  <span class="c-cm">// 2. 监听客户端连接关闭：若响应尚未正常写完就断开了，立即 abort 上游请求</span>
+  <span class="c-kw">const</span> upstreamCtrl = <span class="c-kw">new</span> <span class="c-fn">AbortController</span>();
+  req.<span class="c-fn">on</span>(<span class="c-str">'close'</span>, () =&gt; {
+    <span class="c-kw">if</span> (!res.writableEnded) {
+      console.<span class="c-fn">log</span>(<span class="c-str">'[SSE] 客户端提前断开，正在取消上游生成任务...'</span>);
+      upstreamCtrl.<span class="c-fn">abort</span>();
+    }
+  });
+
+  <span class="c-cm">// 3. 逐块写出 SSE 帧（每帧以 \n\n 结尾），全部完成后发送结束标记</span>
+  <span class="c-kw">try</span> {
+    <span class="c-kw">for await</span> (<span class="c-kw">const</span> text <span class="c-kw">of</span> <span class="c-fn">streamFromUpstream</span>(<span class="c-str">'hi'</span>, upstreamCtrl.signal)) {
+      res.<span class="c-fn">write</span>(<span class="c-str">`data: ${JSON.stringify({ delta: text })}\n\n`</span>);
+    }
+    res.<span class="c-fn">write</span>(<span class="c-str">'data: [DONE]\n\n'</span>);
+  } <span class="c-kw">catch</span> (err) {
+    <span class="c-kw">if</span> (err.name !== <span class="c-str">'AbortError'</span>) console.<span class="c-fn">error</span>(<span class="c-str">'[SSE 上游异常]:'</span>, err.message);
+  } <span class="c-kw">finally</span> {
+    res.<span class="c-fn">end</span>();
+  }
+});
+
+server.<span class="c-fn">listen</span>(3000, () =&gt; console.<span class="c-fn">log</span>(<span class="c-str">'测试命令: curl -N http://localhost:3000/api/chat/stream'</span>));</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>常见坑与背后原理：</strong>① 本地直连实时逐字出，一上生产变成等 15 秒一次性蹦出来——99% 是漏了响应头 <code>X-Accel-Buffering: no</code> 被 Nginx 缓存了；② 长耗时生成期间若超过 15 秒无新字节产出，建议每 15 秒发一行注释心跳 <code>res.write(': ping\n\n')</code> 防网关空闲超时切断连接；③ 单线程高效维持数万 SSE 长连接的内核机制见 <a href="principles.html#why"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 00.1 非阻塞 I/O 与 epoll 多路复用》 ↗</a>（流式断连续传与幂等进阶见 <a href="../ai/sse-idempotency.html">《SSE · 幂等 · 上下文压缩》</a>）。
+  </p>
+</div>
+
+<!-- 07.5 · 场景五：调用第三方接口（超时、重试、并发限制） -->
+<div class="wb-card" id="sc-http-client" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 07.5 · 调用第三方接口：超时中断、指数退避抖动重试与并发限制封装</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 07.5 调用第三方接口：超时、重试与并发限制一体化</h3>
+
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>业务需求</strong>：调用外部物流轨迹或短信网关，网络偶发抖动或对方短暂报 <code>503</code> 时希望自动重试自愈，但不能无休止死等，也不能把刚恢复的下游冲垮。</li>
+    <li><strong>技术方案</strong>：封装通用的 <code>fetchWithRetry</code>——① <strong>每次重试单独绑定超时时间</strong>（如单次 <code>2500ms</code>）；② <strong>严格区分可重试错误</strong>（仅对网络断连、超时、<code>429</code> 限流与 <code>502/503/504</code> 网关错误重试，<code>400/401/403/404</code> 绝不重试）；③ 采用<strong>指数退避 + 随机抖动（Exponential Backoff + Jitter）</strong>拉开重试间隔；④ 批量调用时配合 <a href="#async-safety-limit">03.3 的 <code>mapLimit</code></a> 控住并发上限。</li>
+  </ul>
+
+  <div class="plop-code-box" style="margin-bottom:12px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> resilient_fetch.mjs · 带单次超时、状态码过滤与指数退避抖动重试的请求客户端 [Node.js 20+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-retry', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-retry"><code><span class="c-kw">import</span> { setTimeout <span class="c-kw">as</span> sleep } <span class="c-kw">from</span> <span class="c-str">'node:timers/promises'</span>;
+
+<span class="c-kw">const</span> RETRYABLE_STATUS = <span class="c-kw">new</span> <span class="c-fn">Set</span>([429, 502, 503, 504]);
+
+<span class="c-kw">export async function</span> <span class="c-fn">fetchWithRetry</span>(url, options = {}, { retries = 2, timeoutMs = 2500 } = {}) {
+  <span class="c-kw">for</span> (<span class="c-kw">let</span> attempt = 0; attempt &lt;= retries; attempt++) {
+    <span class="c-kw">try</span> {
+      <span class="c-kw">const</span> res = <span class="c-kw">await</span> <span class="c-fn">fetch</span>(url, {
+        ...options,
+        signal: AbortSignal.<span class="c-fn">timeout</span>(timeoutMs), <span class="c-cm">// 每次尝试独立的超时计时器</span>
+      });
+
+      <span class="c-kw">if</span> (res.ok) <span class="c-kw">return await</span> res.<span class="c-fn">json</span>();
+
+      <span class="c-cm">// 若是 400 参数错或 401 鉴权错，重试 100 次结果也一样，直接抛错快速失败</span>
+      <span class="c-kw">if</span> (!RETRYABLE_STATUS.<span class="c-fn">has</span>(res.status) || attempt === retries) {
+        <span class="c-kw">throw new</span> <span class="c-fn">Error</span>(<span class="c-str">`HTTP ${res.status}: ${url}`</span>);
+      }
+    } <span class="c-kw">catch</span> (err) {
+      <span class="c-cm">// 达到最大重试次数，或不是网络/超时类异常时向上抛出</span>
+      <span class="c-kw">const</span> isNetOrTimeout = err.name === <span class="c-str">'TimeoutError'</span> || err.name === <span class="c-str">'TypeError'</span>;
+      <span class="c-kw">if</span> (attempt === retries || (!isNetOrTimeout &amp;&amp; !err.message.<span class="c-fn">startsWith</span>(<span class="c-str">'HTTP 5'</span>) &amp;&amp; !err.message.<span class="c-fn">startsWith</span>(<span class="c-str">'HTTP 429'</span>))) {
+        <span class="c-kw">throw</span> err;
+      }
+    }
+    <span class="c-cm">// 指数退避 + 随机抖动：第 1 次等 ~200ms，第 2 次等 ~400ms，打散并发洪峰</span>
+    <span class="c-kw">const</span> backoffMs = 200 * (2 ** attempt) + Math.<span class="c-fn">floor</span>(Math.<span class="c-fn">random</span>() * 100);
+    <span class="c-kw">await</span> <span class="c-fn">sleep</span>(backoffMs);
+  }
+}</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>常见坑与背后原理：</strong>① <strong>非幂等写接口（如扣款、发短信）绝不能裸重试</strong>——万一第一次请求对方其实已经成功扣款了，只是回包路上网络断了，你一重试就扣了两次钱；写接口必须先在请求头带上唯一业务单号 <code>Idempotency-Key</code> 且确认下游支持幂等去重才能开重试；② 高频调外部域名时注意 <code>dns.lookup</code> 争抢 4 个工作线程的问题，详见 <a href="principles.html#threadpool"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 02.3 libuv 线程池与 DNS 缓存优化》 ↗</a>。
+  </p>
+</div>
+
+<!-- 07.6 · 场景六：定时任务与后台任务（何时该交给消息队列） -->
+<div class="wb-card" id="sc-cron-mq" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 07.6 · 定时任务与后台任务：进程内定时器的边界，以及什么时候必须交给消息队列</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 07.6 定时任务与后台任务：什么时候该交给消息队列</h3>
+
+  <p>
+    后端常有两类不在当前 HTTP 响应里同步干完的活：<strong>周期性定时任务</strong>（如每晚凌晨统计账单）与<strong>异步后台任务</strong>（如用户注册后发欢迎邮件、导出百万行 Excel）。如果统统用 <code>setInterval / setTimeout</code> 或轻量库 <code>node-cron</code> 在 Web 进程内存里硬跑，一旦服务重启或多开几个容器实例就会出事故。先看选型分界线：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:24%">任务特征</th>
+          <th style="width:36%">进程内定时器（<code>node-cron</code> + Redis 锁）</th>
+          <th>专业队列（BullMQ / Redis Stream / Kafka）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>进程重启或发版时</strong></td>
+          <td><strong>内存态立即丢失</strong>（正在等的 <code>setTimeout</code> 直接蒸发）</td>
+          <td><strong>持久化在 Redis / 磁盘日志中</strong>，新进程启动后接着消费，零丢失</td>
+        </tr>
+        <tr>
+          <td><strong>多实例（如 4 台容器）部署</strong></td>
+          <td>默认 4 台机器到点会同时跑 4 遍，<strong>必须额外套一层 Redis 分布式互斥锁</strong></td>
+          <td>消费者组机制天然保证同一条任务只分给 1 台空闲 Worker 处理</td>
+        </tr>
+        <tr>
+          <td><strong>失败重试与洪峰削峰</strong></td>
+          <td>需纯手写，流量突增时会把 Web 主服务内存挤爆</td>
+          <td>内置最大并发度、指数退避重试、延迟投递与死信队列（DLQ）告警</td>
+        </tr>
+        <tr>
+          <td><strong>明确选型结论</strong></td>
+          <td>仅用于<strong>丢一次无碍、下个周期能自愈的轻量巡检</strong>（如每 5 分钟清理本地临时目录、刷新内存字典）</td>
+          <td>凡涉及<strong>发券通知、扣款对账、延迟 30 分钟关单、视频转码/大报表导出</strong>，一律交给外部队列</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box" style="margin-bottom:12px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> cron_with_lock.mjs · 多实例安全的定时巡检（防重入 + Redis SET NX EX 抢锁）[Node.js 20+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-cron', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-cron"><code><span class="c-cm">// 安装依赖: npm install node-cron ioredis</span>
+<span class="c-kw">import</span> cron <span class="c-kw">from</span> <span class="c-str">'node-cron'</span>;
+<span class="c-kw">import</span> Redis <span class="c-kw">from</span> <span class="c-str">'ioredis'</span>;
+
+<span class="c-kw">const</span> redis = <span class="c-kw">new</span> <span class="c-fn">Redis</span>(process.env.REDIS_URL || <span class="c-str">'redis://127.0.0.1:6379'</span>);
+<span class="c-kw">let</span> localRunning = <span class="c-kw">false</span>;
+
+<span class="c-cm">// 每 5 分钟执行一次（Cron 表达式: 分 时 日 月 周）</span>
+cron.<span class="c-fn">schedule</span>(<span class="c-str">'*/5 * * * *'</span>, <span class="c-kw">async</span> () =&gt; {
+  <span class="c-cm">// 1. 单机防重入：如果上一轮任务卡住还没跑完，直接跳过本轮</span>
+  <span class="c-kw">if</span> (localRunning) <span class="c-kw">return</span>;
+
+  <span class="c-cm">// 2. 多实例互斥：多台容器同时到点时，只有抢到 240 秒租约锁的那 1 台执行</span>
+  <span class="c-kw">const</span> locked = <span class="c-kw">await</span> redis.<span class="c-fn">set</span>(<span class="c-str">'lock:cron:sync-report'</span>, process.pid, <span class="c-str">'NX'</span>, <span class="c-str">'EX'</span>, 240);
+  <span class="c-kw">if</span> (locked !== <span class="c-str">'OK'</span>) <span class="c-kw">return</span>;
+
+  localRunning = <span class="c-kw">true</span>;
+  <span class="c-kw">try</span> {
+    console.<span class="c-fn">log</span>(<span class="c-str">`[PID ${process.pid}] 抢锁成功，开始执行周期汇总...`</span>);
+    <span class="c-cm">// await runSummaryJob();</span>
+  } <span class="c-kw">catch</span> (err) {
+    console.<span class="c-fn">error</span>(<span class="c-str">'[定时任务异常]:'</span>, err);
+  } <span class="c-kw">finally</span> {
+    localRunning = <span class="c-kw">false</span>;
+  }
+});</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>延伸阅读：</strong>在纯 Node.js 技术栈中若已有 Redis，可直接用成熟的 <code>BullMQ</code> 做持久任务队列；若需要跨语言解耦、百万级削峰、本地消息表或 30 分钟未支付延迟关单，详见 <a href="../mq/index.html#scenarios"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 《消息队列笔记 · 03 七大常见业务实战场景》</a> 与 <a href="../redis/index.html#lock"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-redis"></use></svg> 《Redis 笔记 · 04.8 分布式锁安全解锁》</a>。
+  </p>
+</div>
+
+<!-- 07.7 · 场景七：写一个命令行工具（CLI）与章末即时场景题 -->
+<div class="wb-card" id="sc-cli" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 07.7 · 写一个命令行工具（CLI）：<code>#!/usr/bin/env node</code>、<code>util.parseArgs</code> 与标准退出码</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 07.7 写一个命令行工具（CLI）：扫描大文件的零依赖实战</h3>
+
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.5px; line-height:1.68;">
+    <li><strong>业务需求</strong>：写一个团队内部命令 <code>scan-large --dir ./dist --min-kb 500</code>，找出构建产物里所有体积超标的大文件，超标时返回非 0 退出码阻断 CI 发版。</li>
+    <li><strong>技术方案</strong>：① 脚本首行写 <code>#!/usr/bin/env node</code>（告诉操作系统用环境变量里的 <code>node</code> 执行它），并在 <code>package.json</code> 的 <code>"bin"</code> 字段声明命令名；② 直接使用内置 <strong><code>util.parseArgs</code>（<code>Node.js 20+</code> 稳定，免装 <code>commander / yargs</code>）</strong> 解析选项；③ 正常数据输出到 <code>stdout</code>，错误告警输出到 <code>stderr</code>，用 <code>process.exitCode = 1</code> 标记检查未通过。</li>
+  </ul>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> bin/scan-large.mjs · 零依赖可直接复制运行的 CLI 工具 [Node.js 20.11+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-cli', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-cli"><code><span class="c-cm">#!/usr/bin/env node</span>
+<span class="c-cm">// package.json 中配置: "bin": { "scan-large": "./bin/scan-large.mjs" }</span>
+<span class="c-cm">// 本地测试直接运行: node ./bin/scan-large.mjs --dir . --min-kb 10</span>
+<span class="c-kw">import</span> { parseArgs } <span class="c-kw">from</span> <span class="c-str">'node:util'</span>;
+<span class="c-kw">import</span> { readdir, stat } <span class="c-kw">from</span> <span class="c-str">'node:fs/promises'</span>;
+<span class="c-kw">import</span> path <span class="c-kw">from</span> <span class="c-str">'node:path'</span>;
+
+<span class="c-cm">// 1. 使用内置 util.parseArgs 解析命令行长短选项</span>
+<span class="c-kw">const</span> { values } = <span class="c-fn">parseArgs</span>({
+  options: {
+    dir: { type: <span class="c-str">'string'</span>, short: <span class="c-str">'d'</span>, <span class="c-kw">default</span>: <span class="c-str">'.'</span> },
+    <span class="c-str">'min-kb'</span>: { type: <span class="c-str">'string'</span>, short: <span class="c-str">'m'</span>, <span class="c-kw">default</span>: <span class="c-str">'500'</span> },
+    help: { type: <span class="c-str">'boolean'</span>, short: <span class="c-str">'h'</span>, <span class="c-kw">default</span>: <span class="c-kw">false</span> },
+  },
+});
+
+<span class="c-kw">if</span> (values.help) {
+  console.<span class="c-fn">log</span>(<span class="c-str">'用法: scan-large [--dir &lt;目录&gt;] [--min-kb &lt;阈值KB&gt;]'</span>);
+  process.<span class="c-fn">exit</span>(0);
+}
+
+<span class="c-cm">// 2. 递归扫描目录（Node 20+ readdir 原生支持 recursive: true，无需装 glob）</span>
+<span class="c-kw">const</span> rootDir = path.<span class="c-fn">resolve</span>(process.<span class="c-fn">cwd</span>(), values.dir);
+<span class="c-kw">const</span> minBytes = <span class="c-fn">Number</span>(values[<span class="c-str">'min-kb'</span>]) * 1024;
+<span class="c-kw">const</span> entries = <span class="c-kw">await</span> <span class="c-fn">readdir</span>(rootDir, { withFileTypes: <span class="c-kw">true</span>, recursive: <span class="c-kw">true</span> });
+
+<span class="c-kw">const</span> oversized = [];
+<span class="c-kw">for</span> (<span class="c-kw">const</span> entry <span class="c-kw">of</span> entries) {
+  <span class="c-kw">if</span> (!entry.<span class="c-fn">isFile</span>() || entry.parentPath.<span class="c-fn">includes</span>(<span class="c-str">'node_modules'</span>)) <span class="c-kw">continue</span>;
+  <span class="c-kw">const</span> fullPath = path.<span class="c-fn">join</span>(entry.parentPath, entry.name);
+  <span class="c-kw">const</span> { size } = <span class="c-kw">await</span> <span class="c-fn">stat</span>(fullPath);
+  <span class="c-kw">if</span> (size &gt;= minBytes) {
+    oversized.<span class="c-fn">push</span>({ file: path.<span class="c-fn">relative</span>(rootDir, fullPath), kb: (size / 1024).<span class="c-fn">toFixed</span>(1) });
+  }
+}
+
+<span class="c-cm">// 3. 区分标准输出与错误退出码：超标时设 exitCode = 1 通知 CI 流水线拦截</span>
+<span class="c-kw">if</span> (oversized.length &gt; 0) {
+  console.<span class="c-fn">error</span>(<span class="c-str">`发现 ${oversized.length} 个超过 ${values['min-kb']}KB 的文件:`</span>);
+  console.<span class="c-fn">table</span>(oversized);
+  process.exitCode = 1;
+} <span class="c-kw">else</span> {
+  console.<span class="c-fn">log</span>(<span class="c-str">'检查通过：未发现超标大文件'</span>);
+}</code></pre>
+  </div>
+
+  <div class="plop-callout info" style="margin-bottom:16px;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> CLI 发布的两个实用细节：</strong>① 在 macOS / Linux 下执行 <code>chmod +x ./bin/scan-large.mjs</code> 赋予可执行权限后，运行 <code>npm link</code> 即可在本机任意目录直接敲 <code>scan-large</code> 测试；② 在项目根目录加一行 <code>.gitattributes</code>（<code>*.mjs text eol=lf</code>）强制使用 Unix <code>LF</code> 换行符，防止在 Windows 上保存出 <code>\r\n</code> 导致 Linux 终端报 <code>env: 'node\r': No such file or directory</code>。
+  </div>
+
+  <h4 id="quiz-07" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+
+  <details class="plop-drawer">
+    <summary>1. 用户在网页上问了 AI 一个很长的问题，看开头不对立刻关掉了网页，但后台监控显示上游 OpenAI 接口还是跑满了 20 秒才结束，钱照扣了，漏写了哪一步？</summary>
+    <div class="drawer-body">
+      <p>漏了<strong>将下行客户端连接关闭事件与上游请求的 <code>AbortController</code> 绑定</strong>。客户端关掉网页只是断开了「浏览器 ⇄ 你的 Node 服务」这段连接，你的 Node 服务发给 OpenAI 的那条 <code>fetch</code> 请求默认完全不知情，会继续收完所有数据（然后往已断开的 <code>res</code> 里空写丢弃）。必须在 SSE 入口创建 <code>const ctrl = new AbortController()</code> 传给上游 <code>fetch(url, { signal: ctrl.signal })</code>，并在 <code>req.on('close', () =&gt; { if (!res.writableEnded) ctrl.abort(); })</code> 中立即中断上游。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>2. 产品要求做一个「后台封禁违规账号后，该用户正在使用的 App 必须在 1 秒内全部失效无法调任何接口」，只用无状态 JWT 能做到吗？怎么改最轻量？</summary>
+    <div class="drawer-body">
+      <p><strong>纯无状态 JWT 做不到</strong>，因为 JWT 一旦签发出去，只要签名对且没到 <code>exp</code> 过期时间，服务端中间件只做本地验签就会放行。最轻量的折中方案是<strong>「无状态 JWT + Redis 封禁黑名单（或用户版本号）」</strong>：封号或改密时往 Redis 写入 <code>ban:uid:1001 = 1</code>（TTL 设为与 JWT 剩余最大有效期相同，如 2 小时）；鉴权中间件验签通过后顺手花 <code>0.2ms</code> 查一次 <code>EXISTS ban:uid:1001</code>，命中则立即返回 <code>401</code> 踢下线，既保留了 JWT 的跨服务便利，又补齐了即时吊销能力。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>3. 在下单成功接口最后写了 <code>setTimeout(() =&gt; generatePdfAndSendEmail(orderId), 1000)</code> 立即返回前端“下单成功”，上线一周后收到多起客诉没收到发票邮件，为什么？</summary>
+    <div class="drawer-body">
+      <p>主要有两个原因：① <strong>发版或容器重启丢任务</strong>——只要在那 1 秒等待或正在生成 PDF 的几秒钟里运维恰好执行了滚动发版重启进程，内存里的定时任务就永久消失了；② <strong>下游邮件服务偶发超时无重试</strong>——一旦邮件网关抖动报错，任务失败后没有任何持久化记录可供补偿重跑。这类跨网络、不允许丢失的异步后置动作，应写入 <strong>BullMQ / 消息队列</strong>（关键业务配合数据库本地消息表）由后台 Worker 可靠消费并自动重试。</p>
+    </div>
+  </details>
+</div>

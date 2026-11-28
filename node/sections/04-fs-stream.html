@@ -1,0 +1,200 @@
+<!-- ====================================================================
+     PART 04: 文件与流 · path 跨平台路径、fs/promises、Buffer 与 Stream 管道
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="fs-stream">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">文件与流：path 跨平台路径、fs/promises、Buffer 与 Stream 管道</span>
+  <span class="plop-tag tomato">PATH × FS/PROMISES × BUFFER × STREAM PIPELINE</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>用 <code>node:path</code> 与 <code>import.meta.dirname</code> 写出跨平台稳健的文件路径，用 <code>node:fs/promises</code> 完成异步文件读写，掌握 <code>Buffer</code> 编码互转，并用 <code>Stream</code> + <code>pipeline</code> 在几十 KB 内存开销内流式处理 GB 级大文件。
+</div>
+
+<!-- 04.1 · 跨平台路径处理 node:path 与文件读写 node:fs/promises -->
+<div class="wb-card" id="path-fs-basic" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 04.1 · 路径与文件操作：<code>node:path</code> 跨平台路径拼接与 <code>node:fs/promises</code> 异步读写</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 04.1 跨平台路径（<code>node:path</code>）与异步文件读写（<code>node:fs/promises</code>）</h3>
+
+  <p>
+    在读写本地文件之前，首先要处理好路径：Windows 使用反斜杠 <code>\</code> 分隔目录，而 macOS 与 Linux 使用正斜杠 <code>/</code>；同时 <code>fs.readFile('./a.json')</code> 中的相对路径是相对于<strong>执行命令时的终端工作目录（<code>process.cwd()</code>）</strong>，而非当前源码文件所在目录。因此日常开发中统一使用 <strong><code>node:path</code></strong> 配合 <strong><code>import.meta.dirname</code></strong>（当前源码文件所在目录的绝对路径，<code>Node.js 20.11+</code> 原生支持）来拼接路径：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> path_demo.mjs · 跨平台路径拼接与文件名拆解 [Node.js 20.11+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-path-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-path-basic"><code><span class="c-kw">import</span> path <span class="c-kw">from</span> <span class="c-str">'node:path'</span>;
+
+<span class="c-cm">// 1. import.meta.dirname 获取当前源码文件所在目录的绝对路径</span>
+<span class="c-kw">const</span> currentDir = <span class="c-kw">import</span>.meta.dirname;
+
+<span class="c-cm">// 2. path.join 自动按当前操作系统分隔符拼接路径，并规范化多余的 ../ 或 /</span>
+<span class="c-kw">const</span> filePath = path.<span class="c-fn">join</span>(currentDir, <span class="c-str">'data'</span>, <span class="c-str">'users.json'</span>);
+
+<span class="c-cm">// 3. 提取文件名、扩展名或拆解路径结构</span>
+console.<span class="c-fn">log</span>(path.<span class="c-fn">basename</span>(filePath));   <span class="c-cm">// 输出: users.json</span>
+console.<span class="c-fn">log</span>(path.<span class="c-fn">extname</span>(filePath));    <span class="c-cm">// 输出: .json</span>
+console.<span class="c-fn">log</span>(path.<span class="c-fn">parse</span>(filePath).name); <span class="c-cm">// 输出: users</span></code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> fs_promises.mjs · 异步创建目录、读写与追加小文件 [Node.js 20.11+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-fs-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-fs-basic"><code><span class="c-kw">import</span> fs <span class="c-kw">from</span> <span class="c-str">'node:fs/promises'</span>;
+<span class="c-kw">import</span> path <span class="c-kw">from</span> <span class="c-str">'node:path'</span>;
+
+<span class="c-kw">const</span> dir = path.<span class="c-fn">join</span>(<span class="c-kw">import</span>.meta.dirname, <span class="c-str">'logs'</span>);
+<span class="c-kw">const</span> logFile = path.<span class="c-fn">join</span>(dir, <span class="c-str">'app.log'</span>);
+
+<span class="c-cm">// 1. 确保目录存在：recursive: true 表示父目录不存在时自动递归创建，已存在也不报错</span>
+<span class="c-kw">await</span> fs.<span class="c-fn">mkdir</span>(dir, { recursive: <span class="c-kw">true</span> });
+
+<span class="c-cm">// 2. 写入文本文件（覆盖写入）与追加内容</span>
+<span class="c-kw">await</span> fs.<span class="c-fn">writeFile</span>(logFile, <span class="c-str">'[INFO] 服务启动\n'</span>, <span class="c-str">'utf8'</span>);
+<span class="c-kw">await</span> fs.<span class="c-fn">appendFile</span>(logFile, <span class="c-str">'[INFO] 收到请求\n'</span>, <span class="c-str">'utf8'</span>);
+
+<span class="c-cm">// 3. 读取文件内容并查看文件字节大小</span>
+<span class="c-kw">const</span> content = <span class="c-kw">await</span> fs.<span class="c-fn">readFile</span>(logFile, <span class="c-str">'utf8'</span>);
+<span class="c-kw">const</span> info = <span class="c-kw">await</span> fs.<span class="c-fn">stat</span>(logFile);
+console.<span class="c-fn">log</span>(<span class="c-str">'文件大小(Bytes):'</span>, info.size, <span class="c-str">'行数:'</span>, content.<span class="c-fn">trim</span>().<span class="c-fn">split</span>(<span class="c-str">'\n'</span>).length);</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 04.2 · 二进制字节容器 Buffer 的日常创建与编码转换 -->
+<div class="wb-card" id="buffer-basic" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 04.2 · 二进制数据处理：<code>Buffer</code> 的创建、字符串互转与 Base64 / Hex 编码转换</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 04.2 二进制字节容器（<code>Buffer</code>）：创建、拼接与编码转换</h3>
+
+  <p>
+    当调用 <code>fs.readFile(path)</code> <strong>不传</strong>第二个编码参数 <code>'utf8'</code> 时，返回的就是一个 <strong><code>Buffer</code> 对象</strong>。<code>Buffer</code> 是 Node.js 专门用来在内存中存放原始二进制数据（图片、压缩包、TCP 字节分片、加密摘要）的定长字节数组；在默认 <strong>UTF-8（8-bit Unicode Transformation Format，可变长万国码编码）</strong>下，一个英文字母占 <code>1</code> 个字节，一个常用汉字通常占 <strong><code>3</code> 个字节</strong>：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> buffer_encoding.mjs · Buffer 创建、拼接与 UTF-8 / Base64 / Hex 互转 [Node.js 全版本]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-buf-basic', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-buf-basic"><code><span class="c-cm">// 1. 从字符串创建 Buffer（默认按 UTF-8 编码，1 个中文字符占 3 个字节）</span>
+<span class="c-kw">const</span> buf1 = Buffer.<span class="c-fn">from</span>(<span class="c-str">'你好 Node'</span>, <span class="c-str">'utf8'</span>);
+console.<span class="c-fn">log</span>(buf1.length);            <span class="c-cm">// 输出: 11 (2个汉字×3字节 + 5个ASCII字符×1字节)</span>
+
+<span class="c-cm">// 2. 创建指定长度且全部初始化为 0 的安全空白 Buffer</span>
+<span class="c-kw">const</span> buf2 = Buffer.<span class="c-fn">alloc</span>(4);       <span class="c-cm">// 输出: &lt;Buffer 00 00 00 00&gt;</span>
+
+<span class="c-cm">// 3. 编码转换：在 UTF-8 文本、Base64 编码与十六进制 Hex 之间互转</span>
+<span class="c-kw">const</span> base64Str = buf1.<span class="c-fn">toString</span>(<span class="c-str">'base64'</span>);
+console.<span class="c-fn">log</span>(<span class="c-str">'Base64:'</span>, base64Str);  <span class="c-cm">// 输出: 5L2g5aW9IE5vZGU=</span>
+
+<span class="c-kw">const</span> decoded = Buffer.<span class="c-fn">from</span>(base64Str, <span class="c-str">'base64'</span>).<span class="c-fn">toString</span>(<span class="c-str">'utf8'</span>);
+console.<span class="c-fn">log</span>(<span class="c-str">'还原文本:'</span>, decoded);  <span class="c-cm">// 输出: 你好 Node</span>
+
+<span class="c-cm">// 4. 拼接多个二进制分片：统一使用 Buffer.concat([块1, 块2])，不要用 + 号拼接（+ 号会强转字符串弄乱多字节中文）</span>
+<span class="c-kw">const</span> merged = Buffer.<span class="c-fn">concat</span>([Buffer.<span class="c-fn">from</span>(<span class="c-str">'Hello '</span>), Buffer.<span class="c-fn">from</span>(<span class="c-str">'World'</span>)]);
+console.<span class="c-fn">log</span>(merged.<span class="c-fn">toString</span>());      <span class="c-cm">// 输出: Hello World</span></code></pre>
+  </div>
+</div>
+
+<!-- 04.3 · 流式传输 Stream、pipeline 管道与章末场景题 -->
+<div class="wb-card" id="stream-basic" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> 04.3 · 大文件流式处理：四种 <code>Stream</code> 类型与 <code>pipeline</code> 管道传输</div>
+  <h3 id="stream"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> 04.3 流式读写（<code>Stream</code>）：用 <code>pipeline</code> 边读边写大文件</h3>
+
+  <p>
+    <code>fs.readFile</code> 会把整个文件一次性装进内存，读几 KB 的配置文件很省事；但如果遇到一个 <code>2GB</code> 的视频或备份压缩包，一次性读入内存就会吃掉 <code>2GB</code> 空间，并发一两个请求就会把容器内存撑爆（OOM，Out Of Memory，内存溢出）。<br>
+    处理大文件或持续数据流时应使用 <strong>流（<code>Stream</code>）</strong>——像接水管一样，每次只从磁盘读出 <code>64KB</code> 的小块，加工完立刻写向下一站，全程内存占用稳定在几十 KB：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">Stream 四种类型</th>
+          <th style="width:28%">定位类比</th>
+          <th>常见内置示例</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. <code>Readable</code>（可读流）</strong></td>
+          <td>产出数据的“水龙头”（数据源）</td>
+          <td><code>fs.createReadStream('input.mp4')</code>、HTTP 服务端收到的请求对象 <code>req</code></td>
+        </tr>
+        <tr>
+          <td><strong>2. <code>Writable</code>（可写流）</strong></td>
+          <td>接收数据的“蓄水池”（数据终点）</td>
+          <td><code>fs.createWriteStream('output.mp4')</code>、HTTP 服务端发出的响应对象 <code>res</code></td>
+        </tr>
+        <tr>
+          <td><strong>3. <code>Duplex</code>（双工流）</strong></td>
+          <td>既可读又可写的双向通道（读写独立）</td>
+          <td><code>net.Socket</code>（底层 TCP 网络连接）</td>
+        </tr>
+        <tr>
+          <td><strong>4. <code>Transform</code>（转换流）</strong></td>
+          <td>中间加工站：边读入、边加工、边输出</td>
+          <td><code>zlib.createGzip()</code>（边读边压缩）、<code>crypto.createCipheriv()</code>（边读边加密）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box" style="margin-bottom:14px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-wave"></use></svg> stream_pipeline.mjs · 用 pipeline 将大文件边读取、边 Gzip 压缩、边落盘 [Node.js 20+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-stream-basic', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-stream-basic"><code><span class="c-kw">import</span> { createReadStream, createWriteStream } <span class="c-kw">from</span> <span class="c-str">'node:fs'</span>;
+<span class="c-kw">import</span> { writeFile } <span class="c-kw">from</span> <span class="c-str">'node:fs/promises'</span>;
+<span class="c-kw">import</span> { createGzip } <span class="c-kw">from</span> <span class="c-str">'node:zlib'</span>;
+<span class="c-kw">import</span> { pipeline } <span class="c-kw">from</span> <span class="c-str">'node:stream/promises'</span>;
+
+<span class="c-cm">// 准备一个示例日志文件用于本地直接运行测试</span>
+<span class="c-kw">await</span> <span class="c-fn">writeFile</span>(<span class="c-str">'./access.log'</span>, <span class="c-str">'2026-11-28 GET /api/orders 200\n'</span>.<span class="c-fn">repeat</span>(1000));
+
+<span class="c-cm">// pipeline 会将「可读流 → Gzip 转换流 → 可写流」安全串联：</span>
+<span class="c-cm">// 1. 自动背压控速（写得慢时自动暂停上游读取，防内存积压）</span>
+<span class="c-cm">// 2. 任意一环报错或中断时，自动关闭并销毁所有打开的文件句柄（优于裸 .pipe()）</span>
+<span class="c-kw">await</span> <span class="c-fn">pipeline</span>(
+  <span class="c-fn">createReadStream</span>(<span class="c-str">'./access.log'</span>),
+  <span class="c-fn">createGzip</span>(),
+  <span class="c-fn">createWriteStream</span>(<span class="c-str">'./access.log.gz'</span>)
+);
+console.<span class="c-fn">log</span>(<span class="c-str">'流式 Gzip 压缩完成: access.log.gz'</span>);</code></pre>
+  </div>
+
+  <div class="plop-callout info" style="margin-bottom:16px;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 背后的原理：</strong>小 <code>Buffer</code> 是怎么在 <code>8KB</code> Slab 共享内存池里按 8 字节对齐切出来的？当磁盘读取速度是 <code>500MB/s</code>、而用户弱网下载速度只有 <code>1MB/s</code> 时，<code>Stream</code> 的背压（Backpressure）水位线状态机是怎么喊停上游的？详见 <a href="principles.html#stream"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 《核心原理篇 · 03 Buffer 8KB 内存池与 Stream 背压状态机》 ↗</a>。
+  </div>
+
+  <h4 id="quiz-04" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+
+  <details class="plop-drawer">
+    <summary>1. 在 <code>src/config.js</code> 里写了 <code>fs.readFile('./cert.pem')</code>，在项目根目录执行 <code>node src/config.js</code> 时报文件不存在，进到 <code>src/</code> 目录执行却正常，为什么？</summary>
+    <div class="drawer-body">
+      <p><code>fs</code> 模块中的所有相对路径（<code>./</code>）都是相对于<strong>启动命令时所在的当前工作目录（<code>process.cwd()</code>）</strong>，而不是代码文件自身所在的文件夹。稳妥写法是用 <code>path.join(import.meta.dirname, 'cert.pem')</code> 将路径锚定在当前源码文件所在目录上，这样无论从哪一级目录启动进程都能准确找到文件。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>2. 分块接收二进制流时，有人习惯写 <code>let str = ''; stream.on('data', chunk =&gt; { str += chunk; })</code>，传纯英文正常，传长篇中文为什么偶尔会出现乱码符号 <code>&#xFFFD;</code>？</summary>
+    <div class="drawer-body">
+      <p>在 UTF-8 编码中，一个汉字占 <strong>3 个字节</strong>。网络或文件分块按固定字节边界切分时，很容易把某个汉字的前 1 个字节切在上一块末尾、后 2 个字节切在下一块开头。<code>str += chunk</code> 会把每一块单独强转为字符串，被劈开的半个汉字无法解码就会变成替换符 <code>&#xFFFD;</code>。正确做法是用数组收集 <code>chunks.push(chunk)</code>，流结束后统一执行 <strong><code>Buffer.concat(chunks).toString('utf8')</code></strong>（或预先调用 <code>stream.setEncoding('utf8')</code> 启用内置的 <code>StringDecoder</code> 多字节拼接器）。</p>
+    </div>
+  </details>
+
+  <details class="plop-drawer">
+    <summary>3. 为什么老代码里的 <code>readStream.pipe(writeStream)</code> 在生产环境不推荐再写，而应统一换成 <code>await pipeline(readStream, writeStream)</code>？</summary>
+    <div class="drawer-body">
+      <p>原生 <code>.pipe()</code> 只管数据转发和背压，<strong>不管异常清理</strong>：如果下游客户端下载到一半直接关掉了浏览器（<code>writeStream</code> 提前中断），上游打开的磁盘文件流 <code>readStream</code> 不会自动关闭销毁，日积月累会耗尽操作系统的文件描述符上限（报 <code>EMFILE: too many open files</code>）。<code>node:stream/promises</code> 提供的 <code>pipeline</code> 会在任一环节出错或关闭时自动销毁整条管道上的全部流，并支持直接用 <code>try / catch</code> 捕获异常。</p>
+    </div>
+  </details>
+</div>
