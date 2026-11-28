@@ -35,23 +35,28 @@ SET auth:tk:9f8a7b6c "1001" EX 604800
 SADD auth:user_tks:1001 "9f8a7b6c"
 EXPIRE auth:user_tks:1001 604800
 
-<span class="c-cm"># 2. 接口鉴权与续期（Redis 6.2+ 可用 GETEX 一步读出并重置过期时间）</span>
+<span class="c-cm"># 2. 接口鉴权与续期：续期 Token 时同步续期该用户的设备集合（6.2+ 单键可用 GETEX）</span>
 GET auth:tk:9f8a7b6c
 EXPIRE auth:tk:9f8a7b6c 604800
+EXPIRE auth:user_tks:1001 604800
 
-<span class="c-cm"># 3. 改密或封号踢下线：查出该用户全部 Token 删掉</span>
+<span class="c-cm"># 3. 单设备主动退出登录：删当前 Token 并从设备集合移除</span>
+DEL auth:tk:9f8a7b6c
+SREM auth:user_tks:1001 "9f8a7b6c"
+
+<span class="c-cm"># 4. 改密或封号全局踢下线：查出该用户全部活跃 Token 一次性删掉</span>
 SMEMBERS auth:user_tks:1001
 DEL auth:tk:9f8a7b6c auth:user_tks:1001</code></pre>
     </div>
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 session.go · 按半程阈值低开销续期与一键踢下线 [Go · go-redis/v9]</span>
+        <span>🐹 session.go · 按半程阈值同步续期、单端登出与全局踢下线 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sess-go', this)">复制 Go</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-sess-go"><code><span class="c-kw">const</span> sessionTTL = 7 * 24 * time.Hour
 
-<span class="c-cm">// VerifyAndRenew 校验 Token，仅在剩余寿命不足一半时才触发续期写操作</span>
+<span class="c-cm">// VerifyAndRenew 校验 Token，剩余寿命不足一半时同步续期 Token 与用户的设备 Set</span>
 <span class="c-kw">func</span> VerifyAndRenew(ctx context.Context, rdb *redis.Client, tk <span class="c-kw">string</span>) (<span class="c-kw">string</span>, <span class="c-kw">error</span>) {
     key := <span class="c-str">"auth:tk:"</span> + tk
     pipe := rdb.Pipeline()
@@ -64,9 +69,21 @@ DEL auth:tk:9f8a7b6c auth:user_tks:1001</code></pre>
         <span class="c-kw">return</span> <span class="c-str">""</span>, ErrUnauthorized
     }
     <span class="c-kw">if</span> ttlCmd.Val() &gt; 0 &amp;&amp; ttlCmd.Val() &lt; sessionTTL/2 {
-        _ = rdb.Expire(ctx, key, sessionTTL).Err()
+        renewPipe := rdb.Pipeline()
+        renewPipe.Expire(ctx, key, sessionTTL)
+        renewPipe.Expire(ctx, <span class="c-str">"auth:user_tks:"</span>+uid, sessionTTL)
+        _, _ = renewPipe.Exec(ctx)
     }
     <span class="c-kw">return</span> uid, <span class="c-kw">nil</span>
+}
+
+<span class="c-cm">// LogoutDevice 单端主动登出：删除当前 Token 并从用户设备集合移除</span>
+<span class="c-kw">func</span> LogoutDevice(ctx context.Context, rdb *redis.Client, uid, tk <span class="c-kw">string</span>) <span class="c-kw">error</span> {
+    pipe := rdb.Pipeline()
+    pipe.Del(ctx, <span class="c-str">"auth:tk:"</span>+tk)
+    pipe.SRem(ctx, <span class="c-str">"auth:user_tks:"</span>+uid, tk)
+    _, err := pipe.Exec(ctx)
+    <span class="c-kw">return</span> err
 }
 
 <span class="c-cm">// KickUserAllDevices 强制将该用户所有已登录端踢下线</span>
@@ -85,7 +102,7 @@ DEL auth:tk:9f8a7b6c auth:user_tks:1001</code></pre>
     </div>
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
-    ⚠️ <strong>常见坑：</strong>不要在每次只读接口请求里都无脑调 <code>EXPIRE</code>（高频写操作会产生大量主从同步流量），像上面代码一样<strong>当剩余寿命小于一半（如剩不到 3.5 天）再续期</strong>即可。 ｜ 💡 <strong>背后的原理：</strong>过期字典指针共享与自动清理机制见 <a href="principles.html#redisdb-kernel">《📘 原理篇 · 00.2》</a>。
+    ⚠️ <strong>常见坑：</strong>① 不要每次只读请求都无脑刷 <code>EXPIRE</code>（会产生大量主从同步流量），<strong>剩余寿命小于一半（如剩不到 3.5 天）再续期</strong>即可；② <strong>续期单个 Token 时务必在同一个 Pipeline 里同步 <code>EXPIRE</code> 该用户的 <code>auth:user_tks:&lt;uid&gt;</code> 集合（主动登出时 <code>SREM</code> 清理）</strong>，否则用户持续活跃超过 7 天后，Token 还在但外层设备集合已过期消失，改密踢下线时就会漏掉这些旧 Token。 ｜ 💡 <strong>背后的原理：</strong>过期字典指针共享与自动清理机制见 <a href="principles.html#redisdb-kernel">《📘 原理篇 · 00.2》</a>。
   </p>
 
   <!-- 04.2 验证码 -->
@@ -99,13 +116,13 @@ DEL auth:tk:9f8a7b6c auth:user_tks:1001</code></pre>
   <div class="wb-grid-2">
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>⌨️ sms_code.redis · 冷却锁、日限额与一次性核销 [Redis 6.2+ / 7.x]</span>
+        <span>⌨️ sms_code.redis · 冷却锁、日限额与一次性核销 [Redis 7.0+]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sms-cmd', this)">复制命令</button>
       </div>
       <pre class="plop-code-pre" id="code-sc-sms-cmd"><code><span class="c-cm"># 1. 抢 60 秒发送冷却锁（返回 nil 说明 60 秒内刚发过，直接拦截）</span>
 SET sms:cd:13800138000 "1" NX EX 60
 
-<span class="c-cm"># 2. 累加当日发送次数（首次为 1 时顺手设 24 小时过期；超过 10 则拒绝）</span>
+<span class="c-cm"># 2. 累加当日发送次数（EXPIRE ... NX 为 7.0+ 语法；6.x 写法：INCR 返回 1 时再调 EXPIRE）</span>
 INCR sms:day:20261128:13800138000
 EXPIRE sms:day:20261128:13800138000 86400 NX
 
@@ -374,7 +391,7 @@ return 1
   <h4 id="sc-rank">04.6 实时排行榜：前 N 名列表与「我的排名」（含同分先后处理）</h4>
   <ul>
     <li><strong>需求</strong>：活动积分榜实时更新，页面上半部分展示全站前 10 名及分数，底部悬浮条展示「我当前排第几名、差上一名多少分」，且<strong>积分相同时先达到该分数的人排在前面</strong>。</li>
-    <li><strong>为什么选这个方案</strong>：<code>ZSet</code> 的加分、取 Top N 和查单人排名全部是 <code>O(log N)</code>；为了解决“同分按先后排序”，把分数设计成 <code>整数积分 + (未来极大时间戳 - 当前秒数) / 10^10</code>，越早拿到该积分的人小数部分越大，倒序时自然排在前面。</li>
+    <li><strong>为什么选这个方案</strong>：<code>ZSet</code> 的加分、取 Top N 和查单人排名全部是 <code>O(log N)</code>；为了解决“同分按先后排序”且避开小数浮点舍入误差，把分数设计成纯整数拼接 <code>score = 积分 × 10<sup>10</sup> + (10<sup>10</sup> - 秒级时间戳)</code>，越早拿到该积分的人低 10 位越大，倒序时自然排在前面，读取真实积分时执行 <code>floor(score / 10<sup>10</sup>)</code> 即可。</li>
   </ul>
 
   <div class="wb-grid-2">
@@ -383,27 +400,27 @@ return 1
         <span>⌨️ leaderboard.redis · Top 10 与查询个人名次 [Redis 6.2+ / 7.x]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rank-cmd', this)">复制命令</button>
       </div>
-      <pre class="plop-code-pre" id="code-sc-rank-cmd"><code><span class="c-cm"># 1. 更新玩家积分（若不需要同分时间决胜，直接用 ZINCRBY rank:act 20 "u_1001"）</span>
-ZADD rank:act 500.8267240000 "u_1001" 500.8267239950 "u_1002"
+      <pre class="plop-code-pre" id="code-sc-rank-cmd"><code><span class="c-cm"># 1. 更新玩家积分（纯整数拼接 500分 × 10^10 + 反向秒数；无需同分决胜时直接用 ZINCRBY）</span>
+ZADD rank:act 5008267240000 "u_1001" 5008267239950 "u_1002"
 
 <span class="c-cm"># 2. 查询榜单前 10 名（下标 0 到 9，REV 表示从高分到低分，6.0 旧版用 ZREVRANGE）</span>
 ZRANGE rank:act 0 9 REV WITHSCORES
 
-<span class="c-cm"># 3. 查询 u_1001 的倒序名次（返回 0 代表第 1 名）和当前分数</span>
+<span class="c-cm"># 3. 查询 u_1001 的倒序名次（返回 0 代表第 1 名）和当前拼接分值</span>
 ZREVRANK rank:act "u_1001"
 ZSCORE rank:act "u_1001"</code></pre>
     </div>
 
     <div class="plop-code-box" style="margin:0;">
       <div class="plop-code-head">
-        <span>🐹 leaderboard.go · 同分先达优先算分与一次拉取榜单+我的名次 [Go · go-redis/v9]</span>
+        <span>🐹 leaderboard.go · 纯整数拼接同分决胜与一次拉取榜单+我的名次 [Go · go-redis/v9]</span>
         <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-rank-go', this)">复制 Go</button>
       </div>
-      <pre class="plop-code-pre" id="code-sc-rank-go"><code><span class="c-kw">const</span> maxEpoch = 10000000000 <span class="c-cm">// 远未来秒级时间戳基准</span>
+      <pre class="plop-code-pre" id="code-sc-rank-go"><code><span class="c-kw">const</span> timeScale <span class="c-kw">int64</span> = 10_000_000_000 <span class="c-cm">// 10^10 秒级基准</span>
 
-<span class="c-cm">// CalcTieBreakScore 合成带先后顺序的分值（适用原始积分 ≤ 100 万的场景）</span>
+<span class="c-cm">// CalcTieBreakScore 纯整数拼接分值（2^53 ≈ 9×10^15 内精确无损，适用原始积分 ≤ 90 万）</span>
 <span class="c-kw">func</span> CalcTieBreakScore(points <span class="c-kw">int64</span>, nowSec <span class="c-kw">int64</span>) <span class="c-kw">float64</span> {
-    <span class="c-kw">return</span> <span class="c-kw">float64</span>(points) + <span class="c-kw">float64</span>(maxEpoch-nowSec)/1e10
+    <span class="c-kw">return</span> <span class="c-kw">float64</span>(points*timeScale + (timeScale - nowSec))
 }
 
 <span class="c-kw">func</span> GetTop10AndMyRank(ctx context.Context, rdb *redis.Client, key, myUID <span class="c-kw">string</span>) ([]redis.Z, <span class="c-kw">int64</span>, <span class="c-kw">int64</span>, <span class="c-kw">error</span>) {
@@ -417,13 +434,13 @@ ZSCORE rank:act "u_1001"</code></pre>
     <span class="c-kw">if</span> r, err := rankCmd.Result(); err == <span class="c-kw">nil</span> {
         myRank = r + 1 <span class="c-cm">// 转为从 1 开始的自然名次</span>
     }
-    myPoints := <span class="c-kw">int64</span>(math.Floor(scoreCmd.Val()))
+    myPoints := <span class="c-kw">int64</span>(math.Floor(scoreCmd.Val() / <span class="c-kw">float64</span>(timeScale)))
     <span class="c-kw">return</span> topCmd.Val(), myRank, myPoints, <span class="c-kw">nil</span>
 }</code></pre>
     </div>
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
-    ⚠️ <strong>常见坑：</strong>① <code>ZREVRANK</code> 从 <code>0</code> 起算，返回给前端前记得 <code>+ 1</code>，且用户未上榜时会返回 <code>redis.Nil</code>；② 64 位浮点数总共只有约 15~17 位有效十进制数字，如果积分本身已上亿，不要再往小数位塞 10 位时间戳（会丢精度），可改用整数位左移位运算。 ｜ 💡 <strong>背后的原理：</strong>跳表如何靠 <code>span</code> 跨度瞬间算出第几名，见 <a href="principles.html#rehash">《📘 原理篇 · 02.3 跳表 zskiplist》</a>。
+    ⚠️ <strong>常见坑：</strong>① <code>ZREVRANK</code> 从 <code>0</code> 起算，返回给前端前记得 <code>+ 1</code>，且用户未上榜时会返回 <code>redis.Nil</code>；② ZSet 的 <code>score</code> 是 IEEE 754 双精度浮点数，能精确表示无损整数的上限是 <code>2<sup>53</sup></code>（约 <code>9 × 10<sup>15</sup></code>）——按 <code>× 10<sup>10</sup></code> 拼 10 位秒级时间戳时，<strong>原始积分精确上限约为 90 万</strong>（若改用活动开始后的相对秒数 <code>× 10<sup>7</sup></code>，积分上限即可扩至约 9000 万 × 10 = 9 亿）。 ｜ 💡 <strong>背后的原理：</strong>跳表如何靠 <code>span</code> 跨度瞬间算出第几名，见 <a href="principles.html#rehash">《📘 原理篇 · 02.3 跳表 zskiplist》</a>。
   </p>
 
   <!-- 04.7 延迟任务 -->
@@ -525,13 +542,14 @@ return items
     renewLua  = redis.NewScript(<span class="c-str">`if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('PEXPIRE',KEYS[1],ARGV[2]) else return 0 end`</span>)
 )
 
-<span class="c-kw">func</span> WithDistLock(ctx context.Context, rdb *redis.Client, key <span class="c-kw">string</span>, ttl time.Duration, fn <span class="c-kw">func</span>() <span class="c-kw">error</span>) <span class="c-kw">error</span> {
+<span class="c-kw">func</span> WithDistLock(ctx context.Context, rdb *redis.Client, key <span class="c-kw">string</span>, ttl time.Duration, fn <span class="c-kw">func</span>(context.Context) <span class="c-kw">error</span>) <span class="c-kw">error</span> {
     token := uuid.NewString()
     ok, err := rdb.SetNX(ctx, key, token, ttl).Result()
     <span class="c-kw">if</span> err != <span class="c-kw">nil</span> || !ok {
         <span class="c-kw">return</span> errors.New(<span class="c-str">"资源正在处理中，请稍后重试"</span>)
     }
 
+    bizCtx, cancelBiz := context.WithCancel(ctx)
     stopWatchdog := make(<span class="c-kw">chan struct</span>{})
     <span class="c-kw">go func</span>() {
         ticker := time.NewTicker(ttl / 3)
@@ -539,7 +557,11 @@ return items
         <span class="c-kw">for</span> {
             <span class="c-kw">select</span> {
             <span class="c-kw">case</span> &lt;-ticker.C:
-                _, _ = renewLua.Run(context.Background(), rdb, []<span class="c-kw">string</span>{key}, token, ttl.Milliseconds()).Result()
+                res, err := renewLua.Run(context.Background(), rdb, []<span class="c-kw">string</span>{key}, token, ttl.Milliseconds()).Int()
+                <span class="c-kw">if</span> err != <span class="c-kw">nil</span> || res == 0 {
+                    cancelBiz() <span class="c-cm">// 续期失败或返回 0（锁已丢失），主动取消业务 Context</span>
+                    <span class="c-kw">return</span>
+                }
             <span class="c-kw">case</span> &lt;-stopWatchdog:
                 <span class="c-kw">return</span>
             }
@@ -548,14 +570,15 @@ return items
 
     <span class="c-kw">defer func</span>() {
         close(stopWatchdog)
+        cancelBiz()
         _, _ = unlockLua.Run(context.Background(), rdb, []<span class="c-kw">string</span>{key}, token).Result()
     }()
-    <span class="c-kw">return</span> fn()
+    <span class="c-kw">return</span> fn(bizCtx)
 }</code></pre>
     </div>
   </div>
   <p style="font-size:13px; color:var(--plop-ink-soft); margin:8px 0 18px;">
-    ⚠️ <strong>常见坑：</strong>① 绝不能在业务代码里分两步写 <code>if rdb.Get() == token { rdb.Del() }</code>——万一刚判断完相等，卡顿了 10 毫秒锁刚好过期被别人抢走，下一行 <code>Del()</code> 照样误删别人的锁；② 在主从架构下，主库刚加完锁还没同步给从库就宕机切主，会出现短暂的「两台机器同时拿到锁」。 ｜ 💡 <strong>背后的原理：</strong>主从丢锁、Redlock 争议与存储层单调递增令牌兜底见 <a href="principles.html#lock">《📘 原理篇 · 06.1 Fencing Token》</a>。
+    ⚠️ <strong>常见坑：</strong>① 绝不能在业务代码里分两步写 <code>if rdb.Get() == token { rdb.Del() }</code>——刚比对完若卡顿 10ms 锁过期易主，下一行 <code>Del()</code> 照样误删别人的锁；② <strong>看门狗续期返回 <code>0</code> 说明锁已经丢了，不能静默忽略</strong>，应立即调用 <code>cancelBiz()</code> 通知业务协程停止执行；③ 在主从切主或进程长停顿下，就算取消了 Context 也拦不住已经发在半路上的旧写请求，对资金/库存等强一致写入还需配合下游存储的单调递增版本号或栅栏令牌校验。 ｜ 💡 <strong>背后的原理：</strong>主从丢锁、Redlock 争议与 <code>Fencing Token</code> 栅栏校验见 <a href="principles.html#lock">《📘 原理篇 · 06.1 Fencing Token》</a>。
   </p>
 
   <!-- 04.9 消息队列 -->
@@ -606,8 +629,8 @@ return items
 
         <rect x="224" y="76" width="168" height="80" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
         <text x="308" y="104" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#bf4520">Stream 消息流</text>
-        <text x="308" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">1732676001-0</text>
-        <text x="308" y="140" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">1732676002-0 ...</text>
+        <text x="308" y="124" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#1F1F23">1732676001000-0</text>
+        <text x="308" y="140" text-anchor="middle" font-family="'Geist Mono','SFMono-Regular',Menlo,monospace" font-size="9" fill="#4f5d75">1732676002000-0 ...</text>
 
         <rect x="476" y="52" width="164" height="56" rx="6" fill="#FFFFFF" stroke="#1F1F23" stroke-width="1.3"/>
         <text x="558" y="77" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#1F1F23">消费者节点 c1 / c2</text>
