@@ -18,8 +18,100 @@
   <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 05.1 InnoDB 常见索引类型与创建管理语法</h3>
 
   <p>
-    在 InnoDB 中，按物理存储组织方式可分为<strong>聚簇索引（Clustered Index，即主键索引，叶子节点直接存放整行数据）</strong>与<strong>二级索引（Secondary Index，也称辅助索引，叶子节点存放“索引列值 + 主键 ID”）</strong>；按应用功能与语法则分为以下常见形态：
+    在 InnoDB 中，一张表的数据和索引本质上是一棵或多棵 <strong>B+ 树</strong>。理解索引调优最关键的一步，是先看清<strong>「主键聚簇索引树」</strong>和<strong>「普通二级索引树」</strong>的叶子节点里到底存了什么——搞懂了这两棵树的长相，<strong>回表（Bookmark Lookup）</strong>与<strong>覆盖索引（Covering Index）</strong>一眼就能看明白：
   </p>
+
+  <!-- Editorial SVG: Secondary Index B+Tree vs Clustered Primary B+Tree (Bookmark Lookup vs Covering Index) -->
+  <figure style="margin:14px 0 18px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 920 356" style="width:100%; min-width:800px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="mysql-bk-title mysql-bk-desc">
+        <title id="mysql-bk-title">InnoDB 二级索引树与主键聚簇索引树的回表及覆盖索引对比图</title>
+        <desc id="mysql-bk-desc">左侧为二级索引树 idx_city_age，叶子节点仅存放 (city, age) 与主键 id；右侧为主键聚簇索引树 PRIMARY，叶子节点存放完整行记录。查询 SELECT id, city, age 走绿色覆盖索引路径在左树直接返回；查询 SELECT * 需走红色回表路径拿 id=8 再去右树检索整行。</desc>
+        <defs>
+          <marker id="idx-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1F1F23"/>
+          </marker>
+          <marker id="idx-arr-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#bf4520"/>
+          </marker>
+          <marker id="idx-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+            <path d="M1,1.5 L9,5 L1,8.5 Z" fill="#1b5e20"/>
+          </marker>
+        </defs>
+
+        <!-- 两棵 B+ 树背景分区（最底层绘制） -->
+        <rect x="24" y="20" width="412" height="288" rx="10" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+        <text x="230" y="44" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="12.5" font-weight="800" fill="#1F1F23">左树：二级索引 idx_city_age (city, age)</text>
+
+        <rect x="484" y="20" width="412" height="288" rx="10" fill="#F4EFE6" stroke="#1F1F23" stroke-width="2"/>
+        <text x="690" y="44" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="12.5" font-weight="800" fill="#1F1F23">右树：主键聚簇索引 PRIMARY（即整张表数据）</text>
+
+        <!-- 所有正交圆角连接线（先于节点框绘制，r=8，扇出锚点不重叠） -->
+        <!-- 左树内部连接线 -->
+        <path d="M 218,104 V 112 Q 218,120 210,120 H 138 Q 130,120 130,128 V 136" fill="none" stroke="#1F1F23" stroke-width="1.6" marker-end="url(#idx-arr-ink)"/>
+        <path d="M 242,104 V 112 Q 242,120 250,120 H 322 Q 330,120 330,128 V 136" fill="none" stroke="#bf4520" stroke-width="1.8" marker-end="url(#idx-arr-coral)"/>
+
+        <!-- 右树内部连接线 -->
+        <path d="M 678,104 V 112 Q 678,120 670,120 H 598 Q 590,120 590,128 V 136" fill="none" stroke="#1F1F23" stroke-width="1.6" marker-end="url(#idx-arr-ink)"/>
+        <path d="M 702,104 V 112 Q 702,120 710,120 H 782 Q 790,120 790,128 V 136" fill="none" stroke="#bf4520" stroke-width="1.8" marker-end="url(#idx-arr-coral)"/>
+
+        <!-- 跨树连接线 ① 回表：从左树叶子页2右侧经中缝上行送入右树根节点 -->
+        <path d="M 420,180 H 452 Q 460,180 460,172 V 90 Q 460,82 468,82 H 584" fill="none" stroke="#bf4520" stroke-width="2.2" marker-end="url(#idx-arr-coral)"/>
+        <rect x="490" y="56" width="88" height="18" rx="3" fill="#FFFDF7"/>
+        <text x="534" y="68" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="9.5" font-weight="700" fill="#bf4520">① 拿 id=8 回表</text>
+
+        <!-- 路径 ② 覆盖索引直接向下返回 -->
+        <line x1="330" y1="224" x2="330" y2="248" stroke="#1b5e20" stroke-width="2" marker-end="url(#idx-arr-green)"/>
+
+        <!-- 路径 ① 回表后从右树叶子页向下返回整行 -->
+        <line x1="790" y1="224" x2="790" y2="248" stroke="#bf4520" stroke-width="2" marker-end="url(#idx-arr-coral)"/>
+
+        <!-- 左树节点框 -->
+        <rect x="124" y="60" width="212" height="44" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="230" y="79" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1F1F23">目录页：按 (city, age) 排序</text>
+        <text x="230" y="96" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#5A5860">定位 city = '杭州'</text>
+
+        <rect x="40" y="136" width="180" height="88" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.6"/>
+        <text x="130" y="158" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1F1F23">二级叶子页 1</text>
+        <text x="130" y="180" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#5A5860">('北京', 22) → id=5</text>
+        <text x="130" y="202" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#5A5860">('上海', 30) → id=2</text>
+
+        <rect x="240" y="136" width="180" height="88" rx="8" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="330" y="158" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#bf4520">二级叶子页 2（命中）</text>
+        <text x="330" y="180" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" font-weight="700" fill="#1F1F23">('杭州', 25) → id=8</text>
+        <text x="330" y="204" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="10.5" font-weight="700" fill="#bf4520">只存索引列 + 主键 id</text>
+
+        <rect x="40" y="248" width="380" height="44" rx="8" fill="#E8F5E9" stroke="#1b5e20" stroke-width="1.8"/>
+        <text x="230" y="267" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" font-weight="800" fill="#1b5e20">② 覆盖索引：SELECT id, city, age（无需回表）</text>
+        <text x="230" y="284" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">所需 3 列在左树叶子页已凑齐，直接返回（Using index）</text>
+
+        <!-- 右树节点框 -->
+        <rect x="584" y="60" width="212" height="44" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
+        <text x="690" y="79" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1F1F23">主键目录页：按 id 升序</text>
+        <text x="690" y="96" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#5A5860">二分查找 id = 8</text>
+
+        <rect x="500" y="136" width="180" height="88" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.6"/>
+        <text x="590" y="158" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1F1F23">聚簇数据页 1</text>
+        <text x="590" y="180" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">id=2 | 上海 | 小陈 | 500</text>
+        <text x="590" y="202" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">id=5 | 北京 | 小周 | 120</text>
+
+        <rect x="700" y="136" width="180" height="88" rx="8" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
+        <text x="790" y="158" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#bf4520">聚簇数据页 2（整行）</text>
+        <text x="790" y="180" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="9.5" font-weight="700" fill="#1F1F23">id=8 | 杭州 | 25 | 小林</text>
+        <text x="790" y="204" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" font-weight="700" fill="#bf4520">balance = 1980.00</text>
+
+        <rect x="500" y="248" width="380" height="44" rx="8" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="690" y="267" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11" font-weight="800" fill="#bf4520">① 需回表：SELECT *（或取 name / balance）</text>
+        <text x="690" y="284" text-anchor="middle" font-family="'Geist','Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">左树缺列，必须拿 id=8 去右树再查一次才能拼齐整行</text>
+
+        <!-- 底部图例条 -->
+        <line x1="28" y1="334" x2="60" y2="334" stroke="#bf4520" stroke-width="2.4"/>
+        <text x="68" y="338" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#bf4520">路径 ① 回表（查两棵树：二级索引拿主键 id → 主键树拿整行）</text>
+        <line x1="484" y1="334" x2="516" y2="334" stroke="#1b5e20" stroke-width="2.4"/>
+        <text x="524" y="338" font-family="'Geist','Noto Sans SC',sans-serif" font-size="11.5" font-weight="700" fill="#1b5e20">路径 ② 覆盖索引（只查左树直接返回，省掉回表随机 I/O）</text>
+      </svg>
+    </div>
+  </figure>
 
   <div class="wb-grid-2">
     <div class="plop-code-box">
@@ -49,17 +141,12 @@
 <span class="c-kw">ALTER TABLE</span> `users` <span class="c-kw">ALTER INDEX</span> `idx_city_age` <span class="c-kw">VISIBLE</span>;</code></pre>
     </div>
 
-    <div>
-      <h4><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 回表（Bookmark Lookup）与覆盖索引（Covering Index）</h4>
-      <div style="background:var(--plop-sheet); border:2px dashed var(--plop-ink); border-radius:10px; padding:11px 12px; margin:8px 0 10px; font-family:var(--font-mono); font-size:12.4px; font-weight:800; line-height:1.6;">
-        1. 需回表：SELECT * FROM users WHERE city = '杭州'<br>
-        <span style="color:var(--plop-tomato);">二级索引 idx_city_age ('杭州' → id=1) ──回表查聚簇索引──▶ PRIMARY (id=1 → 整行)</span><br>
-        2. 覆盖索引：SELECT id, city, age FROM users WHERE city = '杭州'<br>
-        <span style="color:#15803d;">二级索引叶子节点已包含 (city, age, id) ──无需回表，直接返回 (Using index)</span>
-      </div>
-      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.62; color:var(--plop-ink-text);">
-        <li><strong>什么是回表</strong>：因为二级索引 <code>idx_city_age</code> 的叶子节点只存了索引列 <code>(city, age)</code> 和主键值 <code>id</code>，并没有存 <code>balance</code> 等其他列。当查询需要取 <code>balance</code> 时，引擎必须先从二级索引查出主键 <code>id</code>，再拿 <code>id</code> 回到主键聚簇索引树里查一次完整行记录，这第二步就叫<strong>回表</strong>。</li>
-        <li><strong>什么是覆盖索引</strong>：如果 <code>SELECT</code> 要查询的所有列都已经包含在某个二级索引中（即<strong>“严禁习惯性写 <code>SELECT *</code>，按需只查必要列”</strong>），引擎在二级索引树上就能直接拿到全部数据返回，彻底省去回表随机 I/O，在 <code>EXPLAIN</code> 的 <code>Extra</code> 列中会显示 <strong><code>Using index</code></strong>。</li>
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:13px 15px; display:flex; flex-direction:column; justify-content:center;">
+      <h4 style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 对照上图：三句话分清两棵树、回表与覆盖索引</h4>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.68; color:var(--plop-ink-text);">
+        <li><strong>两棵树的叶子页存的不一样</strong>：右边的<strong>聚簇索引（主键索引 <code>PRIMARY</code>）</strong>就是表本身，叶子节点存着包含 <code>name</code>、<code>balance</code> 在内的<strong>完整一行数据</strong>；而你新建的<strong>二级索引（如左树 <code>idx_city_age</code>）</strong>为了省空间，叶子节点<strong>只抄录了索引列 <code>(city, age)</code> 和对应的主键 <code>id</code></strong>。</li>
+        <li style="margin-top:6px;"><strong>路径 ① 什么是回表（为什么慎写 <code>SELECT *</code>）</strong>：执行 <code>SELECT * FROM users WHERE city = '杭州'</code> 时，左树查到 <code>'杭州'</code> 后只知道它的主键 <code>id = 8</code>，拿不到余额 <code>balance</code>，于是必须拿着 <code>id = 8</code> 跨到右边主键树里再从根搜一次把整行捞出来——<strong>命中 1000 行就要回表查 1000 次主键树</strong>。</li>
+        <li style="margin-top:6px;"><strong>路径 ② 什么是覆盖索引</strong>：如果把 SQL 改成只查需要的列 <code>SELECT id, city, age FROM users WHERE city = '杭州'</code>，左树叶子页里这 3 列全齐了，<strong>根本不用碰右边的主键树就直接返回</strong>，<code>EXPLAIN</code> 的 <code>Extra</code> 列会出现代表高性能的 <strong><code>Using index</code></strong>。</li>
       </ul>
     </div>
   </div>
