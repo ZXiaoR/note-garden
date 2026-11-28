@@ -3,8 +3,12 @@
      ==================================================================== -->
 <div class="wb-sec-header" id="index" style="background:var(--plop-periwinkle);">
   <span class="wb-sec-num">05</span>
-  <span class="wb-sec-title">索引设计、最左前缀、常见失效改写与 EXPLAIN 调优</span>
-  <span class="plop-tag tomato">INDEX TYPES × LEFTMOST PREFIX × COVERING INDEX × EXPLAIN</span>
+  <span class="wb-sec-title">索引与调优：最左前缀、失效改写、EXPLAIN、慢日志与 ORM N+1</span>
+  <span class="plop-tag tomato">INDEX DESIGN × EXPLAIN × SLOW QUERY LOG × ORM N+1</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>根据查询条件设计联合索引与覆盖索引，避开 7 类索引失效写法，从慢查询日志中揪出耗时 SQL 并用 <code>EXPLAIN</code> 调优，消除后端 ORM 框架常见的 <code>N+1</code> 循环查库问题。
 </div>
 
 <!-- 05.1 · 常见索引分类、创建语法与 MySQL 8.0 新特性 -->
@@ -89,7 +93,7 @@
         <tr>
           <td><strong>2. 范围查询（<code>&gt; / &lt; / BETWEEN</code>）后的列无法继续做树搜索定位</strong></td>
           <td><code>WHERE a = 1 AND b &gt; 10 AND c = 3</code></td>
-          <td>在满足 <code>a = 1 AND b &gt; 10</code> 的区间内，<code>c</code> 是无序的，因此 <code>c = 3</code> 无法用于缩小 B+ 树扫描起始边界。<br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>改写</strong>：设计联合索引时遵循<strong>“等值列放左边，范围列放右边”</strong>，将索引建为 <code>(a, c, b)</code>；注：即便索引是 <code>(a, b, c)</code>，MySQL 5.6+ 的<strong>索引条件下推（ICP，<code>Using index condition</code>）</strong>依然能在索引层直接用 <code>c = 3</code> 过滤掉不满足的记录，避免无效回表。</td>
+          <td>在满足 <code>a = 1 AND b &gt; 10</code> 的区间内，<code>c</code> 是无序的，因此 <code>c = 3</code> 无法用于缩小 B+ 树扫描起始边界。<br><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>改写</strong>：设计联合索引时遵循<strong>“等值列放左边，范围列放右边”</strong>，将索引建为 <code>(a, c, b)</code>；注：即便索引是 <code>(a, b, c)</code>，MySQL 5.6+ 的<strong>索引条件下推（ICP，Index Condition Pushdown，即 <code>Using index condition</code>）</strong>依然能在索引层直接用 <code>c = 3</code> 过滤掉不满足的记录，避免无效回表。</td>
         </tr>
         <tr>
           <td><strong>3. 对索引列做函数或算术运算</strong></td>
@@ -182,7 +186,153 @@
     </table>
   </div>
 
-  <div class="plop-callout info" style="margin-bottom:0;">
-    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 底层原理延伸：</strong>想深入理解为什么范围查询有时明明有索引，优化器却评估回表代价过高而主动放弃索引选 <code>ALL</code>，或者想看 <code>Record Lock / Gap Lock / Next-Key Lock</code> 如何挂在索引记录与间隙上，可点击查看 <a href="principles.html#index"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 05 锁机制与加锁退化规则 ↗</a>。
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>为什么范围查询命中率超过约 20%~30% 时优化器宁愿放弃索引选全表扫描 <code>ALL</code>？可按需查阅 <a href="principles.html#mysql-cbo-icp-mrr">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 03.1 CBO 成本模型与 ICP/MRR》</a>。
+  </p>
+</div>
+
+<!-- 05.4 · 慢查询日志怎么开、怎么从慢日志找到要优化的 SQL -->
+<div class="wb-card" id="mysql-slow-log" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 05.4 · 慢日志排查闭环：慢查询日志开启配置、日志字段判读与 mysqldumpslow 汇总定位</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 05.4 慢查询日志怎么开，怎么从中找到最该优化的 SQL</h3>
+
+  <p>
+    线上几十个接口共成百上千条 SQL，我们怎么知道哪条 SQL 慢？答案是开启 MySQL 自带的<strong>慢查询日志（Slow Query Log）</strong>——只要某条语句执行耗时超过设定阈值（如 <code>0.5 秒</code>），MySQL 就会自动把这条 SQL、耗时、锁等待时间和扫描行数写进日志文件：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> slow_log_setup.sql · 在线临时开启与 my.cnf 永久开启配置（8.0 / 8.4）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slow-log', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-slow-log"><code><span class="c-cm">-- ========= 1. 在线动态开启（立即对新建连接生效，无需重启实例） =========</span>
+<span class="c-kw">SET GLOBAL</span> `slow_query_log` = <span class="c-str">'ON'</span>;
+<span class="c-kw">SET GLOBAL</span> `long_query_time` = <span class="c-num">0.5</span>;  <span class="c-cm">-- 执行超过 0.5 秒（500ms）即记入慢日志</span>
+<span class="c-cm">-- 查看当前慢日志开关状态与日志文件的磁盘绝对路径：</span>
+<span class="c-kw">SHOW VARIABLES LIKE</span> <span class="c-str">'%slow_query_log%'</span>;
+
+<span class="c-cm"># ========= 2. 写入 my.cnf [mysqld] 段永久生效（防实例重启丢失） =========</span>
+<span class="c-cm"># slow_query_log      = ON</span>
+<span class="c-cm"># slow_query_log_file = /var/lib/mysql/mysql-slow.log</span>
+<span class="c-cm"># long_query_time     = 0.5</span>
+<span class="c-cm"># log_output          = FILE</span>
+
+<span class="c-cm"># ========= 3. 在宿主机终端用官方 mysqldumpslow 聚合排名 =========</span>
+<span class="c-cm"># -s t 按总耗时(Total Time)降序，-t 10 取前 10 类慢 SQL 模板：</span>
+<span class="c-fn">mysqldumpslow</span> <span class="c-flag">-s</span> t <span class="c-flag">-t</span> <span class="c-num">10</span> <span class="c-str">/var/lib/mysql/mysql-slow.log</span>
+<span class="c-cm"># -s c 按出现总次数(Count)降序（抓出单次 600ms 但每分钟跑几千次的高频慢查）：</span>
+<span class="c-fn">mysqldumpslow</span> <span class="c-flag">-s</span> c <span class="c-flag">-t</span> <span class="c-num">10</span> <span class="c-str">/var/lib/mysql/mysql-slow.log</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 一眼读懂慢日志条目里的 4 个关键数字</div>
+      <div style="font-family:var(--font-mono); font-size:11.6px; background:var(--plop-sheet); border:1.6px dashed var(--plop-ink); border-radius:8px; padding:8px 10px; margin-bottom:8px; line-height:1.55;">
+        # Query_time: 1.842105 &nbsp;Lock_time: 0.000112<br>
+        # Rows_sent: 20 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Rows_examined: 920450<br>
+        SELECT * FROM orders WHERE phone = 13800138000 LIMIT 20;
+      </div>
+      <ul style="margin:0; padding-left:18px; font-size:12.6px; line-height:1.62; color:var(--plop-ink-text);">
+        <li><strong>看 <code>Lock_time</code> 区分“锁等待”还是“真查得慢”</strong>：若 <code>Query_time = 3.2s</code> 且 <code>Lock_time = 3.19s</code>，说明 SQL 本身不慢，是被别的长事务锁住了（转去 <a href="#mysql-lock-diag">07.4 排查锁阻塞</a>）。</li>
+        <li><strong>看 <code>Rows_examined</code> vs <code>Rows_sent</code> 抓缺索引</strong>：像上面只返回 <code>20</code> 行给客户端，引擎却扫描了 <code>92 万</code> 行，说明索引没建或发生了隐式类型转换失效——把这条 SQL 拿去跑 <code>EXPLAIN</code> 即可精准修复。</li>
+        <li><strong>慎开 <code>log_queries_not_using_indexes</code></strong>：该参数会把几百行小配置表的毫秒级全表扫描也全记进来刷爆磁盘，日常排障只按耗时阈值过滤即可（云数据库 RDS 直接在控制台「慢日志明细」查看同样指标）。</li>
+      </ul>
+    </div>
   </div>
+</div>
+
+<!-- 05.5 · ORM 的 N+1 查询问题与批量查询改写 -->
+<div class="wb-card" id="mysql-orm-n-plus-1" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 05.5 · 应用层高频性能坑：ORM 的 N+1 循环查询成因与 IN 批量预加载改写</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 05.5 ORM 的 <code>N+1</code> 查询问题与批量查询改写</h3>
+
+  <p>
+    有时候慢查询日志里一条慢 SQL 都没有（每条 SQL 都走了主键索引，耗时不到 <code>1ms</code>），但订单列表接口响应却要 <code>300ms</code> 甚至把数据库连接池打满。最常见的原因就是后端使用 <strong>ORM（Object-Relational Mapping，对象关系映射，如 Go 的 GORM、Node.js 的 Prisma / TypeORM）</strong> 或手写循环时踩中了 <strong><code>N+1</code> 查询陷阱</strong>：
+  </p>
+  <p>
+    以“查询某买家的 <code>20</code> 条社区帖子，并附上每条帖子的作者昵称与头像”为例：先发 <strong><code>1</code> 条 SQL</strong> 查出 20 条帖子，随后在 <code>for</code> 循环里遍历这 20 条帖子，每圈发 <strong><code>1</code> 条 SQL</strong> 去查对应作者，总共发出了 <strong><code>1 + 20 = 21</code> 次跨网络数据库查询</strong>（若翻页查 100 条就是 101 次网络往返）。改写思路非常直接——<strong>把循环里的单点查询收集起来，合并成 1 条 <code>WHERE id IN (...)</code> 批量查询，在内存 Map 里组装</strong>，让总 SQL 数永远固定为 <strong><code>2</code> 条</strong>：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 反例 vs 正例 SQL 轨迹与 Node.js 批量组装写法</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-nplus1-node', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-nplus1-node"><code><span class="c-cm">// ❌ 反例（N+1 查询）：查 20 条帖子触发 1 + 20 = 21 次网络往返</span>
+<span class="c-kw">const</span> [posts] = <span class="c-kw">await</span> pool.<span class="c-fn">execute</span>(<span class="c-str">'SELECT id, title, author_id FROM posts LIMIT 20'</span>);
+<span class="c-kw">for</span> (<span class="c-kw">const</span> post <span class="c-kw">of</span> posts) {
+  <span class="c-cm">// 循环内 await 查库：网络 RTT 被串行放大 20 倍！</span>
+  <span class="c-kw">const</span> [u] = <span class="c-kw">await</span> pool.<span class="c-fn">execute</span>(<span class="c-str">'SELECT id, name FROM users WHERE id = ?'</span>, [post.author_id]);
+  post.authorName = u[<span class="c-num">0</span>]?.name ?? <span class="c-str">'匿名'</span>;
+}
+
+<span class="c-cm">// ✅ 正例（两步批量预加载，恒定 2 条 SQL）：</span>
+<span class="c-cm">// 第 1 步：查出 20 条帖子（1 次 SQL）</span>
+<span class="c-kw">const</span> [postList] = <span class="c-kw">await</span> pool.<span class="c-fn">execute</span>(
+  <span class="c-str">'SELECT id, title, author_id FROM posts ORDER BY id DESC LIMIT 20'</span>
+);
+<span class="c-cm">// 第 2 步：提取去重后的 author_id 列表，用一条 WHERE id IN (...) 批量查回（1 次 SQL）</span>
+<span class="c-kw">const</span> authorIds = [...<span class="c-kw">new</span> <span class="c-fn">Set</span>(postList.<span class="c-fn">map</span>(p =&gt; p.author_id))];
+<span class="c-kw">if</span> (authorIds.length &gt; <span class="c-num">0</span>) {
+  <span class="c-kw">const</span> placeholders = authorIds.<span class="c-fn">map</span>(() =&gt; <span class="c-str">'?'</span>).<span class="c-fn">join</span>(<span class="c-str">','</span>);
+  <span class="c-kw">const</span> [users] = <span class="c-kw">await</span> pool.<span class="c-fn">execute</span>(
+    <span class="c-str">`SELECT id, name FROM users WHERE id IN (${placeholders})`</span>,
+    authorIds
+  );
+  <span class="c-kw">const</span> userMap = <span class="c-kw">new</span> <span class="c-fn">Map</span>(users.<span class="c-fn">map</span>(u =&gt; [u.id, u.name]));
+  <span class="c-kw">for</span> (<span class="c-kw">const</span> p <span class="c-kw">of</span> postList) p.authorName = userMap.<span class="c-fn">get</span>(p.author_id) ?? <span class="c-str">'匿名'</span>;
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> Go (GORM Preload) 预加载与工程使用边界</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-nplus1-go', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-nplus1-go"><code><span class="c-cm">// 1. 使用 GORM 的 Preload 自动把 N+1 合并为两条查询：</span>
+<span class="c-cm">//    SQL 1: SELECT * FROM posts ORDER BY id DESC LIMIT 20;</span>
+<span class="c-cm">//    SQL 2: SELECT * FROM users WHERE id IN (101, 105, 108, ...);</span>
+<span class="c-kw">var</span> posts []Post
+err := gormDB.<span class="c-fn">WithContext</span>(ctx).
+  <span class="c-fn">Select</span>(<span class="c-str">"id"</span>, <span class="c-str">"title"</span>, <span class="c-str">"author_id"</span>).
+  <span class="c-fn">Preload</span>(<span class="c-str">"Author"</span>, <span class="c-kw">func</span>(db *gorm.DB) *gorm.DB {
+    <span class="c-kw">return</span> db.<span class="c-fn">Select</span>(<span class="c-str">"id"</span>, <span class="c-str">"name"</span>) <span class="c-cm">// 只取必要列，避免 SELECT *</span>
+  }).
+  <span class="c-fn">Order</span>(<span class="c-str">"id DESC"</span>).<span class="c-fn">Limit</span>(<span class="c-num">20</span>).
+  <span class="c-fn">Find</span>(&amp;posts).Error
+
+<span class="c-cm">// 2. 什么时候选「两步 IN 批量查」，什么时候选「单条 LEFT JOIN」？</span>
+<span class="c-cm">// • 需要按关联表字段过滤或排序（如“查上海作者发的帖子”）──► 必须用 JOIN</span>
+<span class="c-cm">// • 只是给主列表补齐关联名称，或一对多子列表（如订单关联多个商品项）──►</span>
+<span class="c-cm">//   优先用两步 IN 批量查：SQL 简单好命中缓存、不产生笛卡尔积重复列，</span>
+<span class="c-cm">//   注意单次 IN (...) 元素个数建议控制在 500 个以内（超长拆批）。</span></code></pre>
+    </div>
+  </div>
+
+  <h4 id="quiz-05" style="margin:16px 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 订单表有联合索引 <code>idx_shop_status_time (shop_id, status, created_at)</code>，查询 <code>WHERE shop_id = 88 AND created_at &gt;= '2026-11-01' AND status = 2</code> 能把三列索引都用上吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>能全部用上。</strong>SQL 里 <code>WHERE</code> 子句中三个 <code>AND</code> 条件的书写先后顺序不影响索引匹配——MySQL 优化器会自动重排为 <code>shop_id = 88 AND status = 2 AND created_at &gt;= '2026-11-01'</code>，恰好符合“前两列等值精确匹配 + 第三列范围扫描”的最左前缀最佳形态。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 用户表 <code>phone VARCHAR(20)</code> 上建了唯一索引 <code>uk_phone</code>，但线上慢日志里却抓到 <code>SELECT id FROM users WHERE phone = 13800138000</code> 扫描了 200 万行，为什么？</span></summary>
+    <div class="drawer-body">
+      <p><strong>触发了隐式类型转换导致索引失效。</strong><code>phone</code> 列是字符串类型，传入未加引号的数字 <code>13800138000</code> 时，MySQL 规则是将字符串转为数字再比较（等价于在索引列上套了函数 <code>CAST(phone AS DOUBLE) = 13800138000</code>），无法利用字典序 B+ 树定位，只能全表逐行转换比对。传入字符串参数 <code>'13800138000'</code> 即可恢复毫秒级点查。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 发现表上有一个几年前建的老索引疑似没人用了，想删掉省磁盘和写开销，但又怕某个冷门定时任务还在用它，怎么安全操作？</span></summary>
+    <div class="drawer-body">
+      <p>利用 MySQL 8.0+ 的<strong>不可见索引（Invisible Index）</strong>做灰度下线：先执行 <code>ALTER TABLE orders ALTER INDEX idx_old INVISIBLE;</code>，观察几天慢查询日志；若一切平稳再真正 <code>DROP INDEX</code>，万一发现某报表变慢，执行一条 <code>VISIBLE</code> 就能在一毫秒内立刻恢复，省去大表耗时几十分钟重建索引的风险。</p>
+    </div>
+  </details>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>想定量推导为什么 3 层 B+ 树能装下两千万行数据，以及加锁查询在唯一索引与普通索引上的锁范围差异，可按需查阅 <a href="principles.html#types">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 02 B+ 树阶数推导》</a> 与 <a href="principles.html#index">《05 锁机制与退化规则》</a>。
+  </p>
 </div>

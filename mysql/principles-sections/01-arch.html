@@ -11,7 +11,11 @@
 <div class="wb-card" id="innodb-mem-disk-arch" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 01.1 · 引擎全景：InnoDB 四大内存组件（Buffer Pool / Change Buffer / AHI / Log Buffer）与后台刷盘线程</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 01.1 InnoDB 内存与磁盘架构全景图</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 01.1 InnoDB 内存与磁盘架构全景图 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#why">实战篇 00.1</a> 与 <a href="index.html#mysql-rbac">07.1</a> —— 磁盘数据库为什么常规读写也能在几毫秒内返回，生产专机为什么要把 <code>innodb_buffer_pool_size</code> 调到物理内存的 50%~70%？
+  </p>
 
   <p>
     与 PostgreSQL 依赖“<code>shared_buffers</code> + 操作系统 Page Cache 双层缓存”不同，<strong>InnoDB 在生产环境中通常开启直接 I/O（<code>innodb_flush_method = O_DIRECT</code>），数据页读写直接绕过操作系统文件缓存，完全由 InnoDB 自身的 <code>Buffer Pool</code>（占物理内存 50%~70%）统一管理</strong>。InnoDB 的内存区由四大核心组件构成，并通过专用后台线程池与磁盘表空间、日志文件异步交互：
@@ -68,11 +72,11 @@
 
         <!-- Three Management Lists Summary Box -->
         <rect x="42" y="214" width="500" height="110" rx="8" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
-        <text x="58" y="236" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#1F1F23">Buffer Pool 内部三大核心控制块双向链表（每个 16KB 缓存页对应 1 个约 800B 的控制块）：</text>
-        <text x="58" y="256" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="800" fill="#1b5e20">Free List（空闲链表）</tspan>：串联所有尚未装载磁盘数据的空闲缓冲页，新读页时直接从表头取用</text>
-        <text x="58" y="276" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="800" fill="#0d47a1">LRU List（冷热淘汰链表）</tspan>：按 5:3 冷热分区管理所有已使用的干净页与脏页，内存满时从 Old 尾部淘汰</text>
-        <text x="58" y="296" font-family="'Noto Sans SC',sans-serif" font-size="10.5" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="800" fill="#bf4520">Flush List（脏页链表）</tspan>：按页面<strong>第一次被修改时的 LSN（oldest_modification）</strong>升序排列所有脏页，推进 Checkpoint</text>
-        <text x="58" y="314" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">• <tspan font-family="'JetBrains Mono',monospace" font-weight="700">Change Buffer</tspan>：借用 Buffer Pool 内存缓存“非唯一二级索引”的未加载页写操作，待后续读页时异步 Merge</text>
+        <text x="54" y="236" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="11" font-weight="800" fill="#1F1F23">Buffer Pool 三大双向链表与写缓冲（每页对应 1 个约 800B 控制块）：</text>
+        <text x="54" y="256" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="800" fill="#1b5e20">Free List（空闲链表）</tspan>：串联未装数据的空闲页，新读页直接从表头取用</text>
+        <text x="54" y="276" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="800" fill="#0d47a1">LRU List（淘汰链表）</tspan>：5:3 冷热分区管理缓存页，满时从 Old 尾部淘汰</text>
+        <text x="54" y="296" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#1F1F23">• <tspan font-family="'JetBrains Mono',monospace" font-weight="800" fill="#bf4520">Flush List（脏页链表）</tspan>：按<tspan font-weight="800">首次修改 LSN</tspan> 升序排脏页，推进 Checkpoint</text>
+        <text x="54" y="314" font-family="'Noto Sans SC',sans-serif" font-size="10" fill="#5A5860">• <tspan font-family="'JetBrains Mono',monospace" font-weight="700">Change Buffer</tspan>：缓存非唯一二级索引未加载页写操作，读页时异步 Merge</text>
 
         <!-- Right Column: Background Threads & Disk Persistence -->
         <rect x="606" y="20" width="290" height="162" rx="12" fill="#FFFDF7" stroke="#1F1F23" stroke-width="2"/>
@@ -99,14 +103,18 @@
 <div class="wb-card" id="innodb-midpoint-lru" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 01.2 · 缓存淘汰算法：朴素 LRU 被全表扫描污染的原因、5:3 冷热分区与 1000ms 时间窗</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 01.2 解决「预读失效」与「缓冲池污染」的两阶段冷热 LRU</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-spark"></use></svg> 01.2 解决「预读失效」与「缓冲池污染」的两阶段冷热 LRU <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-slow-log">实战篇 05.4</a> 与 <a href="index.html#mysql-backup-pitr">07.5</a> —— 为什么线上偶尔跑了一条全表扫描慢 SQL 或执行 <code>mysqldump</code> 全量导出时，不会把内存里正在服务交易的热点页全部挤出去？
+  </p>
 
   <p>
-    如果 Buffer Pool 直接使用教科书里的朴素 LRU（即任何刚从磁盘读入的页都直接插到链表最头部），在数据库场景下会立刻遭遇两大灾难：
+    如果 Buffer Pool 直接使用教科书里的朴素 LRU（Least Recently Used，最近最少使用淘汰算法，即任何刚从磁盘读入的页都直接插到链表最头部），在数据库场景下会立刻遭遇两大问题：
   </p>
   <ol>
-    <li><strong>灾难一：预读失效（Read-Ahead Failure）</strong>—— InnoDB 具有线性预读（顺序访问一个区内的 <code>innodb_read_ahead_threshold=56</code> 个页时，自动异步把下一个 <code>1 MiB</code> 区的 64 个页提前读入内存）与随机预读机制。如果预读进来的页后续根本没被查询真正访问，却直接插到了 LRU 头部，反而会把真正的热点页挤出内存。</li>
-    <li><strong>灾难二：缓冲池污染（Buffer Pool Pollution）</strong>—— 当某个后台报表或慢查询执行了一次<strong>全表扫描（如扫描一张 50 GB 的历史大表）</strong>，成千上万个只会被读一次的数据页涌入 Buffer Pool。若采用朴素 LRU，这些一次性页面会瞬间霸占整个链表头部，<strong>将线上高频访问的核心热数据页全部淘汰出局</strong>，导致数据库命中率断崖式暴跌。</li>
+    <li><strong>问题一：预读失效（Read-Ahead Failure）</strong>—— InnoDB 具有线性预读（顺序访问一个区内的 <code>innodb_read_ahead_threshold=56</code> 个页时，自动异步把下一个 <code>1 MiB</code> 区的 64 个页提前读入内存）与随机预读机制。如果预读进来的页后续根本没被查询真正访问，却直接插到了 LRU 头部，反而会把真正的热点页挤出内存。</li>
+    <li><strong>问题二：缓冲池污染（Buffer Pool Pollution）</strong>—— 当某个后台报表或慢查询执行了一次<strong>全表扫描（如扫描一张 50 GB 的历史大表）</strong>，成千上万个只会被读一次的数据页涌入 Buffer Pool。若采用朴素 LRU，这些一次性页面会瞬间占满整个链表头部，<strong>将线上高频访问的核心热数据页全部淘汰出局</strong>，导致数据库缓存命中率大幅下跌。</li>
   </ol>
 
   <h4>InnoDB 的两道防御设计：<code>Midpoint 插入</code> + <code>1000ms 驻留晋升门限</code></h4>
@@ -120,7 +128,11 @@
 <div class="wb-card" id="innodb-change-buffer" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 01.3 · 写加速与边界：Change Buffer 异步合并机制、为什么唯一索引不能用，以及 MySQL 8.4 默认值变化</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 01.3 <code>Change Buffer</code>（写缓冲）与唯一索引的 I/O 边界</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 01.3 <code>Change Buffer</code>（写缓冲）与唯一索引的 I/O 边界 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-index-types">实战篇 05.1</a> 与 <a href="index.html#sc-dedup">06.1</a> —— 普通二级索引与唯一索引在写入性能上的底层 I/O 区别是什么，为什么唯一索引没法用写缓冲？
+  </p>
 
   <p>
     当执行一条 <code>INSERT / UPDATE / DELETE</code> 时，如果目标数据页恰好已经在 <code>Buffer Pool</code> 中，直接修改内存页即可；但如果目标二级索引页不在内存中，难道每次都要立刻发起一次同步随机磁盘读 I/O 把那个 16KB 二级索引页读上来吗？为了把随机读转化为异步批量合并，InnoDB 设计了 <strong><code>Change Buffer</code>（早期仅支持插入时称为 <code>Insert Buffer</code>）</strong>：
@@ -161,7 +173,7 @@
             </tr>
             <tr>
               <td><strong>MySQL 8.0 vs 8.4 默认值演进</strong></td>
-              <td>在机械硬盘时代，<code>innodb_change_buffering</code> 默认开启为 <code>all</code>；而在现代高 IOPS 的 NVMe SSD 环境下，随机读延迟已极低且 Change Buffer 曾存在高并发并发合并复杂性，因此 <strong>MySQL 8.4 LTS 已将 <code>innodb_change_buffering</code> 的默认值改为 <code>none</code>（默认关闭）</strong>。</td>
+              <td>在机械硬盘时代，<code>innodb_change_buffering</code> 默认开启为 <code>all</code>；而在现代高 IOPS 的 NVMe SSD 环境下，随机读延迟已极低且 Change Buffer 曾存在高并发合并复杂性，因此 <strong>MySQL 8.4 LTS 已将 <code>innodb_change_buffering</code> 的默认值改为 <code>none</code>（默认关闭）</strong>。</td>
             </tr>
           </tbody>
         </table>

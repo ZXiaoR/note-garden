@@ -3,8 +3,12 @@
      ==================================================================== -->
 <div class="wb-sec-header" id="trx" style="background:var(--plop-bubblegum);">
   <span class="wb-sec-num">04</span>
-  <span class="wb-sec-title">事务控制、隔离级别与高并发防超卖实战</span>
+  <span class="wb-sec-title">事务与并发：ACID 边界、隔离级别与高并发防超卖实战</span>
   <span class="plop-tag periwinkle">ACID × ISOLATION LEVELS × ANTI-OVERSOLD × DUAL-SESSION LAB</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>把控事务开启、提交与报错回滚的边界，说清四大隔离级别分别防住哪些并发异常，并用三种标准写法解决库存超卖与余额扣成负数问题。
 </div>
 
 <!-- 04.1 · 事务生命周期、autocommit 与部分回滚 -->
@@ -14,7 +18,7 @@
   <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 04.1 事务 ACID 特性与显式事务控制语法</h3>
 
   <p>
-    事务（Transaction）是将多步数据库读写操作捆绑成一个不可分割的逻辑工作单元。InnoDB 存储引擎完整实现了事务的 <strong>ACID 四大特性</strong>：<strong>原子性（Atomicity，靠 <code>Undo Log</code> 实现要么全成功要么全回滚）、一致性（Consistency，事务前后业务约束守恒）、隔离性（Isolation，靠 <code>MVCC + 锁</code> 防止并发事务互相干扰）、持久性（Durability，靠 <code>Redo Log + Doublewrite</code> 保证提交后掉电不丢）</strong>。
+    事务（Transaction）是将多步数据库读写操作捆绑成一个不可分割的逻辑工作单元。InnoDB 存储引擎完整实现了事务的 <strong>ACID 四大特性</strong>：<strong>原子性（Atomicity，靠 <code>Undo Log</code> 回滚日志实现要么全成功要么全回滚）、一致性（Consistency，事务前后业务账目约束守恒）、隔离性（Isolation，靠 <code>MVCC（Multi-Version Concurrency Control，多版本并发控制）+ 锁</code> 防止并发事务互相干扰）、持久性（Durability，靠 <code>Redo Log</code> 重做日志与双写缓冲保证提交后掉电不丢）</strong>。
   </p>
 
   <div class="wb-grid-2">
@@ -51,7 +55,7 @@
       <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65; color:var(--plop-ink-text);">
         <li><strong><code>autocommit = 1</code>（默认开启）</strong>：如果不写 <code>BEGIN / START TRANSACTION</code>，你发出的每一条单独的 <code>INSERT / UPDATE / DELETE</code> 都会被 MySQL 自动包裹成一个独立的小事务并在执行完毕后立即提交。</li>
         <li><strong>与 PostgreSQL 的报错差异</strong>：在 MySQL 的同一个 <code>BEGIN ... COMMIT</code> 事务块内，<strong>如果中间某条普通 SQL 报错（例如唯一键冲突 <code>Duplicate entry</code>），MySQL 默认只回滚报错的那一条语句，而不会自动中止整个事务</strong>；若应用层捕获异常后忘记执行 <code>ROLLBACK</code> 而是直接调了 <code>COMMIT</code>，前面已成功的语句依然会被提交。因此后端代码的 <code>catch / defer</code> 分支中必须显式执行 <code>ROLLBACK</code>（注：唯独发生<strong>死锁</strong>或 <code>innodb_rollback_on_timeout=ON</code> 时，InnoDB 会主动回滚整个事务）。</li>
-        <li><strong>严禁在事务块内夹杂远程 RPC / HTTP 调用</strong>：先在事务外完成外部第三方校验，最后只把纯粹的 SQL 操作放进毫秒级短事务中提交，防止长事务拖垮行锁与回滚段。</li>
+        <li><strong>严禁在事务块内夹杂远程 RPC（Remote Procedure Call，远程过程调用）或 HTTP 请求</strong>：先在事务外完成第三方风控或支付查询，最后只把纯粹的 SQL 操作放进毫秒级短事务中提交，防止外部接口超时把数据库行锁与连接池一起拖死。</li>
       </ul>
     </div>
   </div>
@@ -94,7 +98,7 @@
           <td><strong>已解决</strong></td>
           <td>可能发生</td>
           <td>可能发生</td>
-          <td><strong>每条 <code>SELECT</code> 语句执行前都会重新生成一份最新快照</strong>，只要别的事务已提交就能立刻读到；且在 RC 下 InnoDB 几乎不加间隙锁（Gap Lock），死锁概率更低，适合大量互联网高并发 OLTP 业务。</td>
+          <td><strong>每条 <code>SELECT</code> 语句执行前都会重新生成一份最新快照</strong>，只要别的事务已提交就能立刻读到；且在 RC 下 InnoDB 几乎不加间隙锁（Gap Lock），死锁概率更低，适合大量互联网高并发 OLTP（Online Transaction Processing，联机事务处理）业务。</td>
         </tr>
         <tr>
           <td><strong>3. <code>REPEATABLE READ</code></strong><br>（可重复读，<strong>MySQL 默认</strong>）</td>
@@ -130,7 +134,7 @@
 <!-- 04.3 · 高并发防超卖三大实战模式与双终端会话实验 -->
 <div class="wb-card" id="mysql-concurrency-patterns" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 04.3 · 并发扣减实战：原子条件更新、FOR UPDATE 悲观锁、乐观锁 CAS 与双会话验证</div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 04.3 · 并发扣减实战：原子条件更新、FOR UPDATE 悲观锁、乐观锁 CAS（Compare-And-Swap，比较并交换）与双会话验证</div>
   <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 04.3 高并发防超卖三大标准模式与双终端实验</h3>
 
   <p>
@@ -209,7 +213,27 @@
     </div>
   </div>
 
-  <div class="plop-callout info" style="margin-top:14px; margin-bottom:0;">
-    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 底层原理延伸：</strong>为什么在 T3 时刻普通 <code>SELECT</code> 能读到历史值 <code>100.00</code>，而 T4 时刻加 <code>FOR UPDATE</code> 又能立刻穿透快照读到 <code>150.00</code>？想深入 <code>ReadView</code> 四大水位字段、<code>Undo Log</code> 历史版本链以及 <code>Record Lock / Gap Lock / Next-Key Lock</code> 的加锁退化推导，可点击查看 <a href="principles.html#trx"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 04 MVCC 与 ReadView 状态机 ↗</a>。
-  </div>
+  <h4 id="quiz-04" style="margin:16px 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 在同一个 <code>BEGIN ... COMMIT</code> 事务里，第 1 条扣款 SQL 成功了，第 2 条写流水 SQL 因唯一键冲突报了错，如果代码捕获错误后没调 <code>ROLLBACK</code> 而是继续调了 <code>COMMIT</code>，第 1 条扣款会生效吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>会生效，导致扣了钱却没流水。</strong>MySQL 普通 SQL 报错默认只回滚当前报错的那一条语句，并不会自动中止整个外层事务。因此业务代码写显式事务时，必须在 <code>catch / defer</code> 异常分支里显式调用 <code>ROLLBACK</code> 并在 <code>finally</code> 中归还连接。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 下单接口在 <code>BEGIN</code> 开启事务后，先去同步调用了第三方物流估价 HTTP 接口（耗时 2 秒），再执行 <code>UPDATE</code> 和 <code>COMMIT</code>，高并发下会出什么故障？</span></summary>
+    <div class="drawer-body">
+      <p><strong>会迅速打满数据库连接池并引发大面积行锁阻塞。</strong>数据库连接池通常只有 20~50 个连接：每个请求占着连接和行锁空等外部网络 2 秒，每秒只要来几十个下单请求就会耗尽所有连接，导致整个服务其他只需 1 毫秒的普通查询也借不到连接而集体超时。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 默认 <code>REPEATABLE READ</code> 隔离级别下，事务 A 先 <code>SELECT stock FROM products WHERE id = 1</code> 看到库存是 1，此时事务 B 把这最后 1 件买走并提交了；如果事务 A 接着执行 <code>UPDATE products SET stock = stock - 1 WHERE id = 1 AND stock &gt;= 1</code>，会超卖吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>不会超卖，<code>UPDATE</code> 会返回受影响行数为 <code>0</code>。</strong>因为普通 <code>SELECT</code> 走的是历史快照读，而 <code>UPDATE</code> 属于<strong>当前读（Current Read）</strong>——InnoDB 执行 <code>UPDATE</code> 时会读取事务 B 刚刚提交的最新值 <code>stock = 0</code>，发现不满足 <code>stock &gt;= 1</code> 后不作修改，从而准确拦截超卖。</p>
+    </div>
+  </details>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>为什么普通 <code>SELECT</code> 不加锁能读到历史快照，而 <code>UPDATE / FOR UPDATE</code> 又能立刻读到最新已提交值并加锁？可按需查阅 <a href="principles.html#trx">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 04 MVCC 与 ReadView 状态机》</a> 与 <a href="principles.html#index">《05 临键锁与退化规则》</a>。
+  </p>
 </div>

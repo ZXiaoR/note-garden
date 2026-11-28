@@ -11,10 +11,14 @@
 <div class="wb-card" id="mysql-mvcc-pillars" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.1 · MVCC 三大基石：隐藏列（DB_TRX_ID / DB_ROLL_PTR）、两类 Undo Log 与聚簇索引逆向版本链</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.1 InnoDB 原地更新下的多版本存储与两类 Undo Log 生命周期</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.1 InnoDB 原地更新下的多版本存储与两类 Undo Log 生命周期 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-trx-basics">实战篇 04.1</a> 与 <a href="index.html#mysql-backup-pitr">07.5 备份</a> —— 事务执行 <code>ROLLBACK</code> 时旧数据从哪找回来，<code>mysqldump --single-transaction</code> 为什么能不锁表备份，长事务不提交为什么会撑爆磁盘？
+  </p>
 
   <p>
-    在 <a href="index.html#trx" style="color:var(--plop-tomato);font-weight:800;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇 · 04 章</a> 中，我们通过双终端实验验证了 <code>READ COMMITTED (RC)</code> 与 <code>REPEATABLE READ (RR)</code> 下普通 <code>SELECT</code> 的可见性差异。与 PostgreSQL「每次更新在数据页内追加一条物理新元组（Append-only Tuple）」的设计不同，InnoDB 采用的是<strong>「聚簇索引原地更新最新值 + Undo Log 逆向串联历史差量版本 + ReadView 活跃事务水位快照」</strong>的多版本并发控制（MVCC）方案：
+    在 <a href="index.html#trx" style="color:var(--plop-tomato);font-weight:800;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇 · 04 章</a> 中，我们通过双终端实验验证了 <code>READ COMMITTED (RC)</code> 与 <code>REPEATABLE READ (RR)</code> 下普通 <code>SELECT</code> 的可见性差异。与 PostgreSQL「每次更新在数据页内追加一条物理新元组（Append-only Tuple）」的设计不同，InnoDB 采用的是<strong>「聚簇索引原地更新最新值 + Undo Log 逆向串联历史差量版本 + ReadView 活跃事务水位快照」</strong>的多版本并发控制（MVCC，Multi-Version Concurrency Control）方案：
   </p>
 
   <ul style="margin:0 0 12px; padding-left:20px; font-size:13.4px; line-height:1.72;">
@@ -33,7 +37,11 @@
 <div class="wb-card" id="mysql-readview-algorithm" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 04.2 · ReadView 可见性状态机：四大水位字段与 C++ 内核 changes_visible() 四步判定漏斗</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 04.2 ReadView 结构体的四大水位字段与四步可见性判定算法</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-search"></use></svg> 04.2 ReadView 结构体的四大水位字段与四步可见性判定算法 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-isolation-levels">实战篇 04.2</a> —— 普通 <code>SELECT</code> 完全不加锁，是怎么在别的连接同时修改数据时精准判断“哪个历史版本对我可见”的？
+  </p>
 
   <p>
     当事务执行普通 <code>SELECT</code>（快照读，Snapshot Read）时，InnoDB 会获取一个一致性读视图（<code>ReadView</code>）。<code>ReadView</code> 并不拷贝整张表的数据，它只是一个极其轻量的内存结构体，记录了生成瞬间系统中所有活跃读写事务的状态快照：
@@ -100,21 +108,21 @@
 
         <!-- Interval 1: Committed (< 100) -->
         <rect x="32" y="42" width="256" height="92" rx="10" fill="#D1FAE5" stroke="#0f766e" stroke-width="2"/>
-        <text x="160" y="66" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#065F46">区间 A：trx_id &lt; m_up_limit_id (100)</text>
+        <text x="160" y="66" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12" font-weight="800" fill="#065F46">区间 A：trx_id &lt; 100（低水位）</text>
         <text x="160" y="88" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="700" fill="#065F46">生成视图前必定已提交</text>
         <text x="160" y="110" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#0f766e">判定结果：直接可见 (VISIBLE)</text>
 
         <!-- Interval 2: [100, 108) Active Check Range -->
         <rect x="296" y="42" width="328" height="92" rx="10" fill="#FEF3C7" stroke="#b45309" stroke-width="2"/>
-        <text x="460" y="66" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#92400E">区间 B：100 &lt;= trx_id &lt; 108（二分查找 m_ids）</text>
-        <text x="460" y="88" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" fill="#92400E">• 若 trx_id ∈ m_ids [100, 105] → 未提交不可见 (除非 == creator 102)</text>
-        <text x="460" y="110" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="700" fill="#065F46">• 若 trx_id ∉ m_ids (如 101, 103, 106) → 已提交可见</text>
+        <text x="460" y="66" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12" font-weight="800" fill="#92400E">区间 B：100 &lt;= trx_id &lt; 108（查 m_ids）</text>
+        <text x="460" y="88" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="10.5" font-weight="700" fill="#92400E">• 在 m_ids [100,105] 内 → 不可见（自身除外）</text>
+        <text x="460" y="110" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="10.5" font-weight="700" fill="#065F46">• 不在 m_ids 内（如 101,106）→ 已提交可见</text>
 
         <!-- Interval 3: Future (>= 108) -->
         <rect x="632" y="42" width="256" height="92" rx="10" fill="#FFF7ED" stroke="#bf4520" stroke-width="2"/>
-        <text x="760" y="66" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#9A3412">区间 C：trx_id &gt;= m_low_limit_id (108)</text>
+        <text x="760" y="66" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12" font-weight="800" fill="#9A3412">区间 C：trx_id &gt;= 108（高水位）</text>
         <text x="760" y="88" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="700" fill="#9A3412">生成视图后才开启的未来事务</text>
-        <text x="760" y="110" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="11" font-weight="800" fill="#bf4520">判定结果：直接不可见 (除非 == creator)</text>
+        <text x="760" y="110" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="10.5" font-weight="800" fill="#bf4520">判定结果：不可见（自身修改除外）</text>
 
         <!-- Divider ticks -->
         <rect x="242" y="138" width="100" height="22" rx="6" fill="#1C1917"/>
@@ -153,19 +161,19 @@
         <text x="398" y="302" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#b45309">DB_TRX_ID = 105</text>
         <text x="398" y="324" font-family="'JetBrains Mono',monospace" font-size="11" fill="#57534E">DB_ROLL_PTR = 0x7980</text>
         <rect x="392" y="340" width="204" height="38" rx="6" fill="#FEF3C7" stroke="#b45309" stroke-width="1.4"/>
-        <text x="494" y="357" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#92400E">Step 2: 105 ∈ m_ids [100, 105]</text>
-        <text x="494" y="372" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="10.5" font-weight="700" fill="#92400E">生成快照时未提交 → 不可见，继续回溯</text>
+        <text x="494" y="357" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#92400E">Step 2: 105 ∈ m_ids [100,105]</text>
+        <text x="494" y="372" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="10" font-weight="700" fill="#92400E">活跃未提交 → 不可见，继续回溯</text>
 
         <!-- Node 3: Undo Log Version V1 (trx_id = 98, Visible!) -->
         <rect x="668" y="216" width="220" height="176" rx="12" fill="#D1FAE5" stroke="#0f766e" stroke-width="2.4"/>
         <rect x="682" y="230" width="192" height="28" rx="6" fill="#0f766e"/>
-        <text x="778" y="249" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="12" font-weight="800" fill="#FFFDF7">Undo Log 版本 V1 (0x7980)</text>
+        <text x="778" y="249" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#FFFDF7">Undo 版本 V1 (0x7980)</text>
         <text x="688" y="280" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="700" fill="#065F46">id = 1, balance = 1000</text>
         <text x="688" y="302" font-family="'JetBrains Mono',monospace" font-size="11.5" font-weight="800" fill="#0f766e">DB_TRX_ID = 98</text>
         <text x="688" y="324" font-family="'JetBrains Mono',monospace" font-size="11" fill="#065F46">DB_ROLL_PTR = NULL</text>
         <rect x="682" y="340" width="192" height="38" rx="6" fill="#FFFDF7" stroke="#0f766e" stroke-width="1.6"/>
-        <text x="778" y="357" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#065F46">Step 3: 98 &lt; m_up_limit_id (100)</text>
-        <text x="778" y="372" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="10.5" font-weight="800" fill="#0f766e">已提交版本 → 停止回溯并返回 1000</text>
+        <text x="778" y="357" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#065F46">Step 3: 98 &lt; m_up (100)</text>
+        <text x="778" y="372" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="10" font-weight="800" fill="#0f766e">已提交 → 停止回溯返回 1000</text>
       </svg>
     </div>
   </figure>
@@ -202,7 +210,11 @@
 <div class="wb-card" id="mysql-rc-rr-phantom" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 04.3 · RC vs RR 本质与幻读边界：ReadView 生成时机差异与「快照读 + UPDATE 当前读」显形推演</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 04.3 RC 与 RR 的本质差异，以及 RR 下快照读与当前读混用的幻读边界</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 04.3 RC 与 RR 的本质差异，以及 RR 下快照读与当前读混用的幻读边界 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-concurrency-patterns">实战篇 04.3 防超卖</a>、<a href="index.html#sc-stock">06.3 库存扣减</a> 与 <a href="index.html#sc-state-machine">06.5 订单状态机</a> —— 为什么并发校验库存或订单状态绝不能用普通 <code>SELECT</code>，而必须靠 <code>UPDATE ... WHERE</code> 或 <code>FOR UPDATE</code> 当前读？
+  </p>
 
   <p>
     理解了 <code>ReadView</code> 的判定算法后，<code>READ COMMITTED (RC)</code> 与 <code>REPEATABLE READ (RR)</code> 两个隔离级别的实现差异可以用一句话概括——<strong>仅仅是生成 <code>ReadView</code> 的时机不同</strong>：

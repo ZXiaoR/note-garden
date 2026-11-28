@@ -1,0 +1,214 @@
+<!-- ====================================================================
+     PART 08: 场景自测 · 10 道真实业务排障题与 15 题一句话速记表
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="quiz">
+  <span class="wb-sec-num">08</span>
+  <span class="wb-sec-title">场景自测：10 道真实业务排障题与 15 题一句话速记表</span>
+  <span class="plop-tag tomato">10 SCENARIO QUIZZES · 15 ONE-LINE CHEAT SHEET · VERIFIED SOURCES</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 怎么用本章复习：</strong>先别点开答案，把自己当成正在排查这个线上工单或评审表结构的后端开发，在脑海里过一遍「原因是什么、改哪行 SQL 或代码、要注意什么边界」，再展开核对。
+</div>
+
+<!-- 08.1 · 10 道综合业务场景题（默认折叠） -->
+<div class="wb-card" id="self-check" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 08.1 · 实战闭卷检验：10 道高频业务落地与线上故障排查题（点击展开解析）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 08.1 综合场景自测 10 题</h3>
+
+  <div class="wb-grid-2">
+    <div>
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">01. 订单列表翻到第 1000 页（<code>LIMIT 20000, 20</code>）很慢要 3 秒怎么办？下拉加载和跳页码分别怎么改？</span></summary>
+        <div class="drawer-body">
+          <p><strong>慢的原因</strong>：引擎顺着二级索引扫出 <code>20020</code> 个主键并回表 <code>20020</code> 次取整行，再由 Server 层扔掉前 20000 行。<br>
+          ① <strong>App 下拉瀑布流 / 批量导出</strong>：改<strong>游标分页</strong>——建立联合索引 <code>(shop_id, id)</code>，前端传上一页末尾 <code>last_id</code>，查 <code>WHERE shop_id = ? AND id &lt; ? ORDER BY id DESC LIMIT 20</code>，翻到第几万页都是恒定毫秒级。<br>
+          ② <strong>PC 后台必须跳页码</strong>：改<strong>延迟关联</strong>——子查询 <code>SELECT id FROM orders WHERE shop_id = ? ORDER BY id DESC LIMIT 20000, 20</code> 走纯覆盖索引零回表拿到 20 个 ID，再与外层原表 <code>INNER JOIN</code> 仅回表 20 次（回顾 <a href="#sc-pagination">06.2</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">02. 用户刚修改了绑定手机号，回到个人资料列表刷新却还显示旧手机号，按什么顺序排查？</span></summary>
+        <div class="drawer-body">
+          <p>按线上最高发顺序查这 3 处：<br>
+          ① <strong>开启了主从读写分离延迟</strong>：改手机号写了主库，紧接着列表页去查还没同步完成的只读从库读到了旧值——对写后立即读接口加主库路由标记或直接走主库；<br>
+          ② <strong>Redis 缓存漏删或顺序写反</strong>：改完库没 <code>DEL</code> 对应用户缓存，或写成了“先删缓存再更库”被并发读把旧手机号脏回填进了缓存；<br>
+          ③ <strong>代码事务未提交</strong>：改手机号在显式事务中漏调了 <code>COMMIT</code>，或异常回滚被吞掉没抛错（回顾 <a href="#sc-cache-sync">06.8</a> / <a href="#mysql-read-write-split">07.6</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">03. 同一手机号弱网连点注册出了两条账号怎么彻底防住？如果业务还要求支持账号注销（软删除）后重绑该手机号呢？</span></summary>
+        <div class="drawer-body">
+          <p>① <strong>防并发重复注册</strong>：删掉不可靠的“先 <code>SELECT</code> 判断不存在再 <code>INSERT</code>”，直接在数据库建唯一索引 <code>UNIQUE KEY uk_phone (phone)</code>，后端代码捕获错误码 <code>1062 (ER_DUP_ENTRY)</code> 返回友好提示。<br>
+          ② <strong>兼容多次软删除重注册</strong>：不要用允许 <code>NULL</code> 的列或布尔 <code>0/1</code> 拼唯一索引，而是新增 <code>deleted_id BIGINT UNSIGNED NOT NULL DEFAULT 0</code>（正常态为 <code>0</code>，注销时更新为该行自身主键 <code>id</code>），建联合唯一索引 <code>UNIQUE KEY (phone, deleted_id)</code>（回顾 <a href="#sc-dedup">06.1</a> / <a href="#sc-soft-delete">06.4</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">04. 明明给查询字段加了索引，SQL 执行还是很慢，你的标准排查清单是什么？</span></summary>
+        <div class="drawer-body">
+          <p>先在该 SQL 前加 <strong><code>EXPLAIN</code>（或 <code>EXPLAIN ANALYZE</code>）</strong> 看 <code>type</code>、<code>key</code>、<code>key_len</code>、<code>rows</code> 与 <code>Extra</code>，对照排查：<br>
+          ① <strong>索引根本没选上（<code>key = NULL, type = ALL</code>）</strong>：排查是否违背联合索引最左前缀、对索引列套了函数/运算（如 <code>DATE(created_at)</code>）、发生了隐式类型转换（<code>VARCHAR</code> 手机号传了数字）、使用了左模糊 <code>LIKE '%xx'</code>，或范围太宽命中超全表 20%~30% 被优化器主动放弃；<br>
+          ② <strong>选上了索引但依然慢</strong>：检查是否深分页回表百万次、<code>Extra</code> 出现大结果集 <code>Using filesort / Using temporary</code>，或统计信息过期（跑 <code>ANALYZE TABLE</code>），又或者在等行锁（看慢日志 <code>Lock_time</code>）（回顾 <a href="#mysql-leftmost-and-anti">05.2</a> / <a href="#mysql-explain-guide">05.3</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">05. 活动限量 100 件商品卖出了 105 件（超卖），原代码“先 <code>SELECT stock</code> 判断大于 0 再 <code>UPDATE</code>”为什么防不住？怎么改？</span></summary>
+        <div class="drawer-body">
+          <p><strong>出错根因</strong>：普通 <code>SELECT</code> 是不加锁的 MVCC 快照读，多个并发请求在同一毫秒读到 <code>stock = 1</code> 都通过校验，先后扣减导致库存变负数。<br>
+          <strong>标准修法</strong>：直接合并为单条原子条件更新 <code>UPDATE sku_stock SET stock = stock - ? WHERE sku_id = ? AND stock &gt;= ?</code>（InnoDB 执行 <code>UPDATE</code> 触发当前读并加排他行锁串行扣减），后端判断 <code>affectedRows === 1</code> 才算抢购成功；若需跨多表复杂计算再扣减，则在事务内用 <code>SELECT ... FOR UPDATE</code> 加悲观锁（回顾 <a href="#mysql-concurrency-patterns">04.3</a> / <a href="#sc-stock">06.3</a>）。</p>
+        </div>
+      </details>
+    </div>
+
+    <div>
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">06. 慢日志里一条超 500ms 的 SQL 都没有，但查 50 条帖子列表接口却耗时 400ms 且数据库 QPS 奇高，是什么问题？</span></summary>
+        <div class="drawer-body">
+          <p>典型踩中了应用层 <strong>ORM 的 <code>N+1</code> 循环查询问题</strong>：先发 1 条 SQL 查出 50 条帖子，紧接着在循环里每条帖子单独发 1 条主键查询去拿作者信息和点赞状态，单次请求叠加了 <code>1 + 50 + 50 = 101</code> 次跨网络查库，每条虽只需 1~3ms，合起来却高达几百毫秒。<br>
+          <strong>修法</strong>：提取去重后的 <code>author_id</code> 数组，用 1 条 <code>SELECT ... WHERE id IN (?, ?, ...)</code>（或 ORM 的 <code>Preload</code>）一次性批量查回内存 Map 组装，把 101 次查询压回固定的 2~3 次（回顾 <a href="#mysql-orm-n-plus-1">05.5</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">07. 下午高峰期在 3000 万行订单表上跑了一条加字段 <code>ALTER TABLE</code>，为什么几秒后连全站普通 <code>SELECT</code> 都全部卡死超时？怎么急救与预防？</span></summary>
+        <div class="drawer-body">
+          <p><strong>事故根因（MDL 锁排队雪崩）</strong>：订单表上恰好有一个未提交的慢查询正占着 <code>MDL 读锁</code>；此时发出的 <code>ALTER TABLE</code> 申请排他的 <code>MDL 写锁</code> 被阻塞排队；由于 MDL 锁队列写锁优先，排在这条 <code>ALTER TABLE</code> 后面的所有正常业务 <code>SELECT</code> 连读锁都拿不到，瞬间堵满连接池。<br>
+          <strong>现场急救</strong>：立刻 <code>KILL</code> 掉那条卡在 <code>Waiting for table metadata lock</code> 的 <code>ALTER TABLE</code> 会话（或杀掉源头未提交长事务）。<br>
+          <strong>预防规范</strong>：任何线上 DDL 前必加 <code>SET SESSION lock_wait_timeout = 3;</code>，并显式声明 <code>ALGORITHM=INSTANT</code>（或 <code>INPLACE, LOCK=NONE</code>）（回顾 <a href="#mysql-online-ddl">07.3</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">08. 订单支付成功既要改订单状态，又要发 MQ 给下游发优惠券，怎么既防重复回调，又保证改库和发消息绝对一致？</span></summary>
+        <div class="drawer-body">
+          <p>用<strong>「状态机条件更新 + 同库本地消息表」</strong>在一个短事务内一次搞定：<br>
+          ① 开启事务执行 <code>UPDATE orders SET status = 2, paid_at = NOW() WHERE order_no = ? AND status = 1</code>；<br>
+          ② 若 <code>affectedRows === 0</code>，说明已处理过或已超时取消，直接回滚退出（拦截重复回调）；<br>
+          ③ 若 <code>affectedRows === 1</code>，在<strong>同一个数据库事务</strong>里紧接着向 <code>outbox_messages</code> 表插入一条待发发券消息，然后 <code>COMMIT</code>；<br>
+          ④ 独立后台协程轮询 <code>outbox_messages</code> 异步投递给 MQ，下游发券服务按 <code>order_no</code> 唯一索引做幂等（回顾 <a href="#sc-state-machine">06.5</a> / <a href="#sc-outbox">06.9</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">09. 运维脚本写错变量执行了 <code>DELETE FROM coupons;</code> 把优惠券表清空了，已开启每日全备和 Binlog，怎么恢复到误删前一秒？</span></summary>
+        <div class="drawer-body">
+          <p>切忌直接在生产原库乱导覆盖，按标准 <strong>PITR</strong> 三步走：<br>
+          ① 新建一个独立临时恢复库，先把最近一次凌晨全量备份导入，记下全备时刻对应的 Binlog 文件与起始位点；<br>
+          ② 用 <code>mysqlbinlog --base64-output=DECODE-ROWS -vv</code> 定位出误删 <code>DELETE</code> 事务起始前的精确位点（<code>stop-position</code>）；<br>
+          ③ 用 <code>mysqlbinlog --start-position=... --stop-position=...</code> 把全备之后直到误删前一刻的所有正常增量日志重放到临时库，校验行数和金额无误后，将 <code>coupons</code> 表导回线上库（回顾 <a href="#mysql-backup-pitr">07.5</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary><span class="plop-drawer-title">10. 交易订单表涨到了 5000 万行，列表偶尔变慢，一定要立刻重构做水平分库分表吗？</span></summary>
+        <div class="drawer-body">
+          <p><strong>先别急着分库分表！</strong>单表 5000 万行在 3~4 层 B+ 树下索引点查依然是毫秒级，“列表偶尔变慢”十有八九是缺联合索引、隐式转换或深分页导致的。应按成本从低到高评估：<br>
+          ① 先跑 <code>EXPLAIN</code> 修好索引并把深分页改为游标；<br>
+          ② 把报表慢查询切到只读从库，并定时将 <strong>6~12 个月前已完结的冷订单归档迁移到历史库</strong>，让在线主表回落到一千万行以内；<br>
+          ③ 只有当<strong>近几个月的活跃热订单本身就突破 5000万~1亿行、且主库磁盘写 IOPS 与连接数已达单机上限</strong>时，才承担跨分片查询与分布式ID的代价引入水平分库分表（回顾 <a href="#mysql-scaling-sharding">07.7</a>）。</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<!-- 08.2 · 15 题一句话速记表 -->
+<div class="wb-card" id="cheat" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 08.2 · 考前与复习速查卡：MySQL 15 个核心问题一句话速记表</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 08.2 MySQL 15 题一句话速记表</h3>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:28%">核心问题</th>
+          <th>一句话标准答案（含实战篇与原理篇双跳转）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 金额、时间、字符集怎么选？</strong></td>
+          <td>金额用 <strong><code>DECIMAL(12,2)</code> 或 <code>BIGINT</code> 存分</strong>（禁 <code>FLOAT/DOUBLE</code>）；业务时间优先 <strong><code>DATETIME</code></strong>（避开 <code>TIMESTAMP</code> 2038 上限）；字符集一律 <strong><code>utf8mb4</code></strong> 支持 Emoji（<a href="#mysql-type-cheatsheet">02.5</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 为什么推荐自增主键而非随机 UUID？</strong></td>
+          <td>InnoDB 表即主键 B+ 树：自增 ID 顺序追加写页满率高；<strong>随机 UUID 会插在历史页中间触发频繁 16KB 页分裂与随机 I/O</strong>，且 36 字节主键会让所有二级索引膨胀（<a href="#mysql-constraints-relations">02.3</a> / <a href="principles.html#innodb-page-split">原理篇 02.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 聚簇索引、二级索引与回表是什么？</strong></td>
+          <td><strong>聚簇索引</strong>（主键树）叶子存<strong>整行数据</strong>；<strong>二级索引</strong>叶子只存<strong>「索引列 + 主键 ID」</strong>，需拿 ID 再回主键树查整行（<strong>回表</strong>）；查询列全在索引内免回表即<strong>覆盖索引（<code>Using index</code>）</strong>（<a href="#mysql-index-types">05.1</a> / <a href="principles.html#btree-fanout-math">原理篇 02.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 联合索引 <code>(a, b, c)</code> 怎么建最有效？</strong></td>
+          <td>遵循<strong>最左前缀原则</strong>（不能跳过 <code>a</code>），<strong>等值过滤列放左边、范围列放右边</strong>，高频排序列顺带纳入索引消除 <code>Using filesort</code>；严禁对索引列套函数或触发隐式类型转换（<a href="#mysql-leftmost-and-anti">05.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>5. 为什么 <code>LIMIT 1000000, 20</code> 极慢？</strong></td>
+          <td>并非直接跳过，而是先回表 <code>1000020</code> 次取整行再丢弃前 100 万行；下拉加载改<strong>游标分页（<code>WHERE id &lt; last_id LIMIT 20</code>）</strong>，跳页码改<strong>覆盖索引子查询延迟关联</strong>（<a href="#sc-pagination">06.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>6. ORM 的 <code>N+1</code> 问题怎么发现和解决？</strong></td>
+          <td>查 1 次主列表后在循环里跑 N 次关联单查，放大网络 RTT；改用 <strong>1 条 <code>WHERE id IN (...)</code>（或 ORM <code>Preload</code>）批量查回内存 Map 组装</strong>，把 <code>N+1</code> 次压成固定 <code>2</code> 次（<a href="#mysql-orm-n-plus-1">05.5</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>7. 高并发扣库存怎么防超卖？</strong></td>
+          <td>严禁先普通 <code>SELECT</code> 再 <code>UPDATE</code>；常规用<strong>单条条件更新 <code>UPDATE ... SET stock = stock - ? WHERE id = ? AND stock &gt;= ?</code></strong>，复杂多表校验用 <code>SELECT ... FOR UPDATE</code>，万人瞬时抢购前置 Redis 预扣（<a href="#mysql-concurrency-patterns">04.3</a> / <a href="#sc-stock">06.3</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>8. ACID 在 InnoDB 底层分别靠什么实现？</strong></td>
+          <td><strong>A 原子性</strong>靠 <code>Undo Log</code> 回滚；<strong>I 隔离性</strong>靠 <code>MVCC</code>（快照读）+ 行锁/临键锁（当前读）；<strong>D 持久性</strong>靠 <code>Redo Log</code>（WAL）+ <code>Doublewrite</code> 双写缓冲；三者共同兜底 <strong>C 一致性</strong>（<a href="#mysql-trx-basics">04.1</a> / <a href="principles.html#mysql-three-logs-2pc">原理篇 06.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>9. RC 与默认 RR 隔离级别的核心区别？</strong></td>
+          <td><strong>快照时机不同</strong>：<code>RC</code> 每条普通 <code>SELECT</code> 都重新生成新 <code>ReadView</code>（已提交立即可见，几乎无间隙锁）；<code>RR</code> 只在事务首次 <code>SELECT</code> 生成 <code>ReadView</code> 并全程复用，且当前读加临键锁防幻读（<a href="#mysql-isolation-levels">04.2</a> / <a href="principles.html#mysql-readview-algorithm">原理篇 04.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>10. InnoDB 行锁到底锁的是什么？</strong></td>
+          <td><strong>锁加在索引项与索引间隙上</strong>（记录锁 + 间隙锁 = 左开右闭的<strong>临键锁 Next-Key Lock</strong>）；若 <code>UPDATE / FOR UPDATE</code> 没走索引退化全表扫描，会把整张表所有行和间隙全锁死（<a href="#mysql-lock-diag">07.4</a> / <a href="principles.html#mysql-row-lock-types">原理篇 05.2</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>11. <code>Redo Log</code> 与 <code>Binlog</code> 差在哪，为何要两阶段提交？</strong></td>
+          <td><code>Redo</code> 是 InnoDB 环形物理重做日志（管崩溃恢复），<code>Binlog</code> 是 Server 层追加逻辑归档日志（管主从复制与 PITR 恢复）；围绕 <code>XID</code> 做<strong>两阶段提交（Prepare → 写 Binlog → Commit）</strong>确保崩溃恢复后主从数据严格一致（<a href="principles.html#mysql-three-logs-2pc">原理篇 06.1</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>12. 大表怎么在线安全加字段或建索引？</strong></td>
+          <td>先执行 <strong><code>SET SESSION lock_wait_timeout = 3;</code></strong> 防 MDL 锁排队雪崩；8.0+ 加删列优先指定 <code>ALGORITHM=INSTANT</code>（毫秒级只改元数据），建索引指定 <code>ALGORITHM=INPLACE, LOCK=NONE</code>，改列类型用 <code>gh-ost</code>（<a href="#mysql-online-ddl">07.3</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>13. 读写分离「刚写完读到旧数据」怎么解？</strong></td>
+          <td>源于主从异步复制延迟；支付结果/登录等强一致读直接<strong>强制路由主库</strong>，或写后在 Redis 种 3 秒主库路由标记，或写接口直接把新实体返回给前端渲染（<a href="#mysql-read-write-split">07.6</a> / <a href="principles.html#mysql-replication-ha">原理篇 06.3</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>14. 改库与删缓存、发 MQ 怎么保证一致？</strong></td>
+          <td>缓存用 <strong>Cache-Aside（先提交数据库修改，再 <code>DEL</code> 缓存 + 失败重试/TTL 兜底）</strong>；发 MQ 用<strong>本地消息表（同库单事务同时写订单表与 <code>outbox</code> 表 + 后台轮询投递 + 消费幂等）</strong>（<a href="#sc-cache-sync">06.8</a> / <a href="#sc-outbox">06.9</a>）。</td>
+        </tr>
+        <tr>
+          <td><strong>15. 单表数据量大了按什么顺序演进？</strong></td>
+          <td>严格按<strong>「① 索引调优 + 游标分页 → ② 读写分离 + 缓存 + 冷历史订单归档 → ③ 原生表分区 → ④ 活跃热表破五千万~一亿且单机写见顶时再水平分库分表」</strong>推进（<a href="#mysql-scaling-sharding">07.7</a>）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 08.3 · 核对依据与适用版本说明 -->
+<div class="wb-card" id="sources" style="background:var(--plop-sheet);">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+    <h3 style="margin:0;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 核对依据与适用版本说明（MySQL 8.0 / 8.4 LTS · go-sql-driver/mysql · mysql2）</h3>
+    <span class="plop-tag periwinkle">VERIFIED: 2026-11-28</span>
+  </div>
+  <p style="font-size:13.3px; margin-bottom:10px;">
+    本笔记所有 SQL 语法与系统视图均基于官方 <strong>MySQL 8.0 及 MySQL 8.4 LTS（长期支持版）</strong> 编写核验（如窗口函数、递归 CTE、<code>EXPLAIN ANALYZE</code>、<code>performance_schema.data_lock_waits</code>、<code>ALGORITHM=INSTANT</code> 等）；Go 示例基于标准库 <code>database/sql</code> 与 <code>github.com/go-sql-driver/mysql v1.8+</code>，Node.js 示例基于 <code>mysql2/promise v3+</code>。具体小版本参数差异可对照以下官方文档核实：
+  </p>
+  <ul class="source-links-grid">
+    <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-storage-engine.html" target="_blank" rel="noopener">MySQL 8.4 官方参考手册 · InnoDB 存储引擎与锁机制</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-online-ddl-operations.html" target="_blank" rel="noopener">Online DDL 操作支持矩阵</a></li>
+    <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://dev.mysql.com/doc/refman/8.4/en/optimization.html" target="_blank" rel="noopener">MySQL 8.4 查询优化与 EXPLAIN 官方指南</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/point-in-time-recovery.html" target="_blank" rel="noopener">Binlog 按时间点恢复（PITR）手册</a></li>
+    <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://github.com/go-sql-driver/mysql" target="_blank" rel="noopener">go-sql-driver/mysql 官方仓库（DSN 参数 parseTime / loc / timeout 说明）</a></li>
+    <li><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> <a href="https://sidorares.github.io/node-mysql2/docs" target="_blank" rel="noopener">Node.js mysql2 官方文档（连接池与 Prepared Statements 预编译）</a></li>
+  </ul>
+</div>

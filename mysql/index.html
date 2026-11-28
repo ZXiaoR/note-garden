@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="MySQL 基础与实战篇：从全平台环境安装、mysql 命令行与账号权限管理出发，依次梳理核心数据类型与字符集规范、表结构建模与约束、高频写操作与 JOIN/窗口函数/CTE、事务隔离与防超卖并发模式、索引设计与 EXPLAIN 慢查询调优，以及 Online DDL、深分页优化与线上排障实战。" />
+  <meta name="description" content="MySQL 基础与实战篇：面向日常开发与快速复习，从全景定位与组件选型、Docker 3 分钟上手与 Go/Node.js 参数化查询、建表字段选型速查、高阶 SQL 与窗口函数/递归 CTE、事务隔离与防超卖、索引调优与慢日志/ORM N+1 治理，到九大常见业务场景落地、上线前必知（权限/连接池/Online DDL/备份 PITR/读写分离/分库分表）与 10 道场景自测。" />
   <title>MySQL · 基础与实战篇 · note-garden 技术知识花园</title>
   <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
   <link rel="stylesheet" href="../assets/plop-garden.css" />
@@ -25,8 +25,8 @@
         <span style="font-family:var(--font-head); font-style:italic; font-weight:900; font-size:19px; color:var(--plop-ink);">note-garden</span>
       </div>
       <nav class="plop-edition-switch" aria-label="切换基础与实战篇与核心原理篇" style="margin-left:6px;">
-        <a href="index.html" class="active" aria-current="page" title="循序渐进：从全平台环境安装、账号权限、数据类型、进阶 SQL 到事务并发、索引调优与日常运维"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇</a>
-        <a href="principles.html" data-edition-target="principles.html" title="切换到当前章节的 16KB 页与行格式、Buffer Pool 冷热 LRU、B+ 树阶数推导、MVCC ReadView、Next-Key Lock 与两阶段提交原理"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 ↗</a>
+        <a href="index.html" class="active" aria-current="page" title="循序渐进：从全景定位、快速跑起来、建表与 SQL、事务索引，到九大业务场景实战、上线前必知与场景自测"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇</a>
+        <a href="principles.html" data-edition-target="principles.html" title="按需深挖：16KB 页与行格式、Buffer Pool 冷热 LRU、B+ 树阶数推导、MVCC ReadView、Next-Key Lock 与两阶段提交原理"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 ↗</a>
       </nav>
     </div>
 
@@ -62,33 +62,41 @@
 
         <!-- 2. 手账章节书签耳标 (Scroll-Spy 自动高亮当前章节) -->
         <nav class="plop-index-tabs" id="toc-tabs" aria-label="MySQL 基础与实战章节书签">
-          <a href="#why" class="plop-ear-tab active" data-toc="why">
+          <a href="#overview" class="plop-ear-tab active" data-toc="overview">
             <span class="ear-dot"></span>
-            <span>00 环境安装与入门</span>
+            <span>00 全景科普与选型</span>
           </a>
-          <a href="#arch" class="plop-ear-tab" data-toc="arch">
+          <a href="#quickstart" class="plop-ear-tab" data-toc="quickstart">
             <span class="ear-dot periwinkle"></span>
-            <span>01 体系结构与权限</span>
+            <span>01 快速跑起来</span>
           </a>
           <a href="#types" class="plop-ear-tab" data-toc="types">
             <span class="ear-dot mint"></span>
-            <span>02 数据类型与建表</span>
+            <span>02 建表与数据类型</span>
           </a>
           <a href="#dml" class="plop-ear-tab" data-toc="dml">
             <span class="ear-dot mustard"></span>
-            <span>03 进阶查询与窗口</span>
+            <span>03 SQL 进阶查询</span>
           </a>
           <a href="#trx" class="plop-ear-tab" data-toc="trx">
             <span class="ear-dot pink"></span>
-            <span>04 事务与并发实战</span>
+            <span>04 事务与并发</span>
           </a>
           <a href="#index" class="plop-ear-tab" data-toc="index">
             <span class="ear-dot periwinkle"></span>
-            <span>05 索引设计与调优</span>
+            <span>05 索引与调优</span>
           </a>
-          <a href="#log" class="plop-ear-tab" data-toc="log">
+          <a href="#scenarios" class="plop-ear-tab" data-toc="scenarios">
+            <span class="ear-dot mustard"></span>
+            <span>06 常见业务场景</span>
+          </a>
+          <a href="#production" class="plop-ear-tab" data-toc="production">
             <span class="ear-dot mint"></span>
-            <span>06 运维、分页与排障</span>
+            <span>07 上线前必须知道</span>
+          </a>
+          <a href="#quiz" class="plop-ear-tab" data-toc="quiz">
+            <span class="ear-dot pink"></span>
+            <span>08 场景自测</span>
           </a>
         </nav>
       </div>
@@ -98,13 +106,15 @@
     <main class="plop-workbench" id="content">
       <!-- 窄屏/平板横向章节导航栏 (< 1080px 自动显示) -->
       <nav class="plop-mobile-toc" aria-label="章节快速跳转">
-        <a href="#why" class="active">00 安装与入门</a>
-        <a href="#arch">01 结构与权限</a>
-        <a href="#types">02 类型与建表</a>
-        <a href="#dml">03 进阶SQL</a>
-        <a href="#trx">04 事务与并发</a>
-        <a href="#index">05 索引与调优</a>
-        <a href="#log">06 运维与排障</a>
+        <a href="#overview" class="active">00 全景科普</a>
+        <a href="#quickstart">01 跑起来</a>
+        <a href="#types">02 建表类型</a>
+        <a href="#dml">03 SQL进阶</a>
+        <a href="#trx">04 事务并发</a>
+        <a href="#index">05 索引调优</a>
+        <a href="#scenarios">06 业务场景</a>
+        <a href="#production">07 上线必知</a>
+        <a href="#quiz">08 场景自测</a>
       </nav>
 
       <div class="wb-sheet plop-journal-book">
@@ -116,7 +126,7 @@
         <!-- 响应式手账刊头：左侧印章卡 + 右侧大标题 + 路线车票 -->
         <header class="wb-masthead">
           <div class="wb-card wb-date-card mint">
-            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">EDITION 01 / GUIDE</span>
+            <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:900; color:var(--plop-tomato);">EDITION 01 / PRACTICE</span>
             <div style="font-family:var(--font-head); font-style:italic; font-size:36px; font-weight:900; color:var(--plop-ink); line-height:1.05; margin:6px 0;">MySQL</div>
             <span style="font-family:var(--font-mono); font-size:11.5px; font-weight:800; color:var(--plop-ink-text);"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> 基础与实战篇</span>
           </div>
@@ -124,29 +134,29 @@
           <div class="wb-masthead-main">
             <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
               <span class="plop-tag mint"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sprout"></use></svg> EDITION 1 · 基础与实战篇</span>
-              <span class="plop-tag periwinkle">SQL · MODELING · CONCURRENCY</span>
-              <span class="plop-tag tomato">INDEX TUNING · ONLINE DDL</span>
+              <span class="plop-tag periwinkle">OVERVIEW · SCHEMA · SQL · INDEX</span>
+              <span class="plop-tag tomato">9 REAL SCENARIOS · PRODUCTION · QUIZ</span>
             </div>
             <h1 style="font-family:var(--font-head); font-size:clamp(24px, 3vw, 34px); font-weight:900; color:var(--plop-ink-text); line-height:1.2; margin:0 0 8px;">
-              MySQL · 基础与实战篇：从环境搭建到高性能 SQL 与生产运维
+              MySQL · 基础与实战篇：全景定位、建表 SQL、九大业务场景与上线规范
             </h1>
             <p style="font-size:14.6px; color:var(--plop-ink-soft); margin:0; font-weight:600; line-height:1.6;">
-              从全平台环境安装、命令行终端与两层体系结构出发，依次梳理数据类型与建表规范、幂等写入与窗口函数、事务隔离与高并发防超卖模式、索引设计与执行计划分析，以及大表无锁变更、深分页优化与日常排障。若想深入 16KB 页内存布局、Buffer Pool、MVCC ReadView 与两阶段提交内核，可随时通过顶部按钮切入核心原理篇。
+              面向只会一点 SQL 的开发者与日常高效复习：从一屏看懂 MySQL 在系统中的分层位置与存储选型边界出发，三分钟用 Docker 跑通第一个 CRUD 与后端参数化查询，扎实掌握建表字段选型、进阶 SQL、事务防超卖、索引与慢日志及 ORM 批量调优，手把手落地电商与社区九大高频业务需求，最后配齐备份恢复、读写分离、分库分表上线规范与十道场景自测题。
             </p>
 
             <!-- 三阶段学习路径车票卡片 -->
             <div class="wb-kpi-grid">
-              <a href="#why" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
-                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">① 环境、权限与建表</div>
-                <div style="font-size:12px; font-weight:700;">章节 00—02：全平台安装、账号授权、字符集与字段选型</div>
+              <a href="#overview" class="plop-ticket-kpi" style="background:var(--plop-mustard);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">① 全景认知、上手与建表</div>
+                <div style="font-size:12px; font-weight:700;">章节 00—02：系统定位、Docker 与代码连接、字段选型速查</div>
               </a>
               <a href="#dml" class="plop-ticket-kpi" style="background:var(--plop-mint);">
-                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">② 进阶查询与并发控制</div>
-                <div style="font-size:12px; font-weight:700;">章节 03—04：幂等写入、窗口函数、递归查询与防超卖加锁</div>
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">② SQL、事务索引与九大场景</div>
+                <div style="font-size:12px; font-weight:700;">章节 03—06：窗口/CTE、防超卖、慢日志/N+1 与九大业务实战</div>
               </a>
-              <a href="#index" class="plop-ticket-kpi" style="background:var(--plop-periwinkle);">
-                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">③ 索引调优与生产运维</div>
-                <div style="font-size:12px; font-weight:700;">章节 05—06：联合索引、EXPLAIN 诊断、Online DDL 与深分页</div>
+              <a href="#production" class="plop-ticket-kpi" style="background:var(--plop-periwinkle);">
+                <div style="font-family:var(--font-head); font-size:15px; font-weight:900; color:var(--plop-ink-text);">③ 上线防线与场景自测</div>
+                <div style="font-size:12px; font-weight:700;">章节 07—08：Online DDL、备份 PITR、读写分离与 10 题自测</div>
               </a>
             </div>
           </div>
@@ -154,56 +164,70 @@
 
         <noscript>
           <div class="plop-callout warn" style="margin:14px 0;">
-            <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 7 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
+            <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-book"></use></svg> 静态阅读与无 JS 导航模式：</strong>当前环境未启用 JavaScript，下方已为您展示全书 9 大章节的核心脉络摘要与独立章节 HTML 直达链接，点击任意章节即可直接阅读完整正文。
           </div>
         </noscript>
 
-        <div data-plop-section="sections/00-why.html">
-          <section class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-why.html">00 · 认识 MySQL、全平台环境安装与第一个 SQL 脚本</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">介绍 MySQL 8.0 / 8.4 的核心特点与版本演进，提供 Docker、macOS、Linux、Windows 四大平台安装与初始化流程，以及 mysql 终端高频命令与第一个建表 CRUD 脚本拆解。</p>
+        <div data-plop-section="sections/00-overview.html">
+          <section class="wb-card" id="overview" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/00-overview.html">00 · 全景科普：MySQL 系统定位、组件选型边界与知识地图</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">一句话定义与请求分层架构图，横向对比 MySQL、Redis、MongoDB、Elasticsearch 与消息队列的适用边界，给出全篇知识路线图。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/01-arch.html">
-          <section class="wb-card" id="arch" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-arch.html">01 · 体系结构、账号权限管理与连接池配置</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">图解 Server 层与 InnoDB 存储引擎层的分工协作，梳理 MySQL 8.0 账号创建与最小权限授权规范、核心配置文件 my.cnf 参数以及应用层连接池实践。</p>
+        <div data-plop-section="sections/01-quickstart.html">
+          <section class="wb-card" id="quickstart" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/01-quickstart.html">01 · 快速跑起来：Docker 启动、第一个 CRUD 脚本与后端连接</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">Docker 一行启动 MySQL 8.4、mysql 终端命令与 DBeaver 连接、第一个建表 CRUD 脚本，以及 Go 与 Node.js 参数化查询示例（附多平台安装折叠附录）。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/02-types.html">
           <section class="wb-card" id="types" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-types.html">02 · 数据类型选型、utf8mb4 字符集、JSON 生成列与建表规范</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解数值、精确金额 DECIMAL、字符串、DATETIME vs TIMESTAMP 的选型边界，说明 utf8mb4 字符集与排序规则，演示 JSON 操作符与生成列索引及多表关系建模。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/02-types.html">02 · 建表与数据类型：字段选型、utf8mb4、JSON 生成列与 DDL 规范</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">详解数值、精确金额 DECIMAL、DATETIME vs TIMESTAMP、utf8mb4 字符集、JSON 生成列索引与表生命周期操作，结尾附「字段需求 → 选什么类型」速查表。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/03-dml.html">
           <section class="wb-card" id="dml" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-dml.html">03 · 核心 SQL 进阶：幂等 UPSERT、JOIN 细节、窗口函数与递归 CTE</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">掌握 INSERT ... ON DUPLICATE KEY UPDATE 幂等写入、LEFT JOIN 中 ON 与 WHERE 的语义差异、GROUP BY 聚合规范、窗口函数 OVER (...) 以及 WITH RECURSIVE 递归查询。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/03-dml.html">03 · SQL 进阶：增删改查、NULL 避坑、JOIN 细节、窗口函数与递归 CTE</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">掌握 ON DUPLICATE KEY UPDATE 幂等写入、NULL 三值逻辑、LEFT JOIN 中 ON 与 WHERE 的语义差异、GROUP BY 规范、窗口函数与递归查询。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/04-trx.html">
           <section class="wb-card" id="trx" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-trx.html">04 · 事务控制、隔离级别与高并发防超卖实战</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">梳理事务 ACID 与 autocommit 提交边界，对比四大隔离级别与三类并发读异常，结合原子条件更新、FOR UPDATE 悲观锁与 version 乐观锁解决高并发扣减问题。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/04-trx.html">04 · 事务与并发：ACID 边界、隔离级别与高并发防超卖实战</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">梳理事务 ACID 与显式回滚边界，对比四大隔离级别与三类并发异常，结合原子条件更新、FOR UPDATE 悲观锁与乐观锁解决高并发扣减问题。</p>
           </section>
         </div>
 
         <div data-plop-section="sections/05-index.html">
           <section class="wb-card" id="index" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-index.html">05 · 索引设计、最左前缀、常见失效改写与 EXPLAIN 调优</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比聚簇索引与二级索引回表机制，掌握覆盖索引、联合索引最左前缀、前缀索引与函数索引，总结 7 类常见索引失效改写方案与 EXPLAIN / EXPLAIN ANALYZE 判读方法。</p>
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/05-index.html">05 · 索引与调优：最左前缀、失效改写、EXPLAIN、慢日志与 ORM N+1</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">对比聚簇索引与二级索引回表，总结 7 类常见索引失效改写与 EXPLAIN 判读，补齐慢查询日志定位闭环与 ORM N+1 批量预加载改写。</p>
           </section>
         </div>
 
-        <div data-plop-section="sections/06-log.html">
-          <section class="wb-card" id="log" style="background:var(--plop-paper); margin-bottom:14px;">
-            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-log.html">06 · 生产运维实战：Online DDL、深分页优化、锁排查与后端接入</a></h2>
-            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">涵盖 MySQL 8.0 Online DDL (INSTANT / INPLACE / COPY) 选型、游标分页与延迟关联优化深分页、线上行锁等待与慢查询排查 SQL，以及后端连接池参数化事务模板。</p>
+        <div data-plop-section="sections/06-scenarios.html">
+          <section class="wb-card" id="scenarios" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/06-scenarios.html">06 · 常见业务场景实战：9 大真实需求落地与避坑闭环</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">按统一六步法拆解注册防重、百万订单游标分页、防超卖选型、软删除唯一索引、订单状态机、统计报表 Top N、评论递归树、缓存一致性与本地消息表。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/07-production.html">
+          <section class="wb-card" id="production" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/07-production.html">07 · 上线前必须知道：权限、连接池、Online DDL、备份、读写分离与分表</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">汇总最小权限账号与 my.cnf 参数、连接池防断连、Online DDL、锁排查 SQL、逻辑/物理备份与 Binlog PITR 恢复、读写分离防读旧值及分库分表阶梯。</p>
+          </section>
+        </div>
+
+        <div data-plop-section="sections/08-quiz.html">
+          <section class="wb-card" id="quiz" style="background:var(--plop-paper); margin-bottom:14px;">
+            <h2 style="font-size:17px; margin:0 0 6px;"><a href="sections/08-quiz.html">08 · 场景自测：10 道真实业务排障题与 15 题一句话速记表</a></h2>
+            <p style="font-size:13.4px; margin:0; color:var(--plop-ink-soft);">以默认折叠的 10 道线上排障与设计题检验全链路落地能力，并附上 15 题一句话复习速记表与官方文档核对说明。</p>
           </section>
         </div>
 

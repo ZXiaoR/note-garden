@@ -1,0 +1,259 @@
+<!-- ====================================================================
+     PART 00: 全景科普 · MySQL 系统定位、组件选型边界与知识地图
+     ==================================================================== -->
+<div class="wb-sec-header" id="overview" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">全景科普：MySQL 系统定位、组件选型边界与知识地图</span>
+  <span class="plop-tag tomato">OVERVIEW · ARCHITECTURE · STORAGE COMPARISON · ROADMAP</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>用一句话说清 MySQL 在后端系统里干什么，分清什么时候用 MySQL、什么时候配 Redis / MongoDB / Elasticsearch / 消息队列，并看懂整份笔记 9 个章节的脉络。
+</div>
+
+<!-- 00.1 · 一句话定义与系统分层位置 -->
+<div class="wb-card" id="why" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 00.1 · 核心定位：关系型数据库的一句话定义与「请求 → 应用 → 缓存 → MySQL」系统分层</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 00.1 MySQL 是什么，以及它在系统里的位置</h3>
+
+  <p>
+    <strong>一句话定义：MySQL 是一个开源的关系型数据库管理系统（RDBMS，Relational Database Management System），用二维表和 SQL（Structured Query Language，结构化查询语言）存取结构化数据，并通过 ACID（Atomicity, Consistency, Isolation, Durability，原子性、一致性、隔离性、持久性）事务保证业务账本准确且断电不丢。</strong>
+  </p>
+  <p>
+    在真实的电商、社区或交易系统里，用户账号、商品库存、订单流水和资金余额这些<strong>不能出错、不能丢失的核心数据</strong>，最终都存放在 MySQL 的磁盘表里。当日常流量不大时，后端应用直接读写 MySQL 即可（单次索引查询通常只需 <code>1 ~ 5 毫秒</code>）；当遇到首页热帖、商品详情等每秒数万次的高频访问（QPS，Queries Per Second，每秒查询率）时，系统会在 MySQL 前面挡一层内存数据库 Redis 吸收热点读请求，未命中缓存或需要修改真实账本时再落回 MySQL：
+  </p>
+
+  <!-- Editorial SVG: Request -> App -> (Redis Cache) -> MySQL -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 860 264" style="width:100%; min-width:800px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="my-ov-arch-title my-ov-arch-desc">
+        <title id="my-ov-arch-title">后端系统中请求经过业务应用访问 Redis 缓存与 MySQL 数据库的分层位置</title>
+        <desc id="my-ov-arch-desc">客户端请求到达 Go 或 Node.js 业务应用后，高频热点读可优先查询亚毫秒级的 Redis 缓存层，而订单交易、用户信息更新及缓存回源则读写底层的 MySQL 权威关系型数据库。</desc>
+        <defs>
+          <marker id="my-ov-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="my-ov-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="my-ov-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Zone: Storage & Cache Layer (drawn before connectors and nodes) -->
+        <rect x="468" y="16" width="368" height="196" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.18)" stroke-width="1"/>
+        <rect x="484" y="20" width="144" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="556" y="32" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#5a6580">存储与缓存协同层</text>
+
+        <!-- Connectors (drawn BEFORE boxes, orthogonal r=8, 8px label gap) -->
+        <!-- 1. User Request (160,122) -> Application (240,122) -->
+        <line x1="160" y1="122" x2="240" y2="122" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#my-ov-arr-link)"/>
+        <rect x="168" y="98" width="64" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="200" y="109" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="8.5" fill="#2e5aa8">HTTP/RPC</text>
+
+        <!-- 2. App top-right (396,104) -> Redis left (508,80) -->
+        <path d="M 396,104 H 404 Q 412,104 412,96 V 88 Q 412,80 420,80 H 508" fill="none" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#my-ov-arr-muted)"/>
+        <rect x="416" y="56" width="84" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="458" y="68" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="500" fill="#5a6580">旁路读缓存</text>
+
+        <!-- 3. App bottom-right (396,140) -> MySQL left (508,168) [Focal Path] -->
+        <path d="M 396,140 H 404 Q 412,140 412,148 V 160 Q 412,168 420,168 H 508" fill="none" stroke="#bf4520" stroke-width="1.8" marker-end="url(#my-ov-arr-accent)"/>
+        <rect x="412" y="176" width="88" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="456" y="188" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#bf4520">事务读写落盘</text>
+
+        <!-- Node 1: User Request -->
+        <rect x="24" y="88" width="136" height="68" rx="6" fill="#FFFDF7"/>
+        <rect x="24" y="88" width="136" height="68" rx="6" fill="rgba(79,93,117,0.08)" stroke="#5a6580" stroke-width="1.2"/>
+        <text x="92" y="116" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="600" fill="#2d3142">客户端请求</text>
+        <text x="92" y="136" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#4f5d75">App / Web / API</text>
+
+        <!-- Node 2: Application Service -->
+        <rect x="240" y="84" width="156" height="76" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="318" y="116" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="600" fill="#2d3142">业务应用服务</text>
+        <text x="318" y="136" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#4f5d75">Go / Node.js</text>
+
+        <!-- Node 3: Redis Cache (Optional accelerator) -->
+        <rect x="508" y="48" width="308" height="64" rx="6" fill="#FFFDF7"/>
+        <rect x="508" y="48" width="308" height="64" rx="6" fill="rgba(45,49,66,0.04)" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3"/>
+        <text x="662" y="74" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="600" fill="#2d3142">Redis 缓存层（可选加速）</text>
+        <text x="662" y="96" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">热点商品缓存 · 登录态 · 实时排行榜</text>
+
+        <!-- Node 4: MySQL Primary Store (Focal Node) -->
+        <rect x="508" y="132" width="308" height="68" rx="6" fill="#FFFDF7"/>
+        <rect x="508" y="132" width="308" height="68" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="662" y="158" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13.5" font-weight="700" fill="#bf4520">MySQL 关系型数据库（唯一权威账本）</text>
+        <text x="662" y="182" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#2d3142">用户 · 商品 · 订单 · 资金流水 · ACID 事务</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="24" y1="224" x2="836" y2="224" stroke="rgba(45,49,66,0.14)" stroke-width="1"/>
+        <rect x="24" y="236" width="16" height="10" rx="2" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.4"/>
+        <text x="48" y="245" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">权威账本路径（结构化存储、多条件查询与事务兜底）</text>
+        <line x1="364" y1="241" x2="392" y2="241" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4"/>
+        <text x="400" y="245" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">可选内存加速路径（缓存即使清空也可从 MySQL 重建）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin-bottom:0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>想了解一条 SQL 发进 MySQL 后在内部如何穿过 Server 层与 InnoDB 存储引擎层，以及内存缓冲池（Buffer Pool）如何加速磁盘读写，可按需查阅 <a href="principles.html#arch">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 01.1 InnoDB 内存与磁盘架构全景》</a>。
+  </p>
+</div>
+
+<!-- 00.2 · 什么时候用 MySQL，什么时候用其他组件 -->
+<div class="wb-card" id="storage-compare" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 00.2 · 技术选型边界：MySQL vs Redis vs MongoDB vs Elasticsearch vs 消息队列横向对比</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 00.2 什么时候用 MySQL，什么时候用其他数据组件</h3>
+
+  <p>
+    后端系统没有一种存储能包打天下。最稳妥的工程架构是<strong>「用 MySQL 做业务数据的唯一事实来源（Single Source of Truth），再按读写痛点外挂专用组件」</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:15%">组件名称</th>
+          <th style="width:19%">数据组织模型</th>
+          <th style="width:20%">核心强项</th>
+          <th style="width:26%">电商 / 社区典型适用场景</th>
+          <th>什么时候不该用它硬扛</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>MySQL</strong><br><span style="font-size:11px; color:var(--plop-tomato); font-weight:800;">（本篇主角）</span></td>
+          <td>二维关系表 + 行记录 + B+ 树索引</td>
+          <td><strong>完整 ACID 事务</strong>、多字段组合筛选、表关联与数据强一致落盘</td>
+          <td>用户账号、商品 SKU 与库存、交易订单、支付账单、评论主数据</td>
+          <td>每秒十万级单商品热点轮询、多词分词模糊搜索、TB 级无结构原始埋点日志</td>
+        </tr>
+        <tr>
+          <td><strong><a href="../redis/index.html#overview">Redis ↗</a></strong></td>
+          <td>内存键值对（String / Hash / ZSet 等）</td>
+          <td>亚毫秒级响应（<code>&lt; 1ms</code>）、单机十万级并发、原生过期时间（TTL）与原子计数</td>
+          <td>热门商品详情缓存、登录态 Token、短信验证码频控、实时热帖排行榜、分布式锁</td>
+          <td>不能做复杂多条件 <code>WHERE</code> 过滤；断电或切主可能丢最后约 1 秒数据，不可单独存钱款账本（详见 <a href="../redis/index.html#overview">Redis 笔记</a>）</td>
+        </tr>
+        <tr>
+          <td><strong>MongoDB</strong></td>
+          <td>BSON 半结构化文档（免预定义固定列）</td>
+          <td>字段结构高度灵活、嵌套对象一次读写、水平分片扩展方便</td>
+          <td>各品类差异极大的商品详情富文档、游戏角色背包快照、IM 聊天历史归档、爬虫原始数据</td>
+          <td>涉及跨多张表高频关联对账、严苛金融资金转账（优先选关系型数据库；若仅少量动态扩展字段，MySQL 原生 <code>JSON</code> 列即可胜任）</td>
+        </tr>
+        <tr>
+          <td><strong>Elasticsearch</strong></td>
+          <td>倒排索引（分词词项 → 文档 ID 列表）</td>
+          <td>中文分词全文检索、近义词纠错、几十个筛选项任意组合搜索与多维聚合</td>
+          <td>电商商品搜索框（「无线静音机械键盘」）、社区帖子全文检索、运营后台几十个条件任意组合查单</td>
+          <td>不支持严格跨文档回滚事务，写入有约 <code>1 秒</code> 近实时刷新延迟（<code>refresh_interval</code>），<strong>绝不能替代 MySQL 做主库</strong>，通常订阅 MySQL 变更同步过去</td>
+        </tr>
+        <tr>
+          <td><strong><a href="../mq/index.html#overview">消息队列 ↗</a></strong><br><span style="font-size:11px;">(Kafka / RocketMQ)</span></td>
+          <td>磁盘顺序追加日志流（Topic / Partition）</td>
+          <td><strong>异步解耦、突发流量削峰填谷</strong>、顺序缓冲与多下游独立订阅</td>
+          <td>下单成功后异步发优惠券/发短信、大促瞬时请求排队写库、收集全站点击流埋点</td>
+          <td>不是用来随机按 ID 查改某条业务状态的数据库，而是系统之间的异步事件管道（详见 <a href="../mq/index.html#overview">消息队列笔记</a>）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.3 · 本笔记知识地图 -->
+<div class="wb-card" id="knowledge-map" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 00.3 · 学习路线：从跑起来、建表写 SQL、九大业务场景到上线运维与底层原理的全景地图</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 00.3 本笔记知识地图</h3>
+
+  <p>
+    整份笔记按照<strong>「全景定位 → 快速跑起来 → 建表与 SQL 基本功 → 真实业务场景落地 → 上线防线与底层原理」</strong>组织。日常写需求可直接翻第 <code>02 ~ 06</code> 章，准备上线与排障看第 <code>07 ~ 08</code> 章，遇到每节末尾的「背后的原理」链接再按需跳入《核心原理篇》：
+  </p>
+
+  <!-- Editorial SVG: Note-Garden MySQL Knowledge Map -->
+  <figure style="margin:14px 0 16px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 860 244" style="width:100%; min-width:800px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="my-kmap-title my-kmap-desc">
+        <title id="my-kmap-title">MySQL 学习笔记全篇知识地图与四阶段学习路径</title>
+        <desc id="my-kmap-desc">从左到右依次为第一阶段全景与上手（00至01章）、第二阶段建表SQL事务与索引基本功（02至05章）、第三阶段九大业务场景实战（06章重点）、第四阶段上线防线与自测（07至08章），底部虚线联动核心原理篇。</desc>
+        <defs>
+          <marker id="my-km-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="my-km-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="my-km-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (drawn BEFORE boxes) -->
+        <line x1="192" y1="86" x2="224" y2="86" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#my-km-arr-muted)"/>
+        <line x1="420" y1="86" x2="452" y2="86" stroke="#bf4520" stroke-width="1.6" marker-end="url(#my-km-arr-accent)"/>
+        <line x1="648" y1="86" x2="680" y2="86" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#my-km-arr-muted)"/>
+
+        <!-- Vertical dashed links down to Principles Bar (y=148 -> y=180) -->
+        <line x1="322" y1="148" x2="322" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#my-km-arr-link)"/>
+        <line x1="550" y1="148" x2="550" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#my-km-arr-link)"/>
+        <line x1="758" y1="148" x2="758" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#my-km-arr-link)"/>
+
+        <!-- Stage 1 Box -->
+        <rect x="24" y="24" width="168" height="124" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.3"/>
+        <text x="108" y="48" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">① 全景与跑起来</text>
+        <text x="108" y="74" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">00 系统定位与选型</text>
+        <text x="108" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">01 Docker 快速上手</text>
+        <text x="108" y="122" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#4f5d75">CLI · Go · Node.js</text>
+
+        <!-- Stage 2 Box -->
+        <rect x="224" y="24" width="196" height="124" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.3"/>
+        <text x="322" y="48" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">② 核心基本功</text>
+        <text x="322" y="72" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">02 建表与字段选型</text>
+        <text x="322" y="96" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">03 SQL 进阶 · 04 事务并发</text>
+        <text x="322" y="120" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">05 索引、慢日志与 N+1</text>
+
+        <!-- Stage 3 Box (Focal) -->
+        <rect x="452" y="24" width="196" height="124" rx="6" fill="#FFFDF7"/>
+        <rect x="452" y="24" width="196" height="124" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="550" y="48" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">③ 常见业务场景（重点）</text>
+        <text x="550" y="74" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#bf4520">06 九大真实需求落地</text>
+        <text x="550" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#2d3142">注册防重 · 深分页 · 防超卖</text>
+        <text x="550" y="122" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">软删除 · 状态机 · 双写一致性</text>
+
+        <!-- Stage 4 Box -->
+        <rect x="680" y="24" width="156" height="124" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="758" y="48" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">④ 上线与自测</text>
+        <text x="758" y="74" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">07 上线前必知</text>
+        <text x="758" y="98" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">备份·读写分离·分表</text>
+        <text x="758" y="122" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">08 10 题自测 + 速记</text>
+
+        <!-- Bottom Principles Bar -->
+        <rect x="24" y="180" width="812" height="44" rx="6" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1.3"/>
+        <text x="430" y="207" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2e5aa8">📘 核心原理篇（按需跳入：16KB 数据页 · Buffer Pool 冷热 LRU · B+ 树阶数 · MVCC ReadView · 临键锁 · 两阶段提交）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4 id="quiz-00" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 电商商品搜索框需要支持用户输入「静音无线键盘」分词匹配、错别字容错，并按价格/品牌/销量等十几个条件任意组合筛选，直接用 MySQL <code>LIKE '%关键词%'</code> 合适吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>不合适。</strong>MySQL 的 B+ 树索引无法加速前导通配符 <code>LIKE '%关键词%'</code>（会触发逐行全表扫描），也缺乏灵活的中文分词相关度打分能力。正确做法是：商品主数据依然保存在 <strong>MySQL</strong> 做权威账本，再通过订阅变更将数据异步同步到 <strong>Elasticsearch</strong> 承担全文检索与多维筛选。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 既然 Redis 读写不到 1 毫秒、每秒能扛 10 万并发，为什么不能干脆去掉 MySQL，把用户的账户余额和已支付订单全存在 Redis 里？</span></summary>
+    <div class="drawer-body">
+      <p>主要有三道硬边界：① <strong>数据安全兜底</strong>——Redis 异步复制与每秒刷盘在机器断电或主从切换时可能丢失最后约 1 秒写入，且 Redis 事务报错不支持回滚（Rollback），而资金与订单要求零丢失强一致；② <strong>复杂查询能力</strong>——Redis 只能按精确 Key 取值，没法直接跑多条件对账或关联统计 SQL；③ <strong>存储成本</strong>——全量历史订单高达数百 GB 至数 TB，纯放内存成本极高。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 电商商品除了固定的标题、价格、库存外，手机品类有「屏幕尺寸/芯片」，服装品类有「尺码/面料」，一定要为了这些动态属性额外引入一套 MongoDB 吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>通常不需要。</strong>现代 MySQL 8.0 / 8.4 原生提供二进制编码的 <code>JSON</code> 数据类型，支持局部路径提取与修改，还能通过虚拟生成列（Generated Column）给高频检索的 JSON 子字段建 B+ 树索引（详见 <a href="#mysql-time-and-json">02.2</a>）。在单套 MySQL 里同时管好核心交易字段与动态扩展属性，能省去跨两套数据库的运维和双写一致性负担。</p>
+    </div>
+  </details>
+</div>

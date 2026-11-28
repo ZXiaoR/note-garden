@@ -556,6 +556,50 @@
       // 同步「入门篇 ⇄ 原理篇」切换按钮的当前章节锚点，实现“读到哪一章，切过去就是哪一章”
       const curPath = window.location.pathname || '';
       const isMqPage = curPath.includes('/mq/');
+      const isGoPage = curPath.includes('/go/');
+      const isNodePage = curPath.includes('/node/');
+      const isMysqlPage = curPath.includes('/mysql/');
+      const mysqlToPrinciplesMap = {
+        overview: 'why',
+        quickstart: 'why',
+        types: 'types',
+        dml: 'dml',
+        trx: 'trx',
+        index: 'index',
+        scenarios: 'index',
+        production: 'log',
+        quiz: 'mysql-self-test'
+      };
+      const mysqlToPracticeMap = {
+        why: 'overview',
+        arch: 'production',
+        types: 'types',
+        dml: 'dml',
+        trx: 'trx',
+        index: 'index',
+        log: 'production'
+      };
+      const nodeToPrinciplesMap = {
+        overview: 'why',
+        quickstart: 'why',
+        module: 'module',
+        async: 'eventloop',
+        'fs-stream': 'stream',
+        http: 'engineering',
+        process: 'cluster',
+        scenarios: 'stream',
+        engineering: 'v8gc',
+        quiz: 'cheat'
+      };
+      const nodeToPracticeMap = {
+        why: 'overview',
+        module: 'module',
+        eventloop: 'async',
+        stream: 'fs-stream',
+        v8gc: 'engineering',
+        cluster: 'process',
+        engineering: 'engineering'
+      };
       const mqToPrinciplesMap = {
         overview: 'push-pull',
         concepts: 'push-pull',
@@ -575,6 +619,27 @@
         isr: 'reliable',
         rebalance: 'production',
         advanced: 'order'
+      };
+      const goToPrinciplesMap = {
+        overview: 'why',
+        quickstart: 'why',
+        basic: 'basic',
+        'slice-map': 'slice',
+        'struct-interface': 'slice',
+        'func-error': 'slice',
+        concurrency: 'gmp',
+        scenarios: 'context',
+        engineering: 'mutex',
+        quiz: 'context'
+      };
+      const goToPracticeMap = {
+        why: 'overview',
+        basic: 'basic',
+        slice: 'slice-map',
+        gmp: 'concurrency',
+        channel: 'concurrency',
+        mutex: 'concurrency',
+        context: 'scenarios'
       };
       const principlesAnchorMap = {
         'linux-cmd': 'tools',
@@ -599,6 +664,24 @@
           } else if (base.includes('index.html') && mqToPracticeMap[currentId]) {
             targetHash = mqToPracticeMap[currentId];
           }
+        } else if (isGoPage) {
+          if (base.includes('principles.html') && goToPrinciplesMap[currentId]) {
+            targetHash = goToPrinciplesMap[currentId];
+          } else if (base.includes('index.html') && goToPracticeMap[currentId]) {
+            targetHash = goToPracticeMap[currentId];
+          }
+        } else if (isNodePage) {
+          if (base.includes('principles.html') && nodeToPrinciplesMap[currentId]) {
+            targetHash = nodeToPrinciplesMap[currentId];
+          } else if (base.includes('index.html') && nodeToPracticeMap[currentId]) {
+            targetHash = nodeToPracticeMap[currentId];
+          }
+        } else if (isMysqlPage) {
+          if (base.includes('principles.html') && mysqlToPrinciplesMap[currentId]) {
+            targetHash = mysqlToPrinciplesMap[currentId];
+          } else if (base.includes('index.html') && mysqlToPracticeMap[currentId]) {
+            targetHash = mysqlToPracticeMap[currentId];
+          }
         } else if (base.includes('principles.html') && principlesAnchorMap[currentId]) {
           targetHash = principlesAnchorMap[currentId];
         } else if (base.includes('index.html') && curPath.includes('/redis/') && practiceAnchorMap[currentId]) {
@@ -616,7 +699,7 @@
   }
 
   // 10. 自动并行加载拆分的纯 HTML 章节子文件 ([data-plop-section="sections/01-xxx.html"])
-  const SECTION_CACHE_PREFIX = 'plop-sec-v15:';
+  const SECTION_CACHE_PREFIX = 'plop-sec-v18:';
 
   const EMOJI_TO_PLOP_ICON = {
     '🌱': 'plop-ico-sprout',

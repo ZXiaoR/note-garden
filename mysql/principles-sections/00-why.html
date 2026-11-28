@@ -11,7 +11,11 @@
 <div class="wb-card" id="innodb-tablespace-hierarchy" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 00.1 · 表空间层次：Tablespace (.ibd) → Segment（段）→ Extent（区 1MB）→ Page（页 16KB）→ Row（行）</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 00.1 InnoDB 独立表空间与四级物理存储结构</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 00.1 InnoDB 独立表空间与四级物理存储结构 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#first-sql">实战篇 01.2</a> 与 <a href="index.html#mysql-ddl-basics">02.4</a> —— 执行建表后磁盘上的 <code>.ibd</code> 文件内部怎么划分空间，以及为什么 <code>TRUNCATE / DROP</code> 比逐行 <code>DELETE</code> 快得多？
+  </p>
 
   <p>
     自 MySQL 5.6.6 起，InnoDB 默认开启 <strong><code>innodb_file_per_table = ON</code>（独立表空间模式）</strong>，每张表的数据与所有索引都存放在数据目录下一个独立的 <code>表名.ibd</code> 文件中。如果磁盘每次只按单行几百字节去读写，磁头寻道与系统调用开销会非常高；如果直接按整个几百 MB 的文件分配，又会造成严重的碎片。因此 InnoDB 在表空间内部设计了<strong>“段（Segment）→ 区（Extent）→ 页（Page）→ 行（Row）”</strong>四级管理结构：
@@ -56,7 +60,11 @@
 <div class="wb-card" id="innodb-16kb-page" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 00.2 · 16 KiB 数据页解剖：7 大组成部分、单向记录链表与 Page Directory 槽位二分查找</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 00.2 <code>16 KiB</code> 数据页（INDEX 页）物理布局与页内检索流程</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 00.2 <code>16 KiB</code> 数据页（INDEX 页）物理布局与页内检索流程 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-index-types">实战篇 05.1</a> —— InnoDB 把一个 16KB 数据页读进内存后，页内几百行记录是单向链表串起来的，它是怎么不用逐行遍历就能二分定位到目标行的？
+  </p>
 
   <p>
     存放 B+ 树节点的数据页（内核页类型为 <code>FIL_PAGE_INDEX</code>）总大小为 <strong><code>16384 字节</code></strong>，内部由头尾固定元数据与中间相向生长的“<strong>用户记录区（User Records）+ 页目录槽位（Page Directory）</strong>”共 7 个部分组成：
@@ -92,21 +100,21 @@
 
         <!-- 2. Page Header (56B) x=136 w=108 -->
         <rect x="136" y="52" width="108" height="72" fill="#E8F5E9" stroke="#1F1F23" stroke-width="2"/>
-        <text x="190" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1b5e20">② Page Header</text>
+        <text x="190" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#1b5e20">② Page Header</text>
         <text x="190" y="90" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#1b5e20">56 Bytes</text>
-        <text x="190" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">槽数 · 记录数 · 层级</text>
+        <text x="190" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">槽数·记录数·层级</text>
 
-        <!-- 3. Infimum + Supremum (26B) x=244 w=116 -->
-        <rect x="244" y="52" width="116" height="72" fill="#FFF3E0" stroke="#1F1F23" stroke-width="2"/>
-        <text x="302" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#d45d00">③ Infimum/Supremum</text>
-        <text x="302" y="90" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#d45d00">26 Bytes (13B×2)</text>
-        <text x="302" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">页内最小/最大虚拟记录</text>
+        <!-- 3. Infimum + Supremum (26B) x=244 w=124 -->
+        <rect x="244" y="52" width="124" height="72" fill="#FFF3E0" stroke="#1F1F23" stroke-width="2"/>
+        <text x="306" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="800" fill="#d45d00">③ Infimum/Supremum</text>
+        <text x="306" y="90" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" font-weight="700" fill="#d45d00">26 Bytes (13B×2)</text>
+        <text x="306" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">最小/最大虚拟记录</text>
 
-        <!-- 4. User Records x=360 w=130 -->
-        <rect x="360" y="52" width="130" height="72" fill="#FFFDF7" stroke="#1F1F23" stroke-width="2"/>
-        <text x="425" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="800" fill="#1F1F23">④ User Records</text>
-        <text x="425" y="90" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">有效行记录链表</text>
-        <text x="425" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9" fill="#bf4520">向右分配生长 ──►</text>
+        <!-- 4. User Records x=368 w=122 -->
+        <rect x="368" y="52" width="122" height="72" fill="#FFFDF7" stroke="#1F1F23" stroke-width="2"/>
+        <text x="429" y="73" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="800" fill="#1F1F23">④ User Records</text>
+        <text x="429" y="90" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#1F1F23">有效行记录链表</text>
+        <text x="429" y="108" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9" fill="#bf4520">向右分配生长 ──►</text>
 
         <!-- 5. Free Space x=490 w=150 (transparent fill so growth arrows show) -->
         <rect x="490" y="52" width="150" height="72" fill="none" stroke="#1F1F23" stroke-width="2" stroke-dasharray="5 4"/>
@@ -149,12 +157,12 @@
         <!-- Record Group 1: id = 1, 2, 4, 8 -->
         <rect x="190" y="188" width="208" height="52" rx="6" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.6"/>
         <text x="294" y="209" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">id=1 → id=2 → id=4 → <tspan font-weight="800" fill="#bf4520">id=8</tspan></text>
-        <text x="294" y="227" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">组内单向链表 · 末尾 id=8 记 n_owned=4</text>
+        <text x="294" y="227" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#5A5860">单向链表 · 末尾记 n_owned=4</text>
 
         <!-- Record Group 2: id = 12, 15, 19, 25 (Focal search target id=15) -->
         <rect x="430" y="188" width="208" height="52" rx="6" fill="#FBE9E7" stroke="#bf4520" stroke-width="2"/>
-        <text x="534" y="209" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#1F1F23">id=12 → <tspan font-weight="800" fill="#1b5e20">[id=15]</tspan> → id=19 → <tspan font-weight="800" fill="#bf4520">id=25</tspan></text>
-        <text x="534" y="227" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#bf4520">二分定位落在 Slot[1]..Slot[2] 间，遍历2步命中</text>
+        <text x="534" y="209" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#1F1F23">id=12→<tspan font-weight="800" fill="#1b5e20">[id=15]</tspan>→id=19→<tspan font-weight="800" fill="#bf4520">id=25</tspan></text>
+        <text x="534" y="227" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="9.5" fill="#bf4520">落入 Slot[1..2]，遍历 2 步命中</text>
 
         <!-- Record Group 3: id = 30, 42, Supremum -->
         <rect x="670" y="188" width="200" height="52" rx="6" fill="#FFF3E0" stroke="#1F1F23" stroke-width="1.6"/>
@@ -189,7 +197,7 @@
         <li><strong>第二步（组内最多 8 步遍历）</strong>：从 <code>Slot[1]</code> 指向的 <code>id=8</code> 出发，顺着 <code>next_record</code> 指针向后走 2 步（<code>id=12 → id=15</code>）即命中目标。</li>
       </ol>
     </li>
-    <li><strong><code>File Header</code> 与 <code>File Trailer</code> 双重校验防页断裂</strong>：页头 38 字节的 <code>FIL_PAGE_SPACE_OR_CHKSUM</code> 与页尾 8 字节的 <code>File Trailer</code> 都记录了当前页的校验和（Checksum）以及最后修改该页的日志序列号 <code>LSN</code> 的低 4 字节。每次从磁盘读入 16KB 页时，InnoDB 都会比对页头与页尾的 Checksum 及 LSN 是否完全一致，只要不相等就说明该页在刷盘途中遭遇断电发生了“半页写入（Partial Page Write）”。</li>
+    <li><strong><code>File Header</code> 与 <code>File Trailer</code> 双重校验防页断裂</strong>：页头 38 字节的 <code>FIL_PAGE_SPACE_OR_CHKSUM</code> 与页尾 8 字节的 <code>File Trailer</code> 都记录了当前页的校验和（Checksum）以及最后修改该页的日志序列号 <code>LSN（Log Sequence Number）</code> 的低 4 字节。每次从磁盘读入 16KB 页时，InnoDB 都会比对页头与页尾的 Checksum 及 LSN 是否完全一致，只要不相等就说明该页在刷盘途中遭遇断电发生了“半页写入（Partial Page Write）”。</li>
   </ul>
 </div>
 
@@ -197,7 +205,11 @@
 <div class="wb-card" id="innodb-row-format" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 00.3 · 行格式解剖：COMPACT / DYNAMIC 物理结构、三大隐藏系统列与 768B / 20B 行溢出页</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 00.3 InnoDB 行记录格式与隐藏系统列</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 00.3 InnoDB 行记录格式与隐藏系统列 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-type-cheatsheet">实战篇 02.5</a> 与 <a href="index.html#sc-soft-delete">06.4</a> —— 为什么建表推荐字段尽量设为 <code>NOT NULL</code>，以及大文本 <code>TEXT / JSON</code> 超长时为什么不会撑爆主数据页？
+  </p>
 
   <p>
     在聚簇索引叶子节点中，每一条物理行记录都由“<strong>记录额外信息头（变长字段长度列表 + NULL 值位图 + 5 字节记录头）</strong>”与“<strong>记录真实数据（3 个隐藏系统列 + 用户定义列）</strong>”连续拼接而成：

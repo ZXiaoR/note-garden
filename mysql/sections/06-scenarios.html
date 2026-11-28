@@ -1,0 +1,559 @@
+<!-- ====================================================================
+     PART 06: 常见业务场景实战 · 9 大高频需求从表设计、SQL、索引到避坑闭环
+     ==================================================================== -->
+<div class="wb-sec-header" id="scenarios" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">常见业务场景实战：9 大真实需求落地与避坑闭环</span>
+  <span class="plop-tag tomato">9 REAL SCENARIOS · SCHEMA · SQL · INDEX · PITFALLS</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>不再按孤立语法背 SQL，而是按「业务需求 → 表设计 → SQL 与代码 → 索引 → 常见坑 → 背后原理」直接落地注册防重、百万订单深分页、防超卖、软删除、状态机、报表 Top N、评论楼层、缓存一致性与本地消息表。
+</div>
+
+<!-- 06.1 · 用户注册防重复：唯一索引 + 捕获重复键错误 -->
+<div class="wb-card" id="sc-dedup" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.1 · 注册与领券防重：数据库唯一索引兜底 + 后端捕获 1062 重复键错误码</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.1 用户注册防重复：唯一索引 + 捕获重复键错误</h3>
+
+  <p>
+    <strong>业务需求</strong>：新用户用手机号注册账号（或每人限领 1 张新人券），弱网下用户连点两次注册按钮，绝不能在数据库里插入两条相同手机号的记录。
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> register_dedup.ts · 表唯一索引 + Node.js / Go 捕获 1062 错误码</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-dedup', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-dedup"><code><span class="c-cm">-- 【表设计与索引】在 phone 列建立唯一索引 uk_phone（适用 8.0 / 8.4）</span>
+<span class="c-kw">CREATE TABLE</span> `accounts` (
+  `id`         <span class="c-fn">BIGINT UNSIGNED</span> <span class="c-kw">NOT NULL AUTO_INCREMENT PRIMARY KEY</span>,
+  `phone`      <span class="c-fn">VARCHAR</span>(<span class="c-num">20</span>)     <span class="c-kw">NOT NULL COMMENT</span> <span class="c-str">'注册手机号'</span>,
+  `nickname`   <span class="c-fn">VARCHAR</span>(<span class="c-num">50</span>)     <span class="c-kw">NOT NULL DEFAULT</span> <span class="c-str">''</span>,
+  `created_at` <span class="c-fn">DATETIME</span>        <span class="c-kw">NOT NULL DEFAULT CURRENT_TIMESTAMP</span>,
+  <span class="c-kw">UNIQUE KEY</span> `uk_phone` (`phone`)
+) <span class="c-kw">ENGINE</span>=InnoDB <span class="c-kw">DEFAULT CHARSET</span>=utf8mb4;
+
+<span class="c-cm">// 【后端代码（Node.js mysql2）】直接 INSERT，捕获 MySQL 错误码 1062</span>
+<span class="c-kw">export async function</span> <span class="c-fn">registerByPhone</span>(phone: <span class="c-kw">string</span>, nickname: <span class="c-kw">string</span>) {
+  <span class="c-kw">try</span> {
+    <span class="c-kw">const</span> [res] = <span class="c-kw">await</span> pool.<span class="c-fn">execute</span>(
+      <span class="c-str">'INSERT INTO accounts (phone, nickname) VALUES (?, ?)'</span>,
+      [phone, nickname]
+    );
+    <span class="c-kw">return</span> { ok: <span class="c-kw">true</span>, userId: res.insertId };
+  } <span class="c-kw">catch</span> (err: <span class="c-kw">any</span>) {
+    <span class="c-cm">// MySQL 唯一键冲突固定错误号：errno === 1062 (code === 'ER_DUP_ENTRY')</span>
+    <span class="c-cm">// Go 对应判断：var me *mysql.MySQLError; errors.As(err, &amp;me) &amp;&amp; me.Number == 1062</span>
+    <span class="c-kw">if</span> (err?.errno === <span class="c-num">1062</span>) {
+      <span class="c-kw">return</span> { ok: <span class="c-kw">false</span>, reason: <span class="c-str">'PHONE_ALREADY_REGISTERED'</span> };
+    }
+    <span class="c-kw">throw</span> err;
+  }
+}</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 常见坑与工程细节</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong>为什么“先 <code>SELECT</code> 查不存在、再 <code>INSERT</code>”防不住并发</strong>：两个请求在同一毫秒到达时，普通 <code>SELECT</code> 都看到结果为 <code>0</code> 行，随后双双执行 <code>INSERT</code>——若没有数据库的 <code>UNIQUE KEY</code> 物理兜底，必然插进两条重复记录。</li>
+        <li><strong>频繁冲突会导致自增 ID 跳号</strong>：在 MySQL 8.0 默认 <code>innodb_autoinc_lock_mode = 2</code> 下，<code>INSERT</code> 因 <code>1062</code> 冲突失败或执行 <code>INSERT IGNORE / ON DUPLICATE KEY UPDATE</code> 时，已经申请消耗掉的自增 <code>id</code> 不会退回（出现 <code>1, 2, 5</code> 跳号）。如果接口属于高频重复上报场景，可先做一次轻量普通查询拦截绝大部分已存在请求，仍用唯一索引兜底最后 1% 的并发竞态。</li>
+      </ul>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:10px 0 0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>两条并发 <code>INSERT</code> 撞上同一个唯一索引键时，InnoDB 如何用记录锁与共享锁保证互斥？详见 <a href="principles.html#mysql-lock-degradation-rules">《核心原理篇 · 05.3 唯一索引加锁与冲突规则》</a>。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.2 · 订单列表分页：深分页改游标与延迟关联（从现 06.2 迁入升级） -->
+<div class="wb-card" id="sc-pagination" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> 06.2 · 百万级列表翻页：LIMIT 1000000, 20 慢查询根因、游标分页与延迟关联</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-sw-poster"></use></svg> 06.2 订单列表分页：深分页改游标与延迟关联</h3>
+
+  <p>
+    <strong>业务需求</strong>：电商订单表已有数百万行，App 端买家下滑加载历史订单，或商家运营后台翻到第 50000 页（<code>LIMIT 1000000, 20</code>）时接口耗时数秒甚至超时。根因在于：<strong>MySQL 并不是直接跳过前 100 万行，而是顺着二级索引查出前 <code>1000020</code> 个主键 ID，老老实实回表 <code>1000020</code> 次取出整行交给 Server 层，最后把前 100 万行全部丢弃</strong>。按产品交互形态对应两种标准解法：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> order_pagination.sql · 游标分页（下拉瀑布流）与延迟关联（跳页码）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mysql-page', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mysql-page"><code><span class="c-cm">-- 【表与联合索引】在 orders 表建立 KEY idx_shop_id (shop_id, id)</span>
+<span class="c-cm">-- ❌ 慢查询原写法：先回表 1000020 次取整行，再丢弃前 1000000 行</span>
+<span class="c-kw">SELECT</span> `id`, `order_no`, `buyer_id`, `pay_amount`, `status`
+<span class="c-kw">FROM</span> `orders`
+<span class="c-kw">WHERE</span> `shop_id` = <span class="c-num">88</span> <span class="c-kw">ORDER BY</span> `id` <span class="c-kw">DESC LIMIT</span> <span class="c-num">1000000</span>, <span class="c-num">20</span>;
+
+<span class="c-cm">-- ✅ 方案一：游标分页 / Seek Method（App 下拉加载与全表分批导出首选，恒定 &lt; 2ms）</span>
+<span class="c-cm">-- 前端传回上一页最后一条订单的 id（如 last_id = 420580），直接从该位置顺着 B+ 树往后取 20 条：</span>
+<span class="c-kw">SELECT</span> `id`, `order_no`, `buyer_id`, `pay_amount`, `status`
+<span class="c-kw">FROM</span> `orders`
+<span class="c-kw">WHERE</span> `shop_id` = <span class="c-num">88</span> <span class="c-kw">AND</span> `id` &lt; <span class="c-num">420580</span>
+<span class="c-kw">ORDER BY</span> `id` <span class="c-kw">DESC LIMIT</span> <span class="c-num">20</span>;
+
+<span class="c-cm">-- ✅ 方案二：延迟关联 / Deferred Join（PC 后台必须保留“跳第 N 页”按钮时的改写）</span>
+<span class="c-cm">-- 子查询只查主键 id，100% 走覆盖索引（Using index，0 次回表）快速滑过前 100 万个 id，</span>
+<span class="c-cm">-- 拿到最终 20 个 id 后再与原表 INNER JOIN，把回表次数从 1000020 次降到仅 20 次：</span>
+<span class="c-kw">SELECT</span> `o`.`id`, `o`.`order_no`, `o`.`buyer_id`, `o`.`pay_amount`, `o`.`status`
+<span class="c-kw">FROM</span> `orders` `o`
+<span class="c-kw">INNER JOIN</span> (
+  <span class="c-kw">SELECT</span> `id` <span class="c-kw">FROM</span> `orders`
+  <span class="c-kw">WHERE</span> `shop_id` = <span class="c-num">88</span>
+  <span class="c-kw">ORDER BY</span> `id` <span class="c-kw">DESC LIMIT</span> <span class="c-num">1000000</span>, <span class="c-num">20</span>
+) <span class="c-kw">AS</span> `page_ids` <span class="c-kw">ON</span> `o`.`id` = `page_ids`.`id`
+<span class="c-kw">ORDER BY</span> `o`.`id` <span class="c-kw">DESC</span>;</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 常见坑与复合游标写法</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong>按非唯一字段（如 <code>created_at</code>）做游标分页会漏数据</strong>：如果同一秒有 5 笔订单，上一页恰好截断在第 2 笔，下一页写 <code>created_at &lt; last_time</code> 会把同秒剩下的 3 笔漏掉。<strong>正确做法是把唯一主键拼进复合游标</strong>：索引建 <code>(shop_id, created_at, id)</code>，条件写 <code>WHERE shop_id = ? AND (created_at &lt; ? OR (created_at = ? AND id &lt; ?)) ORDER BY created_at DESC, id DESC LIMIT 20</code>。</li>
+        <li><strong>延迟关联外层别漏写 <code>ORDER BY</code></strong>：<code>INNER JOIN</code> 后输出顺序不保证与子查询一致，外层末尾记得补上 <code>ORDER BY o.id DESC</code>；同时业务产品侧通常限制最大跳页深度（如仅开放前 100 页，更早历史引导按日期筛选）。</li>
+      </ul>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:10px 0 0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>二级索引叶子节点存了什么、为什么每次回表都是一次聚簇树查找？详见 <a href="principles.html#btree-fanout-math">《核心原理篇 · 02.1 B+ 树结构与容量推导》</a>。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.3 · 库存扣减防超卖（引用 04.3，聚焦选型与坑） -->
+<div class="wb-card" id="sc-stock" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 06.3 · 电商库存扣减：三种并发模式选型对照与热点行锁竞争边界（关联 04.3）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 06.3 库存扣减防超卖：业务选型与避坑（引用 <a href="#mysql-concurrency-patterns">04.3</a>）</h3>
+
+  <p>
+    三种防超卖完整 SQL 已在 <a href="#mysql-concurrency-patterns"><strong>04.3 高并发防超卖三大标准模式</strong></a> 中给出，此处不再重复贴相同 SQL，重点总结落地电商下单时的<strong>选型边界与常见坑</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:10px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:22%">业务量级与场景</th>
+          <th style="width:32%">推荐落地写法</th>
+          <th>必防的坑</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>日常普通商品下单</strong><br>（单 SKU 并发每秒几十~几百）</td>
+          <td>在下单事务中直接执行单条条件更新：<br><code>UPDATE sku_stock SET stock = stock - ? WHERE sku_id = ? AND stock &gt;= ?</code>，检查 <code>affectedRows == 1</code></td>
+          <td>① <strong><code>WHERE</code> 条件中的 <code>sku_id</code> 必须有主键或唯一索引</strong>，否则无索引 <code>UPDATE</code> 会锁死整张库存表；② 在事务中把热点 <code>UPDATE sku_stock</code> 放在最后一步（紧贴 <code>COMMIT</code>），最大限度缩短行锁持有毫秒数。</td>
+        </tr>
+        <tr>
+          <td><strong>取消订单退回库存</strong><br>（防重复退库存多加）</td>
+          <td>增加一张库存扣减流水表 <code>stock_logs(order_no, sku_id, status)</code> 建唯一索引，先插流水（或改流水状态）再加回库存</td>
+          <td>如果不记扣减流水，超时关单任务重试两次就会把库存多加回去一次，导致账实不符。</td>
+        </tr>
+        <tr>
+          <td><strong>万人抢单件爆款活动</strong><br>（单 SKU 瞬时上万 QPS）</td>
+          <td>单行 MySQL 排他锁物理上限约几百~上千 TPS，需前置到 <strong><a href="../redis/index.html#scenarios">Redis Lua 原子预扣</a> + <a href="../mq/index.html#sc-peak">消息队列削峰</a></strong> 异步写库</td>
+          <td>Redis 仅做前置流量挡板，异步消费者落 MySQL 时依然保留 <code>AND stock &gt;= ?</code> 做最终安全底线。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>为什么高并发下同一行的 <code>UPDATE</code> 会串行排队？详见 <a href="principles.html#mysql-rc-rr-phantom">《核心原理篇 · 04.3 当前读》</a> 与 <a href="principles.html#mysql-row-lock-types">《05.2 InnoDB 记录锁》</a>。
+  </p>
+</div>
+
+<!-- 06.4 · 软删除与唯一索引冲突怎么处理 -->
+<div class="wb-card" id="sc-soft-delete" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-puzzle"></use></svg> 06.4 · 注销重注册冲突：软删除标记设计与 UNIQUE KEY (phone, deleted_at) 标准解法</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-puzzle"></use></svg> 06.4 软删除与唯一索引冲突怎么处理</h3>
+
+  <p>
+    <strong>业务需求</strong>：为保留历史订单关联与审计线索，账号注销或商品下架通常不做物理 <code>DELETE</code>，而是做<strong>软删除（Soft Delete，又称逻辑删除）</strong>。但如果表上有 <code>UNIQUE KEY uk_phone (phone)</code>，用户注销旧号后再用同一个手机号重新注册，就会撞上旧软删记录报 <code>1062 Duplicate entry</code>；若改成联合唯一索引 <code>UNIQUE(phone, is_deleted)</code>（<code>is_deleted</code> 取 <code>0/1</code>），该手机号<strong>第二次注销时又会因为出现两条 <code>('138...', 1)</code> 而报错</strong>。
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> soft_delete_unique.sql · deleted_token（存 0 或已删主键 id）标准解法</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-softdel', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-softdel"><code><span class="c-cm">-- 【表设计】用 deleted_id 代替布尔 is_deleted：</span>
+<span class="c-cm">-- 活跃记录固定为 0；软删除时将其更新为自身唯一的自增主键 id（或毫秒时间戳）</span>
+<span class="c-kw">CREATE TABLE</span> `users` (
+  `id`         <span class="c-fn">BIGINT UNSIGNED</span> <span class="c-kw">NOT NULL AUTO_INCREMENT PRIMARY KEY</span>,
+  `phone`      <span class="c-fn">VARCHAR</span>(<span class="c-num">20</span>)     <span class="c-kw">NOT NULL</span>,
+  `deleted_id` <span class="c-fn">BIGINT UNSIGNED</span> <span class="c-kw">NOT NULL DEFAULT</span> <span class="c-num">0</span> <span class="c-kw">COMMENT</span> <span class="c-str">'0=正常，&gt;0=已注销(填自身id)'</span>,
+  `deleted_at` <span class="c-fn">DATETIME</span>        <span class="c-kw">DEFAULT NULL COMMENT</span> <span class="c-str">'注销时间'</span>,
+  <span class="c-cm">-- 活跃状态下同一 phone 只能有一条 (phone, 0)；每次注销都是不同的 (phone, id)，支持无限次重绑</span>
+  <span class="c-kw">UNIQUE KEY</span> `uk_phone_alive` (`phone`, `deleted_id`)
+) <span class="c-kw">ENGINE</span>=InnoDB <span class="c-kw">DEFAULT CHARSET</span>=utf8mb4;
+
+<span class="c-cm">-- 1. 正常登录查询（务必带上 deleted_id = 0，正好命中联合唯一索引完整两列）</span>
+<span class="c-kw">SELECT</span> `id`, `phone` <span class="c-kw">FROM</span> `users` <span class="c-kw">WHERE</span> `phone` = <span class="c-str">'13800138000'</span> <span class="c-kw">AND</span> `deleted_id` = <span class="c-num">0</span>;
+
+<span class="c-cm">-- 2. 注销账号（软删除）：把 deleted_id 设为自身主键 id，腾出 ('13800138000', 0) 槽位</span>
+<span class="c-kw">UPDATE</span> `users`
+<span class="c-kw">SET</span> `deleted_id` = `id`, `deleted_at` = <span class="c-fn">NOW</span>()
+<span class="c-kw">WHERE</span> `id` = <span class="c-num">105</span> <span class="c-kw">AND</span> `deleted_id` = <span class="c-num">0</span>;</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 为什么不推荐用 <code>deleted_at DEFAULT NULL</code> 拼唯一索引？</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong><code>NULL != NULL</code> 会让活跃记录失去唯一约束</strong>：在 MySQL 唯一索引中，多个 <code>NULL</code> 互不相等。如果把活跃记录设为 <code>deleted_at = NULL</code> 并建 <code>UNIQUE(phone, deleted_at)</code>，那么<strong>两个未注销的正常用户可以同时插入两条 <code>('13800138000', NULL)</code> 而不报错</strong>，彻底把防重废掉了！因此活跃态必须用非空确定值 <code>0</code>。</li>
+        <li><strong>防漏写过滤条件</strong>：全库引入软删除后，任何业务查询和 <code>JOIN</code> 一旦漏写 <code>AND deleted_id = 0</code> 就会把已删除数据漏给前端；若软删比例极高拖慢索引，更干净的做法是“物理删除原表行 + 同事务写入 <code>users_deleted_archive</code> 历史归档表”。</li>
+      </ul>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:10px 0 0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>InnoDB 行记录头如何存放 <code>NULL</code> 位图与删除标记位？详见 <a href="principles.html#innodb-row-format">《核心原理篇 · 00.3 行记录格式与隐藏列》</a>。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.5 · 订单状态流转：状态机 + 条件更新 -->
+<div class="wb-card" id="sc-state-machine" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 06.5 · 订单生命周期防护：有限状态机建模 + WHERE 旧状态条件更新防乱序覆盖</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 06.5 订单状态流转：状态机 + 条件更新</h3>
+
+  <p>
+    <strong>业务需求</strong>：一笔电商订单会经历「待支付 → 已支付 → 已发货 → 已完成」或「已取消」。线上经常遇到两类并发竞态：① 微信/支付宝异步回调在网络超时时连发两次“支付成功”；② 第 30 分钟整点定时取消任务刚把订单改为“已取消”，晚到半秒的支付回调又到达，不能直接把已取消订单强行覆盖为“已支付”。核心解法是<strong>把合法前置状态写进 <code>UPDATE ... WHERE status = 旧状态</code></strong>：
+  </p>
+
+  <!-- Editorial SVG: Order Finite State Machine -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 880 224" style="width:100%; min-width:800px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="my-sm-title my-sm-desc">
+        <title id="my-sm-title">电商订单有限状态机合法流转与前置状态守卫图</title>
+        <desc id="my-sm-desc">订单创建进入状态1待支付，仅在满足 status=1 时允许经支付成功转入状态2已支付，或经超时取消转入状态5已取消；状态2经商家发货转入状态3已发货，最终确认收货进入状态4已完成。</desc>
+        <defs>
+          <marker id="my-sm-arr-muted" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="my-sm-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (drawn BEFORE state boxes, orthogonal r=8, 8px label gap) -->
+        <!-- Start (28,84) -> S1 (68,84) -->
+        <line x1="34" y1="84" x2="68" y2="84" stroke="#2d3142" stroke-width="1.4" marker-end="url(#my-sm-arr-muted)"/>
+
+        <!-- S1 (200,84) -> S2 (308,84) [Focal transition] -->
+        <line x1="200" y1="84" x2="308" y2="84" stroke="#bf4520" stroke-width="1.8" marker-end="url(#my-sm-arr-accent)"/>
+        <rect x="218" y="60" width="72" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="254" y="72" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#bf4520">支付成功</text>
+
+        <!-- S2 (444,84) -> S3 (548,84) -->
+        <line x1="444" y1="84" x2="548" y2="84" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#my-sm-arr-muted)"/>
+        <rect x="460" y="60" width="72" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="496" y="72" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="500" fill="#5a6580">商家发货</text>
+
+        <!-- S3 (680,84) -> S4 (768,84) -->
+        <line x1="680" y1="84" x2="768" y2="84" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#my-sm-arr-muted)"/>
+        <rect x="688" y="60" width="72" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="724" y="72" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="500" fill="#5a6580">确认收货</text>
+
+        <!-- S1 bottom (134,112) -> S5 left (308,176) -->
+        <path d="M 134,112 V 168 Q 134,176 142,176 H 308" fill="none" stroke="#4f5d75" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#my-sm-arr-muted)"/>
+        <rect x="168" y="152" width="112" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="224" y="164" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="500" fill="#5a6580">超时或主动取消</text>
+
+        <!-- Start Dot -->
+        <circle cx="28" cy="84" r="6" fill="#2d3142"/>
+
+        <!-- State 1: UNPAID -->
+        <rect x="68" y="56" width="132" height="56" rx="8" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="134" y="80" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#2d3142">1 · 待支付</text>
+        <text x="134" y="100" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#4f5d75">UNPAID</text>
+
+        <!-- State 2: PAID (Focal) -->
+        <rect x="308" y="56" width="136" height="56" rx="8" fill="#FFFDF7"/>
+        <rect x="308" y="56" width="136" height="56" rx="8" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="376" y="80" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#bf4520">2 · 已支付</text>
+        <text x="376" y="100" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#bf4520">WHERE status=1</text>
+
+        <!-- State 3: SHIPPED -->
+        <rect x="548" y="56" width="132" height="56" rx="8" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="614" y="80" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#2d3142">3 · 已发货</text>
+        <text x="614" y="100" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#4f5d75">WHERE status=2</text>
+
+        <!-- State 4: COMPLETED -->
+        <rect x="768" y="56" width="92" height="56" rx="8" fill="rgba(45,49,66,0.06)" stroke="#2d3142" stroke-width="1.4"/>
+        <text x="814" y="80" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#2d3142">4 · 已完成</text>
+        <text x="814" y="100" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#4f5d75">DONE</text>
+
+        <!-- State 5: CANCELLED -->
+        <rect x="308" y="148" width="136" height="56" rx="8" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.3"/>
+        <text x="376" y="172" text-anchor="middle" font-family="'Geist','Noto Sans SC','PingFang SC',sans-serif" font-size="13" font-weight="700" fill="#2d3142">5 · 已取消</text>
+        <text x="376" y="192" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9.5" fill="#4f5d75">WHERE status=1</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> order_state_cas.sql · 订单表索引与带前置状态守卫的幂等更新</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-state', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-state"><code><span class="c-cm">-- 【表与索引】order_no 建唯一索引 uk_order_no (order_no)</span>
+<span class="c-cm">-- 1. 支付回调处理：必须同时匹配 order_no 且当前 status = 1 (待支付)</span>
+<span class="c-kw">UPDATE</span> `orders`
+<span class="c-kw">SET</span> `status` = <span class="c-num">2</span>, `trade_no` = ?, `paid_at` = <span class="c-fn">NOW</span>()
+<span class="c-kw">WHERE</span> `order_no` = ? <span class="c-kw">AND</span> `status` = <span class="c-num">1</span>;
+
+<span class="c-cm">-- 【后端根据 affectedRows 分支裁决】：</span>
+<span class="c-cm">-- • affectedRows === 1 ──► 本次成功流转为已支付，继续触发发货/发券</span>
+<span class="c-cm">-- • affectedRows === 0 ──► 再查一次当前 status：</span>
+<span class="c-cm">--     若已是 2 (已支付)：说明是重复回调，直接返回“处理成功”（幂等通过）</span>
+<span class="c-cm">--     若已是 5 (已取消)：说明撞上超时关单后晚到的付款，自动走原路退款流程！</span></code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 常见坑：绝对不要裸写 <code>SET status = 2 WHERE order_no = ?</code></div>
+      <p style="font-size:12.8px; margin:0 0 8px; line-height:1.66; color:var(--plop-ink-text);">
+        如果不带 <code>AND status = 1</code>，一旦订单超时取消并退回了库存，半秒后晚到的支付回调又把订单状态硬改成 <code>2（已支付）</code>，就会出现<strong>“库存已退给别人买走、但这笔单也变成了已支付”</strong>的严重资损。加上前置状态条件后，InnoDB 会在 <code>uk_order_no</code> 唯一索引记录上加排他锁串行执行，“支付”与“取消”必有一方返回 <code>affectedRows = 0</code>。
+      </p>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong><code>UPDATE</code> 如何触发当前读并锁住唯一索引记录？详见 <a href="principles.html#mysql-rc-rr-phantom">《核心原理篇 · 04.3 当前读与锁协同》</a>。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.6 · 统计报表：按天汇总、Top N（窗口函数） -->
+<div class="wb-card" id="sc-report" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 06.6 · 运营数据报表：按天交易额汇总与每类目销量 Top N（窗口函数实战）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 06.6 统计报表：按天汇总与每类目 Top N</h3>
+
+  <p>
+    <strong>业务需求</strong>：运营看板需要展示两张核心图表：① 最近 7 天每天的已支付订单笔数与实付总额（GMV，Gross Merchandise Volume，商品交易总额）；② 每个商品类目下累计销量排名前 3 的热销商品。
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> analytics_report.sql · 按天分组汇总与窗口函数分组 Top 3（8.0+）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-report', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-report"><code><span class="c-cm">-- 【索引设计】orders 建 idx_paid_amt (paid_at, status, pay_amount)；</span>
+<span class="c-cm">--            products 建 idx_cat_sales (category_id, sales DESC)</span>
+
+<span class="c-cm">-- 1. 最近 7 天按日汇总（WHERE 用左闭右开时间区间走索引，SELECT/GROUP BY 再提取日期）</span>
+<span class="c-kw">SELECT</span>
+  <span class="c-fn">DATE</span>(`paid_at`) <span class="c-kw">AS</span> `stat_day`,
+  <span class="c-fn">COUNT</span>(*)        <span class="c-kw">AS</span> `order_cnt`,
+  <span class="c-fn">SUM</span>(`pay_amount`) <span class="c-kw">AS</span> `total_gmv`
+<span class="c-kw">FROM</span> `orders`
+<span class="c-kw">WHERE</span> `paid_at` &gt;= <span class="c-str">'2026-11-21 00:00:00'</span>
+  <span class="c-kw">AND</span> `paid_at` &lt;  <span class="c-str">'2026-11-28 00:00:00'</span>
+  <span class="c-kw">AND</span> `status` <span class="c-kw">IN</span> (<span class="c-num">2</span>, <span class="c-num">3</span>, <span class="c-num">4</span>)
+<span class="c-kw">GROUP BY</span> <span class="c-fn">DATE</span>(`paid_at`)
+<span class="c-kw">ORDER BY</span> `stat_day` <span class="c-kw">ASC</span>;
+
+<span class="c-cm">-- 2. 每个商品类目下销量前 3 名（ROW_NUMBER 严格取 3 条，并列也只取 3 条）</span>
+<span class="c-kw">WITH</span> `ranked_sku` <span class="c-kw">AS</span> (
+  <span class="c-kw">SELECT</span>
+    `category_id`, `id`, `title`, `sales`,
+    <span class="c-fn">ROW_NUMBER</span>() <span class="c-kw">OVER</span> (<span class="c-kw">PARTITION BY</span> `category_id` <span class="c-kw">ORDER BY</span> `sales` <span class="c-kw">DESC</span>, `id` <span class="c-kw">ASC</span>) <span class="c-kw">AS</span> `rn`
+  <span class="c-kw">FROM</span> `products`
+  <span class="c-kw">WHERE</span> `status` = <span class="c-num">1</span>
+)
+<span class="c-kw">SELECT</span> `category_id`, `id`, `title`, `sales`, `rn`
+<span class="c-kw">FROM</span> `ranked_sku` <span class="c-kw">WHERE</span> `rn` &lt;= <span class="c-num">3</span>;</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 报表查询的 3 个高频坑</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong>别在 <code>WHERE</code> 里写 <code>DATE(paid_at) BETWEEN ...</code></strong>：对 <code>paid_at</code> 套函数会让索引失效变全表扫描；<code>WHERE</code> 保持原始列区间过滤，只在 <code>SELECT / GROUP BY</code> 里算 <code>DATE(paid_at)</code> 即可命中覆盖索引。</li>
+        <li><strong>某天 0 单时折线图断档</strong>：数据库里没订单的那天 <code>GROUP BY</code> 不会凭空造出一行 <code>0</code>，由后端代码按日期数组补齐缺失天的 <code>0</code> 最简单清晰。</li>
+        <li><strong>千万级大表勿在交易主库实时跑月度/年度全量聚合</strong>：重度统计 SQL 应路由到<strong>只读从库</strong>，或者每天凌晨用定时任务把前一天汇总结果写入按日预聚合表 <code>daily_order_stats</code>，白天看板查预聚合表只需 1 毫秒。</li>
+      </ul>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:10px 0 0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>分组排序超出内存缓冲区时如何触发外部归并？详见 <a href="principles.html#mysql-filesort-internals">《核心原理篇 · 03.3 Filesort 排序内核》</a>。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.7 · 树形分类 / 评论楼层：邻接表 + 递归 CTE -->
+<div class="wb-card" id="sc-tree" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 06.7 · 树形层级存储：多级商品分类 / 社区评论回复楼层的邻接表与递归 CTE</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 06.7 树形分类与评论楼层：邻接表 + 递归 CTE</h3>
+
+  <p>
+    <strong>业务需求</strong>：电商三级/多级商品分类（数码 → 电脑外设 → 机械键盘），或社区帖子下的多级嵌套评论回复，如何用一张表存下父子关系，并用一条 SQL 查出完整子树或面包屑导航路径？
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> comment_tree.sql · 邻接表 parent_id 建模与递归 CTE 查子树（8.0+）</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-tree', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-tree"><code><span class="c-cm">-- 【表设计与索引】parent_id = 0 表示一级顶层评论；建联合索引 idx_post_parent</span>
+<span class="c-kw">CREATE TABLE</span> `comments` (
+  `id`        <span class="c-fn">BIGINT UNSIGNED</span> <span class="c-kw">NOT NULL AUTO_INCREMENT PRIMARY KEY</span>,
+  `post_id`   <span class="c-fn">BIGINT UNSIGNED</span> <span class="c-kw">NOT NULL COMMENT</span> <span class="c-str">'所属帖子ID'</span>,
+  `parent_id` <span class="c-fn">BIGINT UNSIGNED</span> <span class="c-kw">NOT NULL DEFAULT</span> <span class="c-num">0</span> <span class="c-kw">COMMENT</span> <span class="c-str">'父评论ID(0为顶层)'</span>,
+  `content`   <span class="c-fn">VARCHAR</span>(<span class="c-num">500</span>)    <span class="c-kw">NOT NULL</span>,
+  <span class="c-kw">KEY</span> `idx_post_parent` (`post_id`, `parent_id`)
+) <span class="c-kw">ENGINE</span>=InnoDB <span class="c-kw">DEFAULT CHARSET</span>=utf8mb4;
+
+<span class="c-cm">-- 向下递归查出某条一级评论（id = 500）下的所有子孙回复及嵌套深度（限最多 10 层）</span>
+<span class="c-kw">WITH RECURSIVE</span> `reply_tree` <span class="c-kw">AS</span> (
+  <span class="c-kw">SELECT</span> `id`, `parent_id`, `content`, <span class="c-num">1</span> <span class="c-kw">AS</span> `depth`, <span class="c-fn">CAST</span>(`id` <span class="c-kw">AS CHAR</span>(<span class="c-num">200</span>)) <span class="c-kw">AS</span> `path`
+  <span class="c-kw">FROM</span> `comments` <span class="c-kw">WHERE</span> `post_id` = <span class="c-num">99</span> <span class="c-kw">AND</span> `id` = <span class="c-num">500</span>
+  <span class="c-kw">UNION ALL</span>
+  <span class="c-kw">SELECT</span> `c`.`id`, `c`.`parent_id`, `c`.`content`, `t`.`depth` + <span class="c-num">1</span>,
+         <span class="c-fn">CONCAT</span>(`t`.`path`, <span class="c-str">'/'</span>, `c`.`id`)
+  <span class="c-kw">FROM</span> `comments` `c`
+  <span class="c-kw">INNER JOIN</span> `reply_tree` `t` <span class="c-kw">ON</span> `c`.`post_id` = <span class="c-num">99</span> <span class="c-kw">AND</span> `c`.`parent_id` = `t`.`id`
+  <span class="c-kw">WHERE</span> `t`.`depth` &lt; <span class="c-num">10</span>
+)
+<span class="c-kw">SELECT</span> * <span class="c-kw">FROM</span> `reply_tree` <span class="c-kw">ORDER BY</span> `path` <span class="c-kw">ASC</span>;</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 常见坑与替代建模选型</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong>锚点列必须 <code>CAST</code> 预留宽度</strong>：如果锚点查询直接写 <code>CAST(id AS CHAR)</code>，MySQL 会按首行长度定死列宽（如 3 个字符），下一层 <code>CONCAT('500/501')</code> 就会因超长报错 <code>Data too long for column 'path'</code>，务必写明 <code>CAST(id AS CHAR(200))</code>。</li>
+        <li><strong>防止父子环路死循环</strong>：更新分类的 <code>parent_id</code> 时必须在代码里禁止“把节点移动到它自己的子孙节点下”，并在 SQL 中加 <code>WHERE t.depth &lt; 10</code> 兜底。</li>
+        <li><strong>海量评论为什么常改用“两级扁平模型”或“路径列”</strong>：像抖音/小红书评论区通常设计为 <code>root_id</code>（所属一级评论 ID）+ <code>reply_to_user_id</code> 两层拍平展示，翻页只需普通索引 <code>WHERE root_id = ? LIMIT 20</code>，连递归都不需要。</li>
+      </ul>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:10px 0 0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>递归迭代每一步如何通过索引嵌套循环关联子行？详见 <a href="principles.html#mysql-join-algorithms">《核心原理篇 · 03.2 连接算子执行过程》</a>。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.8 · 缓存一致性：先更新库再删缓存（链到 Redis 笔记 03） -->
+<div class="wb-card" id="sc-cache-sync" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 06.8 · MySQL × Redis 协同：旁路缓存（Cache-Aside）先更新数据库再删除缓存</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 06.8 缓存一致性：先更新数据库，再删除缓存</h3>
+
+  <p>
+    <strong>业务需求</strong>：商品详情缓存在 Redis 里扛高频读，商家在后台修改了 MySQL 里的商品价格，怎么保证买家尽快看到新价格、不把旧价格长期留在缓存里？标准工程模式是 <strong>Cache-Aside（旁路缓存）：读请求先查缓存、未命中查库回填；写请求「先更新 MySQL 事务提交，再删除 Redis 缓存键」</strong>（完整时序图与代码防护见 <a href="../redis/index.html#consistency"><strong>Redis 笔记 · 03.1 旁路缓存与双写一致性 ↗</strong></a>）：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> update_price_cache.ts · 先提交 MySQL 修改，再 DEL 失效缓存</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-cache', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-cache"><code><span class="c-kw">export async function</span> <span class="c-fn">updateProductPrice</span>(skuId: <span class="c-kw">number</span>, newPrice: <span class="c-kw">string</span>) {
+  <span class="c-cm">// 1. 先更新 MySQL 权威账本并完成提交（autocommit=1 单语句自动提交）</span>
+  <span class="c-kw">await</span> pool.<span class="c-fn">execute</span>(
+    <span class="c-str">'UPDATE products SET price = ?, updated_at = NOW() WHERE id = ?'</span>,
+    [newPrice, skuId]
+  );
+
+  <span class="c-cm">// 2. 再删除 Redis 缓存（而非 SET 更新缓存，防并发写乱序覆盖）</span>
+  <span class="c-kw">const</span> cacheKey = <span class="c-str">`product:detail:${skuId}`</span>;
+  <span class="c-kw">try</span> {
+    <span class="c-kw">await</span> redis.<span class="c-fn">del</span>(cacheKey);
+  } <span class="c-kw">catch</span> (err) {
+    <span class="c-cm">// 3. 若删缓存网络抖动报错，投递重试队列（或靠缓存 5~30 分钟 TTL 兜底）</span>
+    <span class="c-kw">await</span> retryQueue.<span class="c-fn">push</span>({ action: <span class="c-str">'DEL_CACHE'</span>, key: cacheKey });
+  }
+}</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 两个关键追问（为什么这样定顺序）</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong>为什么删缓存而不直接写新缓存？</strong>两个并发改价请求 A（改 100）和 B（改 80），若数据库先 A 后 B，更新缓存却因网络抖动变成先 B 后 A，缓存就会永久停留在错误的 100；而直接 <code>DEL</code> 让下次读按需从数据库加载最新值则无此隐患。</li>
+        <li><strong>为什么不能「先删缓存、再更数据库」？</strong>删缓存只需 0.5ms，更新磁盘事务可能要 10ms——在这 10ms 空窗期内只要来一个并发读请求发现缓存空了，就会去数据库读出<strong>未提交前的旧价格</strong>重新塞回缓存，大概率造成脏回填。</li>
+      </ul>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:10px 0 0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>大型系统如何通过 Canal 订阅 MySQL <code>binlog</code> 异步删缓存做到解耦重试？详见 <a href="principles.html#mysql-replication-ha">《核心原理篇 · 06.3 主从复制与缓存双写一致性》</a>。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 06.9 · 下单和发消息的一致性：本地消息表（链到消息队列笔记） -->
+<div class="wb-card" id="sc-outbox" style="background:var(--plop-paper);">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 06.9 · MySQL × 消息队列协同：同库事务写本地消息表（Transactional Outbox）保证不丢消息</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 06.9 下单与发消息的一致性：本地消息表（Outbox）</h3>
+
+  <p>
+    <strong>业务需求</strong>：买家创建订单（写 MySQL）后，必须发一条消息到 Kafka 通知营销服务发积分、通知库存服务锁物流单。如果“先提交订单事务再发 MQ”，进程刚提交完就重启会导致消息漏发；如果“把发 MQ 塞进数据库事务里面”，MQ 网络抖动 3 秒又会把数据库连接池占满拖死全站。最通用的解法是<strong>利用 MySQL 本地单库 ACID 事务，把订单记录和待发消息一起写进同一个库的两张表里</strong>（完整后台轮询 Relay Worker 代码见 <a href="../mq/index.html#sc-tx"><strong>消息队列笔记 · 03.5 本地消息表实战 ↗</strong></a>）：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> outbox_tx.sql · 同库本地事务原子写入业务表 + outbox_messages 表</span>
+        <button type="button" class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-outbox', this)">复制 SQL</button>
+      </div>
+      <pre class="plop-code-pre" id="code-sc-outbox"><code><span class="c-cm">-- 【本地消息表设计】建联合索引 idx_status_next (status, next_retry_at) 供轮询</span>
+<span class="c-kw">CREATE TABLE</span> `outbox_messages` (
+  `id`            <span class="c-fn">BIGINT UNSIGNED</span>  <span class="c-kw">NOT NULL AUTO_INCREMENT PRIMARY KEY</span>,
+  `biz_key`       <span class="c-fn">VARCHAR</span>(<span class="c-num">64</span>)      <span class="c-kw">NOT NULL COMMENT</span> <span class="c-str">'业务单号(如order_no)'</span>,
+  `topic`         <span class="c-fn">VARCHAR</span>(<span class="c-num">64</span>)      <span class="c-kw">NOT NULL</span>,
+  `payload`       <span class="c-fn">JSON</span>             <span class="c-kw">NOT NULL</span>,
+  `status`        <span class="c-fn">TINYINT UNSIGNED</span> <span class="c-kw">NOT NULL DEFAULT</span> <span class="c-num">0</span> <span class="c-kw">COMMENT</span> <span class="c-str">'0待发,1已发,2告警'</span>,
+  `retry_count`   <span class="c-fn">TINYINT UNSIGNED</span> <span class="c-kw">NOT NULL DEFAULT</span> <span class="c-num">0</span>,
+  `next_retry_at` <span class="c-fn">DATETIME</span>         <span class="c-kw">NOT NULL DEFAULT CURRENT_TIMESTAMP</span>,
+  <span class="c-kw">KEY</span> `idx_status_next` (`status`, `next_retry_at`)
+) <span class="c-kw">ENGINE</span>=InnoDB <span class="c-kw">DEFAULT CHARSET</span>=utf8mb4;
+
+<span class="c-cm">-- 【下单主链路事务】零外部网络调用，几毫秒内同生共死提交：</span>
+<span class="c-kw">START TRANSACTION</span>;
+  <span class="c-kw">INSERT INTO</span> `orders` (`order_no`, `user_id`, `pay_amount`, `status`)
+  <span class="c-kw">VALUES</span> (<span class="c-str">'ORD20261128001'</span>, <span class="c-num">1001</span>, <span class="c-num">199.00</span>, <span class="c-num">1</span>);
+
+  <span class="c-kw">INSERT INTO</span> `outbox_messages` (`biz_key`, `topic`, `payload`)
+  <span class="c-kw">VALUES</span> (<span class="c-str">'ORD20261128001'</span>, <span class="c-str">'trade.order.created'</span>,
+          <span class="c-str">'{"orderNo":"ORD20261128001","userId":1001,"amount":"199.00"}'</span>);
+<span class="c-kw">COMMIT</span>;</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; justify-content:center;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 后台投递与清理的 3 个关键坑</div>
+      <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.66; color:var(--plop-ink-text);">
+        <li><strong>多实例并发轮询防重复捞取</strong>：如果部署了多台投递 Worker，捞取待发记录时可使用 MySQL 8.0+ 的 <code>SELECT ... FROM outbox_messages WHERE status = 0 AND next_retry_at &lt;= NOW() LIMIT 100 FOR UPDATE SKIP LOCKED</code>，互不阻塞各自认领一批。</li>
+        <li><strong>下游消费者必须做幂等</strong>：若 Worker 发 MQ 成功但准备将 <code>status</code> 改为 <code>1</code> 时断电重启，恢复后会重发一次该消息，下游必须按 <code>biz_key</code> 唯一索引做消费幂等（呼应 <a href="#sc-dedup">06.1</a>）。</li>
+        <li><strong>定期归档已发送记录</strong>：<code>outbox_messages</code> 每天只留最近 3~7 天已发送记录（分批 <code>DELETE ... LIMIT 2000</code>），防止消息表无限膨胀。</li>
+      </ul>
+      <p style="font-size:12.8px; color:var(--plop-ink-soft); margin:10px 0 0;">
+        <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>本地事务 <code>COMMIT</code> 瞬间如何靠 WAL 与两阶段提交保证两张表绝对同时生效？详见 <a href="principles.html#mysql-three-logs-2pc">《核心原理篇 · 06.1 三大日志与两阶段提交》</a>。
+      </p>
+    </div>
+  </div>
+
+  <h4 id="quiz-06" style="margin:16px 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. App 端“我的账单明细”按支付时间倒序下拉加载，为什么游标不能只传上一页最后一条的 <code>paid_at</code>，应该传什么？</span></summary>
+    <div class="drawer-body">
+      <p>同一秒内用户可能产生多笔合并拆单支付（<code>paid_at</code> 完全相同）。如果只写 <code>WHERE paid_at &lt; '2026-11-28 12:00:05'</code>，同一秒内还没展示完的其余账单就会被直接跳过漏掉。必须把自增主键拼成复合游标 <code>(last_paid_at, last_id)</code>，写 <code>WHERE user_id = ? AND (paid_at &lt; ? OR (paid_at = ? AND id &lt; ?)) ORDER BY paid_at DESC, id DESC LIMIT 20</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 商品 SKU 编码要求店铺内唯一且支持软删除，同事建了 <code>UNIQUE KEY uk_sku (shop_id, sku_code, deleted_at)</code> 并把未删除行的 <code>deleted_at</code> 设为 <code>NULL</code>，上线后会出什么 Bug？</span></summary>
+    <div class="drawer-body">
+      <p><strong>未删除的活跃商品可以直接插入无数条重复的 <code>sku_code</code> 而不报错。</strong>因为 SQL 标准中 <code>NULL</code> 与任何值（包括另一个 <code>NULL</code>）都不相等，MySQL 唯一索引允许存在多行 <code>(88, 'SKU001', NULL)</code>。应新增非空列 <code>deleted_id BIGINT NOT NULL DEFAULT 0</code>（活跃为 <code>0</code>，删除填主键 <code>id</code>），建 <code>UNIQUE KEY (shop_id, sku_code, deleted_id)</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 订单超时自动取消任务与用户支付成功回调在同一毫秒并发执行，怎么不借助 Redis 分布式锁就能保证数据不错乱？</span></summary>
+    <div class="drawer-body">
+      <p>依靠订单表唯一索引 <code>uk_order_no</code> 上的条件更新互斥即可：支付回调跑 <code>UPDATE orders SET status = 2 WHERE order_no = ? AND status = 1</code>，超时任务跑 <code>UPDATE orders SET status = 5 WHERE order_no = ? AND status = 1</code>。InnoDB 行级排他锁会让两条语句严格一前一后执行，后执行的一方看到 <code>status</code> 已不再是 <code>1</code>，必然返回 <code>affectedRows = 0</code>；若支付回调拿到 <code>0</code> 且查出已变为取消态，触发自动退款即可闭环。</p>
+    </div>
+  </details>
+</div>

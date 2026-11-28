@@ -3,8 +3,12 @@
      ==================================================================== -->
 <div class="wb-sec-header" id="types" style="background:var(--plop-mint);">
   <span class="wb-sec-num">02</span>
-  <span class="wb-sec-title">数据类型选型、utf8mb4 字符集、JSON 生成列与建表规范</span>
-  <span class="plop-tag periwinkle">SCALAR TYPES × UTF8MB4 × JSON GENERATED COLUMN × SCHEMA DESIGN</span>
+  <span class="wb-sec-title">建表与数据类型：字段选型、utf8mb4、JSON 生成列与 DDL 规范</span>
+  <span class="plop-tag periwinkle">SCALAR TYPES × UTF8MB4 × JSON GENERATED COLUMN × CHEAT SHEET</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>为业务表每个字段选对数据类型和字符集，避开浮点数算钱精度丢失、2038 年时间溢出与表情乱码，掌握日常改表语法并随时查阅字段选型速查表。
 </div>
 
 <!-- 02.1 · 数值、字符串与字符集选型规范 -->
@@ -14,7 +18,7 @@
   <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 02.1 数值类型、字符串类型与 <code>utf8mb4</code> 字符集</h3>
 
   <p>
-    合理选择字段类型不仅能节省磁盘空间，还能让单个 <code>16 KiB</code> 数据页装下更多行记录，从而减少磁盘 I/O 次数。以下是日常建表最核心的选型对照：
+    合理选择字段类型不仅能节省磁盘空间，还能让单个 <code>16 KiB</code> 数据页装下更多行记录，从而减少磁盘 I/O（Input/Output，输入输出）次数。以下是日常建表最核心的选型对照：
   </p>
 
   <div class="table-wrap" style="margin-bottom:14px;">
@@ -107,7 +111,7 @@
 
   <h4>2. 原生 <code>JSON</code> 类型、路径提取符号（<code>-&gt;</code> 与 <code>-&gt;&gt;</code>）与生成列索引</h4>
   <p>
-    MySQL 5.7.8+ 提供了原生二进制编码的 <code>JSON</code> 数据类型（支持按路径快速跳读与局部更新，无需像存普通文本那样每次整串解析）。在 SQL 中访问 <code>JSON</code> 内部属性时，首次遇到的专用语法含义如下：
+    MySQL 5.7.8+ 提供了原生二进制编码的 <code>JSON（JavaScript Object Notation，轻量级数据交换格式）</code> 数据类型（支持按路径快速跳读与局部更新，无需像存普通文本那样每次整串解析）。在 SQL 中访问 <code>JSON</code> 内部属性时，首次遇到的专用语法含义如下：
   </p>
   <ul>
     <li><strong><code>列-&gt;'$.路径'</code>（等价于 <code>JSON_EXTRACT(列, '$.路径')</code>）</strong>：提取指定路径的值，返回结果仍保持 <code>JSON</code> 格式（若提取的是字符串，外层会带有双引号，如 <code>"vip"</code>）。</li>
@@ -155,7 +159,7 @@
     <div>
       <h4>1. 五大表完整性约束与主键选型准则</h4>
       <ul>
-        <li><strong><code>PRIMARY KEY</code>（主键约束）</strong>：每张 InnoDB 表必须显式定义一个主键（非空且唯一）。<strong>强烈推荐使用单调递增的 <code>BIGINT UNSIGNED AUTO_INCREMENT</code>（或趋势递增的雪花算法 ID）作为物理主键，切勿使用随机无序的字符串 <code>UUID</code> 作为聚簇索引主键</strong>——因为随机 UUID 会迫使每次新插入都随机落入历史数据页中间，触发频繁的 16KB 页分裂与大量的二级索引空间浪费（如需对外暴露字符串标识，可另建一列 <code>biz_uuid CHAR(36) UNIQUE</code>）。</li>
+        <li><strong><code>PRIMARY KEY</code>（主键约束）</strong>：每张 InnoDB 表必须显式定义一个主键（非空且唯一）。<strong>强烈推荐使用单调递增的 <code>BIGINT UNSIGNED AUTO_INCREMENT</code>（或趋势递增的雪花算法 ID）作为物理主键，切勿使用随机无序的字符串 <code>UUID（Universally Unique Identifier，通用唯一识别码）</code> 作为聚簇索引主键</strong>——因为随机 UUID 会迫使每次新插入都随机落入历史数据页中间，触发频繁的 16KB 页分裂与大量的二级索引空间浪费（如需对外暴露字符串标识，可另建一列 <code>biz_uuid CHAR(36) UNIQUE</code>）。</li>
         <li><strong><code>UNIQUE KEY</code>（唯一约束）</strong>：保证列或列组合值唯一。注意在 SQL 标准与 MySQL 中，<code>UNIQUE</code> 索引允许存入多个 <code>NULL</code>（因为 <code>NULL</code> 代表未知，不与任何值相等）。</li>
         <li><strong><code>NOT NULL</code> 与 <code>DEFAULT</code></strong>：尽量将字段定义为 <code>NOT NULL</code> 并赋予合理默认值（如空字符串 <code>''</code> 或 <code>0</code>），不仅能避免 <code>COUNT(col)</code> 与算术运算中的 <code>NULL</code> 陷阱，还能省去行记录头中的 NULL 值位图开销。</li>
         <li><strong><code>CHECK (条件)</code>（检查约束）</strong>：<strong>MySQL 8.0.16+ 起已完整支持并强制校验 <code>CHECK</code> 约束</strong>（如 <code>CHECK (balance &gt;= 0)</code>；旧版 5.7 虽能写语法但会静默忽略）。</li>
@@ -192,11 +196,11 @@
   </div>
 </div>
 
-<!-- 02.5 · DDL 表结构日常操作与 DELETE / TRUNCATE / DROP 对比 -->
+<!-- 02.4 · DDL 表结构日常操作与 DELETE / TRUNCATE / DROP 对比 -->
 <div class="wb-card" id="mysql-ddl-basics" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 02.5 · DDL 表生命周期操作：查看表结构、增改删字段、复制表以及 DELETE / TRUNCATE / DROP 的本质区别</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 02.5 DDL 表结构日常管理与 <code>DELETE / TRUNCATE / DROP</code> 对比</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 02.4 · DDL 表生命周期操作：查看表结构、增改删字段、复制表以及 DELETE / TRUNCATE / DROP 的本质区别</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 02.4 DDL 表结构日常管理与 <code>DELETE / TRUNCATE / DROP</code> 对比</h3>
 
   <div class="wb-grid-2" style="margin-bottom:14px;">
     <div class="plop-code-box">
@@ -252,13 +256,13 @@
             <tr>
               <td><strong>事务回滚与日志</strong></td>
               <td>逐行写 <code>Undo Log</code> 与 <code>Redo Log</code>，<strong>在事务未提交前可通过 <code>ROLLBACK</code> 回滚恢复</strong></td>
-              <td>本质是销毁旧 `.ibd` 表空间并重建一个新空表，<strong>自动隐式提交，不可回滚</strong></td>
-              <td>直接删除表元数据与 `.ibd` 物理文件，<strong>自动隐式提交，不可回滚</strong></td>
+              <td>本质是销毁旧 <code>.ibd</code> 表空间并重建一个新空表，<strong>自动隐式提交，不可回滚</strong></td>
+              <td>直接删除表元数据与 <code>.ibd</code> 物理文件，<strong>自动隐式提交，不可回滚</strong></td>
             </tr>
             <tr>
               <td><strong>自增 ID 与空间</strong></td>
               <td><strong>不会重置</strong> <code>AUTO_INCREMENT</code> 计数器；仅标记行删除，<strong>不会立即把磁盘空间归还给操作系统</strong></td>
-              <td><strong>自动将 <code>AUTO_INCREMENT</code> 重置为 1</strong>，并立即释放 `.ibd` 磁盘空间给操作系统</td>
+              <td><strong>自动将 <code>AUTO_INCREMENT</code> 重置为 1</strong>，并立即释放 <code>.ibd</code> 磁盘空间给操作系统</td>
               <td>表已不存在，空间彻底释放</td>
             </tr>
           </tbody>
@@ -266,8 +270,92 @@
       </div>
     </div>
   </div>
+</div>
 
-  <div class="plop-callout info" style="margin-bottom:0;">
-    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 底层原理延伸：</strong>想亲自算一算为什么一棵 3 层高的 B+ 树就能装下约 2000 万行数据、随机 UUID 插入触发页分裂的物理过程，以及 MySQL 8.0 原子 DDL 的内部实现，可点击查看 <a href="principles.html#types"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 02 B+ 树阶数与原子 DDL ↗</a>。
+<!-- 02.5 · 业务字段需求 -> 选什么类型速查表 -->
+<div class="wb-card" id="mysql-type-cheatsheet" style="background:var(--plop-paper);">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 02.5 · 建表实战速查卡：「业务字段需求 → 选什么类型」一屏对照表</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-ruler"></use></svg> 02.5 日常建表「字段需求 → 选什么类型」速查表</h3>
+
+  <div class="table-wrap" style="margin-bottom:16px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">常见业务字段需求</th>
+          <th style="width:28%">推荐建表写法</th>
+          <th style="width:20%">千万别选的反例</th>
+          <th>选型理由与工程避坑说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>表物理主键 ID</strong></td>
+          <td><code>BIGINT UNSIGNED NOT NULL AUTO_INCREMENT</code></td>
+          <td>随机 <code>VARCHAR(36) UUID</code> 或过小的 <code>INT</code></td>
+          <td>顺序追加写不触发页分裂，8 字节定长使二级索引最小；分库分表场景可存有序雪花算法 <code>BIGINT</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>商品价格 / 钱包金额</strong></td>
+          <td><code>DECIMAL(12, 2) NOT NULL DEFAULT 0.00</code><br>（或以“分”为单位存 <code>BIGINT</code>）</td>
+          <td><code>FLOAT</code> / <code>DOUBLE</code></td>
+          <td>二进制浮点数算 <code>0.1 + 0.2</code> 会有精度尾差导致财务对账差一分钱；<code>DECIMAL</code> 按十进制精确存储。</td>
+        </tr>
+        <tr>
+          <td><strong>手机号 / 订单号 / 邮编</strong></td>
+          <td><code>VARCHAR(20) NOT NULL DEFAULT ''</code><br>（纯定长哈希如 MD5 用 <code>CHAR(32)</code>）</td>
+          <td>用 <code>BIGINT</code> 存手机号</td>
+          <td>手机号、邮编不是用来加减乘除的数值，可能带国际区号 <code>+86</code> 或前导 <code>0</code>，且支持前缀匹配检索。</td>
+        </tr>
+        <tr>
+          <td><strong>订单状态 / 开关枚举</strong></td>
+          <td><code>TINYINT UNSIGNED NOT NULL DEFAULT 1</code><br>（务必在 <code>COMMENT</code> 写清每个数字含义）</td>
+          <td><code>ENUM('unpaid', ...)</code> 或 <code>INT(1)</code></td>
+          <td><code>TINYINT</code> 仅占 1 字节；<code>ENUM</code> 修改删除枚举项或中间插入项可能触发锁表重建，且排序默认按内部序号而非字母序易踩坑。</td>
+        </tr>
+        <tr>
+          <td><strong>创建时间 / 业务时间</strong></td>
+          <td><code>DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP</code><br>（需毫秒/微秒写 <code>DATETIME(3)</code>）</td>
+          <td><code>TIMESTAMP</code>（有 2038 年溢出上限）或存字符串</td>
+          <td><code>DATETIME</code> 范围到 <code>9999</code> 年，配合连接串固定时区读写直观；高并发流水排序建议用微秒精度 <code>DATETIME(3)</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>商品动态规格 / 扩展属性</strong></td>
+          <td><code>JSON NOT NULL</code>（高频筛选键配 <code>VIRTUAL</code> 生成列索引）</td>
+          <td>往主表塞 30 个稀疏 <code>ext1..ext30</code> 列，或存纯 <code>TEXT</code></td>
+          <td>原生 <code>JSON</code> 校验合法性并支持 <code>JSON_SET</code> 局部修改，无需每新增一个品类属性就跑一次 <code>ALTER TABLE</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>帖子长正文 / 富文本详情</strong></td>
+          <td>拆分到独立详情表 <code>post_contents(post_id, body MEDIUMTEXT)</code></td>
+          <td>直接塞在高频列表扫描的主表里并跑 <code>SELECT *</code></td>
+          <td><code>TEXT</code> 最大 <code>64KB</code>（超长选 <code>MEDIUMTEXT 16MB</code>）；冷热分离让主表列表查询保持极高缓冲池命中率。</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
+
+  <h4 id="quiz-02" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 同事建表写 <code>status INT(1) NOT NULL</code> 和 <code>user_id INT(11) NOT NULL</code>，认为 <code>INT(1)</code> 只占 1 字节、只能存 1 位数，这个理解对吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>完全不对。</strong><code>INT</code> 后面的括号数字仅代表早年配合 <code>ZEROFILL</code> 补零时的“显示宽度”，<code>INT(1)</code> 和 <code>INT(11)</code> 在磁盘上都固定占 <strong>4 字节</strong>，都能存到 <code>21 亿</code>（MySQL 8.0.17+ 已废弃该写法）。想只占 1 字节存状态，必须用 <strong><code>TINYINT UNSIGNED</code></strong>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 社区评论表上线后，用户发了一条带 <code>😂</code> 表情的评论，接口立刻报错 <code>Incorrect string value: '\xF0\x9F\x98\x82...'</code>，是什么原因？</span></summary>
+    <div class="drawer-body">
+      <p>建表或连接串误用了 MySQL 历史遗留的 <code>utf8</code>（即 <code>utf8mb3</code>，单字符最多 3 字节），而 Emoji 表情属于 4 字节 UTF-8 编码。把数据库、表、列以及客户端连接串的字符集统一改为 <strong><code>utf8mb4</code></strong> 即可正常存储。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 房产长租合同表有一列 <code>expire_at</code>（合同到期时间，有的签 15 年到 2041 年），如果建成 <code>TIMESTAMP</code> 会出什么问题？</span></summary>
+    <div class="drawer-body">
+      <p><strong>写入 2041 年会直接越界报错。</strong><code>TIMESTAMP</code> 底层存的是 32 位有符号秒数，最大只能表示到 <code>2038-01-19 03:14:07 UTC</code>。凡是涉及未来排期、长期合同或历史生日的业务时间字段，应一律使用上限到 <code>9999</code> 年的 <strong><code>DATETIME</code></strong>。</p>
+    </div>
+  </details>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>想了解变长 <code>VARCHAR</code> 与超长 <code>TEXT/JSON</code> 行溢出页在磁盘上的真实字节结构，以及随机 UUID 引发页分裂的底层过程，可按需查阅 <a href="principles.html#innodb-row-format">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 00.3 行记录格式》</a> 与 <a href="principles.html#innodb-page-split">《02.2 页分裂与原子 DDL》</a>。
+  </p>
 </div>

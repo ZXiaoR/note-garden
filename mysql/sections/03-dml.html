@@ -3,8 +3,12 @@
      ==================================================================== -->
 <div class="wb-sec-header" id="dml" style="background:var(--plop-mustard);">
   <span class="wb-sec-num">03</span>
-  <span class="wb-sec-title">SQL 基础操作与查询进阶 · 增删改查、分组关联、UPSERT 与窗口函数</span>
-  <span class="plop-tag mint">CRUD × WHERE &amp; NULL × GROUP BY &amp; HAVING × JOIN &amp; UNION × WINDOW &amp; CTE</span>
+  <span class="wb-sec-title">SQL 进阶：增删改查、NULL 避坑、JOIN 细节、窗口函数与递归 CTE</span>
+  <span class="plop-tag mint">CRUD &amp; UPSERT × WHERE &amp; NULL × GROUP BY × JOIN × WINDOW &amp; CTE</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>熟练写出批量与幂等写入 SQL，避开 <code>NOT IN</code> 含 <code>NULL</code> 返回空集和 <code>LEFT JOIN</code> 条件放错位置的常见坑，并用窗口函数和递归查询解决分组排名与树形遍历问题。
 </div>
 
 <!-- 03.1 · 标准增删改（INSERT / UPDATE / DELETE）与幂等写入（UPSERT） -->
@@ -14,7 +18,7 @@
   <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 03.1 标准增删改（<code>INSERT / UPDATE / DELETE</code>）与幂等写入（UPSERT）</h3>
 
   <p>
-    SQL 按职责分为四大类：<strong>DDL（数据定义：<code>CREATE / ALTER / DROP / TRUNCATE</code>）</strong>、<strong>DML（数据操作：<code>INSERT / UPDATE / DELETE</code>）</strong>、<strong>DQL（数据查询：<code>SELECT</code>）</strong> 与 <strong>DCL（数据控制：<code>GRANT / REVOKE</code>）</strong>。在日常业务开发中，数据写入与修改涵盖了从基础单行/批量操作到唯一键冲突幂等更新（UPSERT）的完整模式：
+    SQL 按职责分为四大类：<strong>DDL（Data Definition Language，数据定义语言：<code>CREATE / ALTER / DROP / TRUNCATE</code>）</strong>、<strong>DML（Data Manipulation Language，数据操作语言：<code>INSERT / UPDATE / DELETE</code>）</strong>、<strong>DQL（Data Query Language，数据查询语言：<code>SELECT</code>）</strong> 与 <strong>DCL（Data Control Language，数据控制语言：<code>GRANT / REVOKE</code>）</strong>。在日常业务开发中，数据写入与修改涵盖了从基础单行/批量操作到唯一键冲突幂等更新（<strong>UPSERT，Update + Insert 的合称，存在则更新、不存在则插入</strong>）的完整模式：
   </p>
 
   <div class="wb-grid-2">
@@ -274,7 +278,7 @@
   <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 03.5 窗口函数、递归公共表表达式（<code>WITH RECURSIVE</code>）与执行顺序</h3>
 
   <p>
-    自 MySQL 8.0 起，原生支持完整的 SQL 标准<strong>窗口函数（Window Functions）</strong>与<strong>公共表表达式（CTE）</strong>。与普通 <code>GROUP BY</code> 把多行折叠合并成一行不同，<strong>窗口函数通过 <code>函数名() OVER (PARTITION BY 分组列 ORDER BY 排序列)</code> 在保留每一行原始明细的同时，为每一行计算出它在所属分组窗口内的排名、累计求和或前后相邻行对比值</strong>：
+    自 MySQL 8.0 起，原生支持完整的 SQL 标准<strong>窗口函数（Window Functions）</strong>与<strong>公共表表达式（CTE，Common Table Expression）</strong>。与普通 <code>GROUP BY</code> 把多行折叠合并成一行不同，<strong>窗口函数通过 <code>函数名() OVER (PARTITION BY 分组列 ORDER BY 排序列)</code> 在保留每一行原始明细的同时，为每一行计算出它在所属分组窗口内的排名、累计求和或前后相邻行对比值</strong>：
   </p>
 
   <!-- Editorial SVG: GROUP BY vs Window Function OVER (...) -->
@@ -312,15 +316,15 @@
 
         <!-- Box 2: GROUP BY (Collapsed) -->
         <rect x="308" y="54" width="212" height="122" rx="10" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.8"/>
-        <text x="414" y="76" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="12" font-weight="800" fill="#5A5860">2. GROUP BY city（折叠为 2 行）</text>
+        <text x="414" y="76" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#5A5860">2. GROUP BY city（折叠 2 行）</text>
         <rect x="322" y="90" width="184" height="32" rx="5" fill="#F4EFE6" stroke="#1F1F23" stroke-width="1.2"/>
-        <text x="414" y="110" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#1F1F23">杭州 │ SUM = 300 (丢失个人明细)</text>
+        <text x="414" y="110" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#1F1F23">杭州 │ SUM = 300 (丢失明细)</text>
         <rect x="322" y="130" width="184" height="32" rx="5" fill="#E8F5E9" stroke="#1F1F23" stroke-width="1.2"/>
-        <text x="414" y="150" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#1b5e20">上海 │ SUM = 450 (丢失个人明细)</text>
+        <text x="414" y="150" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" font-weight="700" fill="#1b5e20">上海 │ SUM = 450 (丢失明细)</text>
 
         <!-- Box 3: Window Function (Focal Preserves 4 Rows) -->
         <rect x="552" y="34" width="340" height="162" rx="10" fill="#FBE9E7" stroke="#bf4520" stroke-width="2.2"/>
-        <text x="722" y="56" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="12" font-weight="800" fill="#bf4520">3. 窗口函数 OVER (...)（保留全部 4 行 + 追加窗口计算列）</text>
+        <text x="722" y="56" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC',sans-serif" font-size="11.5" font-weight="800" fill="#bf4520">3. 窗口函数 OVER(...)（保留 4 行 + 追加窗口列）</text>
         <rect x="566" y="68" width="312" height="26" rx="4" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.2"/>
         <text x="722" y="85" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#1F1F23">杭州 │ 小周 │ 200 │ <tspan font-weight="800" fill="#bf4520">rk=1 │ city_sum=300</tspan></text>
         <rect x="566" y="98" width="312" height="26" rx="4" fill="#FFFDF7" stroke="#bf4520" stroke-width="1.2"/>
@@ -379,7 +383,27 @@
     </div>
   </div>
 
-  <div class="plop-callout info" style="margin-top:14px; margin-bottom:0;">
-    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 底层原理延伸：</strong>想了解 MySQL 优化器如何计算 I/O 与 CPU 成本、<code>Hash Join</code> 与 <code>NLJ</code> 的内部执行流程，以及 <code>ORDER BY (Using filesort)</code> 在全字段排序与 <code>rowid</code> 排序之间的切换机制，可点击查看 <a href="principles.html#dml"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 03 优化器与连接排序内核 ↗</a>。
-  </div>
+  <h4 id="quiz-03" style="margin:16px 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 想查出“所有买家以及他们在 2026 年已支付的订单（没下过单的买家也要保留一行）”，写成 <code>FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.status = 'PAID'</code> 对吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>不对，没下过单的买家会被全部过滤掉。</strong><code>LEFT JOIN</code> 对没匹配上订单的买家会把右表 <code>o.status</code> 补为 <code>NULL</code>；紧接着外层 <code>WHERE o.status = 'PAID'</code> 判定 <code>NULL = 'PAID'</code> 为 <code>UNKNOWN</code>，导致这些买家行被剔除，隐式退化成了 <code>INNER JOIN</code>。应把右表过滤条件移到 <code>ON</code> 子句里：<code>LEFT JOIN orders o ON u.id = o.user_id AND o.status = 'PAID'</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 执行 <code>SELECT * FROM products WHERE category_id NOT IN (SELECT id FROM banned_categories)</code>，只要子查询结果里混进了一条 <code>NULL</code>，会发生什么？</span></summary>
+    <div class="drawer-body">
+      <p><strong>整条 SQL 会返回 0 行空结果。</strong>因为 <code>x NOT IN (1, 2, NULL)</code> 等价于 <code>x != 1 AND x != 2 AND x != NULL</code>，其中 <code>x != NULL</code> 永远为 <code>UNKNOWN</code>，导致整个 <code>AND</code> 表达式不可能为 <code>TRUE</code>。排查“不在某集合内”应优先改用 <code>NOT EXISTS (SELECT 1 FROM banned_categories b WHERE b.id = products.category_id)</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 运营需要查出“每个商品类目下销量排名前 3 的商品明细”，为什么单靠 <code>GROUP BY category_id</code> 写不出来，该怎么写？</span></summary>
+    <div class="drawer-body">
+      <p><code>GROUP BY category_id</code> 会把同一个类目下的几百个商品折叠成 1 行汇总值，无法保留前 3 名各自的商品 ID 和名称。在 MySQL 8.0+ 中应使用 CTE 搭配窗口函数：内层算 <code>ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY sales DESC) AS rk</code>，外层直接过滤 <code>WHERE rk &lt;= 3</code>（完整实战见 <a href="#sc-report">06.6</a>）。</p>
+    </div>
+  </details>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>想了解多表 <code>JOIN</code> 在底层如何执行嵌套循环与 <code>Hash Join</code>，以及 <code>ORDER BY</code> 触发 <code>Using filesort</code> 时的内存与外部归并机制，可按需查阅 <a href="principles.html#dml">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 03 优化器与连接排序内核》</a>。
+  </p>
 </div>

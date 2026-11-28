@@ -11,7 +11,11 @@
 <div class="wb-card" id="mysql-three-logs-2pc" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 06.1 · 三大日志与两阶段提交：Undo / Redo / Binlog 职责对比与基于 XID 的崩溃恢复裁决法则</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 06.1 三大日志职责对比与一条 UPDATE 的内部两阶段提交（Internal 2PC）</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 06.1 三大日志职责对比与一条 UPDATE 的内部两阶段提交（Internal 2PC） <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-trx-basics">实战篇 04.1</a>、<a href="index.html#sc-outbox">06.9 本地消息表</a> 与 <a href="index.html#mysql-backup-pitr">07.5 PITR 恢复</a> —— 断电重启时怎么保证刚提交的订单和本地消息不丢，且主库恢复结果与 <code>Binlog</code> 完全一致？
+  </p>
 
   <p>
     如果每次执行 <code>UPDATE</code> 都直接把 16 KiB 的 InnoDB 数据页随机刷回磁盘，机械硬盘或 SSD 的随机 I/O 很快就会成为吞吐瓶颈。为此，MySQL 采用了经典的<strong>预写式日志（WAL，Write-Ahead Logging）</strong>技术：先在内存 <code>Buffer Pool</code> 中修改数据页，并将修改动作顺序追加写入日志文件，随后即可向客户端返回提交成功；至于内存中的脏页（Dirty Page），则由后台线程在低峰期异步批量刷入磁盘。在这套流程中，<strong><code>Undo Log</code>、<code>Redo Log</code> 与 <code>Binlog</code></strong> 各司其职，共同构成了 ACID 中原子性（Atomicity）与持久性（Durability）的底层支柱：
@@ -107,7 +111,7 @@
         <!-- Step 2 Box: Redo Log Prepare (2PC Phase 1) -->
         <rect x="260" y="48" width="204" height="128" rx="10" fill="#FFF7ED" stroke="#bf4520" stroke-width="2.5"/>
         <rect x="272" y="60" width="180" height="24" rx="5" fill="#bf4520"/>
-        <text x="362" y="76" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#FFFDF7">② 2PC 阶段一：Redo Prepare</text>
+        <text x="362" y="76" text-anchor="middle" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" font-weight="800" fill="#FFFDF7">② 阶段一：Redo Prepare</text>
         <text x="274" y="102" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" font-weight="700" fill="#9A3412">• 写入 Redo Log Buffer</text>
         <text x="274" y="122" font-family="'JetBrains Mono',monospace" font-size="10.5" font-weight="700" fill="#bf4520">• 记录状态 = TRX_PREPARED</text>
         <text x="274" y="142" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#9A3412">• 绑定内部事务号 XID 并刷盘</text>
@@ -133,17 +137,17 @@
 
         <!-- Rule Card 1: Crash Point A -->
         <rect x="32" y="280" width="416" height="126" rx="12" fill="#FFF7ED" stroke="#bf4520" stroke-width="2"/>
-        <text x="50" y="306" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#9A3412">场景 A：在「崩溃点 A」宕机（Redo Prepare 已落盘，Binlog 未落盘）</text>
-        <text x="50" y="330" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#1C1917">• 重启扫描 Redo Log 发现事务处于 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">TRX_PREPARED</tspan>，提取其 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan></text>
-        <text x="50" y="352" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#1C1917">• 去 Binlog 末尾查找该 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan> → <tspan font-weight="800" fill="#bf4520">未找到完整 Binlog 记录</tspan></text>
-        <text x="50" y="376" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#bf4520">• 裁决结果：调用 Undo Log 回滚该事务（主从均无该修改，严格一致）</text>
+        <text x="48" y="306" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#9A3412">场景 A：「崩溃点 A」宕机（Redo 已 Prepare，Binlog 未落盘）</text>
+        <text x="48" y="330" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#1C1917">• 重启扫描发现 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">TRX_PREPARED</tspan>，提取事务号 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan></text>
+        <text x="48" y="352" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#1C1917">• 查 Binlog 末尾该 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan> → <tspan font-weight="800" fill="#bf4520">未找到完整 Binlog 记录</tspan></text>
+        <text x="48" y="376" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" font-weight="800" fill="#bf4520">• 裁决：用 Undo Log 回滚该事务（主从均无此修改）</text>
 
         <!-- Rule Card 2: Crash Point B -->
         <rect x="472" y="280" width="416" height="126" rx="12" fill="#D1FAE5" stroke="#0f766e" stroke-width="2.2"/>
-        <text x="490" y="306" font-family="'Plus Jakarta Sans',sans-serif" font-size="12.5" font-weight="800" fill="#065F46">场景 B：在「崩溃点 B」宕机（Redo Prepare 与 Binlog 均已落盘）</text>
-        <text x="490" y="330" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#1C1917">• 重启扫描 Redo Log 发现事务处于 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">TRX_PREPARED</tspan>，提取其 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan></text>
-        <text x="490" y="352" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" fill="#1C1917">• 去 Binlog 末尾查找该 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan> → <tspan font-weight="800" fill="#0f766e">找到完整 Binlog XID Event</tspan></text>
-        <text x="490" y="376" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#0f766e">• 裁决结果：自动补齐 Commit 并重放 Redo Log（主从均保留该修改）</text>
+        <text x="488" y="306" font-family="'Plus Jakarta Sans',sans-serif" font-size="11.5" font-weight="800" fill="#065F46">场景 B：「崩溃点 B」宕机（Redo 与 Binlog 均已落盘）</text>
+        <text x="488" y="330" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#1C1917">• 重启扫描发现 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">TRX_PREPARED</tspan>，提取事务号 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan></text>
+        <text x="488" y="352" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" fill="#1C1917">• 查 Binlog 末尾该 <tspan font-family="'JetBrains Mono',monospace" font-weight="700">XID</tspan> → <tspan font-weight="800" fill="#0f766e">存在完整 XID Event</tspan></text>
+        <text x="488" y="376" font-family="'Plus Jakarta Sans',sans-serif" font-size="11" font-weight="800" fill="#0f766e">• 裁决：自动补齐 Commit 提交事务（主从均保留修改）</text>
       </svg>
     </div>
   </figure>
@@ -153,7 +157,11 @@
 <div class="wb-card" id="mysql-fsync-doublewrite" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.2 · 零丢失持久化：「双 1」刷盘参数、Group Commit 组提交与 Doublewrite Buffer 防半页断裂</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.2 「双 1」刷盘配置、组提交（Group Commit）与双写缓冲区（Doublewrite Buffer）</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 06.2 「双 1」刷盘配置、组提交（Group Commit）与双写缓冲区（Doublewrite Buffer） <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-rbac">实战篇 07.1 my.cnf「双 1」参数</a> —— 开启「双 1」每次提交都强制刷物理磁盘后，高并发下靠什么保持上万 TPS，以及 16KB 页写到一半断电怎么修复？
+  </p>
 
   <p>
     在两阶段提交中，如果每次事务提交都只是写入操作系统的 Page Cache 而没有调用 <code>fsync()</code> 刷入物理磁盘，一旦操作系统内核崩溃或服务器断电，Page Cache 中的日志仍然会丢失。控制 <code>Redo Log</code> 与 <code>Binlog</code> 刷盘时机的两个核心参数被称为<strong>「双 1」配置</strong>：
@@ -227,7 +235,11 @@
 <div class="wb-card" id="mysql-replication-ha" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 06.3 · 高可用与双写架构：主从复制三线程模型、AFTER_SYNC 无损半同步、MGR 与 Redis 缓存一致性</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 06.3 主从复制三线程模型、无损半同步复制与缓存双写一致性</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 06.3 主从复制三线程模型、无损半同步复制与缓存双写一致性 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#sc-cache-sync">实战篇 06.8 缓存一致性</a> 与 <a href="index.html#mysql-read-write-split">07.6 读写分离</a> —— 主从复制延迟具体发生在哪一步，半同步复制防住了什么，以及如何订阅 <code>Binlog</code> 兜底删除 Redis 缓存？
+  </p>
 
   <ol style="margin:0; padding-left:20px; font-size:13.4px; line-height:1.72;">
     <li><strong>主从复制三线程流水线与并行回放</strong>：

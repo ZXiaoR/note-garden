@@ -11,10 +11,14 @@
 <div class="wb-card" id="mysql-cbo-icp-mrr" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 03.1 · 优化器与下推：CBO 成本估算（mysql.server_cost / engine_cost）、ICP 与 MRR 多范围读</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 03.1 CBO 成本模型、索引条件下推（ICP）与多范围读（MRR）</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 03.1 CBO 成本模型、索引条件下推（ICP）与多范围读（MRR） <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-leftmost-and-anti">实战篇 05.2</a> 与 <a href="index.html#mysql-explain-guide">05.3 EXPLAIN</a> —— 为什么范围查询过宽时明明建了索引优化器却选全表扫描，以及 <code>Using index condition</code> 帮我们省掉了什么？
+  </p>
 
   <p>
-    MySQL 的查询优化器是基于成本的优化器（Cost-Based Optimizer, CBO）。一条查询到底走全表扫描还是走某个二级索引，完全取决于优化器根据持久化统计信息（<code>mysql.innodb_table_stats</code> 与 <code>innodb_index_stats</code>，或通过 <code>index dives</code> 深入采样索引区间首尾页）算出的 <strong><code>Total Cost = I/O Cost + CPU Cost</code></strong> 谁更低：
+    MySQL 的查询优化器是基于成本的优化器（CBO，Cost-Based Optimizer）。一条查询到底走全表扫描还是走某个二级索引，完全取决于优化器根据持久化统计信息（<code>mysql.innodb_table_stats</code> 与 <code>innodb_index_stats</code>，或通过 <code>index dives</code> 深入采样索引区间首尾页）算出的 <strong><code>Total Cost = I/O Cost + CPU Cost</code></strong> 谁更低：
   </p>
 
   <div class="wb-grid-2" style="margin-bottom:14px;">
@@ -32,7 +36,7 @@
       <div style="font-weight:900; font-size:14px; color:#bf4520; margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 减少与优化回表的两大引擎特性：ICP 与 MRR</div>
       <ul style="margin:0; padding-left:18px; font-size:12.8px; line-height:1.65;">
         <li><strong>1. 索引条件下推（ICP，<code>Using index condition</code>）</strong>：对于联合索引 <code>idx(city, age, name)</code> 和查询 <code>WHERE city = '杭州' AND name LIKE '%林%'</code>，虽然 <code>LIKE '%林%'</code> 无法用于 B+ 树二分定位，但 InnoDB 在扫描完 <code>city = '杭州'</code> 的二级索引项后，<strong>先在引擎层直接拿索引里自带的 <code>name</code> 列检验是否匹配 <code>'%林%'</code>，只有匹配的才去回表取整行</strong>，可砍掉 90% 以上的无效回表。</li>
-        <li><strong>2. 多范围读（MRR，<code>Using MRR</code>）</strong>：因为二级索引按索引列排序，查出的一批主键 <code>id</code> 往往是乱序的（如 <code>id = 980, 12, 5400, 35</code>），直接回表会产生磁盘磁头来回跳跃的随机 I/O。开启 MRR 后，会在内存缓冲区（<code>read_rnd_buffer_size</code>）中<strong>先把这批 <code>id</code> 按升序排好（<code>12, 35, 980, 5400</code>），再按主键顺序批量回表读取聚簇索引页</strong>，将随机 I/O 转化为近似顺序 I/O。</li>
+        <li><strong>2. 多范围读（MRR，Multi-Range Read，即 <code>Using MRR</code>）</strong>：因为二级索引按索引列排序，查出的一批主键 <code>id</code> 往往是乱序的（如 <code>id = 980, 12, 5400, 35</code>），直接回表会产生磁盘磁头来回跳跃的随机 I/O。开启 MRR 后，会在内存缓冲区（<code>read_rnd_buffer_size</code>）中<strong>先把这批 <code>id</code> 按升序排好（<code>12, 35, 980, 5400</code>），再按主键顺序批量回表读取聚簇索引页</strong>，将随机 I/O 转化为近似顺序 I/O。</li>
       </ul>
     </div>
   </div>
@@ -42,10 +46,14 @@
 <div class="wb-card" id="mysql-join-algorithms" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 03.2 · JOIN 算法内核：Index Nested-Loop (NLJ)、Block Nested-Loop (BNL) 与 8.0.18+ Grace Hash Join</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 03.2 多表连接算子演进与为什么要求“小表驱动大表”</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 03.2 多表连接算子演进与为什么要求“小表驱动大表” <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-join-subquery-union">实战篇 03.4</a>、<a href="index.html#mysql-orm-n-plus-1">05.5</a> 与 <a href="index.html#sc-tree">06.7 递归树</a> —— 多表 <code>JOIN</code> 在底层是怎么循环匹配的，被驱动表漏建索引时 MySQL 8.0 的 <code>Hash Join</code> 是怎么救场的？
+  </p>
 
   <p>
-    当执行 <code>SELECT * FROM t1 STRAIGHT_JOIN t2 ON t1.a = t2.a</code>（设驱动表 <code>t1</code> 过滤后有 <code>N</code> 行，被驱动表 <code>t2</code> 有 <code>M</code> 行）时，MySQL 根据被驱动表连接列 <code>t2.a</code> 上是否有可用索引，采取 completely 不同的物理连接算子：
+    当执行 <code>SELECT * FROM t1 STRAIGHT_JOIN t2 ON t1.a = t2.a</code>（设驱动表 <code>t1</code> 过滤后有 <code>N</code> 行，被驱动表 <code>t2</code> 有 <code>M</code> 行）时，MySQL 根据被驱动表连接列 <code>t2.a</code> 上是否有可用索引，采取截然不同的物理连接算子：
   </p>
 
   <div class="table-wrap" style="margin-bottom:14px;">
@@ -82,7 +90,11 @@
 <div class="wb-card" id="mysql-filesort-internals" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
   <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 03.3 · Filesort 排序内核：全字段排序（Single-Pass）vs rowid 排序（Two-Pass）与外部归并排序</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 03.3 <code>ORDER BY</code> 触发 <code>Using filesort</code> 时的内部执行过程</h3>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 03.3 <code>ORDER BY</code> 触发 <code>Using filesort</code> 时的内部执行过程 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#mysql-explain-guide">实战篇 05.3</a> 与 <a href="index.html#sc-report">06.6 统计报表</a> —— 当 <code>EXPLAIN</code> 出现 <code>Using filesort</code> 时一定是写磁盘排序吗，为什么带 <code>ORDER BY</code> 的查询严禁写 <code>SELECT *</code>？
+  </p>
 
   <p>
     当 <code>ORDER BY</code> 的列无法直接复用索引的天然有序性时，<code>EXPLAIN</code> 的 <code>Extra</code> 列会出现 <strong><code>Using filesort</code></strong>（注意名字虽带 <code>file</code>，但只要数据量不超过线程独占的排序内存缓冲区 <strong><code>sort_buffer_size</code>（默认 <code>256 KB</code>）</strong>，排序就完全在内存中通过快速排序完成；只有超出 <code>sort_buffer_size</code> 时才会借助磁盘临时文件做多路外部归并排序）。
@@ -113,7 +125,7 @@
 
         <rect x="42" y="54" width="232" height="56" rx="6" fill="#FFFDF7" stroke="#1F1F23" stroke-width="1.6"/>
         <text x="158" y="74" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10.5" font-weight="800" fill="#1F1F23">① 回表读取满足条件的记录</text>
-        <text x="158" y="94" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">取出 SELECT 所需的全部列 (city,name,age)</text>
+        <text x="158" y="94" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#5A5860">取出全部列 (city, name, age)</text>
 
         <rect x="324" y="54" width="288" height="56" rx="6" fill="#FFFDF7" stroke="#1b5e20" stroke-width="1.8"/>
         <text x="468" y="74" text-anchor="middle" font-family="'Noto Sans SC',sans-serif" font-size="10.5" font-weight="800" fill="#1b5e20">② 装入 sort_buffer 按排序键快排</text>
