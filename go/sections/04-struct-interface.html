@@ -1,0 +1,398 @@
+<!-- ====================================================================
+     PART 04: 结构体、接口与泛型 · 指针、组合、JSON 常见坑、接口与泛型
+     ==================================================================== -->
+<div class="wb-sec-header mustard" id="struct-interface">
+  <span class="wb-sec-num">04</span>
+  <span class="wb-sec-title">结构体、接口与泛型：组合建模、JSON 避坑与类型参数</span>
+  <span class="plop-tag tomato">POINTER · STRUCT &amp; JSON TRAPS · INTERFACE · GENERICS</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>分清什么时候传值、什么时候传指针 <code>*T</code>，用 <code>struct</code> 和方法组织业务模型，彻底避开前后端联调最头疼的 4 类 JSON 序列化坑，并掌握非侵入式 <code>interface</code> 解耦与 Go 1.18+ 泛型的选型边界。
+</div>
+
+<!-- 04.1 · 值传递与指针（& 与 *）的日常用法 -->
+<div class="wb-card" id="pointer-usage" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill" id="gmp"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 04.1 · 值传递与指针操作：传值副本机制、取地址（<code>&amp;</code>）与解引用（<code>*</code>）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> 04.1 值传递与指针（<code>&amp;</code> 取地址与 <code>*</code> 解引用）</h3>
+
+  <p>
+    在 JavaScript 里，对象总是按共享引用传递；而在 Go 中，<strong>一切函数传参默认都是把值复制一份交给函数（值传递）</strong>。如果希望在函数内部直接修改外部原变量，或者结构体很大不想每次传参都拷贝整块字段，就使用<strong>指针（Pointer，只占 8 字节内存地址，且不支持 C 语言那种危险的指针加减运算）</strong>：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong><code>&amp;v</code>（取地址）</strong>：拿到变量 <code>v</code> 在内存中的地址，类型为 <code>*T</code>；</li>
+    <li><strong><code>*p</code>（解引用）</strong>：顺着指针 <code>p</code> 记录的地址读写原变量（注意：对 <code>nil</code> 空指针解引用会触发空指针崩溃）。</li>
+  </ul>
+
+  <div class="plop-code-box" style="margin-bottom:10px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> pointer_basic.go · 传普通值副本 vs 传指针修改原变量 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ptr-basic', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-ptr-basic"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">func</span> <span class="c-fn">addByValue</span>(x <span class="c-fn">int</span>)    { x = x + 10 }   <span class="c-cm">// 改的是复印件，不影响外部</span>
+<span class="c-kw">func</span> <span class="c-fn">addByPointer</span>(p *<span class="c-fn">int</span>) { *p = *p + 10 } <span class="c-cm">// 顺着地址直接修改外部原变量</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    num := 5
+    <span class="c-fn">addByValue</span>(num)
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"传值后:"</span>, num)   <span class="c-cm">// 输出: 5</span>
+
+    <span class="c-fn">addByPointer</span>(&amp;num)
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"传指针后:"</span>, num) <span class="c-cm">// 输出: 15</span>
+}</code></pre>
+  </div>
+
+  <div style="font-size:12.8px; color:var(--plop-ink-soft);">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-pin"></use></svg> <strong>背后的原理：</strong>普通值、指针与切片在内存栈堆上分别长什么样？详见 <a href="principles.html#basic"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 01.1 变量内存模型与值传递图解 ↗</a>。
+  </div>
+</div>
+
+<!-- 04.2 · 结构体 struct：定义、方法接收者与组合嵌套 -->
+<div class="wb-card" id="struct-usage" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 04.2 · 结构体 <code>struct</code>：字段定义、值/指针方法接收者与匿名组合复用</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 04.2 结构体（<code>struct</code>）：自定义类型、方法接收者与组合</h3>
+
+  <p>
+    Go 用 <strong><code>struct</code></strong> 聚合数据字段，通过在 <code>func</code> 和方法名之间加一个<strong>接收者（Receiver，相当于把普通函数的第一个参数移到了前面，类似 JS 里的 <code>this</code>）</strong>来绑定方法，并用<strong>匿名嵌入（组合）</strong>替代类继承：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> struct_method.go · 值接收者 vs 指针接收者怎么选 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-struct-method', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-struct-method"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">type</span> User <span class="c-kw">struct</span> {
+    ID   <span class="c-fn">int64</span>
+    Name <span class="c-fn">string</span>
+    Age  <span class="c-fn">int</span>
+}
+
+<span class="c-cm">// 对比普通函数 func Greet(u User) string：把 (u User) 移到前面即成为方法</span>
+<span class="c-cm">// • 值接收者 (u User)：只读小结构体时可用</span>
+<span class="c-kw">func</span> (u User) <span class="c-fn">Greet</span>() <span class="c-fn">string</span> { <span class="c-kw">return</span> <span class="c-str">"你好, "</span> + u.Name }
+
+<span class="c-cm">// • 指针接收者 (u *User)：需要修改字段、含锁字段或结构体较大时必用（工程主力）</span>
+<span class="c-kw">func</span> (u *User) <span class="c-fn">GrowUp</span>() {
+    u.Age++ <span class="c-cm">// Go 自动解引用，直接写 u.Age 即可</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    u := User{ID: 1, Name: <span class="c-str">"Alice"</span>, Age: 18}
+    u.<span class="c-fn">GrowUp</span>() <span class="c-cm">// 编译器自动转为 (&amp;u).GrowUp()</span>
+    fmt.<span class="c-fn">Println</span>(u.<span class="c-fn">Greet</span>(), u.Age) <span class="c-cm">// 你好, Alice 19</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> struct_embed.go · 匿名组合嵌套与 JSON 标签基础 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-struct-json', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-struct-json"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"encoding/json"</span>
+    <span class="c-str">"fmt"</span>
+)
+
+<span class="c-kw">type</span> Timestamps <span class="c-kw">struct</span> {
+    CreatedAt <span class="c-fn">string</span> <span class="c-str">`json:"created_at"`</span>
+}
+
+<span class="c-cm">// 字段首字母必须大写，encoding/json 包才能读取导出！</span>
+<span class="c-kw">type</span> Admin <span class="c-kw">struct</span> {
+    Timestamps                 <span class="c-cm">// 匿名嵌入：直接获得 CreatedAt 字段与方法，JSON 自动平铺</span>
+    Username <span class="c-fn">string</span> <span class="c-str">`json:"username"`</span>
+    Password <span class="c-fn">string</span> <span class="c-str">`json:"-"`</span> <span class="c-cm">// json:"-" 序列化时永远忽略该敏感字段</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    a := Admin{Timestamps: Timestamps{CreatedAt: <span class="c-str">"2026-11-28"</span>}, Username: <span class="c-str">"root"</span>, Password: <span class="c-str">"secret"</span>}
+    b, _ := json.<span class="c-fn">Marshal</span>(a)
+    fmt.<span class="c-fn">Println</span>(<span class="c-fn">string</span>(b)) <span class="c-cm">// {"created_at":"2026-11-28","username":"root"}</span>
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 04.3 · 前后端联调必知：JSON 序列化的四大常见坑 -->
+<div class="wb-card" id="json-traps" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape tomato"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 04.3 · 前后端联调避坑：<code>nil</code> 切片变 <code>null</code>、<code>omitempty</code> 吞零值、时间格式与大整数丢精度</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 04.3 实战避坑：JSON（JavaScript Object Notation，JavaScript 对象表示法）四大常见误区</h3>
+
+  <p>
+    Go 标准库 <code>encoding/json</code> 与前端 JavaScript 对接时，有四个高频细节如果不提前处理，很容易在联调阶段写出隐蔽 Bug：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">联调高频误区</th>
+          <th style="width:36%">错误现象与原因</th>
+          <th>生产标准解法</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 空列表变成 <code>null</code></strong></td>
+          <td>只声明 <code>var list []Order</code>（<code>nil</code> 切片），查库没数据时序列化成 <code>{"list":null}</code>，前端调 <code>res.list.map()</code> 当场报错。</td>
+          <td>初始化为<strong>非 <code>nil</code> 空切片</strong>：<code>list := []Order{}</code> 或 <code>make([]Order, 0)</code>，序列化结果即为前端预期的 <code>{"list":[]}</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>2. <code>omitempty</code> 误吞合法零值</strong></td>
+          <td>写了 <code>Stock int `json:"stock,omitempty"`</code> 或 <code>Done bool `json:"done,omitempty"`</code>，当库存卖成 <code>0</code> 或状态为 <code>false</code> 时，字段直接从 JSON 里消失了；且局部更新接口无法区分“前端没传该字段”还是“明确传了 <code>0</code>”。</td>
+          <td>• <strong>返回给前端的响应结构体</strong>：数值/布尔字段不要乱加 <code>omitempty</code>；<br>• <strong>局部更新请求（PATCH）结构体</strong>：把可选字段定义为<strong>指针类型 <code>*int / *bool</code></strong> 配合 <code>omitempty</code>——前端没传是 <code>nil</code>，传了 <code>0</code> 则是非空指针且解引用值为 <code>0</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 时间格式与参考时间</strong></td>
+          <td><code>time.Time</code> 默认按 <strong>RFC 3339（Request for Comments 3339，互联网日期时间标准）</strong>输出 <code>"2026-11-28T15:04:05+08:00"</code>；若新手写格式化模板误写 <code>yyyy-MM-dd</code> 会输出一串乱数字。</td>
+          <td>• 跨端最稳妥做法是<strong>直接传毫秒级 Unix 时间戳 <code>int64</code></strong>（无时区歧义）；<br>• 若需自定义文本格式，Go 的 <code>Format</code> 必须写固定参考时间 <strong><code>"2006-01-02 15:04:05"</code></strong>（记忆：<code>2006年1月2日下午3点4分5秒 = 6-1-2-3-4-5</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 64 位大整数前端丢精度</strong></td>
+          <td>后端用 19 位雪花 ID <code>int64</code>（如 <code>1862049182736459779</code>），而前端 JS 的 <code>Number</code> 最大安全整数仅为 <code>2<sup>53</sup> - 1</code>（16 位），<code>JSON.parse</code> 后末尾变成 <code>...800</code>，回传查库全报 404。</td>
+          <td>在结构体标签末尾加上 <strong><code>,string</code></strong>：写成 <code>ID int64 `json:"id,string"`</code>。<code>encoding/json</code> 序列化时会自动包上双引号变成字符串 <code>"1862049182736459779"</code>，反序列化时也会自动把前端传回的字符串解析回 <code>int64</code>。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> json_pitfalls.go · 一段代码验证全部四项安全写法 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-json-pitfalls', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-json-pitfalls"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"encoding/json"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"time"</span>
+)
+
+<span class="c-kw">type</span> OrderResp <span class="c-kw">struct</span> {
+    OrderID   <span class="c-fn">int64</span>    <span class="c-str">`json:"order_id,string"`</span>   <span class="c-cm">// 1. 19位大整数自动转 JSON 字符串防 JS 丢精度</span>
+    Stock     <span class="c-fn">int</span>      <span class="c-str">`json:"stock"`</span>             <span class="c-cm">// 2. 不加 omitempty，库存为 0 也如实输出 "stock":0</span>
+    Tags      []<span class="c-fn">string</span> <span class="c-str">`json:"tags"`</span>              <span class="c-cm">// 3. 赋值为 []string{} 保证输出 [] 而非 null</span>
+    CreatedAt <span class="c-fn">string</span>   <span class="c-str">`json:"created_at"`</span>        <span class="c-cm">// 4. 格式化使用固定参考时间 2006-01-02 15:04:05</span>
+}
+
+<span class="c-cm">// 局部更新请求体：用指针 *int 区分“没传 stock 字段(nil)”与“把库存清零(*p == 0)”</span>
+<span class="c-kw">type</span> PatchStockReq <span class="c-kw">struct</span> {
+    Stock *<span class="c-fn">int</span> <span class="c-str">`json:"stock,omitempty"`</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    resp := OrderResp{
+        OrderID:   1862049182736459779,
+        Stock:     0,
+        Tags:      []<span class="c-fn">string</span>{}, <span class="c-cm">// 非 nil 空切片</span>
+        CreatedAt: time.<span class="c-fn">Date</span>(2026, 11, 28, 15, 30, 0, 0, time.Local).<span class="c-fn">Format</span>(<span class="c-str">"2006-01-02 15:04:05"</span>),
+    }
+    out, _ := json.<span class="c-fn">Marshal</span>(resp)
+    fmt.<span class="c-fn">Println</span>(<span class="c-fn">string</span>(out))
+    <span class="c-cm">// 输出: {"order_id":"1862049182736459779","stock":0,"tags":[],"created_at":"2026-11-28 15:30:00"}</span>
+
+    <span class="c-kw">var</span> req PatchStockReq
+    _ = json.<span class="c-fn">Unmarshal</span>([]<span class="c-fn">byte</span>(<span class="c-str">`{"stock":0}`</span>), &amp;req)
+    <span class="c-kw">if</span> req.Stock != <span class="c-kw">nil</span> {
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"前端明确传入了库存:"</span>, *req.Stock) <span class="c-cm">// 0</span>
+    }
+}</code></pre>
+  </div>
+</div>
+
+<!-- 04.4 · 接口 interface：非侵入式多态、空接口 any 与工程设计技巧 -->
+<div class="wb-card" id="interface-usage" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 04.4 · 接口与解耦：非侵入式 <code>interface</code>、安全类型断言与函数式选项模式</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-link"></use></svg> 04.4 接口（<code>interface</code>）、<code>any</code> 与常用工程技巧</h3>
+
+  <p>
+    Go 的 <code>interface</code> 只约定一组方法签名，采用<strong>非侵入式（鸭子类型）实现——不需要写 <code>implements</code>，只要结构体实现了接口要求的全部方法，就自动满足该接口</strong>。工程中遵循<strong>「在调用方定义小接口（1～3 个方法），测试时直接传内存假实现做单测」</strong>的原则，并常用函数式选项（<code>WithXxx</code>）优雅解决 Go 没有默认参数的问题：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> interface_demo.go · 非侵入式接口、编译期校验与类型断言 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-iface-demo', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-iface-demo"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">type</span> Notifier <span class="c-kw">interface</span> {
+    <span class="c-fn">Send</span>(msg <span class="c-fn">string</span>) <span class="c-fn">error</span>
+}
+
+<span class="c-kw">type</span> SMSSender <span class="c-kw">struct</span>{ Phone <span class="c-fn">string</span> }
+
+<span class="c-kw">func</span> (s *SMSSender) <span class="c-fn">Send</span>(msg <span class="c-fn">string</span>) <span class="c-fn">error</span> {
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"[短信->"</span>, s.Phone, <span class="c-str">"]:"</span>, msg)
+    <span class="c-kw">return</span> <span class="c-kw">nil</span>
+}
+
+<span class="c-cm">// 编译期静态断言：不占运行内存，若 *SMSSender 漏实现方法则编译当场报错</span>
+<span class="c-kw">var</span> _ Notifier = (*SMSSender)(<span class="c-kw">nil</span>)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-kw">var</span> n Notifier = &amp;SMSSender{Phone: <span class="c-str">"1380000"</span>}
+    _ = n.<span class="c-fn">Send</span>(<span class="c-str">"验证码 8848"</span>)
+
+    <span class="c-cm">// 空接口 any (interface{} 别名) 取出具体类型时，始终带上 ok 避免断言失败 panic</span>
+    <span class="c-kw">var</span> box <span class="c-fn">any</span> = <span class="c-str">"hello"</span>
+    <span class="c-kw">if</span> str, ok := box.(<span class="c-fn">string</span>); ok {
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"安全取出长度:"</span>, <span class="c-fn">len</span>(str))
+    }
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box" id="interface-patterns">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-puzzle"></use></svg> functional_options.go · 用 WithXxx 选项模式替代可选配置对象 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-pat-options', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-pat-options"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-cm">// Go 没有函数默认参数，初始化带大量可选配置的组件时，标准写法是 Option 函数：</span>
+<span class="c-kw">type</span> Client <span class="c-kw">struct</span> {
+    addr    <span class="c-fn">string</span>
+    timeout <span class="c-fn">int</span>
+    retries <span class="c-fn">int</span>
+}
+
+<span class="c-kw">type</span> Option <span class="c-kw">func</span>(*Client)
+
+<span class="c-kw">func</span> <span class="c-fn">WithTimeout</span>(sec <span class="c-fn">int</span>) Option { <span class="c-kw">return</span> <span class="c-kw">func</span>(c *Client) { c.timeout = sec } }
+<span class="c-kw">func</span> <span class="c-fn">WithRetries</span>(n <span class="c-fn">int</span>) Option   { <span class="c-kw">return</span> <span class="c-kw">func</span>(c *Client) { c.retries = n } }
+
+<span class="c-kw">func</span> <span class="c-fn">NewClient</span>(addr <span class="c-fn">string</span>, opts ...Option) *Client {
+    c := &amp;Client{addr: addr, timeout: 3, retries: 1} <span class="c-cm">// 先填安全默认值</span>
+    <span class="c-kw">for</span> _, opt := <span class="c-kw">range</span> opts {
+        <span class="c-fn">opt</span>(c)
+    }
+    <span class="c-kw">return</span> c
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    cli := <span class="c-fn">NewClient</span>(<span class="c-str">"127.0.0.1:8080"</span>, <span class="c-fn">WithTimeout</span>(10))
+    fmt.<span class="c-fn">Printf</span>(<span class="c-str">"%+v\n"</span>, cli) <span class="c-cm">// &amp;{addr:127.0.0.1:8080 timeout:10 retries:1}</span>
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 04.5 · 泛型编程 Generics -->
+<div class="wb-card" id="generics-usage" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.5 · 泛型（Generics，Go 1.18+）：类型约束、通用响应结构与官方泛型标准库</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.5 泛型（Generics）：类型参数 <code>[T 约束]</code> 与选型边界</h3>
+
+  <p>
+    <strong>选型口诀：不同类型「行为逻辑不同」用 <code>interface</code>（如微信支付 vs 支付宝支付）；「处理逻辑完全相同、仅仅元素类型不同」用泛型 <code>[T]</code></strong>（如统一分页响应 <code>PageResp[T]</code>、切片去重与字段提取）。常见约束有四种：<code>any</code>（任意类型）、<code>comparable</code>（可判等/作 map 键）、<code>cmp.Ordered</code>（可比大小，Go 1.21+），以及加波浪号 <code>~int64</code> 兼容底层类型为 <code>int64</code> 的自定义别名类型：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> generics_api.go · 泛型分页响应结构与通用提取函数 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-gen-func', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-gen-func"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-cm">// 1. 泛型统一分页响应包装：Data 随业务类型动态确定，告别 any 丢失类型提示</span>
+<span class="c-kw">type</span> PageResp[T <span class="c-fn">any</span>] <span class="c-kw">struct</span> {
+    Total <span class="c-fn">int64</span> <span class="c-str">`json:"total"`</span>
+    Items []T   <span class="c-str">`json:"items"`</span>
+}
+
+<span class="c-cm">// 2. 通用切片去重函数：T 受 comparable 约束，可安全作为 map 的 Key</span>
+<span class="c-kw">func</span> <span class="c-fn">Uniq</span>[T <span class="c-fn">comparable</span>](in []T) []T {
+    seen := <span class="c-fn">make</span>(<span class="c-kw">map</span>[T]<span class="c-kw">struct</span>{}, <span class="c-fn">len</span>(in))
+    out := <span class="c-fn">make</span>([]T, 0, <span class="c-fn">len</span>(in))
+    <span class="c-kw">for</span> _, v := <span class="c-kw">range</span> in {
+        <span class="c-kw">if</span> _, ok := seen[v]; !ok {
+            seen[v] = <span class="c-kw">struct</span>{}{}
+            out = <span class="c-fn">append</span>(out, v)
+        }
+    }
+    <span class="c-kw">return</span> out
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    ids := <span class="c-fn">Uniq</span>([]<span class="c-fn">int64</span>{101, 102, 101, 103}) <span class="c-cm">// 自动推导 T 为 int64</span>
+    fmt.<span class="c-fn">Println</span>(PageResp[<span class="c-fn">int64</span>]{Total: 3, Items: ids})
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> generics_stdlib.go · Go 1.21+ 内置 min/max 与 cmp.Or 默认值 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-gen-stdlib', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-gen-stdlib"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"cmp"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"maps"</span>
+    <span class="c-str">"os"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// 1. 内置泛型函数 min / max（Go 1.21+）：直接支持所有整数、浮点数和字符串</span>
+    fmt.<span class="c-fn">Println</span>(<span class="c-fn">min</span>(12, 5, 9), <span class="c-fn">max</span>(<span class="c-str">"go"</span>, <span class="c-str">"node"</span>)) <span class="c-cm">// 5 node</span>
+
+    <span class="c-cm">// 2. cmp.Or（Go 1.22+）：返回第一个非零值，非常像 JS 的 env.PORT || "8080"</span>
+    port := cmp.<span class="c-fn">Or</span>(os.<span class="c-fn">Getenv</span>(<span class="c-str">"PORT"</span>), <span class="c-str">"8080"</span>)
+
+    <span class="c-cm">// 3. maps.Clone（Go 1.21+）：一行浅克隆字典</span>
+    mCopy := maps.<span class="c-fn">Clone</span>(<span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">int</span>{<span class="c-str">"a"</span>: 1})
+    fmt.<span class="c-fn">Println</span>(port, mCopy)
+}</code></pre>
+    </div>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0 0 16px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>接口底层 16 字节双指针 <code>eface / iface</code> 如何实现动态派发？泛型 <code>GCShape</code> 如何避免二进制体积膨胀？详见 <a href="principles.html#interface">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 02.4 interface 底层结构》</a> 与 <a href="principles.html#generics">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 06.2 泛型 GCShape 编译原理》</a>。
+  </p>
+
+  <h4 id="quiz-04" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 定义了结构体 <code>type LoginResp struct { token string `json:"token"` }</code>，为什么调用 <code>json.Marshal</code> 返回了空对象 <code>"{}"</code>？</span></summary>
+    <div class="drawer-body">
+      <p>因为字段名 <code>token</code> 首字母是小写（包内私有未导出），处于外部标准库包里的 <code>encoding/json</code> 无权通过反射读取它，于是直接跳过了该字段。把字段名改成首字母大写 <code>Token string `json:"token"`</code> 即可正常输出小写键名的 <code>{"token":"..."}</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 搜索接口没搜到商品时返回了 <code>{"items": null}</code>，前端页面因为执行 <code>res.items.length</code> 白屏报错了，后端怎么从根源避免？</span></summary>
+    <div class="drawer-body">
+      <p>查库前初始化结果切片时，不要写零值声明 <code>var items []Product</code>（零值是 <code>nil</code>，序列化为 <code>null</code>），而是写成 <code>items := make([]Product, 0)</code> 或 <code>items := []Product{}</code>（长度为 0 的非 <code>nil</code> 空切片，序列化永远是 <code>[]</code>）。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 数据库用户主键用的是 19 位雪花算法 <code>int64</code>，前端列表页拿到 ID 后再点进详情页，后端却查不到该用户，为什么？怎么改？</span></summary>
+    <div class="drawer-body">
+      <p><strong>原因</strong>：前端浏览器的 <code>JSON.parse</code> 把 JSON 数字按双精度浮点数解析，超过 <code>2<sup>53</sup> - 1</code>（16 位）的大整数末几位精度会被四舍五入抹成 <code>0</code>。<br>
+      <strong>一行修复</strong>：在响应和请求结构体的该字段标签加上 <code>,string</code>，即 <code>UserID int64 `json:"user_id,string"`</code>，让前后端之间以 JSON 字符串无损传输 64 位整数。</p>
+    </div>
+  </details>
+</div>

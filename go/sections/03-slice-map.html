@@ -1,0 +1,233 @@
+<!-- ====================================================================
+     PART 03: 切片与字典 · 数组、动态切片 []T、键值字典 map[K]V 与常见坑
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="slice-map">
+  <span class="wb-sec-num">03</span>
+  <span class="wb-sec-title">切片与字典：<code>[]T</code>、<code>map[K]V</code> 日常操作与常见误区</span>
+  <span class="plop-tag mint">SLICE · MAP · SHARED ARRAY TRAP · CONCURRENT PANIC</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>熟练用切片 <code>[]T</code>（对应 JS 数组）和字典 <code>map[K]V</code>（对应 JS <code>Map / Object</code>）完成列表处理与键值查找，并避开「子切片共享底层数组改一个变两个」「写未初始化 `nil map`」「多任务并发写 `map` 直接崩溃」三大高频故障。
+</div>
+
+<!-- 03.1 · 数组 [N]T 与动态切片 []T 的日常用法 -->
+<div class="wb-card" id="slice-usage" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill" id="slice"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-palette"></use></svg> 03.1 · 序列容器：定长数组 <code>[N]T</code> 与动态切片 <code>[]T</code> 的创建、追加、截取与排序</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-palette"></use></svg> 03.1 定长数组 <code>[N]T</code> 与动态切片 <code>[]T</code> 的日常用法</h3>
+
+  <p>
+    按顺序存放一组同类型元素时，Go 区分了<strong>定长数组 <code>[N]T</code></strong>（长度写死在类型里，如 <code>[4]byte</code>，不能追加元素）和<strong>动态切片 <code>[]T</code></strong>（方括号内不写数字，类似 JS 的 <code>Array</code>，可随时用 <code>append</code> 动态增长，占日常开发的 99%）：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> slice_create_append.go · 切片的 3 种创建方式与 append [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-create', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-slice-create"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// 方式一：零值声明 (nil 切片, s1 == nil)，不能按下标写 s1[0]=1，但可直接 append</span>
+    <span class="c-kw">var</span> s1 []<span class="c-fn">int</span>
+    s1 = <span class="c-fn">append</span>(s1, 10, 20) <span class="c-cm">// ★ 注意：append 返回新切片值，必须重新赋回给 s1</span>
+
+    <span class="c-cm">// 方式二：字面量初始化（已知初始元素，或需要非 nil 的空切片 []int{}）</span>
+    nums := []<span class="c-fn">int</span>{10, 20}
+    nums = <span class="c-fn">append</span>(nums, 30)
+
+    <span class="c-cm">// 方式三：make([]T, 长度 len, 容量 cap) —— 已知大致条数时推荐预留容量</span>
+    <span class="c-cm">// 长度设 0、预留容量 100，配合 append 追加可省去中途多次扩容拷贝</span>
+    list := <span class="c-fn">make</span>([]<span class="c-fn">string</span>, 0, 100)
+    list = <span class="c-fn">append</span>(list, <span class="c-str">"first"</span>)
+
+    fmt.<span class="c-fn">Println</span>(s1, nums, <span class="c-fn">len</span>(list), <span class="c-fn">cap</span>(list)) <span class="c-cm">// [10 20] [10 20 30] 1 100</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> slice_sub_sort.go · 区间截取、独立克隆与 slices 标准库 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-ops', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-slice-ops"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"slices"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    s := []<span class="c-fn">int</span>{30, 10, 40, 20}
+
+    <span class="c-cm">// 1. 区间截取 s[low:high]：左闭右开（含下标 1、2，不含 3，类似 JS slice(1, 3)）</span>
+    sub := s[1:3] <span class="c-cm">// [10 40]，len = 3 - 1 = 2，cap = 4 - 1 = 3</span>
+
+    <span class="c-cm">// 2. 独立拷贝（Go 1.21+ 标准库 slices.Clone，生成互不干扰的新底层数组）</span>
+    cloned := slices.<span class="c-fn">Clone</span>(sub)
+
+    <span class="c-cm">// 3. 排序与包含判断</span>
+    slices.<span class="c-fn">Sort</span>(s)                  <span class="c-cm">// 原地升序: [10 20 30 40]</span>
+    found := slices.<span class="c-fn">Contains</span>(s, 20) <span class="c-cm">// true</span>
+    fmt.<span class="c-fn">Println</span>(cloned, s, found)
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 03.2 · 键值字典 map[K]V 的日常用法 -->
+<div class="wb-card" id="map" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 03.2 · 键值字典：<code>map[K]V</code> 的初始化、增删改查、<code>comma-ok</code> 判断与遍历</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 03.2 键值字典 <code>map[K]V</code> 的日常用法</h3>
+
+  <p>
+    <code>map[KeyType]ValueType</code> 是内置哈希表，查找、写入、删除的平均时间复杂度均为 <code>O(1)</code>。与 JS 对象读取不存在属性返回 <code>undefined</code> 不同，<strong>Go 读取不存在的 Key 会返回 Value 类型的零值（例如 <code>0</code> 或 <code>""</code>）</strong>，因此需要借助第二个布尔返回值 <code>ok</code> 来区分“真的存了 0”还是“键不存在”：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> map_crud.go · 字典初始化、存在性判断与删除 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-map-crud', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-map-crud"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// 1. 写入前必须用 make 或字面量 {} 初始化（只写 var m map[string]int 是 nil，写入会崩）</span>
+    scores := <span class="c-fn">make</span>(<span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">int</span>, 16)
+    scores[<span class="c-str">"alice"</span>] = 95
+    scores[<span class="c-str">"bob"</span>] = 0
+
+    <span class="c-cm">// 2. 用 val, ok := m[k] 区分“存了零值 0”与“Key 不存在”</span>
+    <span class="c-kw">if</span> val, ok := scores[<span class="c-str">"bob"</span>]; ok {
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"bob 已交卷，得分:"</span>, val) <span class="c-cm">// bob 已交卷，得分: 0</span>
+    }
+
+    <span class="c-cm">// 3. 删除键值对（Key 不存在时 delete 静默无操作，不报错）</span>
+    <span class="c-fn">delete</span>(scores, <span class="c-str">"alice"</span>)
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"剩余人数:"</span>, <span class="c-fn">len</span>(scores)) <span class="c-cm">// 1</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> map_range_set.go · 随机遍历、有序输出与去重集合 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-map-range', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-map-range"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"slices"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    m := <span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">int</span>{<span class="c-str">"b"</span>: 2, <span class="c-str">"a"</span>: 1, <span class="c-str">"c"</span>: 3}
+
+    <span class="c-cm">// 1. Go 故意在每次 range map 时随机化起始位置，防止业务依赖哈希桶顺序</span>
+    <span class="c-cm">// 若需固定顺序输出，先提取 Key 切片排序再遍历：</span>
+    keys := <span class="c-fn">make</span>([]<span class="c-fn">string</span>, 0, <span class="c-fn">len</span>(m))
+    <span class="c-kw">for</span> k := <span class="c-kw">range</span> m {
+        keys = <span class="c-fn">append</span>(keys, k)
+    }
+    slices.<span class="c-fn">Sort</span>(keys)
+    <span class="c-kw">for</span> _, k := <span class="c-kw">range</span> keys {
+        fmt.<span class="c-fn">Printf</span>(<span class="c-str">"%s:%d "</span>, k, m[k]) <span class="c-cm">// 稳定输出: a:1 b:2 c:3</span>
+    }
+
+    <span class="c-cm">// 2. Go 标准库没有单独的 Set 类型，日常直接用 map[string]bool 去重</span>
+    seen := <span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">bool</span>{<span class="c-str">"u_101"</span>: <span class="c-kw">true</span>}
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"\n是否已访问:"</span>, seen[<span class="c-str">"u_101"</span>])
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 03.3 · 实战常见坑：切片共享底层数组与 map 并发写崩溃 -->
+<div class="wb-card" id="slice-map-traps" style="background:var(--plop-paper);">
+  <div class="washi-tape mustard"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 03.3 · 两大高频线上坑：子切片共享底层数组「改一个变两个」与 <code>map</code> 并发写崩溃</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 03.3 常见误区：切片共享底层数组与 <code>map</code> 并发写崩溃</h3>
+
+  <p>
+    在 JavaScript 里，<code>arr.slice(0, 2)</code> 会浅拷贝出一个全新的数组，往新数组 <code>push</code> 绝不会污染原数组；但在 Go 里，<strong>切片在内存中拆成「<code>{底层数组地址 ptr, 长度 len, 容量 cap}</code> 描述头」和「底层连续数组」两部分</strong>，截取操作 <code>s[a:b]</code> 为了极致性能<strong>默认不拷贝数据，而是和原切片共用同一块底层数组</strong>——这是 JS 开发者转 Go 最容易踩中的隐蔽 Bug：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> slice_share_trap.go · 坑 1：子切片修改与 append 污染原切片 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-slice-trap', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-slice-trap"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"slices"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    all := []<span class="c-fn">int</span>{10, 20, 30, 40}
+
+    <span class="c-cm">// ❌ 隐患写法：直接截取前 2 个元素，此时 sub 的 len=2，但剩余容量 cap=4！</span>
+    sub := all[0:2]
+    sub[0] = 99            <span class="c-cm">// 现象 A：直接改了共享底层数组，all[0] 跟着变成 99</span>
+    sub = <span class="c-fn">append</span>(sub, 888) <span class="c-cm">// 现象 B：因 len(2) &lt; cap(4) 没触发扩容，888 直接覆盖了 all[2]！</span>
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"被污染的 all:"</span>, all) <span class="c-cm">// 输出: [99 20 888 40]（原 30 被悄悄篡改）</span>
+
+    <span class="c-cm">// ✅ 安全解法一（最推荐）：需要独立修改时，显式调用 slices.Clone 拷贝新数组</span>
+    safeCopy := slices.<span class="c-fn">Clone</span>(all[0:2])
+    safeCopy[0] = 777
+
+    <span class="c-cm">// ✅ 安全解法二：三下标切片 all[low:high:max] 把 cap 锁死为 2，迫使 append 分配新数组</span>
+    cappedSub := all[0:2:2]
+    cappedSub = <span class="c-fn">append</span>(cappedSub, 666) <span class="c-cm">// cap 已满，自动搬去新数组，绝不覆盖 all[2]</span>
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"保持不变的 all:"</span>, all, safeCopy, cappedSub)
+}</code></pre>
+    </div>
+
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; justify-content:center; font-size:13.2px; line-height:1.68;">
+      <div style="font-weight:900; font-size:14.2px; color:var(--plop-tomato); margin-bottom:8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 坑 2：内置 <code>map</code> 不是并发安全的，并发写会直接终止整个进程</div>
+      <p style="margin:0 0 8px;">
+        Node.js 是单线程事件循环，多个异步请求读写同一个全局 <code>Map</code> 不会把进程搞崩；但在 Go 中，每个 HTTP 请求都跑在各自独立的并发协程里：
+      </p>
+      <ul style="margin:0; padding-left:18px;">
+        <li><strong>直接后果</strong>：只要有两个并发任务同时对同一个普通 <code>map</code> 执行「一读一写」或「同时写」，Go 运行时内部的状态位检测会立刻抛出 <strong><code>fatal error: concurrent map read and map write</code></strong> 或 <strong><code>concurrent map writes</code></strong>。</li>
+        <li><strong>注意它不是普通报错</strong>：<code>fatal error</code> 属于运行时主动熔断，<strong>后续第 05 章讲的 <code>recover()</code> 也无法捕获它，整个后端服务会当场退出重启</strong>。</li>
+        <li><strong>工程规范</strong>：① 若全局 <code>map</code> 在进程启动时一次性填好、运行期<strong>100% 只读不写</strong>，任意多并发读完全安全；② 只要运行期存在修改，必须配合第 06 章的互斥锁 <code>sync.Mutex</code> / 读写锁 <code>sync.RWMutex</code> 保护。</li>
+      </ul>
+    </div>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0 0 16px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>切片的 24 字节表头在函数传参和扩容时到底怎么计算新容量？<code>map</code> 为什么并发写会破坏哈希桶指针？详见 <a href="principles.html#slice">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 02.1 slice 24B 表头与两步扩容规则》</a> 与 <a href="principles.html#map">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 02.2 map 哈希桶布局与渐进式扩容》</a>。
+  </p>
+
+  <h4 id="quiz-03" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 读取一个 50MB 的大日志文件字节切片 <code>rawBytes</code>，从中切出开头 20 个字节 <code>header := rawBytes[:20]</code> 长期保存在全局缓存里，<code>rawBytes</code> 还能被垃圾回收释放吗？</span></summary>
+    <div class="drawer-body">
+      <p><strong>不能被释放，会造成隐蔽的内存驻留浪费。</strong>因为 <code>header := rawBytes[:20]</code> 的底层指针仍然指在那块 50MB 的连续底层数组上，只要 <code>header</code> 还活着，整块 50MB 底层数组就一直被引用而无法回收。遇到“从大切片截一小段长期持有”的场景，务必写成 <code>header := slices.Clone(rawBytes[:20])</code>，让小切片搬去独立的 20 字节新数组，原 50MB 大数组即可被顺利回收。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 写了一个函数 <code>func addTag(tags []string) { tags = append(tags, "hot") }</code>，在外面传入 <code>myTags := []string{"new"}</code> 调用完后，为什么打印 <code>myTags</code> 还是只有 <code>["new"]</code>？</span></summary>
+    <div class="drawer-body">
+      <p>因为 Go 传参复制的是那份 <code>{ptr, len, cap}</code> 描述头：函数内的 <code>append</code> 把形参描述头的 <code>len</code> 改成了 <code>2</code>（甚至触发扩容换了新的 <code>ptr</code>），但外部 <code>myTags</code> 手里的原描述头 <code>len</code> 依然是 <code>1</code>（内存图解见 <a href="principles.html#syntax">原理篇 01.1</a>）。修改切片长度的函数，标准写法是<strong>把新切片作为返回值返回</strong>：<code>func addTag(tags []string) []string { return append(tags, "hot") }</code>，调用处写 <code>myTags = addTag(myTags)</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 线上服务在低峰期一切正常，一到晚高峰就偶发整机重启，容器日志最后一行是 <code>fatal error: concurrent map writes</code>，怎么定位和修复？</span></summary>
+    <div class="drawer-body">
+      <p><strong>原因</strong>：某个包级全局变量（或单例对象内部）持有一个未加锁的普通 <code>map</code>，晚高峰两个并发 HTTP 请求恰好在同一纳秒写了这个 <code>map</code>。<br>
+      <strong>定位与修复</strong>：看崩溃日志紧跟的协程调用栈即可直接定位到具体行号，并在本地跑 <code>go test -race ./...</code> 排查同类隐患；修复时用 <code>sync.RWMutex</code> 把读写包起来（见 <a href="#mutex-context">06.3</a>）。</p>
+    </div>
+  </details>
+</div>

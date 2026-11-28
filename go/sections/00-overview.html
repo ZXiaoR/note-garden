@@ -1,0 +1,314 @@
+<!-- ====================================================================
+     PART 00: 全景科普 · Go 语言定位、选型对比、JS 思维切换与知识地图
+     ==================================================================== -->
+<div class="wb-sec-header" id="overview" style="background:var(--plop-mustard);">
+  <span class="wb-sec-num">00</span>
+  <span class="wb-sec-title">全景科普：Go 语言定位、选型边界与 JS 思维切换</span>
+  <span class="plop-tag tomato">OVERVIEW · NODE/JAVA COMPARE · JS MINDSET · MAP</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>用一分钟讲清 Go 为什么在后端和云原生领域应用广泛、什么需求适合用它写、它与 Node.js 和 Java 的核心取舍在哪里，并把写 JavaScript 时的四个核心习惯平稳切换到 Go 思维。
+</div>
+
+<!-- 00.1 · Go 是什么、为什么后端和云原生用得多、适合与不适合写什么 -->
+<div class="wb-card" id="go-intro" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 00.1 · 语言定位与适用边界：静态单二进制、轻量并发、完备标准库与选型边界</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-compass"></use></svg> 00.1 Go 是什么，以及为什么后端与云原生普遍选它</h3>
+
+  <p>
+    Go（又称 Golang）由 Google 于 2009 年开源，由 Ken Thompson（Unix 与 UTF-8 共同设计者）、Rob Pike 与 Robert Griesemer 主持设计。它的工程目标很明确：<strong>把静态编译语言的运行效率与类型安全，和动态脚本语言的开发简洁性结合起来</strong>。后端服务与云原生基础设施广泛采用 Go，主要源于三项核心特性：
+  </p>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:12px; margin:12px 0 14px; font-size:13.2px; line-height:1.65;">
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px;">
+      <strong>① 编译成单个可执行二进制</strong><br>
+      几万行源码数秒即可编译为一个内含运行时的独立二进制文件，拷上服务器无需安装 Node 运行时或 Java 虚拟机即可直接运行，Docker 镜像可轻松压到 <code>10 ~ 25 MB</code>，冷启动在毫秒级。
+    </div>
+    <div style="background:var(--plop-mint); border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px;">
+      <strong>② 并发写法直观，自动跑满多核</strong><br>
+      在任意函数前加一个 <code>go</code> 关键字就能启动轻量级协程（<code>goroutine</code>，初始栈仅 <code>2KB</code>），底层由 <strong>GMP（Goroutine / Machine / Processor，协程调度模型）</strong>调度到多核 <strong>CPU（Central Processing Unit，中央处理器）</strong>上并行执行，没有异步回调嵌套和函数染色。
+    </div>
+    <div style="background:var(--plop-mustard); border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px;">
+      <strong>③ 标准库完备，团队代码长相一致</strong><br>
+      生产级 <strong>HTTP（HyperText Transfer Protocol，超文本传输协议）</strong>服务、JSON 解析、数据库连接池、结构化日志、单元测试与性能剖析全部内置于官方标准库；配合 <code>gofmt</code> 强制统一排版，跨团队接手代码成本很低。
+    </div>
+  </div>
+
+  <div class="wb-grid-2">
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px; font-size:13.2px; line-height:1.68;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 适合用 Go 写什么</div>
+      <ul style="margin:0; padding-left:18px;">
+        <li><strong>高并发 API（Application Programming Interface，应用程序接口）服务与微服务</strong>：订单、用户、支付网关、AI 流式编排后端；</li>
+        <li><strong>网络网关、反向代理与长连接推送</strong>：高吞吐请求转发、SSE 流式网关、WebSocket 服务；</li>
+        <li><strong>云原生基础设施与容器工具</strong>：Docker、Kubernetes、etcd、Prometheus、Terraform 均由 Go 编写；</li>
+        <li><strong>跨平台 CLI（Command-Line Interface，命令行界面）工具与运维 Agent</strong>：一次编译即可分发给 macOS / Linux / Windows 用户直接执行。</li>
+      </ul>
+    </div>
+
+    <div style="background:#FFFDF7; border:2px solid var(--plop-ink); border-radius:10px; padding:12px 14px; font-size:13.2px; line-height:1.68;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cross"></use></svg> 不太适合用 Go 写什么</div>
+      <ul style="margin:0; padding-left:18px;">
+        <li><strong>硬实时与零 GC（Garbage Collection，垃圾回收）停顿系统</strong>：操作系统内核、嵌入式固件、微秒级高频交易核心（更适合 C / C++ / Rust）；</li>
+        <li><strong>前端同构渲染（SSR）与纯页面聚合层</strong>：需要与前端共享同一套组件和校验逻辑时，TypeScript / Node.js 更顺手；</li>
+        <li><strong>AI 模型训练、科学计算与临时数据分析脚本</strong>：矩阵计算与深度学习生态集中在 Python（Go 适合做外围推理网关与工程编排）；</li>
+        <li><strong>极度复杂的传统企业级 ERP 单体</strong>：若重度依赖运行时字节码增强与声明式切面框架，Java / Spring 生态积淀更深。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 00.2 · Go 与 Node.js、Java 的横向对比表 -->
+<div class="wb-card" id="lang-compare" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 00.2 · 横向选型对照：Go vs Node.js vs Java 的运行机制、并发模型与工程权衡</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 00.2 和 Node.js、Java 的横向对比表</h3>
+
+  <p>
+    对于已经熟悉 JavaScript / Node.js 的开发者来说，把 Go 放在 Node.js 和 Java 中间做对照，最容易找准它的工程坐标（Node.js 自身的事件循环与多进程细节可对照 <a href="../node/index.html">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> Node.js · 基础与实战篇》</a>）：
+  </p>
+
+  <div class="table-wrap">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:15%">对比维度</th>
+          <th style="width:31%">Go（1.22+）</th>
+          <th style="width:28%">Node.js（TypeScript / V8）</th>
+          <th style="width:26%">Java（JDK 21+ / Spring Boot）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>编译与部署产物</strong></td>
+          <td><strong>静态编译单二进制文件</strong>，无外部运行时依赖，容器镜像约 <code>10 ~ 25 MB</code>，毫秒级启动</td>
+          <td>源码 + <code>node_modules</code> + Node 运行时，镜像约 <code>120 ~ 300 MB</code>，启动较快</td>
+          <td>字节码 JAR + JVM 虚拟机（需 JIT 预热），镜像约 <code>200 ~ 400 MB</code>，启动较慢、基础内存偏高</td>
+        </tr>
+        <tr>
+          <td><strong>类型安全</strong></td>
+          <td><strong>原生编译期静态强类型</strong>，运行期依然保留真实内存类型布局，重构安全</td>
+          <td>JS 动态弱类型；TS 仅在编译期做类型擦除检查，运行期仍需防范脏数据</td>
+          <td>编译期 + 运行期强类型，泛型采用类型擦除，反射与注解能力极强</td>
+        </tr>
+        <tr>
+          <td><strong>并发模型与多核</strong></td>
+          <td><strong><code>goroutine</code> + GMP 多核并行调度</strong>，同步写法自动利用全部 CPU 核心，计算与网络 I/O 兼顾</td>
+          <td><strong>单线程事件循环 + <code>async/await</code></strong>（见 <a href="../node/principles.html#eventloop">Node 原理篇 · libuv</a>），I/O 高效，但单次 CPU 计算会卡住整个进程</td>
+          <td>传统操作系统线程池，JDK 21 起引入虚拟线程（Virtual Threads）对齐轻量协程模型</td>
+        </tr>
+        <tr>
+          <td><strong>错误处理方式</strong></td>
+          <td><strong><code>(val, error)</code> 显式多返回值</strong>，在调用处就地判断，分支路径透明</td>
+          <td><code>try / catch</code> 或 <code>Promise.catch</code>，漏捕获易产生未处理拒绝（Unhandled Rejection）</td>
+          <td><code>try / catch</code> 异常栈冒泡（受检与非受检异常），配合全局异常切面拦截</td>
+        </tr>
+        <tr>
+          <td><strong>首选发力场景</strong></td>
+          <td><strong>高并发后端服务、网关、微服务、CLI、流式与高吞吐中间件</strong></td>
+          <td>前后端同构 SSR、BFF（服务于前端的后端）轻量聚合、实时协作原型</td>
+          <td>超大型复杂业务域建模、金融核心账务、大数据生态（Kafka / Flink）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 00.3 · 给 JS 开发者的四项「思维切换」对照 -->
+<div class="wb-card" id="js-to-go" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 00.3 · 写给 JS 开发者的思维切换：类型零值、显式错误、无染色协程与结构体组合</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 00.3 给 JS 开发者的四项「思维切换」对照</h3>
+
+  <p>
+    从 JavaScript / TypeScript 转写 Go，语法本身一两天就能顺手，真正需要切换的是下面四个编码习惯：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">思维维度</th>
+          <th style="width:38%">你在 JavaScript / TS 里的习惯</th>
+          <th>切换到 Go 之后的写法与原因</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 类型与空值</strong></td>
+          <td>变量类型可变；未赋值是 <code>undefined</code>，空对象是 <code>null</code>，常写 <code>a || "默认"</code>（容易把数字 <code>0</code> 和空串误判为假值）。</td>
+          <td><strong>静态类型 + 默认「零值」</strong>：声明 <code>var n int</code> 自动就是 <code>0</code>，<code>var s string</code> 自动就是 <code>""</code>，绝无 <code>undefined</code>；指针、切片、字典、接口的空值统一叫 <code>nil</code>，且条件判断必须是严格的 <code>bool</code>（不能写 <code>if count {}</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 错误处理</strong></td>
+          <td>函数内部 <code>throw new Error()</code>，外层包一圈大 <code>try { ... } catch (e)</code>，看调用处代码看不出哪一行会抛异常。</td>
+          <td><strong>显式返回 <code>error</code> 值</strong>：可能失败的函数签名写成 <code>func Load(id int) (User, error)</code>。调用后紧跟 <code>if err != nil { return ... }</code>，虽然多写三行，但每一步出错怎么兜底、补什么上下文一目了然。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 并发执行</strong></td>
+          <td><code>async / await</code> + <code>Promise.all</code>。一旦底层函数变成 <code>async</code>，整条调用链的函数签名都要跟着加 <code>async</code>（函数染色）。</td>
+          <td><strong><code>go</code> 关键字 + 同步写法</strong>：所有函数都是普通同步函数；需要并发时在调用前加 <code>go</code>，需要同时跑一批任务并等结果时用 <code>errgroup</code> 或 <code>WaitGroup + channel</code>，没有任何 <code>async/await</code> 关键字传染。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 面向对象</strong></td>
+          <td>用 <code>class User extends Base</code> 把属性、构造函数、方法包进类里，用 <code>public / private</code> 控制可见性。</td>
+          <td><strong>没有 <code>class</code> 和继承，只有 <code>struct</code> + 方法 + <code>interface</code></strong>：数据字段定义在 <code>struct</code> 里，方法通过接收者挂在类型外；<strong>首字母大写即公开导出（Exported），首字母小写即包内私有</strong>；复用靠组合嵌套而非继承链。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-hex"></use></svg> user.js · JavaScript 习惯写法（class + async + try/catch）</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-js-mindset', this)">复制 JS</button>
+      </div>
+      <pre class="plop-code-pre" id="code-js-mindset"><code><span class="c-kw">class</span> UserService {
+  <span class="c-kw">async</span> getName(id) {
+    <span class="c-kw">if</span> (id &lt;= 0) <span class="c-kw">throw new</span> Error(<span class="c-str">'invalid id'</span>);
+    <span class="c-kw">return</span> <span class="c-str">`User_${id}`</span>;
+  }
+}
+
+<span class="c-kw">async function</span> main() {
+  <span class="c-kw">const</span> svc = <span class="c-kw">new</span> UserService();
+  <span class="c-kw">try</span> {
+    <span class="c-kw">const</span> name = <span class="c-kw">await</span> svc.getName(42);
+    console.log(<span class="c-str">'拿到用户:'</span>, name);
+  } <span class="c-kw">catch</span> (err) {
+    console.error(<span class="c-str">'出错:'</span>, err.message);
+  }
+}
+main();</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> main.go · 等价的 Go 习惯写法（struct + 显式 error）[Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-mindset', this)">复制 Go</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-mindset"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"errors"</span>
+    <span class="c-str">"fmt"</span>
+)
+
+<span class="c-kw">type</span> UserService <span class="c-kw">struct</span>{} <span class="c-cm">// 结构体代替 class</span>
+
+<span class="c-cm">// 首字母大写 GetName 表示外部包可调用；返回 (结果, error) 二元组</span>
+<span class="c-kw">func</span> (s *UserService) <span class="c-fn">GetName</span>(id <span class="c-fn">int</span>) (<span class="c-fn">string</span>, <span class="c-fn">error</span>) {
+    <span class="c-kw">if</span> id &lt;= 0 {
+        <span class="c-kw">return</span> <span class="c-str">""</span>, errors.<span class="c-fn">New</span>(<span class="c-str">"invalid id"</span>)
+    }
+    <span class="c-kw">return</span> fmt.<span class="c-fn">Sprintf</span>(<span class="c-str">"User_%d"</span>, id), <span class="c-kw">nil</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    svc := &amp;UserService{}
+    name, err := svc.<span class="c-fn">GetName</span>(42)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"出错:"</span>, err)
+        <span class="c-kw">return</span>
+    }
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"拿到用户:"</span>, name)
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 00.4 · 一张知识地图 -->
+<div class="wb-card" id="knowledge-map" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 00.4 · 全篇知识地图：从跑通环境、语法避坑、业务实战到上线工程与底层原理</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-map"></use></svg> 00.4 本笔记知识地图</h3>
+
+  <p>
+    整份笔记按照「<strong>全景 → 快速上手 → 语法与高频坑 → 并发与真实业务场景 → 工程上线 → 底层原理</strong>」的弧线组织。第一次学可以顺着实线从左往右读；平时写业务遇到具体需求（如连库、写中间件、推流、优雅停机）可以直接跳第 06～08 章，想深挖背后机制再顺着每节末尾的链接切到《核心原理篇》：
+  </p>
+
+  <figure style="margin:14px 0 18px;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 248" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="go-kmap-title go-kmap-desc">
+        <title id="go-kmap-title">Go 学习笔记全篇知识地图与双篇联动路线</title>
+        <desc id="go-kmap-desc">从左至右分为四站：第一站全景与跑起来（00至01章），第二站核心语法与避坑（02至05章），第三站并发与八大业务场景实战（06至07章，视觉焦点），第四站项目上线与场景自测（08至09章），底部通过虚线联动核心原理篇。</desc>
+        <defs>
+          <marker id="go-km-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="go-km-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="go-km-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Connectors (drawn BEFORE boxes, strictly horizontal / vertical on 4px grid) -->
+        <line x1="184" y1="88" x2="212" y2="88" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#go-km-arr)"/>
+        <line x1="412" y1="88" x2="440" y2="88" stroke="#bf4520" stroke-width="1.6" marker-end="url(#go-km-arr-accent)"/>
+        <line x1="656" y1="88" x2="684" y2="88" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#go-km-arr)"/>
+
+        <!-- Vertical dashed links to Principles bar (y=152 -> y=180) -->
+        <line x1="312" y1="152" x2="312" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#go-km-arr-link)"/>
+        <line x1="548" y1="152" x2="548" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#go-km-arr-link)"/>
+        <line x1="750" y1="152" x2="750" y2="180" stroke="#2e5aa8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#go-km-arr-link)"/>
+
+        <!-- Stage 1: 00-01 -->
+        <rect x="24" y="24" width="160" height="128" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.3"/>
+        <text x="104" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">① 认知与起步</text>
+        <text x="104" y="76" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">00 全景与 JS 对照</text>
+        <text x="104" y="102" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">01 5分钟跑起来</text>
+        <text x="104" y="128" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#5a6580">GOPROXY · go build</text>
+
+        <!-- Stage 2: 02-05 -->
+        <rect x="212" y="24" width="200" height="128" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.3"/>
+        <text x="312" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">② 语法底座与常见坑</text>
+        <text x="312" y="72" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">02 基础类型 · 03 切片字典</text>
+        <text x="312" y="96" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" fill="#4f5d75">04 结构体/接口/泛型/JSON</text>
+        <text x="312" y="120" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">05 函数 · defer · 分层错误</text>
+
+        <!-- Stage 3: 06-07 (Focal Node) -->
+        <rect x="440" y="24" width="216" height="128" rx="6" fill="#FFFDF7"/>
+        <rect x="440" y="24" width="216" height="128" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.8"/>
+        <text x="548" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="800" fill="#bf4520">③ 并发与业务场景（重点）</text>
+        <text x="548" y="74" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">06 并发模式与泄漏排查</text>
+        <text x="548" y="98" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#bf4520">07 八大后端业务场景实战</text>
+        <text x="548" y="124" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#4f5d75">MySQL · Redis · JWT · SSE · MQ</text>
+
+        <!-- Stage 4: 08-09 -->
+        <rect x="684" y="24" width="132" height="128" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="750" y="48" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">④ 工程上线</text>
+        <text x="750" y="74" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">08 搭建与部署</text>
+        <text x="750" y="98" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#2d3142">09 10题自测</text>
+        <text x="750" y="124" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#5a6580">slog · Docker · pprof</text>
+
+        <!-- Bottom Principles Bar -->
+        <rect x="24" y="180" width="792" height="44" rx="6" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1.3"/>
+        <text x="420" y="207" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#2e5aa8">核心原理篇（按需跳入：值传递与 24B 切片扩容 · hmap 渐进搬迁 · GMP 调度 · hchan 直拷 · 混合写屏障 GC · Context 取消树）</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h4 id="quiz-00" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 团队要做一个需要同时请求 6 个下游接口聚合数据、并对报文做实时签名与脱敏计算的网关服务，在 Node.js 与 Go 之间怎么权衡？</span></summary>
+    <div class="drawer-body">
+      <p><strong>优先选 Go。</strong>虽然 Node.js 处理纯网络 I/O 转发也很快，但它的主事件循环是单线程的，一旦并发高起来，报文加解密签名与大 JSON 脱敏这类 CPU 密集计算会阻塞主线程，拖慢所有并发请求的响应延迟；而 Go 的 <code>goroutine</code> 由 GMP 自动调度在所有 CPU 核心上并行跑，网络等待与 CPU 计算互不卡死，且单实例内存占用更平稳。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 写一个给客户的离线内网 Linux 服务器（无外网、未装 Python/Node/Docker）使用的数据库巡检小工具，为什么首选 Go？</span></summary>
+    <div class="drawer-body">
+      <p><strong>交付成本几乎为零。</strong>Node.js 或 Python 脚本通常要求目标机器装有对应版本的解释器并搬运一堆离线依赖包；而 Go 支持在本地开发机上一行命令交叉编译出静态链接的 Linux 单二进制文件（见 <a href="#deploy-docker">08.6 交叉编译</a>），直接通过 <code>scp</code> 传上去赋予执行权限就能跑。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 刚从 JS 转过来的同事写了一段 Go 代码：把方法命名为 <code>getUserInfo()</code> 放在 <code>service</code> 包里，结果在 <code>handler</code> 包里死活调用不到，问题出在哪？</span></summary>
+    <div class="drawer-body">
+      <p><strong>首字母大小写决定了跨包可见性。</strong>Go 没有 <code>export</code> 或 <code>public</code> 关键字：标识符首字母小写（<code>getUserInfo</code>）表示包内私有，只有同一个 <code>service</code> 包里的文件能调；想让外部 <code>handler</code> 包访问，只需把首字母改成大写 <code>GetUserInfo()</code>（结构体名和需要 JSON 序列化的字段名也是同理）。</p>
+    </div>
+  </details>
+</div>

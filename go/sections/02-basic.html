@@ -1,0 +1,332 @@
+<!-- ====================================================================
+     PART 02: 基础类型与控制流 · 变量、常量、数值、字符串与分支循环
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="basic">
+  <span class="wb-sec-num">02</span>
+  <span class="wb-sec-title">基础类型与控制流：变量、数值、字符串与分支循环</span>
+  <span class="plop-tag tomato">VARS &amp; ZERO VALUE · STRING / RUNE · IF / FOR / SWITCH</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>熟练用 <code>:=</code> 与 <code>const / iota</code> 声明变量和枚举，掌握数字显式类型转换与含中文字符串的正确截取拼接方式，并用 Go 风格的 <code>if / for / switch</code> 写出干净的控制流。
+</div>
+
+<!-- 02.1 · 变量声明、零值机制与常量枚举 -->
+<div class="wb-card" id="vars-consts" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 02.1 · 变量与常量：<code>var / :=</code> 声明方式、零值默认值与 <code>const / iota</code></div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 02.1 变量声明、默认零值与常量枚举（<code>const / iota</code>）</h3>
+
+  <p>
+    <strong>变量的四种声明方式与“零值”设计：</strong>在 Go 中声明变量有四种常见写法。与 JavaScript 未赋值变量为 <code>undefined</code> 不同，Go 保证<strong>任何声明后未显式赋初值的变量，都会自动赋予该类型的“零值（Zero Value）”</strong>，不会出现未初始化的脏数据：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> vars.go · 四种变量声明写法与零值 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-vars', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-vars"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-cm">// 函数外部（包级变量）必须使用 var 关键字声明，不能用 :=</span>
+<span class="c-kw">var</span> appVersion = <span class="c-str">"1.0.0"</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-kw">var</span> a <span class="c-fn">int</span> = 10   <span class="c-cm">// 1. 完整声明：显式写出类型与初始值</span>
+    <span class="c-kw">var</span> b = 20       <span class="c-cm">// 2. 类型推导：省略类型，编译器自动推导为 int</span>
+    c := 30          <span class="c-cm">// 3. 短变量声明（函数内最常用）：声明并直接赋值</span>
+
+    <span class="c-cm">// 4. 零值声明：只声明不赋值，自动获得该类型的安全零值</span>
+    <span class="c-kw">var</span> count <span class="c-fn">int</span>    <span class="c-cm">// 数值型零值: 0</span>
+    <span class="c-kw">var</span> title <span class="c-fn">string</span> <span class="c-cm">// 字符串零值: "" (空字符串)</span>
+    <span class="c-kw">var</span> ready <span class="c-fn">bool</span>   <span class="c-cm">// 布尔型零值: false</span>
+
+    fmt.<span class="c-fn">Println</span>(appVersion, a, b, c, count, title == <span class="c-str">""</span>, ready)
+    <span class="c-cm">// 输出: 1.0.0 10 20 30 0 true false</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> const_iota.go · 常量与 iota 自动递增枚举 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-iota', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-iota"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-cm">// 使用 const (...) 块配合 iota 定义连续枚举值：</span>
+<span class="c-cm">// 每个 const 块内，iota 从第 0 行起初始为 0，每往下一行自动 +1</span>
+<span class="c-kw">const</span> (
+    StatusPending = <span class="c-kw">iota</span> <span class="c-cm">// 第 0 行: iota = 0</span>
+    StatusRunning        <span class="c-cm">// 第 1 行: 沿用上一行表达式，iota = 1</span>
+    StatusSuccess        <span class="c-cm">// 第 2 行: iota = 2</span>
+    StatusFailed         <span class="c-cm">// 第 3 行: iota = 3</span>
+)
+
+<span class="c-cm">// 配合左移位运算 1 &lt;&lt; iota 定义权限位掩码（1, 2, 4...）：</span>
+<span class="c-kw">const</span> (
+    PermRead  = 1 &lt;&lt; <span class="c-kw">iota</span> <span class="c-cm">// 1 &lt;&lt; 0 = 1 (二进制 001)</span>
+    PermWrite             <span class="c-cm">// 1 &lt;&lt; 1 = 2 (二进制 010)</span>
+    PermExec              <span class="c-cm">// 1 &lt;&lt; 2 = 4 (二进制 100)</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    fmt.<span class="c-fn">Println</span>(StatusPending, StatusSuccess, PermRead|PermWrite) <span class="c-cm">// 0 2 3</span>
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 02.2 · 基础数据类型全览与数值、布尔用法 -->
+<div class="wb-card" id="basic-types" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 02.2 · 基础数据类型全览：布尔、整数、浮点数与显式类型转换</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blocks"></use></svg> 02.2 基础数据类型全览：布尔、整数、浮点数与类型转换</h3>
+
+  <p>
+    JavaScript 只有一个笼统的 <code>number</code> 类型（底层为 64 位浮点数），而 Go 将数值精细拆分为不同位宽的<strong>有符号整数、无符号整数与浮点数</strong>。下表汇总了日常开发中的选型原则：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:16%">类型分类</th>
+          <th style="width:28%">具体类型名</th>
+          <th style="width:12%">默认零值</th>
+          <th>占用大小与日常开发怎么选</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. 布尔型</strong></td>
+          <td><code>bool</code></td>
+          <td><code>false</code></td>
+          <td>占 <strong>1 字节</strong>，取值仅有 <code>true</code> 和 <code>false</code>。Go 不存在 JS 的“真假值隐式转换”，不能写 <code>if 1</code> 或 <code>if str</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 有符号整数</strong></td>
+          <td><code>int</code><br><code>int8</code> / <code>int16</code> / <code>int32</code> / <code>int64</code></td>
+          <td><code>0</code></td>
+          <td>• <strong>日常计数、循环下标、普通业务字段首选 <code>int</code></strong>（在 64 位机器上即为 8 字节，与 <code>int64</code> 范围一致）；<br>• 数据库自增主键（<code>BIGINT</code>）、订单金额（以“分”为单位存储避免浮点误差）或毫秒时间戳，明确写 <strong><code>int64</code></strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 无符号整数</strong></td>
+          <td><code>uint</code><br><code>uint8</code> / <code>uint16</code> / <code>uint32</code> / <code>uint64</code></td>
+          <td><code>0</code></td>
+          <td>仅表示非负整数（<code>&gt;= 0</code>），常用于底层二进制协议解析、位运算或哈希值。</td>
+        </tr>
+        <tr>
+          <td><strong>4. 浮点数</strong></td>
+          <td><code>float32</code> / <code>float64</code></td>
+          <td><code>0.0</code></td>
+          <td>• <code>float32</code> 占 4 字节（约 7 位有效数字）；<strong><code>float64</code> 占 8 字节（约 15 位有效数字）</strong>。<br>• <strong>日常小数计算统一选 <code>float64</code></strong>（写 <code>x := 3.14</code> 默认推导为 <code>float64</code>；涉及金融金额请改用 <code>int64</code> 存“分”或 <code>shopspring/decimal</code> 库）。</td>
+        </tr>
+        <tr>
+          <td><strong>5. 字符与字符串</strong></td>
+          <td><code>byte</code>（即 <code>uint8</code> 的别名）<br><code>rune</code>（即 <code>int32</code> 的别名）<br><code>string</code></td>
+          <td><code>0</code><br><code>0</code><br><code>""</code></td>
+          <td>• <code>byte</code>（1 字节）：表示单个 <strong>ASCII（American Standard Code for Information Interchange，美国信息交换标准代码）</strong>英文字符或原始二进制字节；<br>• <code>rune</code>（4 字节）：表示单个任意 Unicode 字符（含中文汉字、Emoji）；<br>• <code>string</code>：不可变的 <strong>UTF-8（8-bit Unicode Transformation Format，可变长字符编码）</strong>文本序列。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin:0 0 8px;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 显式类型转换规则：</strong>为了防止混合运算时悄悄丢失精度，Go <strong>没有任何隐式数值转换</strong>——哪怕是 <code>int</code> 和 <code>int64</code> 相加，也必须写成 <code>目标类型(变量)</code> 显式转换后再算：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> number_convert.go · 显式类型转换与整数相除注意项 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-num-conv', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-num-conv"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-kw">var</span> count <span class="c-fn">int</span> = 10
+    <span class="c-kw">var</span> total <span class="c-fn">int64</span> = 1000
+
+    <span class="c-cm">// 1. 不同整数类型相加，必须用 int64(count) 显式转换，否则编译报错</span>
+    sum := <span class="c-fn">int64</span>(count) + total
+
+    <span class="c-cm">// 2. 两个整数直接相除会截断小数部分（3 / 10 == 0），求比例前先转 float64</span>
+    rate := <span class="c-fn">float64</span>(3) / <span class="c-fn">float64</span>(count)
+
+    fmt.<span class="c-fn">Println</span>(sum, rate) <span class="c-cm">// 输出: 1010 0.3</span>
+}</code></pre>
+  </div>
+</div>
+
+<!-- 02.3 · 字符与字符串（byte / rune / string）的日常用法 -->
+<div class="wb-card" id="string-usage" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mustard"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 02.3 · 字符与字符串：<code>byte / rune / string</code> 关系与日常字符串操作大全</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 02.3 字符与字符串：<code>byte / rune / string</code> 的日常用法</h3>
+
+  <p>
+    在 Go 中，字符串底层默认按 <strong>UTF-8</strong> 字节存储——英文字符和数字每个占 <strong>1 字节</strong>，常用中文汉字每个占 <strong>3 字节</strong>。因此写业务时需要区分“按字节算”还是“按字符个数算”：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong><code>len(s)</code> 返回的是底层字节数</strong>，不是字符个数；统计含中文的字数用 <code>utf8.RuneCountInString(s)</code>，按字截取先转为 <code>[]rune(s)</code>；</li>
+    <li><strong>双引号 vs 反引号</strong>：双引号 <code>"Hello\n"</code> 解析转义符；反引号 <code>`...`</code> 原样保留换行和引号（非常适合写多行 SQL 与 JSON 模板，但不像 JS 模板字符串那样支持 <code>${x}</code> 插值，格式化拼接用 <code>fmt.Sprintf</code>）。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> string_len_sub.go · 求字数、遍历与含中文安全截取 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-str-len', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-str-len"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"unicode/utf8"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    s := <span class="c-str">"Go语言"</span> <span class="c-cm">// 'G'(1B) + 'o'(1B) + '语'(3B) + '言'(3B)</span>
+
+    <span class="c-cm">// 1. len(s) 是字节数 8；实际字符个数用 RuneCountInString 得到 4</span>
+    fmt.<span class="c-fn">Println</span>(<span class="c-fn">len</span>(s), utf8.<span class="c-fn">RuneCountInString</span>(s)) <span class="c-cm">// 8 4</span>
+
+    <span class="c-cm">// 2. for range 遍历字符串时，自动按完整字符 (rune) 解码，不会截出半个乱码汉字</span>
+    <span class="c-kw">for</span> idx, ch := <span class="c-kw">range</span> s {
+        fmt.<span class="c-fn">Printf</span>(<span class="c-str">"字节偏移:%d 字符:%c\n"</span>, idx, ch)
+    }
+
+    <span class="c-cm">// 3. 按“字”截取前 3 个字符：先转为 []rune 再左闭右开截取 [0:3]</span>
+    chars := []<span class="c-fn">rune</span>(s)
+    fmt.<span class="c-fn">Println</span>(<span class="c-fn">string</span>(chars[0:3])) <span class="c-cm">// 输出: Go语</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> string_ops.go · 拼接、strings 工具包与 strconv 数字互转 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-str-ops', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-str-ops"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"strconv"</span>
+    <span class="c-str">"strings"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// 1. 少量拼接用 + 或 fmt.Sprintf；循环内高频拼接用 strings.Builder</span>
+    info := fmt.<span class="c-fn">Sprintf</span>(<span class="c-str">"user=%s, id=%d"</span>, <span class="c-str">"alice"</span>, 42)
+    <span class="c-kw">var</span> b strings.Builder
+    b.<span class="c-fn">WriteString</span>(<span class="c-str">"select * "</span>)
+    b.<span class="c-fn">WriteString</span>(<span class="c-str">"from orders"</span>)
+
+    <span class="c-cm">// 2. strings 常用方法 + strconv 字符串与数字转换</span>
+    parts := strings.<span class="c-fn">Split</span>(strings.<span class="c-fn">TrimSpace</span>(<span class="c-str">" a,b,c "</span>), <span class="c-str">","</span>)
+    joined := strings.<span class="c-fn">Join</span>(parts, <span class="c-str">"-"</span>) <span class="c-cm">// "a-b-c"</span>
+    num, err := strconv.<span class="c-fn">Atoi</span>(<span class="c-str">"2026"</span>)    <span class="c-cm">// string -> int (int -> string 用 strconv.Itoa)</span>
+    fmt.<span class="c-fn">Println</span>(info, b.<span class="c-fn">String</span>(), joined, num, err)
+}</code></pre>
+    </div>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:12px 0 0;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>为什么 <code>string</code> 设计成不可原地修改，以及 <code>strings.Builder.String()</code> 如何做到零内存拷贝转换？详见 <a href="principles.html#basic">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 01.2 string 16 字节只读内存结构与高效拼接原理》</a>。
+  </p>
+</div>
+
+<!-- 02.4 · 基础控制流：if、for 与 switch -->
+<div class="wb-card" id="control-flow" style="background:var(--plop-paper);">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 02.4 · 流程控制：支持前置语句的 <code>if</code>、统一循环 <code>for</code> 与自动跳出的 <code>switch</code></div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 02.4 流程控制语法：<code>if</code>、<code>for</code> 与 <code>switch</code></h3>
+
+  <p>
+    相比 JavaScript，Go 的控制流做了三处减法：<strong>条件外不写圆括号 <code>()</code>（但左花括号 <code>{</code> 必须同行）</strong>、<strong>没有 <code>while</code> 也没有三元运算符 <code>a ? b : c</code>，所有循环统一用 <code>for</code></strong>、<strong><code>switch</code> 每个分支执行完默认自动跳出（不用写 <code>break</code>）</strong>：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:16px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> if_and_switch.go · if 前置短语句与 switch 多值分支 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ctrl-if', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-ctrl-if"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// 1. if 支持前置初始化语句（变量 n 作用域被限制在当前 if/else 块内，不污染外部）</span>
+    <span class="c-kw">if</span> n := <span class="c-fn">len</span>(<span class="c-str">"hello"</span>); n &gt; 3 {
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"长度大于 3:"</span>, n)
+    }
+
+    <span class="c-cm">// 2. switch 默认不穿透，且支持无表达式写法（替代冗长的 if-else if 链）</span>
+    day := <span class="c-str">"Sat"</span>
+    <span class="c-kw">switch</span> day {
+    <span class="c-kw">case</span> <span class="c-str">"Sat"</span>, <span class="c-str">"Sun"</span>:
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"周末休息"</span>)
+    <span class="c-kw">default</span>:
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"工作日"</span>)
+    }
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> for_loops.go · for 替代传统三段式、while 与无限循环 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ctrl-for', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-ctrl-for"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// 写法①：经典三段式（Go 1.22+ 也支持简写为 for i := range 3）</span>
+    <span class="c-kw">for</span> i := <span class="c-kw">range</span> 3 {
+        fmt.<span class="c-fn">Print</span>(i, <span class="c-str">" "</span>) <span class="c-cm">// 0 1 2</span>
+    }
+
+    <span class="c-cm">// 写法②：只写条件 —— 等价于 JS 的 while (count &lt; 2)</span>
+    count := 0
+    <span class="c-kw">for</span> count &lt; 2 {
+        count++
+    }
+
+    <span class="c-cm">// 写法③：for {} 无限循环 —— 常用于后台轮询消费者，配合 break / return 退出</span>
+    <span class="c-kw">for</span> {
+        <span class="c-kw">if</span> count &gt;= 2 {
+            <span class="c-kw">break</span>
+        }
+    }
+}</code></pre>
+    </div>
+  </div>
+
+  <h4 id="quiz-02" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 产品需求要求「用户昵称最多 8 个字」，前端传了 4 个汉字 <code>"张小荣荣"</code>，后端写 <code>if len(nickname) &gt; 8</code> 为什么误判拦截了？</span></summary>
+    <div class="drawer-body">
+      <p>因为 Go 的 <code>string</code> 按 UTF-8 存储，每个常用汉字占 3 字节，4 个汉字的 <code>len(nickname)</code> 是 <code>12</code> 字节，直接触发了大于 8 的拦截。校验字符数应改为 <code>if utf8.RuneCountInString(nickname) &gt; 8</code>；如果还要把超长昵称截断保留前 8 个字，则先转 <code>r := []rune(nickname)</code> 再取 <code>string(r[:8])</code>，切忌直接写 <code>nickname[:8]</code>（会在第 8 字节处劈开第 3 个汉字产生乱码）。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 写优惠券核销代码时用 <code>float64</code> 计算金额：<code>0.1 + 0.2 == 0.3</code> 为真吗？后端存金额的标准做法是什么？</span></summary>
+    <div class="drawer-body">
+      <p><strong>不为真</strong>（与 JS 一样遵循二进制浮点标准，算出来是 <code>0.30000000000000004</code>）。生产环境处理金额有两种标准方案：① 统一放大为<strong>最小货币单位“分”并用 <code>int64</code> 整数存储计算</strong>（例如 <code>19.90 元</code> 存为 <code>1990</code> 分，最简单且无精度损失）；② 涉及多币种汇率或多位小数计息时，数据库用 <code>DECIMAL</code>，Go 代码使用定点数库 <code>github.com/shopspring/decimal</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 想把数字 <code>65</code> 转成字符串 <code>"65"</code>，写习惯了强制类型转换随手敲了 <code>string(65)</code>，会得到什么？</span></summary>
+    <div class="drawer-body">
+      <p>会得到字母 <strong><code>"A"</code></strong>（且新版 <code>go vet</code> 会直接报警提示），因为将整数直接强转为 <code>string</code> 在 Go 语义里表示“把该整数当作 Unicode 码点转成对应字符”（<code>65</code> 正好是大写字母 <code>A</code> 的 ASCII 码）。把整数转十进制数字文本必须使用 <code>strconv.Itoa(65)</code> 或 <code>strconv.FormatInt(id, 10)</code>。</p>
+    </div>
+  </details>
+</div>

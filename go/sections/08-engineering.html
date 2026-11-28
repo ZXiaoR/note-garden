@@ -1,0 +1,494 @@
+<!-- ====================================================================
+     PART 08: 项目搭建与上线 · 目录分层、配置、slog、优雅停机、测试、Docker 与 pprof
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="engineering">
+  <span class="wb-sec-num">08</span>
+  <span class="wb-sec-title">项目搭建与上线：目录规范、日志、优雅停机、测试与部署</span>
+  <span class="plop-tag tomato">GO MOD &amp; LAYOUT · SLOG · GRACEFUL SHUTDOWN · TEST · DOCKER · PPROF</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>从零搭起一个符合工业界 <code>cmd / internal / pkg</code> 规范的 Go 后端工程，配齐环境变量配置、<code>log/slog</code> 结构化日志、健康探针与零丢单优雅停机，写好表格驱动单测与接口测试，并通过多阶段 Docker 打包出 20MB 小镜像上线与用 <code>pprof</code> 排障。
+</div>
+
+<!-- 08.1 · Go Modules 依赖管理与标准分层目录（cmd / internal / pkg） -->
+<div class="wb-card" id="project-layout" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill" id="context"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 08.1 · 依赖与目录规范：<code>go.mod</code> 维护、<code>replace</code> 调试与 <code>cmd / internal / pkg</code> 分层</div>
+  <h3 id="go-mod-init"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> 08.1 <code>go mod</code> 依赖管理与标准项目目录划分</h3>
+
+  <p>
+    每个 Go 项目根目录由 <code>go.mod</code>（模块名与依赖版本声明，采用 <strong>MVS，Minimal Version Selection，最小版本选择</strong>算法保证确定性构建）和 <code>go.sum</code>（依赖源码哈希防篡改锁文件，对应 <code>package-lock.json</code>）共同维护。团队项目普遍采用职责清晰的 <strong><code>cmd / internal / pkg</code></strong> 标准目录结构：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> Terminal &amp; go.mod · 依赖升降级与 replace 零代码切换个人仓库</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-gomod-cmd', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-gomod-cmd"><code><span class="c-cm"># 1. 初始化模块（内部跨包 import 统一以此模块名为前缀，不写相对路径 ../）</span>
+$ go mod init github.com/myteam/order-service
+
+<span class="c-cm"># 2. 安装 / 指定版本升降级 / 移除依赖 / 自动清理补齐</span>
+$ go get github.com/redis/go-redis/v9@v9.7.0
+$ go get github.com/redis/go-redis/v9@none   <span class="c-cm"># 移除依赖</span>
+$ go mod tidy                                <span class="c-cm"># ★ 日常最常用：对齐源码 import 并更新 go.sum</span>
+
+<span class="c-cm"># 3. 第三方库有 Bug 需切到自己的 Fork 或本地目录联调时，不改任何 .go 源码，只加 replace：</span>
+$ go mod edit -replace github.com/gin-gonic/gin=../my-local-gin &amp;&amp; go mod tidy</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-folder"></use></svg> order-service/ · 生产后端服务标准目录树</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-proj-tree', this)">复制结构</button>
+      </div>
+      <pre class="plop-code-pre" id="code-proj-tree"><code>order-service/
+├── go.mod / go.sum
+├── Dockerfile              <span class="c-cm"># 多阶段容器构建脚本</span>
+├── configs/
+│   └── config.yaml         <span class="c-cm"># 非敏感默认配置（密码一律走环境变量）</span>
+├── cmd/                    <span class="c-cm"># 【启动入口层】可并存 api 服务与 worker 消费者两个入口</span>
+│   └── server/main.go      <span class="c-cm">#   只做组装依赖、启动监听与优雅停机，不写业务细节</span>
+├── internal/               <span class="c-cm"># 【编译器保护的私有业务层】禁止外部其他仓库 import！</span>
+│   ├── config/             <span class="c-cm">#   配置结构体加载与必填校验</span>
+│   ├── middleware/         <span class="c-cm">#   日志、JWT、Recovery、超时中间件</span>
+│   ├── handler/            <span class="c-cm">#   接口层：解析校验 HTTP 参数、调 service、映射状态码</span>
+│   ├── service/            <span class="c-cm">#   业务逻辑层：核心订单流转与事务编排</span>
+│   └── repo/               <span class="c-cm">#   数据访问层（DAO，Data Access Object）：MySQL / Redis 读写</span>
+└── pkg/                    <span class="c-cm"># 【通用工具层】不含业务概念、可跨项目复用的基础库</span>
+    └── httpx/client.go</code></pre>
+    </div>
+  </div>
+
+  <!-- SVG：请求在标准 Go 项目三层架构中的流转 -->
+  <svg viewBox="0 0 940 165" style="width:100%; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px; margin:8px 0 0;" role="img" aria-labelledby="go-lay-title go-lay-desc">
+    <title id="go-lay-title">标准 Go 项目从 main 组装到三层业务代码的单向调用链</title>
+    <desc id="go-lay-desc">cmd/server/main.go 组装各层并监听端口，HTTP 请求依次经由 internal/handler 参数层、internal/service 业务层流向 internal/repo 存储层。</desc>
+    <text x="20" y="24" fill="var(--plop-ink)" font-family="var(--font-mono)" font-size="12.5" font-weight="900">请求与依赖注入链路（包导入路径 = go.mod 模块名 + 子目录，严禁反向循环导入）</text>
+
+    <g transform="translate(20, 42)">
+      <rect x="0" y="0" width="195" height="102" rx="8" fill="#FFF6E5" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="175" height="24" rx="4" fill="var(--plop-ink)"/>
+      <text x="97" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.2" font-weight="900">cmd/server/main.go</text>
+      <text x="97" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-size="11.2" font-weight="800">package main</text>
+      <text x="97" y="74" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10.5">读取配置 · 注入 DB/Redis</text>
+      <text x="97" y="91" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10" font-weight="800">srv.ListenAndServe()</text>
+    </g>
+
+    <path d="M 218 93 L 252 93" fill="none" stroke="var(--plop-ink)" stroke-width="2.2"/>
+    <polygon points="256,93 248,88 248,98" fill="var(--plop-ink)"/>
+
+    <g transform="translate(258, 42)">
+      <rect x="0" y="0" width="205" height="102" rx="8" fill="#EEF3FF" stroke="var(--plop-ink)" stroke-width="2"/>
+      <rect x="10" y="10" width="185" height="24" rx="4" fill="#1E2D7D"/>
+      <text x="102" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.2" font-weight="900">internal/handler</text>
+      <text x="102" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-size="11.2" font-weight="800">package handler</text>
+      <text x="102" y="74" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10.5">解析 JSON · 错误转状态码</text>
+      <text x="102" y="91" text-anchor="middle" fill="#1E2D7D" font-family="var(--font-mono)" font-size="10" font-weight="800">OrderHandler.Create()</text>
+    </g>
+
+    <path d="M 466 93 L 500 93" fill="none" stroke="var(--plop-ink)" stroke-width="2.2"/>
+    <polygon points="504,93 496,88 496,98" fill="var(--plop-ink)"/>
+
+    <g transform="translate(506, 42)">
+      <rect x="0" y="0" width="195" height="102" rx="8" fill="#E9F9F1" stroke="#1F8A65" stroke-width="2"/>
+      <rect x="10" y="10" width="175" height="24" rx="4" fill="#1F8A65"/>
+      <text x="97" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.2" font-weight="900">internal/service</text>
+      <text x="97" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-size="11.2" font-weight="800">package service</text>
+      <text x="97" y="74" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10.5">业务规则 · 编排缓存与下游</text>
+      <text x="97" y="91" text-anchor="middle" fill="#1F8A65" font-family="var(--font-mono)" font-size="10" font-weight="800">OrderService.Create()</text>
+    </g>
+
+    <path d="M 704 93 L 738 93" fill="none" stroke="var(--plop-ink)" stroke-width="2.2"/>
+    <polygon points="742,93 734,88 734,98" fill="var(--plop-ink)"/>
+
+    <g transform="translate(744, 42)">
+      <rect x="0" y="0" width="176" height="102" rx="8" fill="#FFE8E5" stroke="#D2381E" stroke-width="2"/>
+      <rect x="10" y="10" width="156" height="24" rx="4" fill="#D2381E"/>
+      <text x="88" y="26" text-anchor="middle" fill="#FFFFFF" font-family="var(--font-mono)" font-size="11.2" font-weight="900">internal/repo</text>
+      <text x="88" y="54" text-anchor="middle" fill="var(--plop-ink-text)" font-size="11.2" font-weight="800">package repo</text>
+      <text x="88" y="74" text-anchor="middle" fill="var(--plop-ink-soft)" font-size="10.5">SQL 事务 · Redis 命令</text>
+      <text x="88" y="91" text-anchor="middle" fill="#D2381E" font-family="var(--font-mono)" font-size="10" font-weight="800">OrderRepo.Insert()</text>
+    </g>
+  </svg>
+</div>
+
+<!-- 08.2 · 配置与环境变量、结构化日志 log/slog -->
+<div class="wb-card" id="config-slog" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 08.2 · 配置与日志规范：YAML + 环境变量注入校验，以及 Go 1.21+ 官方结构化日志 <code>log/slog</code></div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 08.2 配置与环境变量、结构化日志 <code>log/slog</code>（Go 1.21+）</h3>
+
+  <p>
+    <strong>① 配置加载原则：</strong>非敏感默认项（端口、超时时间）放进 <code>YAML（YAML Ain't Markup Language，可读配置数据格式）</code> 文件，<strong>数据库密码、JWT 密钥等敏感凭证一律通过环境变量覆盖注入，并在启动第一秒校验必填项（缺了直接报错拒绝启动）</strong>。<br>
+    <strong>② 结构化日志：</strong>旧版 <code>fmt.Println / log.Printf</code> 打出的是纯文本，线上日志平台没法按 <code>order_id</code> 或 <code>latency_ms</code> 过滤聚合。从 <strong>Go 1.21</strong> 起，标准库内置了高性能结构化日志包 <strong><code>log/slog</code></strong>，无需引入第三方库即可在本地输出易读文本、在生产容器输出标准单行 JSON（超高吞吐场景也可搭配社区的 <code>uber-go/zap</code>）：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> config_load.go · YAML 文件 + 环境变量覆盖 + 启动必填校验 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-eng-cfg', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-eng-cfg"><code><span class="c-cm">// go get gopkg.in/yaml.v3</span>
+<span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"cmp"</span>
+    <span class="c-str">"errors"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"os"</span>
+
+    <span class="c-str">"gopkg.in/yaml.v3"</span>
+)
+
+<span class="c-kw">type</span> Config <span class="c-kw">struct</span> {
+    Env       <span class="c-fn">string</span> <span class="c-str">`yaml:"env"`</span>
+    HTTPAddr  <span class="c-fn">string</span> <span class="c-str">`yaml:"http_addr"`</span>
+    DBDSN     <span class="c-fn">string</span> <span class="c-str">`yaml:"db_dsn"`</span>
+    JWTSecret <span class="c-fn">string</span> <span class="c-str">`yaml:"-"`</span> <span class="c-cm">// 密钥禁止从仓库配置文件读，强制走环境变量</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">LoadConfig</span>(path <span class="c-fn">string</span>) (*Config, <span class="c-fn">error</span>) {
+    cfg := &amp;Config{Env: <span class="c-str">"dev"</span>, HTTPAddr: <span class="c-str">":8080"</span>}
+    <span class="c-kw">if</span> raw, err := os.<span class="c-fn">ReadFile</span>(path); err == <span class="c-kw">nil</span> {
+        <span class="c-kw">if</span> err := yaml.<span class="c-fn">Unmarshal</span>(raw, cfg); err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span> <span class="c-kw">nil</span>, fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"解析配置失败: %w"</span>, err)
+        }
+    }
+    <span class="c-cm">// 环境变量优先级高于配置文件（适配 Docker / K8s 部署）</span>
+    cfg.HTTPAddr = cmp.<span class="c-fn">Or</span>(os.<span class="c-fn">Getenv</span>(<span class="c-str">"HTTP_ADDR"</span>), cfg.HTTPAddr)
+    cfg.DBDSN = cmp.<span class="c-fn">Or</span>(os.<span class="c-fn">Getenv</span>(<span class="c-str">"DB_DSN"</span>), cfg.DBDSN)
+    cfg.JWTSecret = os.<span class="c-fn">Getenv</span>(<span class="c-str">"JWT_SECRET"</span>)
+
+    <span class="c-kw">if</span> cfg.DBDSN == <span class="c-str">""</span> || <span class="c-fn">len</span>(cfg.JWTSecret) &lt; 16 {
+        <span class="c-kw">return</span> <span class="c-kw">nil</span>, errors.<span class="c-fn">New</span>(<span class="c-str">"缺少 DB_DSN 或 JWT_SECRET 长度不足 16 位"</span>)
+    }
+    <span class="c-kw">return</span> cfg, <span class="c-kw">nil</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> slog_json.go · 标准库 log/slog 输出结构化 JSON 日志 [Go 1.21+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-eng-slog', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-eng-slog"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"log/slog"</span>
+    <span class="c-str">"os"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// 生产环境用 NewJSONHandler 打标准 JSON 到 stdout（由容器引擎统一采集）；开发本地可换 NewTextHandler</span>
+    logger := slog.<span class="c-fn">New</span>(slog.<span class="c-fn">NewJSONHandler</span>(os.Stdout, &amp;slog.HandlerOptions{
+        Level: slog.LevelInfo,
+    }))
+    slog.<span class="c-fn">SetDefault</span>(logger)
+
+    <span class="c-cm">// 使用 slog.String / Int64 强类型键值对（避免反射装箱，性能更好且绝不会键值错位）</span>
+    slog.<span class="c-fn">Info</span>(<span class="c-str">"order created"</span>,
+        slog.<span class="c-fn">String</span>(<span class="c-str">"req_id"</span>, <span class="c-str">"req-8801"</span>),
+        slog.<span class="c-fn">Int64</span>(<span class="c-str">"order_id"</span>, 10092),
+        slog.<span class="c-fn">Int</span>(<span class="c-str">"cost_ms"</span>, 14),
+    )
+    <span class="c-cm">// 输出: {"time":"...","level":"INFO","msg":"order created","req_id":"req-8801","order_id":10092,"cost_ms":14}</span>
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 08.3 · 健康检查与优雅停机 -->
+<div class="wb-card" id="graceful-shutdown" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 08.3 · 上线零抖动：存活/就绪双探针（<code>/healthz</code> &amp; <code>/readyz</code>）与 <code>SIGTERM</code> 优雅停机</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 08.3 健康检查与优雅停机（Graceful Shutdown）</h3>
+
+  <p>
+    如果只写一行 <code>http.ListenAndServe(":8080", mux)</code> 上线，会埋下两个生产事故隐患：① 它底层没有配 <code>ReadHeaderTimeout</code>，容易被慢速连接攻击（Slowloris）占满句柄；② 每次发版滚动重启容器时，Kubernetes 发送 <code>SIGTERM</code> 信号会直接把正在执行一半的扣款请求硬生生掐断，前端收到一堆 <code>502</code>。<br>
+    下面是一份可直接复制当项目骨架的<strong>生产级 <code>main.go</code> 启动与优雅停机完整模板</strong>：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> cmd/server/main.go · 带读写超时、双探针与 10 秒排水优雅停机的完整入口 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-eng-shutdown', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-eng-shutdown"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"errors"</span>
+    <span class="c-str">"log/slog"</span>
+    <span class="c-str">"net/http"</span>
+    <span class="c-str">"os/signal"</span>
+    <span class="c-str">"sync/atomic"</span>
+    <span class="c-str">"syscall"</span>
+    <span class="c-str">"time"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-kw">var</span> shuttingDown atomic.Bool
+    mux := http.<span class="c-fn">NewServeMux</span>()
+
+    <span class="c-cm">// 1. 存活探针 /healthz：只检查进程没死锁（千万别在这里 Ping 数据库，否则 DB 抖一下会导致所有容器集体重启雪崩！）</span>
+    mux.<span class="c-fn">HandleFunc</span>(<span class="c-str">"GET /healthz"</span>, <span class="c-kw">func</span>(w http.ResponseWriter, _ *http.Request) {
+        w.<span class="c-fn">WriteHeader</span>(http.StatusOK)
+        _, _ = w.<span class="c-fn">Write</span>([]<span class="c-fn">byte</span>(<span class="c-str">"ok"</span>))
+    })
+    <span class="c-cm">// 2. 就绪探针 /readyz：决定负载均衡是否把新流量打进来；收到停机信号瞬间立刻返回 503 摘流</span>
+    mux.<span class="c-fn">HandleFunc</span>(<span class="c-str">"GET /readyz"</span>, <span class="c-kw">func</span>(w http.ResponseWriter, _ *http.Request) {
+        <span class="c-kw">if</span> shuttingDown.<span class="c-fn">Load</span>() {
+            http.<span class="c-fn">Error</span>(w, <span class="c-str">"shutting down"</span>, http.StatusServiceUnavailable)
+            <span class="c-kw">return</span>
+        }
+        w.<span class="c-fn">WriteHeader</span>(http.StatusOK)
+    })
+    mux.<span class="c-fn">HandleFunc</span>(<span class="c-str">"GET /tasks/{id}"</span>, <span class="c-kw">func</span>(w http.ResponseWriter, r *http.Request) {
+        w.<span class="c-fn">Header</span>().<span class="c-fn">Set</span>(<span class="c-str">"Content-Type"</span>, <span class="c-str">"application/json"</span>)
+        _, _ = w.<span class="c-fn">Write</span>([]<span class="c-fn">byte</span>(<span class="c-str">`{"id":"`</span> + r.<span class="c-fn">PathValue</span>(<span class="c-str">"id"</span>) + <span class="c-str">`"}`</span>))
+    })
+
+    <span class="c-cm">// 3. 显式初始化 http.Server 并补齐防慢连接超时</span>
+    srv := &amp;http.Server{
+        Addr:              <span class="c-str">":8080"</span>,
+        Handler:           mux,
+        ReadHeaderTimeout: 3 * time.Second,
+        ReadTimeout:       10 * time.Second,
+        WriteTimeout:      15 * time.Second,
+        IdleTimeout:       60 * time.Second,
+    }
+
+    <span class="c-cm">// 4. 监听 Ctrl+C (SIGINT) 与容器平台停机信号 (SIGTERM)</span>
+    stopCtx, stop := signal.<span class="c-fn">NotifyContext</span>(context.<span class="c-fn">Background</span>(), syscall.SIGINT, syscall.SIGTERM)
+    <span class="c-kw">defer</span> <span class="c-fn">stop</span>()
+
+    <span class="c-kw">go</span> <span class="c-kw">func</span>() {
+        slog.<span class="c-fn">Info</span>(<span class="c-str">"HTTP server listening"</span>, <span class="c-str">"addr"</span>, srv.Addr)
+        <span class="c-cm">// 正常调 Shutdown 时 ListenAndServe 会返回 http.ErrServerClosed，它不是故障！</span>
+        <span class="c-kw">if</span> err := srv.<span class="c-fn">ListenAndServe</span>(); err != <span class="c-kw">nil</span> &amp;&amp; !errors.<span class="c-fn">Is</span>(err, http.ErrServerClosed) {
+            slog.<span class="c-fn">Error</span>(<span class="c-str">"listen failed"</span>, <span class="c-str">"err"</span>, err)
+        }
+    }()
+
+    &lt;-stopCtx.<span class="c-fn">Done</span>() <span class="c-cm">// 阻塞等待停机信号</span>
+    shuttingDown.<span class="c-fn">Store</span>(<span class="c-kw">true</span>)
+    slog.<span class="c-fn">Info</span>(<span class="c-str">"收到停机信号：停止接收新请求，等待在途请求最多 10 秒处理完毕..."</span>)
+
+    drainCtx, cancel := context.<span class="c-fn">WithTimeout</span>(context.<span class="c-fn">Background</span>(), 10*time.Second)
+    <span class="c-kw">defer</span> <span class="c-fn">cancel</span>()
+    _ = srv.<span class="c-fn">Shutdown</span>(drainCtx) <span class="c-cm">// 1. 先停 HTTP 入口等在途请求跑完 -&gt; 2. 紧接着在此处关闭 MQ 消费者与 DB/Redis 连接池</span>
+    slog.<span class="c-fn">Info</span>(<span class="c-str">"服务已平滑退出"</span>)
+}</code></pre>
+  </div>
+</div>
+
+<!-- 08.4 · 测试：表格驱动测试、httptest 测接口、基准测试 -->
+<div class="wb-card" id="testing-practice" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mustard"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 08.4 · 内置测试体系：表格驱动单元测试、<code>httptest</code> 免端口测接口与 <code>Benchmark</code> 压测</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 08.4 测试：表格驱动测试、<code>httptest</code> 与基准测试</h3>
+
+  <p>
+    不用像 JS 那样纠结装 Jest 还是 Vitest，Go 官方直接内置了完整的测试与基准压测框架。只要把测试文件放在同目录下并命名为 <strong><code>xxx_test.go</code></strong>（该文件在正式 <code>go build</code> 时会自动排除不打进二进制），即可编写三类核心测试：
+  </p>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> price_test.go · 表格驱动测试 + httptest 测 HTTP 接口 + Benchmark 基准测试 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-eng-test', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-eng-test"><code><span class="c-cm">// 运行全部单测与竞态检查: go test -v -race ./...</span>
+<span class="c-cm">// 运行基准测试并查看内存分配: go test -bench=. -benchmem</span>
+<span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"net/http"</span>
+    <span class="c-str">"net/http/httptest"</span>
+    <span class="c-str">"strings"</span>
+    <span class="c-str">"testing"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">CalcPayCents</span>(price <span class="c-fn">int64</span>, vip <span class="c-fn">bool</span>) <span class="c-fn">int64</span> {
+    <span class="c-kw">if</span> price &lt;= 0 {
+        <span class="c-kw">return</span> 0
+    }
+    <span class="c-kw">if</span> vip {
+        <span class="c-kw">return</span> price * 9 / 10
+    }
+    <span class="c-kw">return</span> price
+}
+
+<span class="c-cm">// 1. 表格驱动测试（Table-Driven Tests）：新增边界用例只需往切片里加一行结构体！</span>
+<span class="c-kw">func</span> <span class="c-fn">TestCalcPayCents</span>(t *testing.T) {
+    cases := []<span class="c-kw">struct</span> {
+        name  <span class="c-fn">string</span>
+        price <span class="c-fn">int64</span>
+        vip   <span class="c-fn">bool</span>
+        want  <span class="c-fn">int64</span>
+    }{
+        {name: <span class="c-str">"普通用户原价"</span>, price: 1000, vip: <span class="c-kw">false</span>, want: 1000},
+        {name: <span class="c-str">"VIP九折"</span>, price: 1000, vip: <span class="c-kw">true</span>, want: 900},
+        {name: <span class="c-str">"负数兜底归零"</span>, price: -50, vip: <span class="c-kw">true</span>, want: 0},
+    }
+    <span class="c-kw">for</span> _, tc := <span class="c-kw">range</span> cases {
+        t.<span class="c-fn">Run</span>(tc.name, <span class="c-kw">func</span>(t *testing.T) { <span class="c-cm">// t.Run 支持单独跑某一条: go test -run TestCalcPayCents/VIP九折</span>
+            <span class="c-kw">if</span> got := <span class="c-fn">CalcPayCents</span>(tc.price, tc.vip); got != tc.want {
+                t.<span class="c-fn">Fatalf</span>(<span class="c-str">"got %d, want %d"</span>, got, tc.want)
+            }
+        })
+    }
+}
+
+<span class="c-cm">// 2. httptest 测 HTTP 接口：不监听真实网卡端口，毫秒级验证路由、状态码与返回 JSON</span>
+<span class="c-kw">func</span> <span class="c-fn">TestHealthEndpoint</span>(t *testing.T) {
+    mux := http.<span class="c-fn">NewServeMux</span>()
+    mux.<span class="c-fn">HandleFunc</span>(<span class="c-str">"GET /ping"</span>, <span class="c-kw">func</span>(w http.ResponseWriter, _ *http.Request) {
+        w.<span class="c-fn">WriteHeader</span>(http.StatusOK)
+        _, _ = w.<span class="c-fn">Write</span>([]<span class="c-fn">byte</span>(<span class="c-str">`{"pong":true}`</span>))
+    })
+
+    req := httptest.<span class="c-fn">NewRequest</span>(http.MethodGet, <span class="c-str">"/ping"</span>, <span class="c-kw">nil</span>)
+    rec := httptest.<span class="c-fn">NewRecorder</span>()
+    mux.<span class="c-fn">ServeHTTP</span>(rec, req)
+
+    <span class="c-kw">if</span> rec.Code != http.StatusOK || !strings.<span class="c-fn">Contains</span>(rec.Body.<span class="c-fn">String</span>(), <span class="c-str">"true"</span>) {
+        t.<span class="c-fn">Fatalf</span>(<span class="c-str">"unexpected response: %d %s"</span>, rec.Code, rec.Body.<span class="c-fn">String</span>())
+    }
+}
+
+<span class="c-cm">// 3. 基准测试（以 Benchmark 开头）：框架自动调整循环次数 b.N 测出稳定的 ns/op 与 B/op</span>
+<span class="c-kw">func</span> <span class="c-fn">BenchmarkBuilder</span>(b *testing.B) {
+    <span class="c-kw">for</span> <span class="c-kw">range</span> b.N { <span class="c-cm">// 注：Go 1.24+ 亦可写作 for b.Loop()</span>
+        <span class="c-kw">var</span> sb strings.Builder
+        sb.<span class="c-fn">WriteString</span>(<span class="c-str">"order_"</span>)
+        sb.<span class="c-fn">WriteString</span>(<span class="c-str">"1001"</span>)
+        _ = sb.<span class="c-fn">String</span>()
+    }
+}</code></pre>
+  </div>
+</div>
+
+<!-- 08.5 · 工具链门禁与 08.6 交叉编译、Docker 多阶段构建 -->
+<div class="wb-card" id="deploy-docker" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> 08.5 · 静态检查门禁与上线构建：<code>gofmt / go vet / golangci-lint</code>、交叉编译与多阶段 Docker</div>
+  <h3 id="quality-tools"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> 08.5 代码检查工具与多阶段 Docker 小镜像部署</h3>
+
+  <p>
+    提交代码进 <strong>CI（Continuous Integration，持续集成）</strong>流水线时，Go 团队标准的三道静态门禁是：<strong><code>gofmt</code></strong>（统一缩进排版，零争论）→ <strong><code>go vet</code></strong>（官方静态诊断，抓出 <code>Printf</code> 参数错位、值拷贝锁 <code>Mutex</code> 等真 Bug）→ <strong><code>golangci-lint</code></strong>（社区标准聚合检查器，一次并行跑 <code>errcheck</code> 漏判错误、<code>govet</code>、<code>staticcheck</code>）。打包上线支持一键交叉编译或多阶段构建出极小安全容器：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> ci_and_build.sh · 本地/CI 门禁命令与跨平台静态交叉编译</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-eng-ci', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-eng-ci"><code><span class="c-cm"># ==================== 1. 提交前与 CI 流水线三连检 ====================</span>
+$ gofmt -s -w .                 <span class="c-cm"># 格式化全部源码</span>
+$ go vet ./...                  <span class="c-cm"># 官方静态缺陷扫描</span>
+$ golangci-lint run ./...       <span class="c-cm"># 聚合静态检查（重点拦住漏处理的返回 error）</span>
+$ go test -race -cover ./...    <span class="c-cm"># 跑单测 + 并发竞态检测 + 覆盖率</span>
+
+<span class="c-cm"># ==================== 2. 在 Mac 开发机交叉编译 Linux 服务器二进制 ====================</span>
+<span class="c-cm"># • CGO_ENABLED=0：禁用 C 动态库依赖，编译出 100% 纯静态二进制（放到任何 Linux 发行版都能跑）</span>
+<span class="c-cm"># • -trimpath：抹去二进制里的本机绝对路径；-ldflags="-s -w"：裁掉符号表减小约 25% 体积</span>
+$ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+  go build -trimpath -ldflags="-s -w" -o order-server ./cmd/server</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-box"></use></svg> Dockerfile · 多阶段构建生产小镜像（含 HTTPS 证书与时区，约 18MB）</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-eng-docker', this)">复制 Dockerfile</button>
+      </div>
+      <pre class="plop-code-pre" id="code-eng-docker"><code><span class="c-cm"># 阶段 1：利用带完整编译器的镜像编译（仅用于构建，不进最终产物）</span>
+<span class="c-kw">FROM</span> golang:1.24-alpine <span class="c-kw">AS</span> builder
+<span class="c-kw">WORKDIR</span> /src
+<span class="c-cm"># 先单独拷贝 go.mod/go.sum 下载依赖，源码改动时可直接命中 Docker 缓存层秒级构建！</span>
+<span class="c-kw">COPY</span> go.mod go.sum ./
+<span class="c-kw">RUN</span> go mod download
+<span class="c-kw">COPY</span> . .
+<span class="c-kw">RUN</span> CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/server
+
+<span class="c-cm"># 阶段 2：极简运行镜像（切记装 ca-certificates 和 tzdata，否则调外部 HTTPS 会报证书错、时间差8小时）</span>
+<span class="c-kw">FROM</span> alpine:3.20
+<span class="c-kw">RUN</span> apk --no-cache add ca-certificates tzdata &amp;&amp; adduser -D -u 10001 appuser
+<span class="c-kw">ENV</span> TZ=Asia/Shanghai
+<span class="c-kw">USER</span> appuser
+<span class="c-kw">COPY</span> --from=builder /out/app /app
+<span class="c-kw">EXPOSE</span> 8080
+<span class="c-kw">ENTRYPOINT</span> [<span class="c-str">"/app"</span>]</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 08.7 · 线上排障：pprof 看 CPU、内存和协程 -->
+<div class="wb-card" id="pprof-troubleshoot" style="background:var(--plop-paper);">
+  <div class="washi-tape tomato"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 08.6 · 线上排障：用内置 <code>pprof</code> 三条命令定位 CPU 飙高、内存暴涨与协程卡死</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 08.6 线上排障：<code>pprof</code> 看 CPU、内存与协程</h3>
+
+  <p>
+    Go 运行时内置了几乎零平时开销的采样剖析器 <strong><code>net/http/pprof</code></strong>。<strong>安全前提：只在仅限本机或内网运维访问的独立管理端口（如 <code>127.0.0.1:6060</code>）挂载 <code>pprof</code>，绝不要挂在对外公网业务 <code>mux</code> 上</strong>。遇到线上告警时直接按症状对照执行：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:12px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">线上故障症状</th>
+          <th style="width:44%">采集与打开可视化火焰图命令</th>
+          <th>怎么看结果定位根因</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1. CPU 飙到 100%</strong></td>
+          <td><code>go tool pprof -http=:9090 http://127.0.0.1:6060/debug/pprof/profile?seconds=30</code></td>
+          <td>采样 30 秒打开浏览器切到 <strong>Flame Graph（火焰图）</strong>：横向越宽的平顶框就是吃掉最多 CPU 的函数（常见于死循环、灾难回溯正则、巨型 JSON 反复序列化）。</td>
+        </tr>
+        <tr>
+          <td><strong>2. 内存持续上涨 / GC 频繁</strong></td>
+          <td><code>go tool pprof -http=:9090 http://127.0.0.1:6060/debug/pprof/heap</code></td>
+          <td>右上角 <code>SAMPLE</code> 切换两个维度：<br>• <strong><code>inuse_space</code></strong>：看当前常驻堆上谁没释放（查全局切片/map 内存泄漏）；<br>• <strong><code>alloc_space</code></strong>：看启动至今谁频繁申请了最多短命对象（查 GC 压力源头）。</td>
+        </tr>
+        <tr>
+          <td><strong>3. 协程数暴涨 / 接口全卡死</strong></td>
+          <td><code>go tool pprof -http=:9090 http://127.0.0.1:6060/debug/pprof/goroutine</code><br>（或直接浏览器打开 <code>.../goroutine?debug=1</code>）</td>
+          <td>一眼看到「有 38000 个协程一模一样卡在某文件的第 86 行 <code>chan send</code> 或 <code>select</code> 或未设超时的 <code>http.Read</code>」，30 秒精准定位协程泄漏点。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0 0 16px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>容器内如何设置 <code>GOMEMLIMIT</code> 防 GC 峰值 OOM（以及 Go 1.25+ 原生感知容器 CPU 配额 <code>GOMAXPROCS</code>）？如何通过 <code>struct</code> 字段对齐与 <code>sync.Pool</code> 对象池降低堆分配？详见 <a href="principles.html#gc-trigger">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 05.5 逃逸分析与 GOMEMLIMIT》</a> 与 <a href="principles.html#advanced">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 06.4 内存对齐与 sync.Pool 原理》</a>。
+  </p>
+
+  <h4 id="quiz-08" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 用 <code>FROM scratch</code> 打包了一个只有 8MB 的超小 Go 镜像上线，结果服务一调第三方微信 HTTPS 接口就报 <code>x509: certificate signed by unknown authority</code>，为什么？</span></summary>
+    <div class="drawer-body">
+      <p><code>scratch</code> 是完全空白的镜像，里面连操作系统最基础的公共根证书文件（<code>/etc/ssl/certs/ca-certificates.crt</code>）和时区文件都没有，Go 校验证书链时找不到可信根 CA 于是拒绝连接。<strong>解法</strong>：使用 <code>alpine</code> 执行 <code>apk --no-cache add ca-certificates tzdata</code>，或直接选用自带根证书与非 root 用户的 <code>gcr.io/distroless/static-debian12:nonroot</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 为了省事，在 Kubernetes 存活探针 <code>/healthz</code> 里写了 <code>db.Ping()</code> 和 <code>rdb.Ping()</code>，为什么某天 Redis 网络抖动了 5 秒，导致整个业务集群雪崩瘫痪了 10 分钟？</span></summary>
+    <div class="drawer-body">
+      <p>混淆了<strong>存活探针（Liveness，挂了就杀掉重启容器）</strong>和<strong>就绪探针（Readiness，不通就暂时摘掉流量但不杀容器）</strong>：当下游 Redis 短暂抖动 5 秒时，所有 Pod 的 <code>/healthz</code> 集体报错，K8s 误以为业务进程死锁了，把全站所有健康 Pod 同时杀掉重启，重启瞬间又同时建连把 DB 和 Redis 彻底冲垮。<code>/healthz</code> 永远只返回轻量 <code>200 ok</code>，下游依赖检查只应在启动自检或 <code>/readyz</code> 中谨慎使用。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 在仓库 A 的 <code>internal/auth</code> 目录里写了一套很好用的验签包，现在新建了另一个微服务仓库 B 想直接 <code>import "github.com/team/repoA/internal/auth"</code>，为什么编译不过？</span></summary>
+    <div class="drawer-body">
+      <p><code>internal</code> 在 Go 里不是普通文件夹名，而是<strong>编译器强制执行的访问控制边界</strong>：任何位于 <code>.../internal/...</code> 下的包，只允许 <code>internal</code> 父级目录树内部的包导入，外部模块一律禁止引用。如果确实是跨仓库共享的通用无业务组件，应挪到 <code>pkg/auth</code> 或抽成独立的基础库模块。</p>
+    </div>
+  </details>
+</div>

@@ -1,0 +1,379 @@
+<!-- ====================================================================
+     PART 05: 函数与错误处理 · 多返回值、defer、业务错误分层与 panic/recover
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="func-error">
+  <span class="wb-sec-num">05</span>
+  <span class="wb-sec-title">函数与错误处理：<code>defer</code>、业务错误分层与 <code>panic / recover</code></span>
+  <span class="plop-tag mint">FUNC · DEFER LIFO · LAYERED ERROR -&gt; HTTP · RECOVER</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>用 <code>defer</code> 安全成对释放连接和文件，设计一套「数据层转换 → 业务层包装 → 接口层统一映射 HTTP 状态码」的生产级错误处理链路，并拿准 <code>panic / recover</code> 的使用边界。
+</div>
+
+<!-- 05.1 · 函数定义、多返回值、可变参数与闭包 -->
+<div class="wb-card" id="func-features" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill" id="channel"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 05.1 · 函数用法：<code>(结果, error)</code> 多返回值、可变参数 <code>...T</code> 与闭包</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 05.1 函数特性：多返回值、可变参数与闭包</h3>
+
+  <p>
+    与 JavaScript 一样，Go 的函数也是一等公民（可赋给变量、传参或作为返回值，这就是后面 HTTP 中间件的基础）。日常最常用的是<strong>多返回值</strong>、<strong>可变参数 <code>...T</code></strong>（对应 JS 的剩余参数 <code>...args</code>）和<strong>闭包</strong>：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> func_multi_varargs.go · 多返回值与可变参数展开 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-func-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-func-basic"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-cm">// 1. 多返回值：惯例把业务结果放前面，error 放在最后一个返回值</span>
+<span class="c-kw">func</span> <span class="c-fn">Divide</span>(a, b <span class="c-fn">float64</span>) (<span class="c-fn">float64</span>, <span class="c-fn">error</span>) {
+    <span class="c-kw">if</span> b == 0 {
+        <span class="c-kw">return</span> 0, fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"除数不能为 0"</span>)
+    }
+    <span class="c-kw">return</span> a / b, <span class="c-kw">nil</span>
+}
+
+<span class="c-cm">// 2. 可变参数 (...int)：函数内部将其视为 []int 切片</span>
+<span class="c-kw">func</span> <span class="c-fn">SumAll</span>(nums ...<span class="c-fn">int</span>) <span class="c-fn">int</span> {
+    total := 0
+    <span class="c-kw">for</span> _, n := <span class="c-kw">range</span> nums {
+        total += n
+    }
+    <span class="c-kw">return</span> total
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    res, err := <span class="c-fn">Divide</span>(10, 4)
+    arr := []<span class="c-fn">int</span>{1, 2, 3}
+    <span class="c-cm">// 把已有切片展开传给可变参数时，在切片名后加 ...（JS 写在前面 ...arr，Go 写在后面 arr...）</span>
+    fmt.<span class="c-fn">Println</span>(res, err, <span class="c-fn">SumAll</span>(arr...)) <span class="c-cm">// 2.5 &lt;nil&gt; 6</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> func_closure.go · 闭包持有外部局部变量状态 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-func-closure', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-func-closure"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-cm">// 闭包（Closure）：返回的匿名函数捕获了外部变量 count，生命周期随之延续</span>
+<span class="c-kw">func</span> <span class="c-fn">NewCounter</span>() <span class="c-kw">func</span>() <span class="c-fn">int</span> {
+    count := 0
+    <span class="c-kw">return</span> <span class="c-kw">func</span>() <span class="c-fn">int</span> {
+        count++
+        <span class="c-kw">return</span> count
+    }
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    next := <span class="c-fn">NewCounter</span>()
+    fmt.<span class="c-fn">Println</span>(<span class="c-fn">next</span>(), <span class="c-fn">next</span>(), <span class="c-fn">next</span>()) <span class="c-cm">// 1 2 3</span>
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 05.2 · 延迟调用 defer：成对释放资源与执行时机 -->
+<div class="wb-card" id="defer" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 05.2 · 延迟调用 <code>defer</code>：后进先出（LIFO）栈顺序、<code>return</code> 三步拆解与求值时机</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-clock"></use></svg> 05.2 延迟调用（<code>defer</code>）：成对释放资源</h3>
+
+  <p>
+    在 JS 里释放资源要靠 <code>try { ... } finally { close() }</code>，文件一多缩进很深；Go 提供了 <strong><code>defer</code></strong> 关键字——拿到文件、HTTP 响应体或互斥锁后<strong>下一行立刻注册 <code>defer xxx.Close()</code></strong>，无论函数后续从哪一个分支提前 <code>return</code> 甚至发生 <code>panic</code>，都会在退出函数前自动执行清理。掌握它的三个要点即可：<strong>① 多个 <code>defer</code> 按 LIFO（Last In, First Out，后进先出）栈顺序倒序执行</strong>；<strong>② 在返回值赋值之后、函数真正退出之前执行</strong>；<strong>③ 普通参数在注册那一行当场求值</strong>：
+  </p>
+
+  <svg viewBox="0 0 920 218" style="width:100%; max-width:920px; height:auto; display:block; margin:10px auto 14px; border:2.4px solid var(--plop-ink); border-radius:14px; background:#FFFDF7;" role="img" aria-labelledby="go-defer-title go-defer-desc">
+    <title id="go-defer-title">defer 后进先出调用栈与 return 三步执行时机</title>
+    <desc id="go-defer-desc">左栏展示多个 defer 按压栈反序弹出执行；右栏展示 return 先完成返回值赋值，再执行所有 defer 函数，最后执行底层返回指令。</desc>
+    <defs>
+      <marker id="arr-df-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#1D4ED8"/>
+      </marker>
+      <marker id="arr-df-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#D9381E"/>
+      </marker>
+      <marker id="arr-df-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#15803D"/>
+      </marker>
+    </defs>
+
+    <rect x="16" y="14" width="424" height="190" rx="10" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="2"/>
+    <text x="228" y="35" text-anchor="middle" font-family="var(--font-mono)" font-size="12" font-weight="900" fill="#1D4ED8">1. defer 是一个「后进先出 (LIFO)」的延迟调用栈</text>
+    <text x="228" y="52" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="#475569">先注册的压在栈底最后执行，后注册的在栈顶最先弹出执行</text>
+
+    <text x="72" y="84" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" font-weight="900" fill="#1D4ED8">注册压栈</text>
+    <path d="M 72 92 L 72 156" fill="none" stroke="#1D4ED8" stroke-width="2" stroke-dasharray="4,2" marker-end="url(#arr-df-blue)"/>
+    <text x="72" y="172" text-anchor="middle" font-family="var(--font-mono)" font-size="9.8" fill="#475569">① ➔ ② ➔ ③</text>
+
+    <rect x="122" y="64" width="204" height="114" rx="7" fill="#FFF" stroke="#1D4ED8" stroke-width="2"/>
+    <rect x="132" y="72" width="184" height="30" rx="5" fill="#FEF08A" stroke="#D9381E" stroke-width="1.8"/>
+    <text x="224" y="91" text-anchor="middle" font-family="var(--font-mono)" font-size="10.8" font-weight="900" fill="#D9381E">栈顶：defer ③ (第 1 个执行)</text>
+    <rect x="132" y="106" width="184" height="30" rx="5" fill="#DBEAFE" stroke="#1D4ED8" stroke-width="1.5"/>
+    <text x="224" y="125" text-anchor="middle" font-family="var(--font-mono)" font-size="10.8" font-weight="800" fill="#1D4ED8">中部：defer ② (第 2 个执行)</text>
+    <rect x="132" y="140" width="184" height="30" rx="5" fill="#F8FAFC" stroke="#64748B" stroke-width="1.5"/>
+    <text x="224" y="159" text-anchor="middle" font-family="var(--font-mono)" font-size="10.8" font-weight="800" fill="#334155">栈底：defer ① (最后执行)</text>
+
+    <text x="382" y="84" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" font-weight="900" fill="#D9381E">退出弹出</text>
+    <path d="M 382 156 L 382 92" fill="none" stroke="#D9381E" stroke-width="2.2" marker-end="url(#arr-df-red)"/>
+    <text x="382" y="172" text-anchor="middle" font-family="var(--font-mono)" font-size="9.8" font-weight="800" fill="#D9381E">③ ➔ ② ➔ ①</text>
+    <text x="228" y="194" text-anchor="middle" font-family="var(--font-mono)" font-size="10.2" font-weight="800" fill="#1D4ED8">设计原因：后申请的资源（如事务 tx）常依赖先申请的资源（如连接 db），需先释放</text>
+
+    <rect x="454" y="14" width="450" height="190" rx="10" fill="#FFF5F2" stroke="#D9381E" stroke-width="2"/>
+    <text x="679" y="35" text-anchor="middle" font-family="var(--font-mono)" font-size="12" font-weight="900" fill="#D9381E">2. return xxx 并非一步完成，而是拆成三步执行</text>
+    <text x="679" y="52" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="#475569">所有的 defer 都在「返回值赋值之后、函数真正退出之前」执行</text>
+
+    <rect x="468" y="66" width="422" height="32" rx="6" fill="#FFF" stroke="#1D4ED8" stroke-width="1.8"/>
+    <text x="679" y="86" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="900" fill="#1D4ED8">第 1 步：先执行返回值赋值（例如把结果赋给返回值变量 res = x）</text>
+    <path d="M 679 98 L 679 109" fill="none" stroke="#D9381E" stroke-width="2" marker-end="url(#arr-df-red)"/>
+
+    <rect x="468" y="111" width="422" height="36" rx="6" fill="#FEF08A" stroke="#D9381E" stroke-width="2"/>
+    <text x="679" y="127" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="900" fill="#D9381E">第 2 步：按 LIFO 逆序执行当前函数注册的所有 defer 函数</text>
+    <text x="679" y="141" text-anchor="middle" font-family="var(--font-mono)" font-size="9.8" font-weight="800" fill="#D9381E">（若声明了命名返回值 func() (res int)，defer 闭包可在这一步修改 res）</text>
+    <path d="M 679 147 L 679 158" fill="none" stroke="#15803D" stroke-width="2" marker-end="url(#arr-df-green)"/>
+
+    <rect x="468" y="160" width="422" height="32" rx="6" fill="#F0FDF4" stroke="#15803D" stroke-width="1.8"/>
+    <text x="679" y="180" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="900" fill="#15803D">第 3 步：执行底层 RET 指令，携带最终返回值退出当前函数</text>
+  </svg>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> defer_lifo_file.go · 先判错再注册 defer，避免循环内堆积 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-defer-file', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-defer-file"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"io"</span>
+    <span class="c-str">"os"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">CopyFile</span>(srcPath, dstPath <span class="c-fn">string</span>) <span class="c-fn">error</span> {
+    src, err := os.<span class="c-fn">Open</span>(srcPath)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err <span class="c-cm">// ★ 必须先判断 err == nil 再写 defer，否则 src 为 nil 会空指针 panic</span>
+    }
+    <span class="c-kw">defer</span> src.<span class="c-fn">Close</span>() <span class="c-cm">// ① 压栈底（最后关）</span>
+
+    dst, err := os.<span class="c-fn">Create</span>(dstPath)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err <span class="c-cm">// 提前返回时，已注册的 src.Close() 依然会自动执行</span>
+    }
+    <span class="c-kw">defer</span> dst.<span class="c-fn">Close</span>() <span class="c-cm">// ② 压栈顶（最先关）</span>
+
+    _, err = io.<span class="c-fn">Copy</span>(dst, src)
+    <span class="c-kw">return</span> err
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> defer_return_eval.go · 直接传参当场求值 vs 闭包延迟读取 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-defer-order', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-defer-order"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    x := 1
+    <span class="c-kw">defer</span> fmt.<span class="c-fn">Println</span>(<span class="c-str">"直接传参 x ="</span>, x)             <span class="c-cm">// 注册时当场求值，存下 x=1</span>
+    <span class="c-kw">defer</span> <span class="c-kw">func</span>() { fmt.<span class="c-fn">Println</span>(<span class="c-str">"闭包读取 x ="</span>, x) }() <span class="c-cm">// 函数退出时才读，读到最新 x=2</span>
+    x = 2
+    <span class="c-cm">// 输出顺序（LIFO）：先打 "闭包读取 x = 2"，后打 "直接传参 x = 1"</span>
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 05.3 · 业务错误怎么定义、分层传递并转成 HTTP 状态码 -->
+<div class="wb-card" id="error" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mustard"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 05.3 · 生产级错误处理：业务错误定义、<code>%w</code> 分层包装与统一映射 HTTP 状态码</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 05.3 业务错误怎么定义、分层传递并转成 HTTP 状态码</h3>
+
+  <p>
+    Go 的内置接口只有一个方法：<code>type error interface { Error() string }</code>。在真实后端项目（<code>repo → service → handler</code> 三层结构）中，如果每层都只写 <code>return err</code> 会丢掉出错位置，如果每层都既打日志又往上返回又会导致同一个报错在日志里刷屏三次。行业标准做法遵循<strong>「底层转换领域错误 → 中间层用 `%w` 补充上下文往上抛 → 最外层 Handler 统一打印并映射 HTTP 状态码」</strong>：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:12px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> layered_error_http.go · 从数据层包装到 HTTP 状态码映射的完整闭环 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-err-layered', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-err-layered"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"encoding/json"</span>
+    <span class="c-str">"errors"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"log"</span>
+    <span class="c-str">"net/http"</span>
+    <span class="c-str">"net/http/httptest"</span>
+)
+
+<span class="c-cm">// ==================== 1. 定义层：可判等的哨兵错误 + 带业务码的结构化错误 ====================</span>
+<span class="c-kw">var</span> (
+    ErrNotFound          = errors.<span class="c-fn">New</span>(<span class="c-str">"resource not found"</span>)
+    ErrInsufficientStock = errors.<span class="c-fn">New</span>(<span class="c-str">"insufficient stock"</span>)
+)
+
+<span class="c-kw">type</span> BizError <span class="c-kw">struct</span> {
+    Status  <span class="c-fn">int</span>    <span class="c-cm">// 对应 HTTP 状态码 (400 / 409 / ...)</span>
+    Code    <span class="c-fn">string</span> <span class="c-cm">// 前端可读的稳定业务错误码，如 "STOCK_NOT_ENOUGH"</span>
+    Message <span class="c-fn">string</span> <span class="c-cm">// 可直接展示给用户的安全提示文案</span>
+    Cause   <span class="c-fn">error</span>  <span class="c-cm">// 底层原始错误（仅供服务端日志排查，不返回给前端）</span>
+}
+
+<span class="c-kw">func</span> (e *BizError) <span class="c-fn">Error</span>() <span class="c-fn">string</span> { <span class="c-kw">return</span> fmt.<span class="c-fn">Sprintf</span>(<span class="c-str">"%s: %v"</span>, e.Code, e.Cause) }
+<span class="c-kw">func</span> (e *BizError) <span class="c-fn">Unwrap</span>() <span class="c-fn">error</span> { <span class="c-kw">return</span> e.Cause } <span class="c-cm">// 实现 Unwrap 后支持 errors.Is / As 穿透</span>
+
+<span class="c-cm">// ==================== 2. 数据层与业务层：用 fmt.Errorf("...: %w", err) 逐层附加上下文 ====================</span>
+<span class="c-kw">func</span> <span class="c-fn">repoFindStock</span>(skuID <span class="c-fn">int64</span>) (<span class="c-fn">int</span>, <span class="c-fn">error</span>) {
+    <span class="c-kw">if</span> skuID == 404 {
+        <span class="c-kw">return</span> 0, fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"repo.FindStock(sku=%d): %w"</span>, skuID, ErrNotFound)
+    }
+    <span class="c-kw">return</span> 0, <span class="c-kw">nil</span> <span class="c-cm">// 模拟查到当前剩余库存为 0</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">svcCreateOrder</span>(skuID <span class="c-fn">int64</span>, count <span class="c-fn">int</span>) <span class="c-fn">error</span> {
+    stock, err := <span class="c-fn">repoFindStock</span>(skuID)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"svc.CreateOrder: %w"</span>, err) <span class="c-cm">// 不打日志，补充上下文继续上抛</span>
+    }
+    <span class="c-kw">if</span> stock &lt; count {
+        <span class="c-kw">return</span> &amp;BizError{
+            Status:  http.StatusConflict, <span class="c-cm">// 409</span>
+            Code:    <span class="c-str">"STOCK_NOT_ENOUGH"</span>,
+            Message: <span class="c-str">"手慢了，该商品库存不足"</span>,
+            Cause:   ErrInsufficientStock,
+        }
+    }
+    <span class="c-kw">return</span> <span class="c-kw">nil</span>
+}
+
+<span class="c-cm">// ==================== 3. 出口层（Handler）：集中打印日志并转成 HTTP 状态码 ====================</span>
+<span class="c-kw">func</span> <span class="c-fn">writeHTTPError</span>(w http.ResponseWriter, err <span class="c-fn">error</span>) {
+    w.<span class="c-fn">Header</span>().<span class="c-fn">Set</span>(<span class="c-str">"Content-Type"</span>, <span class="c-str">"application/json; charset=utf-8"</span>)
+
+    <span class="c-cm">// 优先用 errors.As 提取结构化业务错误 BizError</span>
+    <span class="c-kw">var</span> bizErr *BizError
+    <span class="c-kw">if</span> errors.<span class="c-fn">As</span>(err, &amp;bizErr) {
+        w.<span class="c-fn">WriteHeader</span>(bizErr.Status)
+        _ = json.<span class="c-fn">NewEncoder</span>(w).<span class="c-fn">Encode</span>(<span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">string</span>{<span class="c-str">"code"</span>: bizErr.Code, <span class="c-str">"msg"</span>: bizErr.Message})
+        <span class="c-kw">return</span>
+    }
+    <span class="c-cm">// 其次用 errors.Is 穿透多层 %w 判断领域哨兵错误</span>
+    <span class="c-kw">if</span> errors.<span class="c-fn">Is</span>(err, ErrNotFound) {
+        w.<span class="c-fn">WriteHeader</span>(http.StatusNotFound) <span class="c-cm">// 404</span>
+        _ = json.<span class="c-fn">NewEncoder</span>(w).<span class="c-fn">Encode</span>(<span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">string</span>{<span class="c-str">"code"</span>: <span class="c-str">"NOT_FOUND"</span>, <span class="c-str">"msg"</span>: <span class="c-str">"请求的资源不存在"</span>})
+        <span class="c-kw">return</span>
+    }
+    <span class="c-cm">// 兜底未知系统错误：服务端日志记录完整内部链路，对前端统一脱敏返回 500</span>
+    log.<span class="c-fn">Printf</span>(<span class="c-str">"[ERROR] internal failure: %v"</span>, err)
+    w.<span class="c-fn">WriteHeader</span>(http.StatusInternalServerError)
+    _ = json.<span class="c-fn">NewEncoder</span>(w).<span class="c-fn">Encode</span>(<span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">string</span>{<span class="c-str">"code"</span>: <span class="c-str">"INTERNAL_ERROR"</span>, <span class="c-str">"msg"</span>: <span class="c-str">"服务繁忙，请稍后重试"</span>})
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    rec := httptest.<span class="c-fn">NewRecorder</span>()
+    <span class="c-fn">writeHTTPError</span>(rec, <span class="c-fn">svcCreateOrder</span>(1001, 2))
+    fmt.<span class="c-fn">Println</span>(rec.Code, rec.Body.<span class="c-fn">String</span>())
+    <span class="c-cm">// 输出: 409 {"code":"STOCK_NOT_ENOUGH","msg":"手慢了，该商品库存不足"}</span>
+}</code></pre>
+  </div>
+</div>
+
+<!-- 05.4 · panic 与 recover 何时用 -->
+<div class="wb-card" id="panic-recover" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 05.4 · 崩溃与恢复边界：<code>panic / recover</code> 何时用、何时禁用与跨协程盲区</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 05.4 <code>panic</code> 与 <code>recover</code> 何时用</h3>
+
+  <p>
+    <code>panic</code> 会立刻中断当前函数执行流、沿调用栈逆序运行已注册的 <code>defer</code>，若直到协程顶部都没人调用 <code>recover()</code> 拦截，<strong>整个 Go 服务进程就会直接崩溃退出</strong>。因此工程上有清晰的使用边界：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; font-size:13.2px; line-height:1.68;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-ink); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 两条使用边界与两条语法约束</div>
+      <ul style="margin:0; padding-left:18px;">
+        <li><strong>绝不拿 <code>panic</code> 当普通业务 <code>throw</code> 用</strong>：参数校验不过、数据库查无此人、第三方超时都是预期内分支，一律返回 <code>error</code>。</li>
+        <li><strong>仅有的两处合法用法</strong>：① <strong>启动阶段强依赖自检失败</strong>（如 <code>main()</code> 初始化时连不上核心配置或写错静态正则 <code>regexp.MustCompile</code>，主动失败拒绝带病启动）；② <strong>顶层入口兜底恢复</strong>（在 HTTP 全局中间件和独立后台子协程入口写 <code>defer + recover()</code>，防止某行意外的切片越界或空指针把整台机器上的其他正常请求一起拖死）。</li>
+        <li><strong>两条硬约束</strong>：① <code>recover()</code> <strong>必须写在 <code>defer</code> 直接调用的函数体内</strong>才生效；② <strong><code>recover()</code> 只能救当前这一个协程</strong>——在子协程 <code>go fn()</code> 里炸出的 <code>panic</code>，父协程的 <code>recover()</code> 完全拦不住。</li>
+      </ul>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> safe_goroutine.go · 安全启动后台协程的封装模板 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-panic-safe', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-panic-safe"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"log"</span>
+    <span class="c-str">"runtime/debug"</span>
+    <span class="c-str">"time"</span>
+)
+
+<span class="c-cm">// 凡是业务中手动开启的后台协程，推荐统一套一层带 recover 兜底的 SafeGo：</span>
+<span class="c-kw">func</span> <span class="c-fn">SafeGo</span>(fn <span class="c-kw">func</span>()) {
+    <span class="c-kw">go</span> <span class="c-kw">func</span>() {
+        <span class="c-kw">defer</span> <span class="c-kw">func</span>() {
+            <span class="c-kw">if</span> r := <span class="c-fn">recover</span>(); r != <span class="c-kw">nil</span> {
+                log.<span class="c-fn">Printf</span>(<span class="c-str">"[PANIC RECOVERED] err=%v\n%s"</span>, r, debug.<span class="c-fn">Stack</span>())
+            }
+        }()
+        <span class="c-fn">fn</span>()
+    }()
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-fn">SafeGo</span>(<span class="c-kw">func</span>() {
+        <span class="c-kw">var</span> s []<span class="c-fn">int</span>
+        fmt.<span class="c-fn">Println</span>(s[0]) <span class="c-cm">// 模拟意外越界 panic，被 SafeGo 拦下打印堆栈，主进程不崩</span>
+    })
+    time.<span class="c-fn">Sleep</span>(50 * time.Millisecond)
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"主服务依然健康运行"</span>)
+}</code></pre>
+    </div>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0 0 16px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>为什么 Go 1.14 之后 <code>defer</code> 几乎没有额外性能损耗？以及为什么“返回一个值为 <code>nil</code> 的自定义错误结构体指针（如 <code>var e *BizError = nil; return e</code>）”会导致外层 <code>err != nil</code> 恒为真？详见 <a href="principles.html#defer">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 02.3 开放编码 defer 与 panic 机制》</a> 与 <a href="principles.html#interface">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 02.4 接口 nil 判空陷阱》</a>。
+  </p>
+
+  <h4 id="quiz-05" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 同事写了 <code>func check() error { var err *BizError = nil; if ok { return err }; ... }</code>，结果正常分支返回后外层 <code>if err != nil</code> 居然判定为有错，为什么？</span></summary>
+    <div class="drawer-body">
+      <p>这是 Go 最经典的接口判空误区：<code>error</code> 是一个接口（内部包含「动态类型指针 + 数据指针」两格）。把 <code>(*BizError)(nil)</code> 返回给 <code>error</code> 接口时，虽然数据指针是 <code>nil</code>，但<strong>类型指针那格被填上了 <code>*BizError</code></strong>，导致整个接口不等于 <code>nil</code>（图解见 <a href="principles.html#interface">原理篇 02.4</a>）。<strong>规范写法</strong>：没有错误时永远直接写字面量 <code>return nil</code>，切勿返回带具体类型的空指针变量。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 一个定时任务需要遍历打开 5000 个日志文件处理，直接在 <code>for</code> 循环里写 <code>f, err := os.Open(p); defer f.Close()</code> 会出什么线上问题？</span></summary>
+    <div class="drawer-body">
+      <p><code>defer</code> 是在<strong>整个函数退出时</strong>才执行，而不是在单轮 <code>for</code> 循环结束时执行。5000 个文件句柄会一直攒在内存里不释放，直接触发操作系统进程句柄上限报错 <code>too many open files</code>。<strong>解法</strong>：把单次循环体抽成一个小函数 <code>processOneFile(path)</code>，在那个小函数里用 <code>defer f.Close()</code>，每处理完 1 个文件返回时立刻关闭句柄。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 数据库报了 <code>Error 1062: Duplicate entry '1380000' for key 'uk_phone'</code>，为什么不能在 Handler 里直接 <code>http.Error(w, err.Error(), 500)</code> 原样吐给前端？</span></summary>
+    <div class="drawer-body">
+      <p>一是<strong>安全风险</strong>：原样输出底层错误会把数据库类型、表名、索引名甚至内部 IP 暴露给外部攻击者；二是<strong>语义不对</strong>：手机号已注册属于客户端业务冲突而非服务端崩溃。正确做法是在 <code>repo</code> 层识别唯一索引冲突转为 <code>ErrDuplicatePhone</code>，在 Handler 层映射为 <code>409 Conflict</code> 并返回友好提示 <code>"该手机号已注册"</code>。</p>
+    </div>
+  </details>
+</div>

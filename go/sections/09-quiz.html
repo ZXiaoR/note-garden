@@ -1,0 +1,165 @@
+<!-- ====================================================================
+     PART 09: 场景自测与语法附录 · 10 道真实后端场景题 + 25 个保留关键字速查
+     ==================================================================== -->
+<div class="wb-sec-header pink" id="quiz">
+  <span class="wb-sec-num">09</span>
+  <span class="wb-sec-title">场景自测与附录：10 道实战排障题与保留关键字速查</span>
+  <span class="plop-tag tomato">10 SCENARIO QUIZZES · TROUBLESHOOTING · 25 KEYWORDS APPENDIX</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 怎么用本章复习：</strong>下面 10 道题全部来自日常 Go 后端开发与线上真实故障。先不点开答案，在脑海里说出「根因是什么、代码哪一行要改、用哪个工具验证」，再展开核对。文末附有默认折叠的 25 个保留关键字与内置标识符全表供随时检索。
+</div>
+
+<!-- 09.1 · 10 道综合场景自测题（默认折叠） -->
+<div class="wb-card" id="cheat" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 09.1 · 综合场景检验：10 道真实后端需求与线上故障排查题（点击展开解析）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 09.1 独立思考后再点开参考方案</h3>
+
+  <div class="wb-grid-2">
+    <div>
+      <details class="plop-drawer">
+        <summary>01. 服务跑一天后监控显示 goroutine 数量从 40 一路涨到 5 万不回落，怎么查出是哪行代码漏了？</summary>
+        <div class="drawer-body">
+          <p><strong>排查步骤</strong>：通过内网诊断端口执行 <code>go tool pprof -http=:9090 http://127.0.0.1:6060/debug/pprof/goroutine</code>（或直接 curl <code>/debug/pprof/goroutine?debug=1</code>），看计数最多的那组调用栈停在哪一行。<br>
+          <strong>三大高频元凶</strong>：① 子协程向<strong>无缓冲通道</strong>写结果，但主协程因超时已提前返回没人读（改为缓冲容量 <code>1</code> 或加 <code>select + &lt;-ctx.Done()</code>）；② 调用外部接口用了无超时的 <code>http.DefaultClient</code> 永久挂在读套接字上；③ 消费者等待一个因异常提前退出而忘了 <code>close</code> 的通道（回顾 <a href="#leak-and-race">06.5</a> / <a href="#pprof-troubleshoot">08.6</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>02. 需要并发请求 100 个下游商品接口汇总结果，怎么限制同时最多跑 10 个，且整体超 2 秒或任一报错就取消其余请求？</summary>
+        <div class="drawer-body">
+          <p><strong>最简方案（<code>context.WithTimeout</code> + <code>errgroup</code>）</strong>：<br>
+          ① 先建 2 秒超时上下文：<code>timeoutCtx, cancel := context.WithTimeout(parentCtx, 2*time.Second); defer cancel()</code>；<br>
+          ② 派生编排组并设并发上限：<code>g, egCtx := errgroup.WithContext(timeoutCtx); g.SetLimit(10)</code>；<br>
+          ③ 预分配长度 100 的结果切片 <code>res := make([]Item, len(ids))</code>，在循环中 <code>g.Go</code> 把 <code>egCtx</code> 传给 <code>http.NewRequestWithContext</code>，按各自独立下标 <code>res[i] = item</code> 写入（互不冲突免加锁），最后判断 <code>if err := g.Wait(); err != nil</code> 即可（回顾 <a href="#concurrency-patterns">06.4</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>03. 订单列表接口没查到数据时，前端拿到了 null 而不是 [] 导致页面报错；有数据时 19 位订单号末两位在前端变成了 00，怎么一起修？</summary>
+        <div class="drawer-body">
+          <p>① <strong>修 <code>null</code> 变 <code>[]</code></strong>：声明结果切片时不要写零值 <code>var list []Order</code>（<code>nil</code> 切片序列化为 <code>null</code>），改为初始化非空表头 <code>list := make([]Order, 0)</code> 或 <code>[]Order{}</code>。<br>
+          ② <strong>修大整数丢精度</strong>：JS 的 <code>Number</code> 最大安全整数仅 16 位（<code>2<sup>53</sup> - 1</code>），在结构体字段标签加上 <code>,string</code>，即 <code>OrderID int64 `json:"order_id,string"`</code>，自动序列化为字符串传输（回顾 <a href="#json-traps">04.3</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>04. 从本地热榜缓存切片 hot（含 10 条商品）截取前 3 条 top := hot[:3]，随后执行 top = append(top, adItem) 插入广告，为什么把原缓存第 4 条覆盖掉了？</summary>
+        <div class="drawer-body">
+          <p><strong>原因</strong>：<code>hot[:3]</code> 只是复制了 24 字节切片表头，和 <code>hot</code> 共享同一块底层数组，此时 <code>top</code> 的 <code>len=3</code> 但剩余容量 <code>cap=10</code>。执行 <code>append</code> 时容量充足未触发扩容搬家，新元素直接写进了共享底层数组的下标 <code>[3]</code> 格，当场覆盖了 <code>hot[3]</code>。<br>
+          <strong>解法</strong>：截取后若需修改或追加，一律先做独立拷贝 <code>top := slices.Clone(hot[:3])</code>，或用三下标语法 <code>hot[:3:3]</code> 锁死容量迫使 <code>append</code> 分配新数组（回顾 <a href="#slice-map-traps">03.3</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>05. 线上晚高峰偶发整个容器直接退出重启，日志报 fatal error: concurrent map writes，明明挂了 RecoverMiddleware 为什么没拦住？</summary>
+        <div class="drawer-body">
+          <p><strong>原因</strong>：Go 普通 <code>map</code> 并发读写触发的是运行时底层的 <code>runtime.throw</code>（<code>fatal error</code>），不属于普通 <code>panic</code>，<strong>任何 <code>recover()</code> 都无法捕获，进程必退出</strong>。<br>
+          <strong>解法</strong>：用 <code>sync.RWMutex</code>（读用 <code>RLock</code>、写用 <code>Lock</code>）封装该共享字典，并在 CI 中跑 <code>go test -race ./...</code> 扫描全局状态并发读写（回顾 <a href="#slice-map-traps">03.3</a> / <a href="#mutex-context">06.3</a>）。</p>
+        </div>
+      </details>
+    </div>
+
+    <div>
+      <details class="plop-drawer">
+        <summary>06. 调外部短信网关时直接用了 http.Post(...)，某天短信商机房故障卡住不回包，为什么 30 秒内把我们的登录注册主服务也彻底拖死了？</summary>
+        <div class="drawer-body">
+          <p><strong>原因</strong>：标准库快捷函数 <code>http.Get / http.Post</code> 使用的 <code>http.DefaultClient</code> 默认 <code>Timeout = 0</code>（永不超时）。短信网关一卡死，每进来一个登录请求就永久卡住一个协程与连接句柄，迅速把本机资源耗光引发级联雪崩。<br>
+          <strong>解法</strong>：① 全局复用显式设好 <code>Timeout</code>（如 <code>3s</code>）与 <code>MaxIdleConnsPerHost</code> 的自定义 <code>*http.Client</code>，并用 <code>http.NewRequestWithContext</code> 绑定请求超时；② 发短信这类非核心动作进一步扔进消息队列异步解耦（回顾 <a href="#sc-httpclient">07.4</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>07. 在 HTTP Handler 返回前启动异步协程 go writeAuditLog(r.Context(), logData) 写库，为什么几乎每次都报 context canceled？</summary>
+        <div class="drawer-body">
+          <p><strong>原因</strong>：<code>r.Context()</code> 的生命周期与当前这次 HTTP 请求强绑定——一旦主 Handler 执行完 <code>return</code> 把响应发给客户端，<code>net/http</code> 框架就会立刻取消 <code>r.Context()</code>；此时后台协程刚准备拿这个 <code>ctx</code> 查写 MySQL，当场撞上已取消报错。<br>
+          <strong>解法</strong>：在 Go 1.21+ 中传入 <code>bgCtx := context.WithoutCancel(r.Context())</code>（保留里面的 <code>TraceID</code> 但剥离父级取消关联），再为后台写库单独包一层合理的超时 <code>context.WithTimeout(bgCtx, 3*time.Second)</code>，并用 <code>SafeGo</code> 包裹 <code>recover()</code> 防子协程崩溃（回顾 <a href="#panic-recover">05.4</a> / <a href="#mutex-context">06.3</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>08. 每次发版滚动更新容器时，总有几十个正在执行中的接口报 502 错误或数据库事务只跑了一半，怎么做到无感平滑发版？</summary>
+        <div class="drawer-body">
+          <p><strong>原因</strong>：进程未捕获 <code>SIGTERM</code> 信号做优雅停机，收到信号直接硬退出切断了在途连接。<br>
+          <strong>解法</strong>：① 用 <code>signal.NotifyContext</code> 监听 <code>SIGINT / SIGTERM</code>；② 收到信号后先把就绪探针 <code>/readyz</code> 置为 <code>503</code> 让网关摘流，随后调用 <code>srv.Shutdown(drainCtx)</code> 停止接收新连接并留出 <code>10~15 秒</code> 让正在跑的在途请求执行完毕；③ 等 <code>Shutdown</code> 返回后，再依次关闭 MQ 消费者和 MySQL / Redis 连接池（回顾 <a href="#graceful-shutdown">08.3</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>09. 用 database/sql 查列表 rows, err := db.QueryContext(ctx, sql) 后忘了写 defer rows.Close()，跑几分钟后所有新请求全部超时卡死，为什么？</summary>
+        <div class="drawer-body">
+          <p><strong>原因</strong>：在 <code>database/sql</code> 中，只要 <code>rows</code> 没有读到末尾且没调 <code>rows.Close()</code>，这条底层 TCP 数据库连接就会一直被该结果集独占而无法归还给连接池。一旦泄漏次数达到 <code>SetMaxOpenConns(50)</code> 上限，第 51 个请求就会一直在池外排队等待空闲连接直到 Context 超时。<br>
+          <strong>规范</strong>：检查 <code>if err != nil</code> 通过后的<strong>下一行立刻写 <code>defer rows.Close()</code></strong>；开启事务 <code>BeginTx</code> 通过后的<strong>下一行立刻写 <code>defer tx.Rollback()</code></strong>（回顾 <a href="#sc-mysql">07.1</a>）。</p>
+        </div>
+      </details>
+
+      <details class="plop-drawer">
+        <summary>10. 写 AI 流式对话 SSE 接口时，每收到大模型一个词就 fmt.Fprintf(w, "data: %s\n\n", word)，为什么前端卡了 12 秒才一次性蹦出整段话？用户中途关网页怎么停掉计费生成？</summary>
+        <div class="drawer-body">
+          <p>① <strong>卡住不实时推出</strong>：一是因为没在每次写入后调用 <code>http.NewResponseController(w).Flush()</code> 刷出服务端缓冲区；二是因为前置 Nginx 反向代理默认开启响应缓冲，需在响应头加上 <code>X-Accel-Buffering: no</code> 与 <code>Content-Type: text/event-stream</code>。<br>
+          ② <strong>客户端断连即停</strong>：将 <code>r.Context()</code> 一路透传给调用下游大模型的 <code>http.NewRequestWithContext(r.Context(), ...)</code> 并在推送循环里监听 <code>&lt;-r.Context().Done()</code>，用户一关页面 TCP 断开会自动取消 Context，下游流式连接随即立刻中断（回顾 <a href="#sc-sse">07.5</a>）。</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<!-- 09.2 · 附录：25 个保留关键字与预声明内置标识符（默认折叠） -->
+<div class="wb-card" id="keywords-appendix" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 09.2 · 附录（按需展开查表）：Go 全部 25 个保留关键字与三类预声明内置标识符</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-doc"></use></svg> 附录：25 个保留关键字与预声明标识符速查表</h3>
+
+  <details class="plop-drawer">
+    <summary>展开查看：Go 语言全部 25 个保留关键字四分类表 + 预声明内置类型与函数清单 [Go 1.22+]</summary>
+    <div class="drawer-body">
+      <p style="margin:0 0 10px;">
+        Go 语言自诞生至今一共只有 <strong>25 个保留关键字</strong>（不能用作变量名或函数名），按用途分为四类：
+      </p>
+
+      <div class="table-wrap" style="margin-bottom:12px;">
+        <table class="plop-table">
+          <thead>
+            <tr>
+              <th style="width:18%">分类（共 25 个）</th>
+              <th style="width:36%">保留关键字清单</th>
+              <th>替代了其他语言的什么语法</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. 包与声明（6 个）</strong></td>
+              <td><code>package</code>、<code>import</code>、<code>var</code>、<code>const</code>、<code>type</code>、<code>func</code></td>
+              <td>• 无 <code>public / private / export</code>：直接通过<strong>标识符首字母大小写</strong>控制跨包可见性；<br>• 无 <code>enum</code>：通过 <code>const</code> 配合 <code>iota</code> 定义常量枚举。</td>
+            </tr>
+            <tr>
+              <td><strong>2. 复合类型（4 个）</strong></td>
+              <td><code>struct</code>、<code>interface</code>、<code>map</code>、<code>chan</code></td>
+              <td>• 无 <code>class / extends / implements</code>：用 <code>struct</code> 聚合字段与匿名组合，用 <code>interface</code> 非侵入式约定方法契约。</td>
+            </tr>
+            <tr>
+              <td><strong>3. 流程控制（12 个）</strong></td>
+              <td><code>if</code>、<code>else</code>、<code>switch</code>、<code>case</code>、<code>default</code>、<code>for</code>、<code>range</code>、<code>break</code>、<code>continue</code>、<code>goto</code>、<code>fallthrough</code>、<code>return</code></td>
+              <td>• 无 <code>while / do</code>：统一用 <code>for</code>；<br>• <code>switch</code> 默认自动跳出无需写 <code>break</code>（确需向下穿透才显式写 <code>fallthrough</code>）；<br>• 无 <code>try / catch / finally</code>：错误作为普通返回值显式返回。</td>
+            </tr>
+            <tr>
+              <td><strong>4. 并发与延迟（3 个）</strong></td>
+              <td><code>go</code>、<code>select</code>、<code>defer</code></td>
+              <td>• <code>go</code> 启动轻量级协程；<code>select</code> 多路监听通道；<code>defer</code> 在当前函数退出前逆序清理资源。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="plop-callout tip" style="margin:0;">
+        <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> 三类预声明标识符（Predeclared Identifiers / <code>builtin</code> 包）：</strong><br>
+        平时常用的 <code>int</code>、<code>true</code>、<code>nil</code>、<code>make</code>、<code>len</code> 等并不属于保留关键字，而是语言内置预声明的标识符：<br>
+        1. <strong>内置类型与泛型约束（22 个）</strong>：<code>bool</code>、<code>byte</code>（<code>uint8</code> 别名）、<code>rune</code>（<code>int32</code> 别名）、<code>int / int8 / int16 / int32 / int64</code>、<code>uint / uint8 / uint16 / uint32 / uint64 / uintptr</code>、<code>float32 / float64</code>、<code>complex64 / complex128</code>、<code>string</code>、<code>error</code>、<code>any</code>（Go 1.18+ 空接口别名）、<code>comparable</code>（Go 1.18+ 可判等约束）；<br>
+        2. <strong>内置常量与零值（4 个）</strong>：<code>true</code>、<code>false</code>、<code>iota</code>（常量块行计数器）、<code>nil</code>（指针/切片/字典/通道/函数/接口的空值）；<br>
+        3. <strong>内置函数（18 个）</strong>：<code>make</code>、<code>new</code>、<code>len</code>、<code>cap</code>、<code>append</code>、<code>copy</code>、<code>delete</code>、<code>close</code>、<code>clear</code>（Go 1.21+ 清空 map 或将 slice 置零值）、<code>min</code> / <code>max</code>（Go 1.21+）、<code>complex</code> / <code>real</code> / <code>imag</code>、<code>print</code> / <code>println</code>、<code>panic</code>、<code>recover</code>。
+      </div>
+    </div>
+  </details>
+</div>

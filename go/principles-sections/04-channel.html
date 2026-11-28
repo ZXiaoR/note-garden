@@ -10,8 +10,12 @@
 <!-- 04.1 · Channel 基本用法、hchan 底层结构与 sendDirect 跨栈直拷 -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape"></div>
-  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 04.1 · 通道通信机制：无缓冲 / 有缓冲 Channel、<code>runtime.hchan</code> 结构与跨栈直接拷贝</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.1 Channel 收发示例、<code>runtime.hchan</code> 结构与 <code>sendDirect</code> 跨栈直接拷贝</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flow"></use></svg> 04.1 · 通道通信机制：<code>runtime.hchan</code> 环形缓冲队列、<code>sudog</code> 等待链与跨栈直接拷贝</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 04.1 <code>runtime.hchan</code> 内存结构与 <code>sendDirect</code> 跨栈直接拷贝 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#channel-usage">实战篇 06.2</a> 与 <a href="index.html#leak-and-race">06.5</a> —— 向没人读的无缓冲通道写数据时，那个泄漏的子协程到底被挂在了哪个队列里？为什么直接交接能省一次内存拷贝？
+  </p>
 
   <!-- Step 1: 场景说明 -->
   <p>
@@ -140,8 +144,12 @@ fmt.<span class="c-fn">Println</span>(&lt;-ch2, &lt;-ch2) <span class="c-cm">// 
 <!-- 04.2 · 收发关状态真值表与优雅关闭原则 -->
 <div class="wb-card" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape mint"></div>
-  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 04.2 · 通道状态管理：<code>close(ch)</code> 遍历、三种状态下的操作表现与关闭规范</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 04.2 <code>close(ch)</code> 遍历示例、三种状态的收/发/关表现表与关闭规范</h3>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-chart"></use></svg> 04.2 · 通道状态管理：<code>nil / 正常 / 已关闭</code> 三种状态真值表与关闭规范</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 04.2 三种通道状态的收/发/关表现真值表与关闭规范 <span class="plop-tag tomato" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flame"></use></svg> 常问</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#channel-usage">实战篇 06.2</a> 与 <a href="index.html#concurrency-patterns">06.4</a> —— 为什么工程规范要求“只由发送方调用 <code>close(ch)</code>”？向 <code>nil</code> 通道或已关闭通道读写分别会阻塞还是直接崩溃？
+  </p>
 
   <!-- Step 1 & 2: 场景与最小代码 -->
   <div class="wb-grid-2" style="margin-bottom:12px;">
@@ -211,8 +219,12 @@ fmt.<span class="c-fn">Println</span>(v, ok) <span class="c-cm">// 输出: 0 fal
 <!-- 04.3 · select 多路复用底层实现 -->
 <div class="wb-card" id="select" style="background:var(--plop-paper); margin-bottom:20px;">
   <div class="washi-tape periwinkle"></div>
-  <div class="chapter-q-pill" id="chan-trap"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-dice"></use></svg> 04.3 · 多路通道复用：<code>select</code> 超时控制、<code>pollorder</code> 随机轮询与 <code>lockorder</code> 加锁顺序</div>
-  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 04.3 <code>select</code> 多路监听：超时控制、<code>pollorder</code> 随机洗牌与 <code>lockorder</code> 加锁顺序</h3>
+  <div class="chapter-q-pill" id="chan-trap"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-dice"></use></svg> 04.3 · 多路通道复用：<code>selectgo</code> 源码、<code>pollorder</code> 随机洗牌与 <code>lockorder</code> 地址序加锁</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 04.3 <code>select</code> 多路监听：<code>pollorder</code> 随机洗牌与 <code>lockorder</code> 加锁顺序 <span class="plop-tag periwinkle" style="vertical-align:middle; margin-left:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> 深挖</span></h3>
+
+  <p style="font-size:13.3px; color:var(--plop-ink-soft); margin:0 0 10px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> <strong>这节回答实战篇哪个问题：</strong>对应 <a href="index.html#channel-usage">实战篇 06.2</a> 与 <a href="index.html#sc-sse">07.5</a> —— 当 <code>select</code> 的多个分支同时可读可写时为什么不会饿死后面的分支？多个协程同时 <code>select</code> 同一批通道为什么不会交叉死锁？
+  </p>
 
   <!-- Step 1: 场景说明 -->
   <p>

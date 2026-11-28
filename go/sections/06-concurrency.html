@@ -1,0 +1,499 @@
+<!-- ====================================================================
+     PART 06: 并发实战 · goroutine、channel、锁、Context、并发模式与防泄漏
+     ==================================================================== -->
+<div class="wb-sec-header periwinkle" id="concurrency">
+  <span class="wb-sec-num">06</span>
+  <span class="wb-sec-title">并发实战：协程、通道、锁、三大并发模式与泄漏排查</span>
+  <span class="plop-tag tomato">GOROUTINE &amp; CHANNEL · WORKER POOL &amp; ERRGROUP · LEAK &amp; RACE</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>熟练组合 <code>go</code>、<code>channel</code>、<code>Mutex</code> 与 <code>Context</code>，直接套用「Worker Pool 限制并发数」「<code>errgroup</code> 并发请求收集首个错误」「带超时的扇出扇入」三大实战模式，并预防协程泄漏与数据竞争。
+</div>
+
+<!-- 06.1 · 启动协程 go 与等待任务完成 sync.WaitGroup -->
+<div class="wb-card" id="goroutine-wg" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill" id="mutex"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 06.1 · 并发起步：用 <code>go</code> 启动轻量级协程，配合 <code>sync.WaitGroup</code> 等待全部完成</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> 06.1 启动协程（<code>go</code>）与等待完成（<code>sync.WaitGroup</code>）</h3>
+
+  <p>
+    在 Go 中发起并发任务只需在函数调用前加 <strong><code>go</code></strong> 关键字。需要注意：一旦主函数 <code>main()</code> 返回，整个进程会立即退出而不会自动等后台协程跑完。最基础的等待工具是标准库的 <strong><code>sync.WaitGroup</code></strong>（类似无返回值的 <code>Promise.all</code>）：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong><code>wg.Add(1)</code></strong>：必须在<strong>启动 <code>go</code> 之前</strong>在外部调用（若写进子协程内部，可能子协程还没来得及跑 <code>Add</code>，主协程的 <code>Wait()</code> 就已经看计数为 0 直接退出了）；</li>
+    <li><strong><code>defer wg.Done()</code></strong>：写在子协程第一行，退出时自动把计数减 1；传递 <code>wg</code> 给独立函数时<strong>必须传指针 <code>*sync.WaitGroup</code></strong>。</li>
+  </ul>
+
+  <div class="plop-code-box">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> goroutine_waitgroup.go · 并发执行任务并等待全部完成 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-wg', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-go-wg"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"sync"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">fetchItem</span>(id <span class="c-fn">int</span>, wg *sync.WaitGroup) {
+    <span class="c-kw">defer</span> wg.<span class="c-fn">Done</span>()
+    fmt.<span class="c-fn">Printf</span>(<span class="c-str">"任务 #%d 完成\n"</span>, id)
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-kw">var</span> wg sync.WaitGroup
+    <span class="c-kw">for</span> i := 1; i &lt;= 3; i++ {
+        wg.<span class="c-fn">Add</span>(1)              <span class="c-cm">// 1. 先在协程外 +1（Go 1.22+ 循环变量 i 每轮独立，闭包直接捕获也安全）</span>
+        <span class="c-kw">go</span> <span class="c-fn">fetchItem</span>(i, &amp;wg) <span class="c-cm">// 2. 传 &amp;wg 指针共享同一个计数器</span>
+    }
+    wg.<span class="c-fn">Wait</span>()                  <span class="c-cm">// 3. 阻塞直到计数器归零</span>
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"全部并发任务结束"</span>)
+}</code></pre>
+  </div>
+</div>
+
+<!-- 06.2 · 通道 channel 与 select 多路监听 -->
+<div class="wb-card" id="channel-usage" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 06.2 · 协程间通信：无缓冲/有缓冲 <code>channel</code>、发送方关闭原则与 <code>select</code> 多路监听</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 06.2 通道（<code>channel</code>）与 <code>select</code> 多路监听</h3>
+
+  <p>
+    Go 推崇 <strong>CSP（Communicating Sequential Processes，通信顺序进程）</strong>理念——“通过通信来共享数据”。<code>chan T</code> 就是连接多个协程的并发安全管道：
+  </p>
+  <ul style="margin:0 0 12px; padding-left:20px; font-size:13.6px; line-height:1.7;">
+    <li><strong>无缓冲通道 <code>make(chan T)</code></strong>：容量为 0，发送方 <code>ch &lt;- v</code> 会阻塞直到接收方 <code>&lt;-ch</code> 来取，用于严格握手同步；</li>
+    <li><strong>有缓冲通道 <code>make(chan T, cap)</code></strong>：内部自带容量为 <code>cap</code> 的队列，没满时发送方放完立刻返回，适合任务排队削峰；</li>
+    <li><strong>关闭规则</strong>：永远<strong>由发送方调用 <code>close(ch)</code></strong> 表示“不再发新数据了”（向已关闭的通道继续发送会直接触发 <code>panic</code>）。</li>
+  </ul>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> channel_basic.go · 发送、close 通知结束与 for range 读取 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-chan-basic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-chan-basic"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    jobs := <span class="c-fn">make</span>(<span class="c-kw">chan</span> <span class="c-fn">string</span>, 3)
+
+    <span class="c-kw">go</span> <span class="c-kw">func</span>() {
+        jobs &lt;- <span class="c-str">"订单A"</span>
+        jobs &lt;- <span class="c-str">"订单B"</span>
+        <span class="c-fn">close</span>(jobs) <span class="c-cm">// 发送完毕后由生产者关闭通道</span>
+    }()
+
+    <span class="c-cm">// for range 会持续读取，直到通道被 close 且缓冲读空后自动退出循环</span>
+    <span class="c-kw">for</span> item := <span class="c-kw">range</span> jobs {
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"消费:"</span>, item)
+    }
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> select_mux.go · 用 select 同时监听结果与 Context 取消（类似 Promise.race）[Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-select-timeout', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-select-timeout"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"time"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    ctx, cancel := context.<span class="c-fn">WithTimeout</span>(context.<span class="c-fn">Background</span>(), 200*time.Millisecond)
+    <span class="c-kw">defer</span> <span class="c-fn">cancel</span>()
+
+    resCh := <span class="c-fn">make</span>(<span class="c-kw">chan</span> <span class="c-fn">string</span>, 1) <span class="c-cm">// 容量设 1：即便主协程超时先走，子协程写入也不会阻塞泄漏</span>
+    <span class="c-kw">go</span> <span class="c-kw">func</span>() {
+        time.<span class="c-fn">Sleep</span>(500 * time.Millisecond)
+        resCh &lt;- <span class="c-str">"慢查询结果"</span>
+    }()
+
+    <span class="c-kw">select</span> {
+    <span class="c-kw">case</span> data := &lt;-resCh:
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"拿到结果:"</span>, data)
+    <span class="c-kw">case</span> &lt;-ctx.<span class="c-fn">Done</span>():
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"超时退出:"</span>, ctx.<span class="c-fn">Err</span>()) <span class="c-cm">// context deadline exceeded</span>
+    }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 06.3 · 互斥锁 Mutex、读写锁 RWMutex 与超时控制 Context -->
+<div class="wb-card" id="mutex-context" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 06.3 · 共享状态保护与取消信号：<code>Mutex / RWMutex</code> 选型与 <code>context.Context</code> 规范</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-lock"></use></svg> 06.3 互斥锁（<code>Mutex / RWMutex</code>）与上下文（<code>Context</code>）</h3>
+
+  <p>
+    通道适合做“任务流转与事件通知”，而<strong>保护内存缓存、连接池状态或计数器这类驻留共享数据时，直接加锁更清晰高效</strong>。写多或读写均衡用完全独占的 <code>sync.Mutex</code>；<strong>95% 以上是读、偶尔更新用支持多协程并发读的 <code>sync.RWMutex</code></strong>。而 <code>context.Context</code> 则作为所有 I/O 函数的第 1 个参数（<code>ctx context.Context</code>），负责沿着整条调用链向下游传递<strong>超时截止时间、取消信号与请求链路 ID</strong>：
+  </p>
+
+  <div class="wb-grid-2">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> rwmutex_cache.go · 用读写锁安全封装并发本地字典缓存 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-mutex-map', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-mutex-map"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"sync"</span>
+)
+
+<span class="c-kw">type</span> SafeCache <span class="c-kw">struct</span> {
+    rw   sync.RWMutex      <span class="c-cm">// 锁含内部状态，严禁值传递复制，方法接收者必须用指针 *SafeCache</span>
+    data <span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">string</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">NewSafeCache</span>() *SafeCache {
+    <span class="c-kw">return</span> &amp;SafeCache{data: <span class="c-fn">make</span>(<span class="c-kw">map</span>[<span class="c-fn">string</span>]<span class="c-fn">string</span>)}
+}
+
+<span class="c-kw">func</span> (c *SafeCache) <span class="c-fn">Get</span>(k <span class="c-fn">string</span>) (<span class="c-fn">string</span>, <span class="c-fn">bool</span>) {
+    c.rw.<span class="c-fn">RLock</span>()         <span class="c-cm">// 读锁：千百个协程可同时读取，互不阻塞</span>
+    <span class="c-kw">defer</span> c.rw.<span class="c-fn">RUnlock</span>()
+    v, ok := c.data[k]
+    <span class="c-kw">return</span> v, ok
+}
+
+<span class="c-kw">func</span> (c *SafeCache) <span class="c-fn">Set</span>(k, v <span class="c-fn">string</span>) {
+    c.rw.<span class="c-fn">Lock</span>()          <span class="c-cm">// 写锁：独占写入，自动阻塞新来的读写协程</span>
+    <span class="c-kw">defer</span> c.rw.<span class="c-fn">Unlock</span>()
+    c.data[k] = v
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    c := <span class="c-fn">NewSafeCache</span>()
+    c.<span class="c-fn">Set</span>(<span class="c-str">"env"</span>, <span class="c-str">"prod"</span>)
+    v, ok := c.<span class="c-fn">Get</span>(<span class="c-str">"env"</span>)
+    fmt.<span class="c-fn">Println</span>(v, ok)
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> context_without_cancel.go · 请求级超时与后台异步剥离取消 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-ctx-timeout', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-ctx-timeout"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"time"</span>
+)
+
+<span class="c-kw">type</span> traceKey <span class="c-kw">struct</span>{} <span class="c-cm">// WithValue 的 Key 用私有空结构体，防跨包字符串同名冲突</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    base := context.<span class="c-fn">WithValue</span>(context.<span class="c-fn">Background</span>(), traceKey{}, <span class="c-str">"req-9527"</span>)
+
+    <span class="c-cm">// 1. 为下游调用设 800ms 超时，且无论成功失败都必须 defer cancel() 释放底层定时器</span>
+    reqCtx, cancel := context.<span class="c-fn">WithTimeout</span>(base, 800*time.Millisecond)
+    <span class="c-kw">defer</span> <span class="c-fn">cancel</span>()
+
+    <span class="c-cm">// 2. 若要在接口返回后异步写审计日志：不能直接传 reqCtx（接口一返回 reqCtx 就会被取消）</span>
+    <span class="c-cm">// Go 1.21+ 用 context.WithoutCancel 既保留 TraceID，又剥离父级取消信号：</span>
+    bgCtx := context.<span class="c-fn">WithoutCancel</span>(reqCtx)
+    <span class="c-fn">cancel</span>() <span class="c-cm">// 模拟主请求已结束取消</span>
+
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"reqCtx已取消:"</span>, reqCtx.<span class="c-fn">Err</span>() != <span class="c-kw">nil</span>, <span class="c-str">"bgCtx仍存活且带ID:"</span>, bgCtx.<span class="c-fn">Value</span>(traceKey{}))
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 06.4 · 三大高频并发实战模式：Worker Pool、errgroup 与带超时扇出扇入 -->
+<div class="wb-card" id="concurrency-patterns" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mustard"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 06.4 · 三大生产并发模式：Worker Pool 限流池、<code>errgroup</code> 并发收集错误与带超时扇出扇入</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 06.4 常用并发模式：Worker Pool、<code>errgroup</code> 与扇出扇入</h3>
+
+  <p>
+    真实业务里绝不能收到 10000 条数据就无脑 <code>for</code> 循环起 10000 个协程（虽然 Go 撑得住，但下游 MySQL 连接池或第三方接口会被瞬间打挂）。日常开发 90% 的并发编排都落在这三种固定模式里：
+  </p>
+
+  <!-- Editorial SVG: Fan-out Worker Pool -> Fan-in Result Collector -->
+  <figure style="margin:14px 0;">
+    <div style="max-width:100%; overflow-x:auto; padding-bottom:4px;">
+      <svg viewBox="0 0 840 220" style="width:100%; min-width:840px; height:auto; display:block; background:#FFFDF7; border:2.4px solid var(--plop-ink); border-radius:14px;" role="img" aria-labelledby="go-wp-title go-wp-desc">
+        <title id="go-wp-title">带 Context 取消保护的 Worker Pool 扇出与扇入并发流水线</title>
+        <desc id="go-wp-desc">生产者将大批量任务投入有界通道 jobs，固定 N 个工作协程并行拉取执行（扇出限流），完成后将结果汇总写入 results 通道（扇入），全程受 Context 超时信号统一控制退出。</desc>
+        <defs>
+          <marker id="go-wp-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="go-wp-arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#bf4520"/>
+          </marker>
+          <marker id="go-wp-arr-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Zone: Fixed Worker Pool -->
+        <rect x="336" y="16" width="208" height="188" rx="8" fill="rgba(191,69,32,0.04)" stroke="rgba(191,69,32,0.35)" stroke-width="1"/>
+        <rect x="364" y="20" width="152" height="16" rx="2" fill="#FFFDF7"/>
+        <text x="440" y="32" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#bf4520">固定 N 个协程池（扇出限流）</text>
+
+        <!-- Connectors (drawn BEFORE boxes, strictly orthogonal r=8, fanned ports >=16px apart) -->
+        <!-- Producer (152,116) -> jobs chan (196,116) -->
+        <line x1="152" y1="116" x2="196" y2="116" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#go-wp-arr)"/>
+
+        <!-- jobs chan right edge x=304: 3 fanned ports y=100, y=116, y=132 -> Workers at y=64, 116, 168 -->
+        <path d="M 304,100 H 320 Q 328,100 328,92 V 72 Q 328,64 336,64 H 360" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#go-wp-arr-accent)"/>
+        <line x1="304" y1="116" x2="360" y2="116" stroke="#bf4520" stroke-width="1.5" marker-end="url(#go-wp-arr-accent)"/>
+        <path d="M 304,132 H 320 Q 328,132 328,140 V 160 Q 328,168 336,168 H 360" fill="none" stroke="#bf4520" stroke-width="1.5" marker-end="url(#go-wp-arr-accent)"/>
+
+        <!-- Workers right edge x=520 -> results chan left edge x=576 (fanned ports y=100, 116, 132) -->
+        <path d="M 520,64 H 544 Q 552,64 552,72 V 92 Q 552,100 560,100 H 576" fill="none" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#go-wp-arr-link)"/>
+        <line x1="520" y1="116" x2="576" y2="116" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#go-wp-arr-link)"/>
+        <path d="M 520,168 H 544 Q 552,168 552,160 V 140 Q 552,132 560,132 H 576" fill="none" stroke="#2e5aa8" stroke-width="1.4" marker-end="url(#go-wp-arr-link)"/>
+
+        <!-- results chan (684,116) -> Collector (716,116) -->
+        <line x1="684" y1="116" x2="716" y2="116" stroke="#4f5d75" stroke-width="1.4" marker-end="url(#go-wp-arr)"/>
+
+        <!-- Node 1: Producer -->
+        <rect x="24" y="84" width="128" height="64" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.3"/>
+        <text x="88" y="112" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">批量输入任务</text>
+        <text x="88" y="132" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#4f5d75">100 URLs + ctx</text>
+
+        <!-- Node 2: jobs chan -->
+        <rect x="196" y="84" width="108" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1.2"/>
+        <text x="250" y="112" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#2d3142">任务队列</text>
+        <text x="250" y="132" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#4f5d75">chan Job</text>
+
+        <!-- Nodes 3a/3b/3c: Workers (Focal) -->
+        <rect x="360" y="44" width="160" height="40" rx="6" fill="#FFFDF7"/>
+        <rect x="360" y="44" width="160" height="40" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="440" y="69" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10.5" font-weight="600" fill="#bf4520">Worker #1 (goroutine)</text>
+
+        <rect x="360" y="96" width="160" height="40" rx="6" fill="#FFFDF7"/>
+        <rect x="360" y="96" width="160" height="40" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.6"/>
+        <text x="440" y="121" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10.5" font-weight="600" fill="#bf4520">Worker #2 ... #N</text>
+
+        <rect x="360" y="148" width="160" height="40" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.2"/>
+        <text x="440" y="173" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="10.5" fill="#4f5d75">监听 &lt;-ctx.Done()</text>
+
+        <!-- Node 4: results chan -->
+        <rect x="576" y="84" width="108" height="64" rx="6" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1.2"/>
+        <text x="630" y="112" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#2e5aa8">扇入汇总</text>
+        <text x="630" y="132" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#2e5aa8">chan Result</text>
+
+        <!-- Node 5: Collector -->
+        <rect x="716" y="84" width="100" height="64" rx="6" fill="#FFFFFF" stroke="#2d3142" stroke-width="1.3"/>
+        <text x="766" y="112" text-anchor="middle" font-family="'Space Grotesk','Noto Sans SC','PingFang SC',sans-serif" font-size="12.5" font-weight="700" fill="#2d3142">聚合返回</text>
+        <text x="766" y="132" text-anchor="middle" font-family="'Geist Mono',ui-monospace,monospace" font-size="9" fill="#4f5d75">wg.Wait()+close</text>
+      </svg>
+    </div>
+  </figure>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> worker_pool_fanout.go · 模式 1 &amp; 3：带超时的 Worker Pool 扇出扇入 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-worker-pool', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-worker-pool"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"sync"</span>
+    <span class="c-str">"time"</span>
+)
+
+<span class="c-cm">// 把 20 个任务交给固定 4 个 Worker 并发执行，整体限制 1 秒超时（标准库零依赖）</span>
+<span class="c-kw">func</span> <span class="c-fn">RunWorkerPool</span>(ctx context.Context, tasks []<span class="c-fn">int</span>, workers <span class="c-fn">int</span>) []<span class="c-fn">int</span> {
+    jobs := <span class="c-fn">make</span>(<span class="c-kw">chan</span> <span class="c-fn">int</span>)
+    results := <span class="c-fn">make</span>(<span class="c-kw">chan</span> <span class="c-fn">int</span>, <span class="c-fn">len</span>(tasks))
+
+    <span class="c-cm">// 1. 扇出（Fan-out）：启动固定数量 Worker 抢任务</span>
+    <span class="c-kw">var</span> wg sync.WaitGroup
+    <span class="c-kw">for</span> <span class="c-kw">range</span> workers {
+        wg.<span class="c-fn">Add</span>(1)
+        <span class="c-kw">go</span> <span class="c-kw">func</span>() {
+            <span class="c-kw">defer</span> wg.<span class="c-fn">Done</span>()
+            <span class="c-kw">for</span> n := <span class="c-kw">range</span> jobs {
+                <span class="c-kw">select</span> {
+                <span class="c-kw">case</span> &lt;-ctx.<span class="c-fn">Done</span>():
+                    <span class="c-kw">return</span> <span class="c-cm">// 超时立刻停工退出，防协程泄漏</span>
+                <span class="c-kw">case</span> results &lt;- n * 10:
+                }
+            }
+        }()
+    }
+
+    <span class="c-cm">// 2. 投递任务（同样监听 ctx.Done 防止超时后死等塞入 jobs）</span>
+    <span class="c-kw">go</span> <span class="c-kw">func</span>() {
+        <span class="c-kw">defer</span> <span class="c-fn">close</span>(jobs)
+        <span class="c-kw">for</span> _, t := <span class="c-kw">range</span> tasks {
+            <span class="c-kw">select</span> {
+            <span class="c-kw">case</span> &lt;-ctx.<span class="c-fn">Done</span>():
+                <span class="c-kw">return</span>
+            <span class="c-kw">case</span> jobs &lt;- t:
+            }
+        }
+    }()
+
+    <span class="c-cm">// 3. 扇入（Fan-in）：等所有 Worker 结束后关闭 results，收集结果</span>
+    <span class="c-kw">go</span> <span class="c-kw">func</span>() {
+        wg.<span class="c-fn">Wait</span>()
+        <span class="c-fn">close</span>(results)
+    }()
+
+    out := <span class="c-fn">make</span>([]<span class="c-fn">int</span>, 0, <span class="c-fn">len</span>(tasks))
+    <span class="c-kw">for</span> r := <span class="c-kw">range</span> results {
+        out = <span class="c-fn">append</span>(out, r)
+    }
+    <span class="c-kw">return</span> out
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    ctx, cancel := context.<span class="c-fn">WithTimeout</span>(context.<span class="c-fn">Background</span>(), time.Second)
+    <span class="c-kw">defer</span> <span class="c-fn">cancel</span>()
+    res := <span class="c-fn">RunWorkerPool</span>(ctx, []<span class="c-fn">int</span>{1, 2, 3, 4, 5}, 2)
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"汇总条数:"</span>, <span class="c-fn">len</span>(res)) <span class="c-cm">// 5</span>
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> errgroup_demo.go · 模式 2：errgroup 限制并发并收集首个错误 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-errgroup', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-errgroup"><code><span class="c-cm">// 安装官方扩展包: go get golang.org/x/sync/errgroup</span>
+<span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"fmt"</span>
+
+    <span class="c-str">"golang.org/x/sync/errgroup"</span>
+)
+
+<span class="c-cm">// 业务最常用：并发调多个微服务组装详情页，任一报错立刻取消其余请求（类似 Promise.all）</span>
+<span class="c-kw">func</span> <span class="c-fn">FetchAll</span>(parentCtx context.Context, ids []<span class="c-fn">int</span>) ([]<span class="c-fn">string</span>, <span class="c-fn">error</span>) {
+    <span class="c-cm">// 注意起名为 egCtx，不要覆盖入参 parentCtx！</span>
+    g, egCtx := errgroup.<span class="c-fn">WithContext</span>(parentCtx)
+    g.<span class="c-fn">SetLimit</span>(10) <span class="c-cm">// ★ 限制最多同时运行 10 个协程</span>
+
+    results := <span class="c-fn">make</span>([]<span class="c-fn">string</span>, <span class="c-fn">len</span>(ids)) <span class="c-cm">// 预分配固定长度，各协程按独立下标写入无需加锁！</span>
+    <span class="c-kw">for</span> i, id := <span class="c-kw">range</span> ids {
+        g.<span class="c-fn">Go</span>(<span class="c-kw">func</span>() <span class="c-fn">error</span> {
+            <span class="c-kw">if</span> egCtx.<span class="c-fn">Err</span>() != <span class="c-kw">nil</span> {
+                <span class="c-kw">return</span> egCtx.<span class="c-fn">Err</span>()
+            }
+            results[i] = fmt.<span class="c-fn">Sprintf</span>(<span class="c-str">"item_%d"</span>, id)
+            <span class="c-kw">return</span> <span class="c-kw">nil</span> <span class="c-cm">// 若返回非 nil error，errgroup 会自动 cancel(egCtx)</span>
+        })
+    }
+
+    <span class="c-cm">// Wait 阻塞等全部结束，返回第一个出现的非 nil 错误</span>
+    <span class="c-kw">if</span> err := g.<span class="c-fn">Wait</span>(); err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> <span class="c-kw">nil</span>, err
+    }
+    <span class="c-cm">// ⚠️ 坑点提醒：g.Wait() 返回后 egCtx 也会自动变成已取消状态！</span>
+    <span class="c-cm">// 后续如果还要查数据库，必须继续传外层的 parentCtx，绝不能传 egCtx！</span>
+    <span class="c-kw">return</span> results, <span class="c-kw">nil</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    res, err := <span class="c-fn">FetchAll</span>(context.<span class="c-fn">Background</span>(), []<span class="c-fn">int</span>{101, 102, 103})
+    fmt.<span class="c-fn">Println</span>(res, err)
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 06.5 · 常见并发坑：goroutine 泄漏、数据竞争与 go test -race -->
+<div class="wb-card" id="leak-and-race" style="background:var(--plop-paper);">
+  <div class="washi-tape tomato"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 06.5 · 两大并发故障：Goroutine 泄漏（没人读的通道 / 漏调 cancel）与数据竞争（<code>-race</code>）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 06.5 常见误区：Goroutine 泄漏与数据竞争排查</h3>
+
+  <p>
+    垃圾回收器（GC）<strong>只会回收没人引用的内存对象，绝不会自动杀掉卡在半路阻塞的协程</strong>。只要一个协程卡死不退出，它占用的栈内存（至少 <code>2KB</code>）和手里引用的大对象就会一直留在进程里直到内存耗尽（OOM，Out Of Memory，内存溢出）：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div style="background:#FFFDF7; border:2.2px solid var(--plop-ink); border-radius:12px; padding:14px 16px; font-size:13.2px; line-height:1.68;">
+      <div style="font-weight:900; font-size:14px; color:var(--plop-tomato); margin-bottom:6px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-warn"></use></svg> 1. Goroutine 泄漏的三个最高发现场</div>
+      <ul style="margin:0; padding-left:18px;">
+        <li><strong>向没人读的无缓冲通道发送</strong>：主函数里写了 <code>ch := make(chan int)</code>（容量 0），起子协程算完写 <code>ch &lt;- res</code>，但主函数因超时提前 <code>return</code> 走了，子协程永远卡在发送那行。<strong>解法</strong>：单结果通道一律写成 <code>make(chan int, 1)</code>，或发送处加 <code>select { case ch &lt;- res: case &lt;-ctx.Done(): }</code>。</li>
+        <li><strong>从永远没人写/没人关的通道读取</strong>：生产者遇到错误提前退出却忘了 <code>defer close(jobs)</code>，导致下游所有 Worker 永远卡死在 <code>for range jobs</code>。</li>
+        <li><strong>忘了调 <code>defer cancel()</code> 或 HTTP 请求不设超时</strong>：<code>context.WithTimeout / WithCancel</code> 创建后漏掉 <code>defer cancel()</code>，或调用下游接口没绑超时导致协程永久挂死在网络读上。</li>
+      </ul>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-flask"></use></svg> race_atomic.go · 2. 数据竞争复现、atomic 原子修复与 -race 检测 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-race-atomic', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-race-atomic"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"sync"</span>
+    <span class="c-str">"sync/atomic"</span>
+)
+
+<span class="c-cm">// ❌ 若直接对普通 int 执行并发 count++（读-改-写非原子指令），结果必小于 1000！</span>
+<span class="c-cm">//    本地测试执行: go run -race main.go 或 go test -race ./...</span>
+<span class="c-cm">//    运行时会直接抓出 WARNING: DATA RACE 并打印读写双方的精确行号！</span>
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    <span class="c-cm">// ✅ 纯数值计数器：用 Go 1.19+ 泛型原子类型 atomic.Int64（比加 Mutex 锁更轻量）</span>
+    <span class="c-kw">var</span> counter atomic.Int64
+    <span class="c-kw">var</span> wg sync.WaitGroup
+
+    <span class="c-kw">for</span> <span class="c-kw">range</span> 1000 {
+        wg.<span class="c-fn">Add</span>(1)
+        <span class="c-kw">go</span> <span class="c-kw">func</span>() {
+            <span class="c-kw">defer</span> wg.<span class="c-fn">Done</span>()
+            counter.<span class="c-fn">Add</span>(1)
+        }()
+    }
+    wg.<span class="c-fn">Wait</span>()
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"精确计数:"</span>, counter.<span class="c-fn">Load</span>()) <span class="c-cm">// 稳定输出: 1000</span>
+}</code></pre>
+    </div>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0 0 16px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>背后的原理：</strong>几万个协程阻塞在通道和网络上时为什么不会耗尽操作系统线程？<code>select</code> 如何防止饥饿与交叉加锁死锁？<code>Context</code> 取消树如何级联传播？详见 <a href="principles.html#gmp">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 03 GMP 调度器》</a>、<a href="principles.html#channel">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 04 Channel 环形队列 hchan》</a> 与 <a href="principles.html#context">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 06.1 Context 取消树底层》</a>。
+  </p>
+
+  <h4 id="quiz-06" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 在老项目（<code>go.mod</code> 版本为 Go 1.20）里看到 <code>for _, u := range users { go func() { send(u) }() }</code>，为什么发出去的全是列表里最后一个用户？</span></summary>
+    <div class="drawer-body">
+      <p>在 <strong>Go 1.21 及更早版本</strong>中，<code>for range</code> 的循环变量 <code>u</code> 在整个循环期间复用同一个内存地址，当异步协程真正被调度执行时，循环早已跑完，所有闭包读到的都是最后一轮的值。<strong>Go 1.22 起</strong>语言规范已正式改为每轮迭代创建新变量；若维护旧版项目，需把变量作为参数传进匿名函数 <code>go func(user User) { send(user) }(u)</code>。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 用 <code>errgroup</code> 并发查完用户信息和优惠券列表后，紧接着用 <code>g, ctx := errgroup.WithContext(r.Context())</code> 拿到的那个 <code>ctx</code> 去写一条日志进 MySQL，为什么必报错？</span></summary>
+    <div class="drawer-body">
+      <p>因为 <code>errgroup.WithContext</code> 派生出的子 <code>ctx</code> 不仅在出错时取消，<strong>在 <code>g.Wait()</code> 全部正常完成后也会立刻自动调用 <code>cancel()</code> 释放内部资源</strong>。因此 <code>g.Wait()</code> 之后的任何后续数据库或 Redis 操作，都必须继续使用外层入参 <code>r.Context()</code>，切忌用 <code>ctx</code> 同名遮蔽掉父级上下文。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. <code>go test -race</code> 这么好用，能不能编译线上正式二进制时也加上 <code>go build -race</code> 一直开着？</span></summary>
+    <div class="drawer-body">
+      <p><strong>不建议在全量高压生产节点常驻开启。</strong>竞态检测器基于 ThreadSanitizer 插桩，开启后会使进程内存占用膨胀 <code>5 ~ 10 倍</code>、CPU 执行变慢 <code>2 ~ 20 倍</code>。标准工程实践是在<strong>本地单测、CI 流水线（<code>go test -race ./...</code>）以及预发环境或单台灰度实例</strong>上开启，把数据竞争拦在上线前。</p>
+    </div>
+  </details>
+</div>

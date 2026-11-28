@@ -1,0 +1,675 @@
+<!-- ====================================================================
+     PART 07: 常见业务场景实战 · MySQL / Redis / 中间件 / HTTPClient / SSE / MQ / CLI / 框架选型
+     ==================================================================== -->
+<div class="wb-sec-header mustard" id="scenarios">
+  <span class="wb-sec-num">07</span>
+  <span class="wb-sec-title">常见业务场景实战：按后端真实需求落地的八套方案</span>
+  <span class="plop-tag tomato">MYSQL &amp; REDIS · JWT MIDDLEWARE · HTTP CLIENT · SSE · MQ · CLI</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>拿到一个后端业务需求时，直接写出生产可用的 MySQL 连接池与事务、Redis 缓存读写、JWT 鉴权与超时中间件、带重试的第三方 HTTP 调用、AI 流式 SSE 推送、消息队列消费协程以及命令行工具，并清楚什么时候直接用标准库、什么时候上 <code>Gin / GORM</code>。
+</div>
+
+<!-- 07.1 · 连 MySQL：database/sql 连接池、参数化查询、事务与 sqlx/GORM 取舍 -->
+<div class="wb-card" id="sc-mysql" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 07.1 · 数据库接入：<code>database/sql</code> 连接池四参数、参数化防注入、标准事务与 ORM 取舍</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> 07.1 连 MySQL：连接池、参数化查询、事务与 <code>sqlx / GORM</code> 取舍</h3>
+
+  <p>
+    <strong>① 需求：</strong>安全连接 MySQL 执行条件查询，并在扣减库存生成订单时保证原子事务提交或回滚（SQL 索引、隔离级别与防超卖锁机制详见 <a href="../mysql/index.html">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-db"></use></svg> MySQL · 基础与实战篇》</a>）。<br>
+    <strong>② 方案：</strong>Go 标准库 <code>database/sql</code> 自带协程安全的连接池管理，配合官方推荐驱动 <code>github.com/go-sql-driver/mysql</code>（通过 <code>_</code> 匿名导入触发驱动 <code>init()</code> 注册）。连接串 <strong>DSN（Data Source Name，数据源连接串）</strong>必加 <code>parseTime=true&amp;loc=Asia%2FShanghai&amp;charset=utf8mb4</code>，并显式配置连接池上限与生命周期：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:12px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> mysql_tx_demo.go · ③ 代码：连接池调优、参数化查询与防漏回滚事务模板 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-mysql', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-mysql"><code><span class="c-cm">// go get github.com/go-sql-driver/mysql</span>
+<span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"database/sql"</span>
+    <span class="c-str">"errors"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"time"</span>
+
+    _ <span class="c-str">"github.com/go-sql-driver/mysql"</span> <span class="c-cm">// 匿名导入：仅执行驱动包 init() 注册 "mysql" 驱动</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">InitMySQL</span>(dsn <span class="c-fn">string</span>) (*sql.DB, <span class="c-fn">error</span>) {
+    <span class="c-cm">// dsn 示例: "app:Pass@tcp(127.0.0.1:3306)/shop?charset=utf8mb4&amp;parseTime=true&amp;loc=Asia%2FShanghai"</span>
+    db, err := sql.<span class="c-fn">Open</span>(<span class="c-str">"mysql"</span>, dsn) <span class="c-cm">// 注意：sql.Open 只校验格式，并未真正建立网络连接！</span>
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> <span class="c-kw">nil</span>, err
+    }
+    <span class="c-cm">// 连接池四大核心参数（全局复用同一个 *sql.DB 单例，切勿每次请求重新 Open）</span>
+    db.<span class="c-fn">SetMaxOpenConns</span>(50)                 <span class="c-cm">// 最大并发打开连接数（默认 0 不限制，高并发会把 MySQL 连爆）</span>
+    db.<span class="c-fn">SetMaxIdleConns</span>(25)                 <span class="c-cm">// 最大空闲保活连接数（默认仅 2，设太小会导致频繁建连断连）</span>
+    db.<span class="c-fn">SetConnMaxLifetime</span>(5 * time.Minute) <span class="c-cm">// 单连接最大存活时长（须小于 MySQL wait_timeout，防半开死连接）</span>
+    db.<span class="c-fn">SetConnMaxIdleTime</span>(2 * time.Minute) <span class="c-cm">// 空闲连接多久未使用则回收</span>
+
+    ctx, cancel := context.<span class="c-fn">WithTimeout</span>(context.<span class="c-fn">Background</span>(), 3*time.Second)
+    <span class="c-kw">defer</span> <span class="c-fn">cancel</span>()
+    <span class="c-kw">return</span> db, db.<span class="c-fn">PingContext</span>(ctx) <span class="c-cm">// PingContext 真正拨号验证账号网络连通性</span>
+}
+
+<span class="c-cm">// 1. 参数化单行查询：一律用 ? 占位符防 SQL 注入，注意识别 sql.ErrNoRows</span>
+<span class="c-kw">func</span> <span class="c-fn">GetUserBalance</span>(ctx context.Context, db *sql.DB, uid <span class="c-fn">int64</span>) (<span class="c-fn">int64</span>, <span class="c-fn">error</span>) {
+    <span class="c-kw">var</span> cents <span class="c-fn">int64</span>
+    err := db.<span class="c-fn">QueryRowContext</span>(ctx, <span class="c-str">"SELECT balance_cents FROM users WHERE id = ?"</span>, uid).<span class="c-fn">Scan</span>(&amp;cents)
+    <span class="c-kw">if</span> errors.<span class="c-fn">Is</span>(err, sql.ErrNoRows) {
+        <span class="c-kw">return</span> 0, fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"用户 %d 不存在"</span>, uid)
+    }
+    <span class="c-kw">return</span> cents, err
+}
+
+<span class="c-cm">// 2. 标准事务模板：开启事务后下一行立刻 defer tx.Rollback()（若后面成功 Commit 了，Rollback 会安全空转）</span>
+<span class="c-kw">func</span> <span class="c-fn">CreateOrderTx</span>(ctx context.Context, db *sql.DB, skuID <span class="c-fn">int64</span>, qty <span class="c-fn">int</span>) <span class="c-fn">error</span> {
+    tx, err := db.<span class="c-fn">BeginTx</span>(ctx, <span class="c-kw">nil</span>)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">defer</span> tx.<span class="c-fn">Rollback</span>() <span class="c-cm">// ★ 任何中间分支 return err 或 panic，都会自动归还连接并回滚事务！</span>
+
+    res, err := tx.<span class="c-fn">ExecContext</span>(ctx,
+        <span class="c-str">"UPDATE products SET stock = stock - ? WHERE id = ? AND stock &gt;= ?"</span>, qty, skuID, qty)
+    <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">if</span> affected, _ := res.<span class="c-fn">RowsAffected</span>(); affected == 0 {
+        <span class="c-kw">return</span> errors.<span class="c-fn">New</span>(<span class="c-str">"库存不足"</span>)
+    }
+    <span class="c-kw">if</span> _, err := tx.<span class="c-fn">ExecContext</span>(ctx,
+        <span class="c-str">"INSERT INTO orders(sku_id, qty) VALUES(?, ?)"</span>, skuID, qty); err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+    <span class="c-kw">return</span> tx.<span class="c-fn">Commit</span>()
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {}</code></pre>
+  </div>
+
+  <div class="table-wrap" style="margin-bottom:10px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:20%">数据访问方案</th>
+          <th style="width:42%">核心特点</th>
+          <th>实际项目怎么选</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>标准库 <code>database/sql</code></strong></td>
+          <td>零第三方依赖、性能最高，但多列查询需按顺序手写 <code>rows.Scan(&amp;a, &amp;b, ...)</code>，字段多时较繁琐。</td>
+          <td>查询极少的小服务、CLI 工具或中间件组件。</td>
+        </tr>
+        <tr>
+          <td><strong><code>jmoiron/sqlx</code></strong><br>（或代码生成 <code>sqlc</code>）</td>
+          <td>直接复用 <code>database/sql</code>，支持手写原生 <strong>SQL（Structured Query Language，结构化查询语言）</strong>并自动按标签 <code>db:"user_name"</code> 映射到结构体切片 <code>db.Select(&amp;list, sql)</code>。</td>
+          <td><strong>对 SQL 可控性与性能要求高</strong>的核心交易、复杂报表与高并发微服务（强烈推荐）。</td>
+        </tr>
+        <tr>
+          <td><strong><code>GORM</code></strong><br>（<strong>ORM，Object-Relational Mapping，对象关系映射</strong>）</td>
+          <td>类似 JS 的 Prisma / TypeORM，链式调用免写常规 CRUD SQL，自带钩子与自动迁移，但重度反射略有开销，复杂联表调试不如原生 SQL 直观。</td>
+          <td><strong>表数量多、以常规增删改查为主</strong>的后台管理系统与快速迭代业务服务（复杂查询仍可用 <code>db.Raw()</code> 写原生 SQL）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <strong>④ 常见坑：</strong>使用 <code>db.QueryContext</code> 查多行时，<strong>一旦 <code>err == nil</code> 必须立刻 <code>defer rows.Close()</code>，否则该条数据库连接会一直被占住不归还连接池，几十次请求就把 <code>MaxOpenConns</code> 耗光卡死全站</strong>；循环读完后还要检查 <code>rows.Err()</code>。数据库允许为 <code>NULL</code> 的列不能直接 <code>Scan</code> 到普通 <code>string</code>（会报错），应改用 <code>sql.NullString</code> 或指针 <code>*string</code>。<br>
+    <strong>⑤ 背后原理：</strong>匿名导入 <code>_ "driver"</code> 的包初始化执行顺序见 <a href="principles.html#pkg">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 01.3 init() 自底向上初始化》</a>；InnoDB 事务锁与连接池原理见 <a href="../mysql/principles.html">《MySQL · 核心原理篇》</a>。
+  </p>
+</div>
+
+<!-- 07.2 · 连 Redis：go-redis 最小示例 -->
+<div class="wb-card" id="sc-redis" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape pink"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-redis"></use></svg> 07.2 · 缓存与协调接入：<code>go-redis/v9</code> 连接池、旁路缓存读写与 <code>redis.Nil</code> 判空</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-redis"></use></svg> 07.2 连 Redis：<code>go-redis</code> 实战读写与避坑</h3>
+
+  <p>
+    <strong>① 需求 &amp; ② 方案：</strong>使用官方维护的 <code>github.com/redis/go-redis/v9</code> 读写热点缓存与防重锁（缓存双写一致性、穿透/击穿/雪崩与九大业务场景详见 <a href="../redis/index.html">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-redis"></use></svg> Redis · 基础与实战篇》</a>）。进程启动时创建全局复用的 <code>*redis.Client</code>，显式设短读写超时（如 <code>300ms</code>）：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:10px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> redis_cache_demo.go · ③ 代码：连接池配置、TTL 写入、redis.Nil 判空与 SetNX 防重 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-redis', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-redis"><code><span class="c-cm">// go get github.com/redis/go-redis/v9</span>
+<span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"errors"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"time"</span>
+
+    <span class="c-str">"github.com/redis/go-redis/v9"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">NewRedisClient</span>(addr, pass <span class="c-fn">string</span>) *redis.Client {
+    <span class="c-kw">return</span> redis.<span class="c-fn">NewClient</span>(&amp;redis.Options{
+        Addr:         addr,
+        Password:     pass,
+        PoolSize:     50,                     <span class="c-cm">// 连接池最大连接数</span>
+        DialTimeout:  1 * time.Second,        <span class="c-cm">// 建连超时</span>
+        ReadTimeout:  300 * time.Millisecond, <span class="c-cm">// ★ 缓存层务必设短超时，防 Redis 抖动拖死主站</span>
+        WriteTimeout: 300 * time.Millisecond,
+    })
+}
+
+<span class="c-kw">func</span> <span class="c-fn">DemoCacheAndIdempotent</span>(ctx context.Context, rdb *redis.Client) <span class="c-fn">error</span> {
+    <span class="c-cm">// 1. 写入缓存并必设 TTL（Time To Live，过期时间），杜绝无过期僵尸大 Key</span>
+    <span class="c-kw">if</span> err := rdb.<span class="c-fn">Set</span>(ctx, <span class="c-str">"user:42:name"</span>, <span class="c-str">"Alice"</span>, 10*time.Minute).<span class="c-fn">Err</span>(); err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> err
+    }
+
+    <span class="c-cm">// 2. 读取缓存：务必用 errors.Is(err, redis.Nil) 区分“缓存未命中(正常回源)”与“网络故障”</span>
+    val, err := rdb.<span class="c-fn">Get</span>(ctx, <span class="c-str">"user:42:name"</span>).<span class="c-fn">Result</span>()
+    <span class="c-kw">if</span> errors.<span class="c-fn">Is</span>(err, redis.Nil) {
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"缓存未命中，回源查 MySQL..."</span>)
+    } <span class="c-kw">else</span> <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+        <span class="c-kw">return</span> fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"redis 网络异常: %w"</span>, err)
+    } <span class="c-kw">else</span> {
+        fmt.<span class="c-fn">Println</span>(<span class="c-str">"命中缓存:"</span>, val)
+    }
+
+    <span class="c-cm">// 3. 接口防连点幂等：SET key 1 NX EX 300（仅当键不存在时写入成功返回 true）</span>
+    firstClick, err := rdb.<span class="c-fn">SetNX</span>(ctx, <span class="c-str">"idem:order:tok_99"</span>, <span class="c-str">"1"</span>, 5*time.Minute).<span class="c-fn">Result</span>()
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"首次有效提交:"</span>, firstClick, err)
+    <span class="c-kw">return</span> <span class="c-kw">nil</span>
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {}</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <strong>④ 常见坑：</strong>把 <code>redis.Nil</code> 当作系统错误直接给前端抛 <code>500</code> 是新手最高发失误；另外热点 Key 过期瞬间可用 <code>singleflight.Group</code> 合并进程内同 Key 并发回源请求。<br>
+    <strong>⑤ 背后原理：</strong><code>singleflight</code> 请求归并与缓存双写竞态时序分别见 <a href="principles.html#concurrency-patterns">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 06.3 singleflight 原理》</a> 与 <a href="../redis/principles.html#cache-problem">《Redis · 原理篇 03》</a>。
+  </p>
+</div>
+
+<!-- 07.3 · 中间件：日志、鉴权（JWT）、panic 恢复、请求超时 -->
+<div class="wb-card" id="sc-middleware" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 07.3 · HTTP 洋葱中间件：<code>panic</code> 恢复、访问日志、请求超时与 JWT 鉴权注入</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 07.3 中间件：日志、鉴权（JWT）、<code>panic</code> 恢复与请求超时</h3>
+
+  <p>
+    <strong>① 需求 &amp; ② 方案：</strong>像 Express / Koa 一样，在不污染业务 Handler 的前提下统一完成异常兜底、耗时统计、超时保护与登录态校验。在 Go 标准库中，中间件就是一个签名为 <strong><code>func(next http.Handler) http.Handler</code></strong> 的包装函数。推荐固定外内包裹顺序为：<strong><code>Recovery（最外层防崩） → AccessLog（记录真实状态码与耗时） → Timeout（控制整体预算） → AuthJWT（验签注入用户 ID） → 业务 Handler</code></strong>：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:10px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> middleware_chain.go · ③ 代码：四大生产核心中间件可直接运行的完整实现 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-mw', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-mw"><code><span class="c-cm">// go get github.com/golang-jwt/jwt/v5</span>
+<span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"log"</span>
+    <span class="c-str">"net/http"</span>
+    <span class="c-str">"runtime/debug"</span>
+    <span class="c-str">"strings"</span>
+    <span class="c-str">"time"</span>
+
+    <span class="c-str">"github.com/golang-jwt/jwt/v5"</span>
+)
+
+<span class="c-kw">type</span> uidCtxKey <span class="c-kw">struct</span>{} <span class="c-cm">// 私有 Context Key，存放鉴权通过后的 userID</span>
+
+<span class="c-cm">// 包装 ResponseWriter 以捕获下游写入的真实 HTTP 状态码供日志打印</span>
+<span class="c-kw">type</span> statusRecorder <span class="c-kw">struct</span> {
+    http.ResponseWriter
+    status <span class="c-fn">int</span>
+}
+
+<span class="c-kw">func</span> (r *statusRecorder) <span class="c-fn">WriteHeader</span>(code <span class="c-fn">int</span>) {
+    r.status = code
+    r.ResponseWriter.<span class="c-fn">WriteHeader</span>(code)
+}
+<span class="c-cm">// 实现 Unwrap() 让 Go 1.20+ 的 http.ResponseController 能穿透包装拿到原生的 Flusher！</span>
+<span class="c-kw">func</span> (r *statusRecorder) <span class="c-fn">Unwrap</span>() http.ResponseWriter { <span class="c-kw">return</span> r.ResponseWriter }
+
+<span class="c-cm">// 1. Panic 恢复中间件（放最外层）</span>
+<span class="c-kw">func</span> <span class="c-fn">RecoverMiddleware</span>(next http.Handler) http.Handler {
+    <span class="c-kw">return</span> http.<span class="c-fn">HandlerFunc</span>(<span class="c-kw">func</span>(w http.ResponseWriter, r *http.Request) {
+        <span class="c-kw">defer</span> <span class="c-kw">func</span>() {
+            <span class="c-kw">if</span> err := <span class="c-fn">recover</span>(); err != <span class="c-kw">nil</span> {
+                log.<span class="c-fn">Printf</span>(<span class="c-str">"[PANIC] %s %s: %v\n%s"</span>, r.Method, r.URL.Path, err, debug.<span class="c-fn">Stack</span>())
+                http.<span class="c-fn">Error</span>(w, <span class="c-str">`{"code":"INTERNAL_ERROR"}`</span>, http.StatusInternalServerError)
+            }
+        }()
+        next.<span class="c-fn">ServeHTTP</span>(w, r)
+    })
+}
+
+<span class="c-cm">// 2. 访问日志中间件</span>
+<span class="c-kw">func</span> <span class="c-fn">LoggerMiddleware</span>(next http.Handler) http.Handler {
+    <span class="c-kw">return</span> http.<span class="c-fn">HandlerFunc</span>(<span class="c-kw">func</span>(w http.ResponseWriter, r *http.Request) {
+        start := time.<span class="c-fn">Now</span>()
+        rec := &amp;statusRecorder{ResponseWriter: w, status: http.StatusOK}
+        next.<span class="c-fn">ServeHTTP</span>(rec, r)
+        log.<span class="c-fn">Printf</span>(<span class="c-str">"%s %s -&gt; %d (%v)"</span>, r.Method, r.URL.Path, rec.status, time.<span class="c-fn">Since</span>(start))
+    })
+}
+
+<span class="c-cm">// 3. 请求上下文超时中间件（下游 DB / Redis / HTTPClient 均会自动感知 r.Context() 到期）</span>
+<span class="c-kw">func</span> <span class="c-fn">TimeoutMiddleware</span>(d time.Duration) <span class="c-kw">func</span>(http.Handler) http.Handler {
+    <span class="c-kw">return</span> <span class="c-kw">func</span>(next http.Handler) http.Handler {
+        <span class="c-kw">return</span> http.<span class="c-fn">HandlerFunc</span>(<span class="c-kw">func</span>(w http.ResponseWriter, r *http.Request) {
+            ctx, cancel := context.<span class="c-fn">WithTimeout</span>(r.<span class="c-fn">Context</span>(), d)
+            <span class="c-kw">defer</span> <span class="c-fn">cancel</span>()
+            next.<span class="c-fn">ServeHTTP</span>(w, r.<span class="c-fn">WithContext</span>(ctx))
+        })
+    }
+}
+
+<span class="c-cm">// 4. JWT（JSON Web Token，JSON 网络令牌）鉴权中间件（校验 HMAC，Hash-based Message Authentication Code，基于哈希的消息认证码）</span>
+<span class="c-kw">func</span> <span class="c-fn">JWTAuthMiddleware</span>(secret []<span class="c-fn">byte</span>) <span class="c-kw">func</span>(http.Handler) http.Handler {
+    <span class="c-kw">return</span> <span class="c-kw">func</span>(next http.Handler) http.Handler {
+        <span class="c-kw">return</span> http.<span class="c-fn">HandlerFunc</span>(<span class="c-kw">func</span>(w http.ResponseWriter, r *http.Request) {
+            raw := strings.<span class="c-fn">TrimPrefix</span>(r.Header.<span class="c-fn">Get</span>(<span class="c-str">"Authorization"</span>), <span class="c-str">"Bearer "</span>)
+            tok, err := jwt.<span class="c-fn">Parse</span>(raw, <span class="c-kw">func</span>(t *jwt.Token) (<span class="c-fn">any</span>, <span class="c-fn">error</span>) {
+                <span class="c-cm">// ★ 必检签名算法是否为预期的 HMAC，防止攻击者篡改 alg:"none" 绕过验签！</span>
+                <span class="c-kw">if</span> _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+                    <span class="c-kw">return</span> <span class="c-kw">nil</span>, fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"unexpected alg: %v"</span>, t.Header[<span class="c-str">"alg"</span>])
+                }
+                <span class="c-kw">return</span> secret, <span class="c-kw">nil</span>
+            })
+            <span class="c-kw">if</span> err != <span class="c-kw">nil</span> || !tok.Valid {
+                http.<span class="c-fn">Error</span>(w, <span class="c-str">`{"code":"UNAUTHORIZED"}`</span>, http.StatusUnauthorized)
+                <span class="c-kw">return</span>
+            }
+            sub, _ := tok.Claims.<span class="c-fn">GetSubject</span>()
+            ctx := context.<span class="c-fn">WithValue</span>(r.<span class="c-fn">Context</span>(), uidCtxKey{}, sub)
+            next.<span class="c-fn">ServeHTTP</span>(w, r.<span class="c-fn">WithContext</span>(ctx))
+        })
+    }
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {}</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <strong>④ 常见坑：</strong>① 解析 JWT 时如果不校验 <code>t.Method.(*jwt.SigningMethodHMAC)</code>，容易产生算法替换安全漏洞；② 自定义 <code>statusRecorder</code> 包装 <code>ResponseWriter</code> 时记得加上 <code>Unwrap() http.ResponseWriter</code> 方法，否则内层的 SSE 流式接口会找不到 <code>Flusher</code>；③ SSE 流式长连接路由<strong>不要</strong>挂在短 <code>TimeoutMiddleware(3s)</code> 下，否则推流 3 秒就会被掐断。<br>
+    <strong>⑤ 背后原理：</strong><code>WithValue</code> 单向链表查找与级联取消树原理见 <a href="principles.html#context">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 06.1 Context 四类结构体》</a>。
+  </p>
+</div>
+
+<!-- 07.4 · 调用第三方接口：带超时的 http.Client、重试、不要用默认 Client -->
+<div class="wb-card" id="sc-httpclient" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape tomato"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 07.4 · 外部接口调用：禁用默认 <code>http.Get</code>、长连接池配置、安全退避重试与 <code>Body</code> 排空</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-globe"></use></svg> 07.4 调用第三方接口：带超时的 <code>http.Client</code> 与重试</h3>
+
+  <p>
+    <strong>① 需求 &amp; ② 方案：</strong>后端调微信支付、大模型 API 或内部微服务（跨服务稳定性防线详见 <a href="../backend/reliability.html">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-shield"></use></svg> 服务端稳定性七件套》</a>）。<strong>生产环境第一准则：永远不要直接调包级函数 <code>http.Get / http.Post</code>！</strong>因为它们底层使用的 <code>http.DefaultClient</code> 的 <code>Timeout</code> 默认值是 <strong><code>0</code>（永不超时）</strong>，一旦外部接口挂起不回包，你的服务协程会在几十秒内全部卡死耗尽内存。应全局创建一个调优好 <code>Timeout</code> 与 <code>Transport</code> 连接池的 <code>*http.Client</code> 单例复用：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:10px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> http_client_retry.go · ③ 代码：生产级 http.Client 单例 + 带抖动退避重试 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-httpcli', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-httpcli"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"io"</span>
+    <span class="c-str">"net"</span>
+    <span class="c-str">"net/http"</span>
+    <span class="c-str">"time"</span>
+)
+
+<span class="c-cm">// 全局复用一个 Client（内部自带 TCP 连接池，并发安全，切勿每次请求 new 一个 Client！）</span>
+<span class="c-kw">var</span> apiClient = &amp;http.Client{
+    Timeout: 5 * time.Second, <span class="c-cm">// ★ 兜底总超时（含建连 + TLS握手 + 发请求 + 读完响应体）</span>
+    Transport: &amp;http.Transport{
+        DialContext:         (&amp;net.Dialer{Timeout: 1 * time.Second}).DialContext,
+        MaxIdleConns:        200,
+        MaxIdleConnsPerHost: 50, <span class="c-cm">// ★ 默认仅 2！高频调同一域名必调大，否则大量连接用完即毁触发 TIME_WAIT</span>
+        IdleConnTimeout:     90 * time.Second,
+    },
+}
+
+<span class="c-cm">// 带 Context 感知与退避的幂等 GET 调用（注意：非幂等扣款接口若无幂等键严禁自动重试！）</span>
+<span class="c-kw">func</span> <span class="c-fn">FetchWithRetry</span>(ctx context.Context, url <span class="c-fn">string</span>, maxAttempts <span class="c-fn">int</span>) ([]<span class="c-fn">byte</span>, <span class="c-fn">error</span>) {
+    <span class="c-kw">var</span> lastErr <span class="c-fn">error</span>
+    <span class="c-kw">for</span> attempt := 0; attempt &lt; maxAttempts; attempt++ {
+        <span class="c-kw">if</span> attempt &gt; 0 {
+            <span class="c-cm">// 指数退避等待：100ms, 200ms... 期间若父 ctx 已取消则立刻放弃重试</span>
+            timer := time.<span class="c-fn">NewTimer</span>(time.<span class="c-fn">Duration</span>(1&lt;&lt;(attempt-1)) * 100 * time.Millisecond)
+            <span class="c-kw">select</span> {
+            <span class="c-kw">case</span> &lt;-ctx.<span class="c-fn">Done</span>():
+                timer.<span class="c-fn">Stop</span>()
+                <span class="c-kw">return</span> <span class="c-kw">nil</span>, ctx.<span class="c-fn">Err</span>()
+            <span class="c-kw">case</span> &lt;-timer.C:
+            }
+        }
+
+        req, err := http.<span class="c-fn">NewRequestWithContext</span>(ctx, http.MethodGet, url, <span class="c-kw">nil</span>)
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span> <span class="c-kw">nil</span>, err
+        }
+        resp, err := apiClient.<span class="c-fn">Do</span>(req)
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            lastErr = err
+            <span class="c-kw">continue</span> <span class="c-cm">// 网络层错误，进入下一轮重试</span>
+        }
+
+        <span class="c-cm">// LimitReader 限制最多读 4MB，防止恶意或异常超大报文打爆进程内存</span>
+        body, readErr := io.<span class="c-fn">ReadAll</span>(io.<span class="c-fn">LimitReader</span>(resp.Body, 4&lt;&lt;20))
+        _ = resp.Body.<span class="c-fn">Close</span>() <span class="c-cm">// ★ 循环内不用 defer，读完当场关闭归还底层 TCP 连接！</span>
+
+        <span class="c-kw">if</span> resp.StatusCode &gt;= 500 {
+            lastErr = fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"upstream 5xx: %d"</span>, resp.StatusCode)
+            <span class="c-kw">continue</span> <span class="c-cm">// 服务端 5xx 可重试；4xx 客户端参数错不重试直接返回</span>
+        }
+        <span class="c-kw">if</span> resp.StatusCode &gt;= 400 {
+            <span class="c-kw">return</span> <span class="c-kw">nil</span>, fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"upstream 4xx: %d: %s"</span>, resp.StatusCode, body)
+        }
+        <span class="c-kw">return</span> body, readErr
+    }
+    <span class="c-kw">return</span> <span class="c-kw">nil</span>, fmt.<span class="c-fn">Errorf</span>(<span class="c-str">"重试 %d 次仍失败: %w"</span>, maxAttempts, lastErr)
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {}</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <strong>④ 常见坑：</strong>① 标准库 <code>MaxIdleConnsPerHost</code> 默认只有 <strong><code>2</code></strong>，调同一个内网服务并发高时若不调大，95% 的连接用完就被直接关掉无法复用；② 只要 <code>apiClient.Do</code> 返回 <code>err == nil</code>，哪怕你不关心响应内容，也<strong>必须读完并 <code>Close()</code> 掉 <code>resp.Body</code></strong>，否则连接既不能复用还会泄漏读协程；③ 带请求体 <code>POST</code> 重试时，<code>io.Reader</code> 第一轮读完就空了，需传入 <code>bytes.NewReader(rawBytes)</code> 每次重建。<br>
+    <strong>⑤ 背后原理：</strong>网络套接字如何在阻塞等待回包时不占用系统线程？见 <a href="principles.html#schedule">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 03.3 netpoller (epoll) 协程挂起机制》</a>。
+  </p>
+</div>
+
+<!-- 07.5 · SSE 流式输出：Flusher 边生成边推，客户端断开通过 Context 停止 -->
+<div class="wb-card" id="sc-sse" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> 07.5 · 流式推送实战：SSE（Server-Sent Events）实时刷出与客户端断连 <code>Context</code> 即停</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> 07.5 SSE 流式输出：边生成边推与断连停止</h3>
+
+  <p>
+    <strong>① 需求 &amp; ② 方案：</strong>AI 大模型打字机输出、长耗时任务实时进度推送（协议细节与断线重连详见 <a href="../ai/sse-idempotency.html">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-radar"></use></svg> SSE · 幂等 · 上下文压缩》</a>）。HTTP 默认会把小块写入攒在服务端 <code>4KB</code> 缓冲区里，因此实现 <strong>SSE（Server-Sent Events，服务端推送事件）</strong>必须做对三件事：① 设置 <code>text/event-stream</code> 与禁用代理缓冲响应头；② 每写完一帧（以双换行 <code>\n\n</code> 结尾）立刻调用 <code>Flush()</code> 把数据推上网卡；③ 监听 <code>&lt;-r.Context().Done()</code>，用户关掉浏览器标签页瞬间立即终止生成任务：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:10px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> sse_stream.go · ③ 代码：可直接用 curl -N http://localhost:8080/stream 体验的流式服务 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-sse', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-sse"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"log"</span>
+    <span class="c-str">"net/http"</span>
+    <span class="c-str">"time"</span>
+)
+
+<span class="c-kw">func</span> <span class="c-fn">streamHandler</span>(w http.ResponseWriter, r *http.Request) {
+    <span class="c-cm">// 1. 设置 SSE 三大必配响应头（X-Accel-Buffering: no 告诉前置 Nginx 不要攒批缓冲）</span>
+    w.<span class="c-fn">Header</span>().<span class="c-fn">Set</span>(<span class="c-str">"Content-Type"</span>, <span class="c-str">"text/event-stream; charset=utf-8"</span>)
+    w.<span class="c-fn">Header</span>().<span class="c-fn">Set</span>(<span class="c-str">"Cache-Control"</span>, <span class="c-str">"no-cache"</span>)
+    w.<span class="c-fn">Header</span>().<span class="c-fn">Set</span>(<span class="c-str">"X-Accel-Buffering"</span>, <span class="c-str">"no"</span>)
+
+    <span class="c-cm">// 2. Go 1.20+ 推荐用 ResponseController 获取刷盘控制（可自动穿透多层中间件包装）</span>
+    rc := http.<span class="c-fn">NewResponseController</span>(w)
+    <span class="c-cm">// 若全局 http.Server 设了短 WriteTimeout，可为当前 SSE 长连接单独延长写截止时间：</span>
+    _ = rc.<span class="c-fn">SetWriteDeadline</span>(time.<span class="c-fn">Now</span>().<span class="c-fn">Add</span>(5 * time.Minute))
+
+    chunks := []<span class="c-fn">string</span>{<span class="c-str">"你好，"</span>, <span class="c-str">"正在通过 "</span>, <span class="c-str">"Go SSE "</span>, <span class="c-str">"边生成边推送。"</span>}
+    ticker := time.<span class="c-fn">NewTicker</span>(300 * time.Millisecond)
+    <span class="c-kw">defer</span> ticker.<span class="c-fn">Stop</span>()
+
+    <span class="c-kw">for</span> i, token := <span class="c-kw">range</span> chunks {
+        <span class="c-kw">select</span> {
+        <span class="c-kw">case</span> &lt;-r.<span class="c-fn">Context</span>().<span class="c-fn">Done</span>():
+            <span class="c-cm">// 3. 客户端关闭网页或主动 AbortController.abort() 时，TCP 断开会自动触发 Done()</span>
+            log.<span class="c-fn">Println</span>(<span class="c-str">"客户端已断开，立即停止下游推理以节省算力"</span>)
+            <span class="c-kw">return</span>
+        <span class="c-kw">case</span> &lt;-ticker.C:
+            <span class="c-cm">// SSE 标准帧格式：id / event / data，帧尾必须以两个换行符 \n\n 结束</span>
+            _, _ = fmt.<span class="c-fn">Fprintf</span>(w, <span class="c-str">"id: %d\ndata: {\"text\":%q}\n\n"</span>, i+1, token)
+            <span class="c-kw">if</span> err := rc.<span class="c-fn">Flush</span>(); err != <span class="c-kw">nil</span> {
+                <span class="c-kw">return</span>
+            }
+        }
+    }
+    _, _ = fmt.<span class="c-fn">Fprintf</span>(w, <span class="c-str">"event: done\ndata: [DONE]\n\n"</span>)
+    _ = rc.<span class="c-fn">Flush</span>()
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    mux := http.<span class="c-fn">NewServeMux</span>()
+    mux.<span class="c-fn">HandleFunc</span>(<span class="c-str">"GET /stream"</span>, streamHandler)
+    log.<span class="c-fn">Println</span>(<span class="c-str">"测试命令: curl -N http://localhost:8080/stream"</span>)
+    _ = http.<span class="c-fn">ListenAndServe</span>(<span class="c-str">":8080"</span>, mux)
+}</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <strong>④ 常见坑：</strong>本地测流式丝滑、一上生产就变成“卡 15 秒一次性蹦出全文”，99% 是前置 Nginx 没关缓冲（加响应头 <code>X-Accel-Buffering: no</code> 即可）；若长时间无新内容输出，建议每 <code>15 秒</code> 推一行注释帧 <code>: ping\n\n</code> 保活防网关闲置断连。<br>
+    <strong>⑤ 背后原理：</strong><code>net/http</code> 服务端检测到客户端 FIN 断连后取消 <code>r.Context()</code> 的传播链路见 <a href="principles.html#context">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 06.1 cancelCtx 原理》</a>。
+  </p>
+</div>
+
+<!-- 07.6 · 后台任务与消费消息队列 -->
+<div class="wb-card" id="sc-mq" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape mustard"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 07.6 · 异步解耦实战：周期后台任务与 <code>kafka-go</code> 消费组（先处理业务、后手动提交位点）</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 07.6 后台任务与消费消息队列</h3>
+
+  <p>
+    <strong>① 需求 &amp; ② 方案：</strong>订单支付成功后异步发优惠券、或每分钟扫一次超时未支付订单（<strong>MQ，Message Queue，消息队列</strong>的防丢、防重、保序与积压排障详见 <a href="../mq/index.html">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-mq"></use></svg> 消息队列 · 基础与实战篇》</a>）。Go 写常驻消费者有两个核心规范：① <strong>禁用自动提交，改用 <code>FetchMessage</code> 拉取 → 业务幂等落库成功 → 再调 <code>CommitMessages</code> 手动提交 Offset</strong>（防业务崩溃丢消息）；② 循环绑定进程停机 <code>ctx</code>，收到退出信号时平滑处理完手头这一条再退出：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:10px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> mq_consumer_worker.go · ③ 代码：Kafka 手动提交消费循环 + 定时巡检协程 [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-mq', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-mq"><code><span class="c-cm">// go get github.com/segmentio/kafka-go</span>
+<span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"context"</span>
+    <span class="c-str">"errors"</span>
+    <span class="c-str">"log"</span>
+    <span class="c-str">"time"</span>
+
+    <span class="c-str">"github.com/segmentio/kafka-go"</span>
+)
+
+<span class="c-cm">// 1. 消息队列消费组协程（注意：用 FetchMessage 而非自动提交的 ReadMessage！）</span>
+<span class="c-kw">func</span> <span class="c-fn">RunOrderConsumer</span>(ctx context.Context, brokers []<span class="c-fn">string</span>) <span class="c-fn">error</span> {
+    reader := kafka.<span class="c-fn">NewReader</span>(kafka.ReaderConfig{
+        Brokers: brokers,
+        Topic:   <span class="c-str">"order.events"</span>,
+        GroupID: <span class="c-str">"coupon-svc-grp"</span>,
+    })
+    <span class="c-kw">defer</span> reader.<span class="c-fn">Close</span>()
+
+    <span class="c-kw">for</span> {
+        msg, err := reader.<span class="c-fn">FetchMessage</span>(ctx) <span class="c-cm">// 停机 ctx 取消时此处立即返回 context.Canceled</span>
+        <span class="c-kw">if</span> errors.<span class="c-fn">Is</span>(err, context.Canceled) {
+            log.<span class="c-fn">Println</span>(<span class="c-str">"收到停机信号，消费者平滑退出"</span>)
+            <span class="c-kw">return</span> <span class="c-kw">nil</span>
+        }
+        <span class="c-kw">if</span> err != <span class="c-kw">nil</span> {
+            log.<span class="c-fn">Printf</span>(<span class="c-str">"拉取异常稍后重试: %v"</span>, err)
+            time.<span class="c-fn">Sleep</span>(time.Second)
+            <span class="c-kw">continue</span>
+        }
+
+        <span class="c-cm">// 先执行幂等业务逻辑（如按 order_no 唯一索引插发券表）；注意这里用 WithoutCancel 防半路被掐断</span>
+        <span class="c-kw">if</span> err := <span class="c-fn">grantCouponIdempotent</span>(context.<span class="c-fn">WithoutCancel</span>(ctx), msg.Value); err != <span class="c-kw">nil</span> {
+            log.<span class="c-fn">Printf</span>(<span class="c-str">"处理失败不提交位点(触发重投或转死信): %v"</span>, err)
+            <span class="c-kw">continue</span>
+        }
+        <span class="c-cm">// 业务落库成功后再手动提交 Offset</span>
+        _ = reader.<span class="c-fn">CommitMessages</span>(context.<span class="c-fn">WithoutCancel</span>(ctx), msg)
+    }
+}
+
+<span class="c-cm">// 2. 周期后台定时任务：一律用 time.NewTicker + defer Stop()（切勿在局部函数用无法关闭的 time.Tick）</span>
+<span class="c-kw">func</span> <span class="c-fn">RunCleanupCron</span>(ctx context.Context) {
+    ticker := time.<span class="c-fn">NewTicker</span>(1 * time.Minute)
+    <span class="c-kw">defer</span> ticker.<span class="c-fn">Stop</span>()
+    <span class="c-kw">for</span> {
+        <span class="c-kw">select</span> {
+        <span class="c-kw">case</span> &lt;-ctx.<span class="c-fn">Done</span>():
+            <span class="c-kw">return</span>
+        <span class="c-kw">case</span> &lt;-ticker.C:
+            log.<span class="c-fn">Println</span>(<span class="c-str">"执行过期临时文件清理..."</span>)
+        }
+    }
+}
+
+<span class="c-kw">func</span> <span class="c-fn">grantCouponIdempotent</span>(_ context.Context, _ []<span class="c-fn">byte</span>) <span class="c-fn">error</span> { <span class="c-kw">return</span> <span class="c-kw">nil</span> }
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {}</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <strong>④ 常见坑：</strong>消息至少投递一次（At-least-once）一定会偶发重复，消费逻辑<strong>必须配合数据库唯一索引或 Redis 状态表做幂等</strong>；单条处理太慢（如调外部慢接口）超过心跳阈值会导致消费组重平衡（Rebalance），应把拉取到的消息分发给第 06 章的本地 Worker Pool 并发加速。<br>
+    <strong>⑤ 背后原理：</strong>消费组重平衡与零拷贝落盘原理见 <a href="../mq/principles.html">《消息队列 · 核心原理篇》</a>。
+  </p>
+</div>
+
+<!-- 07.7 · 写一个命令行工具 CLI -->
+<div class="wb-card" id="sc-cli" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 07.7 · 命令行工具实战：标准库 <code>flag</code> 子命令解析、标准错误流与退出码规范</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> 07.7 写一个命令行工具（CLI）</h3>
+
+  <p>
+    <strong>① 需求 &amp; ② 方案：</strong>写数据迁移脚本、压测小工具或研发效能 CLI。单命令或两三个子命令直接用官方标准库 <strong><code>flag</code></strong>（零依赖、编译极快）；只有像 <code>kubectl / docker</code> 那样有几十个多级嵌套子命令和自动生成 Shell 补全脚本时，再引入社区库 <code>github.com/spf13/cobra</code>。写 CLI 牢记三项规范：<strong>正常结果打 <code>os.Stdout</code>、报错信息打 <code>os.Stderr</code>、失败退出返回非零码 <code>os.Exit(1)</code>（方便 Shell <code>&amp;&amp;</code> 与 CI 流水线捕获失败）</strong>：
+  </p>
+
+  <div class="plop-code-box" style="margin-bottom:10px;">
+    <div class="plop-code-head">
+      <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> migrate_cli.go · ③ 代码：go run migrate_cli.go up -dsn="mysql://..." -dry-run [Go 1.22+]</span>
+      <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-sc-cli', this)">复制代码</button>
+    </div>
+    <pre class="plop-code-pre" id="code-sc-cli"><code><span class="c-kw">package</span> main
+
+<span class="c-kw">import</span> (
+    <span class="c-str">"flag"</span>
+    <span class="c-str">"fmt"</span>
+    <span class="c-str">"os"</span>
+)
+
+<span class="c-cm">// 把真正逻辑写在返回 int 退出码的 run() 里，确保函数内注册的 defer 能正常执行！</span>
+<span class="c-kw">func</span> <span class="c-fn">run</span>(args []<span class="c-fn">string</span>) <span class="c-fn">int</span> {
+    <span class="c-kw">if</span> <span class="c-fn">len</span>(args) == 0 {
+        fmt.<span class="c-fn">Fprintln</span>(os.Stderr, <span class="c-str">"用法: migrate &lt;up|status&gt; [参数]"</span>)
+        <span class="c-kw">return</span> 2
+    }
+
+    <span class="c-kw">switch</span> args[0] {
+    <span class="c-kw">case</span> <span class="c-str">"up"</span>:
+        fs := flag.<span class="c-fn">NewFlagSet</span>(<span class="c-str">"up"</span>, flag.ContinueOnError)
+        dsn := fs.<span class="c-fn">String</span>(<span class="c-str">"dsn"</span>, os.<span class="c-fn">Getenv</span>(<span class="c-str">"DB_DSN"</span>), <span class="c-str">"数据库连接串（支持环境变量 DB_DSN）"</span>)
+        dryRun := fs.<span class="c-fn">Bool</span>(<span class="c-str">"dry-run"</span>, <span class="c-kw">false</span>, <span class="c-str">"仅打印待执行的 SQL 而不实际变更"</span>)
+        <span class="c-kw">if</span> err := fs.<span class="c-fn">Parse</span>(args[1:]); err != <span class="c-kw">nil</span> {
+            <span class="c-kw">return</span> 2
+        }
+        <span class="c-kw">if</span> *dsn == <span class="c-str">""</span> {
+            fmt.<span class="c-fn">Fprintln</span>(os.Stderr, <span class="c-str">"错误: 必须通过 -dsn 或 DB_DSN 指定数据库"</span>)
+            <span class="c-kw">return</span> 1
+        }
+        fmt.<span class="c-fn">Printf</span>(<span class="c-str">"执行迁移: dsn=%s dryRun=%v\n"</span>, *dsn, *dryRun)
+        <span class="c-kw">return</span> 0
+    <span class="c-kw">default</span>:
+        fmt.<span class="c-fn">Fprintf</span>(os.Stderr, <span class="c-str">"未知子命令: %s\n"</span>, args[0])
+        <span class="c-kw">return</span> 2
+    }
+}
+
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    os.<span class="c-fn">Exit</span>(<span class="c-fn">run</span>(os.Args[1:]))
+}</code></pre>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0;">
+    <strong>④ 常见坑：</strong><code>os.Exit(1)</code> 会立即让操作系统销毁进程，<strong>当前栈上注册的所有 <code>defer</code>（如临时文件删除、缓冲刷盘）统统不会执行</strong>！因此务必参考上面代码把主逻辑抽进 <code>run() int</code> 函数，只在 <code>main()</code> 最后一行调一次 <code>os.Exit</code>；另外标准库 <code>flag</code> 在遇到第一个非 <code>-</code> 开头的普通位置参数时就会停止解析后面的选项，提醒用户把 <code>-flag</code> 写在位置参数前面。<br>
+    <strong>⑤ 背后原理：</strong>静态单二进制跨平台交叉编译原理见 <a href="principles.html#why">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 00 静态编译链路》</a>。
+  </p>
+</div>
+
+<!-- 07.8 · Gin 等框架和标准库 net/http 路由（Go 1.22+）怎么选 -->
+<div class="wb-card" id="sc-framework" style="background:var(--plop-paper);">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 07.8 · Web 框架选型：Go 1.22+ 增强版标准库 <code>net/http</code> 与 <code>Gin</code> 怎么选</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-scale"></use></svg> 07.8 <code>Gin</code> 等框架和标准库 <code>net/http</code>（Go 1.22+）怎么选</h3>
+
+  <p>
+    在 Node.js 里几乎没人裸写 <code>node:http</code>，大家都会装 Express / Fastify / NestJS；但在 Go 里你会发现很多大厂基础服务直接裸用标准库 <code>net/http</code>。原因在于 Go 的 <code>net/http</code> 本身就是生产级并发 HTTP/1.1 + HTTP/2 服务器，而且 <strong>Go 1.22 正式给官方路由 <code>http.ServeMux</code> 补齐了过去最缺的「HTTP 方法匹配」和「<code>{id}</code> 路径通配符」</strong>：
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:16px;">
+    <table class="plop-table">
+      <thead>
+        <tr>
+          <th style="width:18%">对比维度</th>
+          <th style="width:41%">标准库 <code>net/http</code>（Go 1.22+）</th>
+          <th><code>Gin</code> / <code>Echo</code>（主流轻量 Web 框架）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>路由与路径参数</strong></td>
+          <td>原生支持 <code>mux.HandleFunc("GET /orders/{id}", h)</code>，通过 <code>r.PathValue("id")</code> 取值，满足 95% RESTful 需求。</td>
+          <td>基于基数树（Radix Tree）高性能路由，额外支持路由分组前缀 <code>v1 := r.Group("/api/v1")</code> 统一挂载组级中间件。</td>
+        </tr>
+        <tr>
+          <td><strong>参数绑定与校验</strong></td>
+          <td>需手写几行辅助函数调 <code>json.NewDecoder(r.Body).Decode(&amp;req)</code> 并自行写 <code>if</code> 校验字段。</td>
+          <td><strong>核心省事点</strong>：内置 <code>c.ShouldBindJSON(&amp;req)</code> 配合结构体标签 <code>binding:"required,email,min=1"</code> 一行完成反序列化与字段校验。</td>
+        </tr>
+        <tr>
+          <td><strong>Context 兼容性</strong></td>
+          <td>原生 <code>(w http.ResponseWriter, r *http.Request)</code>，所有第三方监控/追踪库 100% 原生兼容，永无破坏性升级。</td>
+          <td>使用自封装的 <code>*gin.Context</code>（对象池复用），在里面开后台协程时必须调 <code>c.Copy()</code> 拷贝副本，拿标准库 <code>context.Context</code> 需写 <code>c.Request.Context()</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>选型结论</strong></td>
+          <td><strong>内部微服务、API 网关、AI SSE 流式服务、公共 SDK、希望零外部依赖的项目</strong>，直接用 Go 1.22+ 标准库非常清爽。</td>
+          <td><strong>包含几十上百个 CRUD 表单接口的业务后端、团队多人协作希望少写绑定样板代码</strong>时，选 <code>Gin</code> 开发效率更高（如果喜欢路由分组又想要 100% 标准库签名，也可选超轻量的 <code>go-chi/chi</code>）。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 id="quiz-07" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 把 <code>sql.DB</code> 的 <code>SetConnMaxLifetime</code> 设成了 <code>1 小时</code>，而运维给线上 MySQL 配的 <code>wait_timeout</code> 是 <code>10 分钟</code>，每天早上第一批用户请求总是偶发报 <code>invalid connection / broken pipe</code>，为什么？</span></summary>
+    <div class="drawer-body">
+      <p>夜间低峰期连接闲置超过 10 分钟后，MySQL 服务端已经单方面把空闲连接关掉了；而 Go 连接池以为 1 小时没到，早高峰把这条“半死连接”分给第一个业务请求去发 SQL，一写就撞上断连报错。<strong>规范</strong>：客户端的 <code>SetConnMaxLifetime</code>（例如 <code>5 分钟</code>）必须<strong>显著小于</strong>数据库服务端的 <code>wait_timeout</code>（及中间云负载均衡的空闲超时）。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 给“调用微信统一下单扣款接口”加了 3 次网络超时自动重试，结果网络抖动时用户被扣了两次钱，问题出在哪？</span></summary>
+    <div class="drawer-body">
+      <p>第一次请求其实已经到达微信服务端并扣款成功，只是回包路上网络丢包触发了客户端读超时；如果你没带<strong>同一笔业务幂等单号（<code>out_trade_no</code>）</strong>就直接盲目重试写接口，就会造成重复扣款。<strong>原则</strong>：无条件的自动重试只适用于天然幂等的查询请求（<code>GET</code>）；写接口重试前提是上下游已对齐唯一幂等键。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">3. 在 <code>Gin</code> 的接口处理函数里写了 <code>go func() { saveLog(c.GetString("trace_id")) }()</code>，为什么高并发下打出的 <code>trace_id</code> 经常串成别人的请求，甚至偶发崩溃？</span></summary>
+    <div class="drawer-body">
+      <p>为了减少 GC 压力，<code>Gin</code> 使用 <code>sync.Pool</code> 对象池复用 <code>*gin.Context</code>——当前 HTTP Handler 一旦返回，这个 <code>c</code> 实例就会立刻被重置并分配给下一个进来的新请求使用！如果后台子协程直接引用原 <code>c</code>，读到的就是别人的数据。<strong>解法</strong>：在起协程前先把需要的字符串提取到局部变量，或调用 <code>cCp := c.Copy()</code> 传只读副本进协程。</p>
+    </div>
+  </details>
+</div>

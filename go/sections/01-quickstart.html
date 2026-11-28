@@ -1,0 +1,126 @@
+<!-- ====================================================================
+     PART 01: 跑起来 · 工具链安装、GOPROXY、编辑器与第一个程序
+     ==================================================================== -->
+<div class="wb-sec-header mint" id="quickstart">
+  <span class="wb-sec-num">01</span>
+  <span class="wb-sec-title">跑起来：环境安装、GOPROXY、编辑器与第一个程序</span>
+  <span class="plop-tag tomato">INSTALL · GOPROXY · IDE · GO RUN / BUILD</span>
+</div>
+
+<div class="plop-callout tip" style="margin-bottom:18px;">
+  <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-target"></use></svg> 学完本章你能做什么：</strong>5 分钟内装好 Go 编译器、配通国内依赖加速代理 <code>GOPROXY</code> 与编辑器代码提示，并用 <code>go run</code> 调试和 <code>go build</code> 编译出第一个独立可执行文件。
+</div>
+
+<!-- 01.1 · 开发环境安装、国内镜像配置与编辑器准备 -->
+<div class="wb-card" id="go-install" style="background:var(--plop-paper); margin-bottom:20px;">
+  <div class="washi-tape periwinkle"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 01.1 · 环境准备：安装官方工具链、配置 <code>GOPROXY</code> 国内镜像与编辑器插件</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> 01.1 安装 Go、配置 <code>GOPROXY</code> 与编辑器</h3>
+
+  <p>
+    Go 官方安装包已经打包了编译器、标准库、格式化工具与包管理器。本地装好后只需<strong>必配一行 <code>GOPROXY</code> 国内镜像</strong>，防止后续安装编辑器补全插件和第三方库时网络超时：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:14px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> Step 1 · 三大操作系统安装 Go（推荐 1.22+）</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-install', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-install"><code><span class="c-cm"># 【macOS】使用 Homebrew 安装（或从 go.dev/dl 下载 .pkg 安装包）</span>
+$ brew install go
+
+<span class="c-cm"># 【Windows】使用 Winget 安装（自动写入系统 PATH 环境变量）</span>
+$ winget install GoLang.Go
+
+<span class="c-cm"># 【Linux】解压官方压缩包至 /usr/local/go 并加入 PATH</span>
+$ sudo rm -rf /usr/local/go &amp;&amp; sudo tar -C /usr/local -xzf go1.24.0.linux-amd64.tar.gz
+$ export PATH=$PATH:/usr/local/go/bin</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bolt"></use></svg> Step 2 · 验证版本并永久写入国内模块代理（必配）</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-go-env', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-go-env"><code><span class="c-cm"># 1. 确认版本（本笔记代码基线为 Go 1.22+）</span>
+$ go version
+go version go1.24.0 darwin/arm64
+
+<span class="c-cm"># 2. 配置国内加速代理（类似 npm config set registry，永久生效）</span>
+$ go env -w GOPROXY=https://goproxy.cn,direct
+
+<span class="c-cm"># 3. 查看关键环境变量：GOROOT(编译器路径) / GOPATH(依赖缓存目录 ~/go)</span>
+$ go env GOROOT GOPATH GOPROXY</code></pre>
+    </div>
+  </div>
+
+  <div class="plop-callout tip" style="margin-bottom:0;">
+    <strong><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-cog"></use></svg> IDE（Integrated Development Environment，集成开发环境）与工作目录说明：</strong><br>
+    • <strong>VS Code</strong>：扩展商店安装 Google 官方出品的 <strong><code>Go</code></strong> 插件 → 按 <code>Cmd+Shift+P</code>（Windows 按 <code>Ctrl+Shift+P</code>）执行 <code>Go: Install/Update Tools</code>，全选安装语言服务 <code>gopls</code>，保存文件时即可自动补全导包并格式化代码。<strong>JetBrains GoLand</strong> 则开箱即用。<br>
+    • <strong>项目放哪都行</strong>：早期老教程要求把代码放进 <code>GOPATH/src</code>，现代 Go 使用 <code>go.mod</code> 管理项目（类似 Node.js 的 <code>package.json</code>），你可以在电脑任意文件夹新建项目，<code>~/go</code> 仅用来缓存下载好的第三方包。
+  </div>
+</div>
+
+<!-- 01.2 · 第一个可运行程序与 go run / go build -->
+<div class="wb-card" id="hello-go" style="background:var(--plop-paper);">
+  <div class="washi-tape mint"></div>
+  <div class="chapter-q-pill"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 01.2 · 第一个程序：<code>package main</code> 入口结构与 <code>go run / go build</code> 流程</div>
+  <h3><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-rocket"></use></svg> 01.2 第一个 Go 程序：<code>go run</code> 与 <code>go build</code></h3>
+
+  <p>
+    随便新建一个空文件夹，创建 <code>main.go</code>。每一个可独立运行的 Go 程序都必须同时具备 <strong><code>package main</code> 包声明</strong>和无参数无返回值的 <strong><code>func main()</code> 入口函数</strong>：
+  </p>
+
+  <div class="wb-grid-2" style="margin-bottom:12px;">
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> main.go · 最小可运行程序 [Go 1.22+]</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-hello-go', this)">复制代码</button>
+      </div>
+      <pre class="plop-code-pre" id="code-hello-go"><code><span class="c-cm">// 1. 声明所属包名：只有 main 包才能编译成独立可执行程序</span>
+<span class="c-kw">package</span> main
+
+<span class="c-cm">// 2. 导入官方标准库格式化输出包 fmt（未使用的 import 编译会直接报错）</span>
+<span class="c-kw">import</span> <span class="c-str">"fmt"</span>
+
+<span class="c-cm">// 3. 程序唯一启动入口</span>
+<span class="c-kw">func</span> <span class="c-fn">main</span>() {
+    fmt.<span class="c-fn">Println</span>(<span class="c-str">"Hello, Go!"</span>)
+}</code></pre>
+    </div>
+
+    <div class="plop-code-box">
+      <div class="plop-code-head">
+        <span><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-code"></use></svg> Terminal · 本地快速运行 vs 编译打包可执行文件</span>
+        <button class="sticker-btn" style="padding:2px 9px; font-size:11px;" onclick="copyText('code-hello-cmd', this)">复制命令</button>
+      </div>
+      <pre class="plop-code-pre" id="code-hello-cmd"><code><span class="c-cm"># 1. 开发调试：在系统临时目录编译并立即运行，当前目录不留二进制产物</span>
+$ go run main.go
+Hello, Go!
+
+<span class="c-cm"># 2. 打包上线：在当前目录生成独立可执行二进制 app，直接运行无需 Go 环境</span>
+$ go build -o app main.go
+$ ./app
+Hello, Go!</code></pre>
+    </div>
+  </div>
+
+  <p style="font-size:13.2px; color:var(--plop-ink-soft); margin:0 0 16px;">
+    <svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-bulb"></use></svg> <strong>速查与深挖：</strong>Go 全部语法一共只有 25 个保留关键字，随时想查全表可翻到文末 <a href="#keywords-appendix">09 附录 · 25 个保留关键字与预声明标识符速查表</a>；想了解源码如何一步步静态编译为单二进制机器码，详见 <a href="principles.html#why">《<svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-blueprint"></use></svg> 核心原理篇 · 00 语言设计与静态编译链路》</a>。
+  </p>
+
+  <h4 id="quiz-01" style="margin:0 0 8px;"><svg class="plop-ico" aria-hidden="true"><use href="#plop-ico-check"></use></svg> 本章即时场景题（先想答案，再点击展开）</h4>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">1. 在 VS Code 里装完 Go 插件后，右下角弹窗安装 <code>gopls</code> 一直报 <code>connect: connection timed out</code>，怎么解决？</span></summary>
+    <div class="drawer-body">
+      <p>因为默认代理 <code>proxy.golang.org</code> 在国内无法直连。打开终端执行 <code>go env -w GOPROXY=https://goproxy.cn,direct</code> 写入国内镜像后，重启 VS Code 再执行一次 <code>Go: Install/Update Tools</code>，几秒就能装完。</p>
+    </div>
+  </details>
+  <details class="plop-drawer">
+    <summary><span class="plop-drawer-title">2. 写代码调试时随手加了一行 <code>import "os"</code> 和一个临时变量 <code>tmp := 1</code> 暂时没用上，为什么连 <code>go run</code> 都跑不起来？</span></summary>
+    <div class="drawer-body">
+      <p>不同于 JS / ESLint 只报黄色 Warning，Go 编译器把<strong>「未使用的导入包（imported and not used）」和「未使用的局部变量（declared and not used）」直接定为编译错误</strong>，以此杜绝大型项目积攒死代码与膨胀编译耗时。配好编辑器保存自动运行 <code>goimports</code> 后，未使用的 <code>import</code> 会在按保存时自动帮你删掉。</p>
+    </div>
+  </details>
+</div>
